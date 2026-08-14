@@ -1,3 +1,5 @@
+#include "value.h"
+
 int main(void) {
-  return 42;
+  return ARTIFACT_GRAPH_VALUE;
 }

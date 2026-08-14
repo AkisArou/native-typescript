@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
+  cp,
   copyFile,
   mkdir,
   readFile,
@@ -13,6 +14,8 @@ import { basename, isAbsolute, join } from "node:path";
 
 export type ArtifactKind =
   | "source"
+  | "source-tree"
+  | "sdk"
   | "declaration"
   | "generated-source"
   | "native-object"
@@ -34,6 +37,7 @@ export interface ActionArtifactOrigin {
 export interface ArtifactDefinition {
   readonly id: string;
   readonly kind: ArtifactKind;
+  readonly entryType: "file" | "directory";
   readonly mediaType: string;
   readonly target: string;
   readonly domain: "host" | "target";
@@ -43,7 +47,11 @@ export interface ArtifactDefinition {
 
 export type ArtifactActionArgument =
   | { readonly kind: "literal"; readonly value: string }
-  | { readonly kind: "input-path"; readonly artifact: string }
+  | {
+      readonly kind: "input-path";
+      readonly artifact: string;
+      readonly path?: string;
+    }
   | { readonly kind: "output-path"; readonly artifact: string };
 
 export interface ArtifactActionEnvironment {
@@ -122,6 +130,8 @@ const portableFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
 const executorEnvironmentNames = new Set(["TMPDIR"]);
 const artifactKinds = new Set<string>([
   "source",
+  "source-tree",
+  "sdk",
   "declaration",
   "generated-source",
   "native-object",
@@ -206,6 +216,7 @@ function freezeArtifact(artifact: ArtifactDefinition): ArtifactDefinition {
   return Object.freeze({
     id: artifact.id,
     kind: artifact.kind,
+    entryType: artifact.entryType,
     mediaType: artifact.mediaType,
     target: artifact.target,
     domain: artifact.domain,
@@ -231,7 +242,13 @@ function freezeAction(
     arguments: Object.freeze(
       action.arguments.map((argument) => argument.kind === "literal"
         ? Object.freeze({ kind: argument.kind, value: argument.value })
-        : Object.freeze({
+        : argument.kind === "input-path" && argument.path !== undefined
+          ? Object.freeze({
+              kind: argument.kind,
+              artifact: argument.artifact,
+              path: argument.path,
+            })
+          : Object.freeze({
             kind: argument.kind,
             artifact: argument.artifact,
           })),
@@ -285,6 +302,11 @@ function validateArtifactGraph(
         diagnostic("NTS2001", `${path}.kind`, `Unknown artifact kind: ${artifact.kind}`),
       );
     }
+    if (artifact.entryType !== "file" && artifact.entryType !== "directory") {
+      diagnostics.push(
+        diagnostic("NTS2001", `${path}.entryType`, "Unknown artifact entry type"),
+      );
+    }
     if (artifact.mediaType.length === 0 || artifact.mediaType.trim() !== artifact.mediaType) {
       diagnostics.push(
         diagnostic("NTS2001", `${path}.mediaType`, "Media type must be non-empty and trimmed"),
@@ -307,6 +329,18 @@ function validateArtifactGraph(
             "NTS2005",
             `${path}.origin.logicalPath`,
             "Source logicalPath must be workspace-relative and cannot traverse parents",
+          ),
+        );
+      }
+      if (
+        (artifact.entryType === "directory") !==
+        (artifact.kind === "source-tree" || artifact.kind === "sdk")
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS2005",
+            `${path}.entryType`,
+            "Directory sources require source-tree or sdk artifacts, and those kinds require directories",
           ),
         );
       }
@@ -403,6 +437,31 @@ function validateArtifactGraph(
               `${argument.artifact} is not a declared ${argument.kind === "input-path" ? "input" : "output"}`,
             ),
           );
+        }
+        if (argument.kind === "input-path" && argument.path !== undefined) {
+          const artifact = artifactsById.get(argument.artifact);
+          const segments = argument.path.split("/");
+          if (
+            artifact !== undefined &&
+            (artifact.entryType !== "directory" ||
+              argument.path.length === 0 ||
+              isAbsolute(argument.path) ||
+              argument.path.includes("\\") ||
+              segments.some((segment) =>
+                segment.length === 0 ||
+                segment === "." ||
+                segment === ".." ||
+                !portableFileNamePattern.test(segment)
+              ))
+          ) {
+            diagnostics.push(
+              diagnostic(
+                "NTS2008",
+                `${path}.arguments[${argumentIndex}].path`,
+                "Input subpaths require a declared directory artifact and portable relative segments",
+              ),
+            );
+          }
         }
       }
     }
@@ -542,6 +601,7 @@ export interface ArtifactSandboxBinding {
 export interface MaterializedArtifact {
   readonly id: string;
   readonly path: string;
+  readonly entryType: "file" | "directory";
   readonly digest: string;
   readonly size: number;
 }
@@ -623,6 +683,69 @@ async function digestFile(path: string): Promise<{ digest: string; size: number 
     digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
     size: bytes.byteLength,
   };
+}
+
+function updateLength(hash: ReturnType<typeof createHash>, value: number): void {
+  const encoded = Buffer.allocUnsafe(8);
+  encoded.writeBigUInt64BE(BigInt(value));
+  hash.update(encoded);
+}
+
+async function digestDirectory(
+  root: string,
+): Promise<{ digest: string; size: number }> {
+  const hash = createHash("sha256");
+  hash.update("native-typescript.directory.v1\0");
+  let size = 0;
+
+  async function visit(directory: string, relativeDirectory: string): Promise<void> {
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => compareText(left.name, right.name));
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      const relativePath = relativeDirectory.length === 0
+        ? entry.name
+        : `${relativeDirectory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        const encodedPath = Buffer.from(relativePath, "utf8");
+        hash.update("d");
+        updateLength(hash, encodedPath.byteLength);
+        hash.update(encodedPath);
+        await visit(path, relativePath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new ArtifactExecutionError(
+          `Directory artifact contains unsupported entry ${relativePath}`,
+        );
+      }
+      const bytes = await readFile(path);
+      const encodedPath = Buffer.from(relativePath, "utf8");
+      hash.update("f");
+      updateLength(hash, encodedPath.byteLength);
+      hash.update(encodedPath);
+      updateLength(hash, bytes.byteLength);
+      hash.update(bytes);
+      size += bytes.byteLength;
+    }
+  }
+
+  await visit(root, "");
+  return { digest: `sha256:${hash.digest("hex")}`, size };
+}
+
+export async function digestArtifactPath(
+  path: string,
+  entryType: "file" | "directory",
+): Promise<{ digest: string; size: number }> {
+  const entry = await stat(path);
+  if (entryType === "file" && !entry.isFile()) {
+    throw new ArtifactExecutionError(`Expected a regular file at ${path}`);
+  }
+  if (entryType === "directory" && !entry.isDirectory()) {
+    throw new ArtifactExecutionError(`Expected a directory at ${path}`);
+  }
+  return entryType === "file" ? await digestFile(path) : await digestDirectory(path);
 }
 
 function physicalName(id: string, fileName: string): string {
@@ -741,8 +864,24 @@ async function executeAction(options: {
       inputRoot,
       physicalName(inputId, definition.origin.fileName),
     );
-    await copyFile(input.path, inputPath);
-    await chmod(inputPath, 0o444);
+    if (input.entryType === "file") {
+      await copyFile(input.path, inputPath);
+      await chmod(inputPath, 0o444);
+    } else {
+      await cp(input.path, inputPath, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        dereference: false,
+      });
+    }
+    const staged = await digestArtifactPath(inputPath, input.entryType);
+    if (staged.digest !== input.digest) {
+      throw new ArtifactExecutionError(
+        `Action ${action.id} staged input ${inputId} with unexpected content`,
+        { actionId: action.id },
+      );
+    }
     inputPaths.set(inputId, inputPath);
   }
 
@@ -762,16 +901,18 @@ async function executeAction(options: {
 
   const commandArguments = action.arguments.map((argument) => {
     if (argument.kind === "literal") return argument.value;
-    const path = argument.kind === "input-path"
+    const artifactPath = argument.kind === "input-path"
       ? inputPaths.get(argument.artifact)
       : outputPaths.get(argument.artifact);
-    if (path === undefined) {
+    if (artifactPath === undefined) {
       throw new ArtifactExecutionError(
         `Action ${action.id} could not resolve ${argument.artifact}`,
         { actionId: action.id },
       );
     }
-    return path;
+    return argument.kind === "input-path" && argument.path !== undefined
+      ? join(artifactPath, argument.path)
+      : artifactPath;
   });
   const environment = Object.fromEntries(
     action.environment.map(({ name, value }) => [name, value]),
@@ -787,14 +928,22 @@ async function executeAction(options: {
   });
   const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
 
-  const expectedNames = new Set(
-    [...outputPaths.values()].map((path) => basename(path)),
+  const expectedEntries = new Map(
+    action.outputs.map((outputId) => {
+      const definition = options.artifactsById.get(outputId)!;
+      return [basename(outputPaths.get(outputId)!), definition.entryType] as const;
+    }),
   );
   const actualEntries = await readdir(outputRoot, { withFileTypes: true });
   const unexpected = actualEntries
-    .filter((entry) => !entry.isFile() || !expectedNames.has(entry.name))
+    .filter((entry) => {
+      const expectedType = expectedEntries.get(entry.name);
+      return expectedType === undefined ||
+        (expectedType === "file" && !entry.isFile()) ||
+        (expectedType === "directory" && !entry.isDirectory());
+    })
     .map(({ name }) => name)
-    .sort();
+    .sort(compareText);
   if (unexpected.length > 0) {
     throw new ArtifactExecutionError(
       `Action ${action.id} created undeclared output(s): ${unexpected.join(", ")}`,
@@ -805,6 +954,7 @@ async function executeAction(options: {
   const outputs: MaterializedArtifact[] = [];
   for (const outputId of action.outputs) {
     const path = outputPaths.get(outputId)!;
+    const definition = options.artifactsById.get(outputId)!;
     let file;
     try {
       file = await stat(path);
@@ -814,14 +964,22 @@ async function executeAction(options: {
         { actionId: action.id, ...command },
       );
     }
-    if (!file.isFile()) {
+    if (
+      (definition.entryType === "file" && !file.isFile()) ||
+      (definition.entryType === "directory" && !file.isDirectory())
+    ) {
       throw new ArtifactExecutionError(
-        `Action ${action.id} output ${outputId} is not a regular file`,
+        `Action ${action.id} output ${outputId} has the wrong entry type`,
         { actionId: action.id, ...command },
       );
     }
-    const content = await digestFile(path);
-    outputs.push(Object.freeze({ id: outputId, path, ...content }));
+    const content = await digestArtifactPath(path, definition.entryType);
+    outputs.push(Object.freeze({
+      id: outputId,
+      path,
+      entryType: definition.entryType,
+      ...content,
+    }));
   }
   return Object.freeze({
     id: action.id,
@@ -853,15 +1011,12 @@ export async function executeArtifactGraph(
   const materialized = new Map<string, MaterializedArtifact>();
   for (const artifact of graph.artifacts) {
     if (artifact.origin.kind !== "source") continue;
-    const path = options.sourcePaths[artifact.id];
-    if (path === undefined) {
+    const suppliedPath = options.sourcePaths[artifact.id];
+    if (suppliedPath === undefined) {
       throw new ArtifactExecutionError(`No source path was supplied for ${artifact.id}`);
     }
-    const file = await stat(path);
-    if (!file.isFile()) {
-      throw new ArtifactExecutionError(`Source artifact ${artifact.id} is not a regular file`);
-    }
-    const content = await digestFile(path);
+    const path = await realpath(suppliedPath);
+    const content = await digestArtifactPath(path, artifact.entryType);
     if (content.digest !== artifact.origin.digest) {
       throw new ArtifactExecutionError(
         `Source artifact ${artifact.id} digest mismatch: expected ${artifact.origin.digest}, received ${content.digest}`,
@@ -869,7 +1024,12 @@ export async function executeArtifactGraph(
     }
     materialized.set(
       artifact.id,
-      Object.freeze({ id: artifact.id, path, ...content }),
+      Object.freeze({
+        id: artifact.id,
+        path,
+        entryType: artifact.entryType,
+        ...content,
+      }),
     );
   }
 

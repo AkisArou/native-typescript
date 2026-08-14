@@ -122,12 +122,14 @@ function, both backends emit the public C symbol, and an independent C host
 verifies ordinary and overflow calls.
 
 The first host-C artifact graph and Linux sandboxed executor now compile and
-link a permanent native fixture with content-verified sources/tools and strict
-declared-output validation. Phase 1 still requires materializing runtime and
-export adapters through that graph, adding SDK/tree inputs and caching, broader
-callback payload and lifetime families, the remaining error conventions and
-export families, provider hooks, and the remaining workspace-side
-generator/product/reporting work before its exit gate can pass.
+link a permanent native fixture with content-verified sources, directory/SDK
+inputs, tools, and strict declared-output validation. The GTK application also
+materializes its GLib runtime and wrapper objects through this path. Phase 1
+still requires graphing ScriptC-generated units, export adapters, and final
+links; modeling implicit toolchain/system-library inputs; adding caching;
+broadening callback payload/lifetime and error/export families; provider hooks;
+and the remaining workspace-side generator/product/reporting work before its
+exit gate can pass.
 
 ### Exit gate
 
@@ -171,13 +173,15 @@ A permanent narrow fixture now compiles through both C and LLVM into a native
 GTK executable, creates a real window and button, delivers the button signal to
 a retained TypeScript callback, observes its microtask, and tears down the
 signal, handle, callback service, attached loop, and window with exact
-destruction assertions. It contains no JavaScript engine. The fixture uses a
-hand-authored canonical SCABI manifest and wrapper so it proves the downstream
-architecture without pretending the generator and product pipeline exist.
-GIR/header ingestion, general GObject identity/floating-reference rules,
-generated signal adapters, artifact-graph integration and caching, full
-application lifecycle, resources, CLI orchestration, and GTK packaging remain
-before the phase exit gate.
+destruction assertions. It contains no JavaScript engine. Its GLib runtime and
+GTK wrapper C objects are now materialized by the sandboxed artifact executor
+from content-addressed local and pkg-config SDK trees; physical SDK paths do not
+enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
+and wrapper so it proves the downstream architecture without pretending the
+generator and full product pipeline exist. GIR/header ingestion, general
+GObject identity/floating-reference rules, generated signal adapters, graphing
+the compiler/final link, caching, full application lifecycle, resources, CLI
+orchestration, and GTK packaging remain before the phase exit gate.
 
 ### Acceptance application
 
@@ -399,8 +403,9 @@ that establishes a permanent seam:
     native-call reentrancy (**implemented**);
 16. materialize the runtime adapter and native products through the artifact
     graph, then extend the fixture toward the GTK acceptance application
-    (**in progress: canonical host-C planning and sandboxed execution are
-    implemented; SDK inputs and GTK product integration remain**).
+    (**in progress: canonical host-C planning, sandboxed execution, SDK include
+    trees, and GTK native-object materialization are implemented; generated
+    compiler units, final linking, and caching remain**).
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

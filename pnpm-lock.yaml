@@ -76,6 +76,9 @@ importers:
 
   packages/target-gtk:
     dependencies:
+      '@native-typescript/core':
+        specifier: workspace:*
+        version: link:../core
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:../target-api

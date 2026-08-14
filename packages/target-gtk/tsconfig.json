@@ -4,5 +4,8 @@
     "rootDir": "./src",
     "types": []
   },
-  "references": [{ "path": "../target-api" }]
+  "references": [
+    { "path": "../target-api" },
+    { "path": "../core" }
+  ]
 }

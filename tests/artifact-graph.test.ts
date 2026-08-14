@@ -15,6 +15,7 @@ import {
   ArtifactExecutionError,
   ArtifactGraphPlanningError,
   defineArtifactGraph,
+  digestArtifactPath,
   executeArtifactGraph,
 } from "@native-typescript/core";
 import type {
@@ -24,6 +25,8 @@ import type {
 } from "@native-typescript/core";
 
 const fixturePath = join(import.meta.dirname, "fixtures", "artifact-graph.c");
+const fixtureHeaders = join(import.meta.dirname, "fixtures", "artifact-headers");
+const fixtureHeadersDigest = (await digestArtifactPath(fixtureHeaders, "directory")).digest;
 const target = "x86_64-unknown-linux-gnu";
 const executionPlatform = "x86_64-linux";
 
@@ -61,6 +64,7 @@ function sourceArtifact(sourceDigest: string): ArtifactDefinition {
   return {
     id: "source/main",
     kind: "source",
+    entryType: "file",
     mediaType: "text/x-c",
     target,
     domain: "target",
@@ -78,12 +82,28 @@ function nativeArtifacts(sourceDigest: string): readonly ArtifactDefinition[] {
   return [
     sourceArtifact(sourceDigest),
     {
+      id: "headers/main",
+      kind: "source-tree",
+      entryType: "directory",
+      mediaType: "inode/directory",
+      target,
+      domain: "target",
+      cache: "none",
+      origin: {
+        kind: "source",
+        digest: fixtureHeadersDigest,
+        fileName: "artifact-headers",
+        logicalPath: "tests/fixtures/artifact-headers",
+      },
+    },
+    {
       id: "object/main",
       kind: "native-object",
+      entryType: "file",
       mediaType: "application/x-object",
       target,
       domain: "target",
-      cache: "exportable",
+      cache: "none",
       origin: {
         kind: "action",
         action: "compile/main",
@@ -93,6 +113,7 @@ function nativeArtifacts(sourceDigest: string): readonly ArtifactDefinition[] {
     {
       id: "product/main",
       kind: "executable",
+      entryType: "file",
       mediaType: "application/x-executable",
       target,
       domain: "target",
@@ -120,20 +141,22 @@ function nativeActions(
         { kind: "literal", value: "-Wextra" },
         { kind: "literal", value: "-Werror" },
         { kind: "literal", value: "-pedantic" },
+        { kind: "literal", value: "-I" },
+        { kind: "input-path", artifact: "headers/main" },
         { kind: "literal", value: "-c" },
         { kind: "input-path", artifact: "source/main" },
         { kind: "literal", value: "-o" },
         { kind: "output-path", artifact: "object/main" },
       ],
       environment: [],
-      inputs: ["source/main"],
+      inputs: ["source/main", "headers/main"],
       outputs: ["object/main"],
       workingDirectory: "isolated",
       network: "denied",
       executionPlatform,
       target,
-      deterministic: true,
-      cacheable: true,
+      deterministic: false,
+      cacheable: false,
     },
     {
       id: "link/main",
@@ -151,8 +174,8 @@ function nativeActions(
       network: "denied",
       executionPlatform,
       target,
-      deterministic: true,
-      cacheable: true,
+      deterministic: false,
+      cacheable: false,
     },
   ];
 }
@@ -189,7 +212,10 @@ test("artifact executor builds and links declared native products", async () => 
   try {
     const report = await executeArtifactGraph(nativeGraph(clangPath), {
       buildRoot,
-      sourcePaths: { "source/main": fixturePath },
+      sourcePaths: {
+        "source/main": fixturePath,
+        "headers/main": fixtureHeaders,
+      },
       tools: { "tool/clang": { path: clangPath } },
       sandbox: { kind: "bubblewrap", path: sandboxPath },
       maxConcurrency: 2,
@@ -213,6 +239,7 @@ test("artifact planning rejects dependency cycles", () => {
     {
       id: "object/a",
       kind: "native-object",
+      entryType: "file",
       mediaType: "application/x-object",
       target,
       domain: "target",
@@ -222,6 +249,7 @@ test("artifact planning rejects dependency cycles", () => {
     {
       id: "object/b",
       kind: "native-object",
+      entryType: "file",
       mediaType: "application/x-object",
       target,
       domain: "target",
@@ -268,6 +296,32 @@ test("artifact planning rejects dependency cycles", () => {
   );
 });
 
+test("artifact planning rejects traversing a directory input", () => {
+  const clangPath = executable("clang");
+  const actions = nativeActions(clangIdentity(clangPath));
+  const compile = actions[0]!;
+  const invalidCompile: ArtifactActionDefinition = {
+    ...compile,
+    arguments: compile.arguments.map((argument) =>
+      argument.kind === "input-path" && argument.artifact === "headers/main"
+        ? { ...argument, path: "../value.h" }
+        : argument
+    ),
+  };
+
+  assert.throws(
+    () => defineArtifactGraph({
+      artifacts: nativeArtifacts(digest(fixturePath)),
+      actions: [invalidCompile, actions[1]!],
+    }),
+    (error) => {
+      assert.ok(error instanceof ArtifactGraphPlanningError);
+      assert.deepEqual(error.diagnostics.map(({ code }) => code), ["NTS2008"]);
+      return true;
+    },
+  );
+});
+
 test("artifact executor rejects source and tool content drift", async () => {
   const clangPath = executable("clang");
   const sandboxPath = executable("bwrap");
@@ -281,7 +335,10 @@ test("artifact executor rejects source and tool content drift", async () => {
     await assert.rejects(
       executeArtifactGraph(wrongDigestGraph, {
         buildRoot: join(temporaryRoot, "source"),
-        sourcePaths: { "source/main": fixturePath },
+        sourcePaths: {
+          "source/main": fixturePath,
+          "headers/main": fixtureHeaders,
+        },
         tools: { "tool/clang": { path: clangPath } },
         sandbox: { kind: "bubblewrap", path: sandboxPath },
       }),
@@ -291,7 +348,10 @@ test("artifact executor rejects source and tool content drift", async () => {
     await assert.rejects(
       executeArtifactGraph(graph, {
         buildRoot: join(temporaryRoot, "tool"),
-        sourcePaths: { "source/main": fixturePath },
+        sourcePaths: {
+          "source/main": fixturePath,
+          "headers/main": fixtureHeaders,
+        },
         tools: { "tool/clang": { path: sandboxPath } },
         sandbox: { kind: "bubblewrap", path: sandboxPath },
       }),
@@ -311,6 +371,7 @@ test("artifact executor rejects undeclared outputs", async () => {
       {
         id: outputId,
         kind: "generated-source",
+        entryType: "file",
         mediaType: "text/plain",
         target,
         domain: "host",

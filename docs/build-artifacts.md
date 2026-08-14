@@ -297,24 +297,30 @@ The build suite includes:
 ## Current implementation boundary
 
 The first host-C slice is implemented in `@native-typescript/core`. It defines
-a canonical, deeply immutable schema-v1 graph for regular-file sources and
-products, validates identities, producer ownership, declared path arguments,
-tool consistency, action policy, and dependency cycles, and keeps physical
-workspace and tool paths outside the plan. Source files and executable tools
-are content-verified before execution.
+a canonical, deeply immutable schema-v1 graph for file and directory artifacts,
+validates identities, producer ownership, declared path arguments, tool
+consistency, action policy, and dependency cycles, and keeps physical workspace,
+SDK, and tool paths outside the plan. Source files, source/SDK trees, and
+executable tools are content-verified before execution. Directory digests cover
+sorted relative file names and bytes and reject symbolic or special entries.
 
 The Linux executor runs dependency-ready actions with bounded parallelism in
 separate Bubblewrap sandboxes. The host filesystem is read-only, only the
 current action directory is writable, the environment is cleared, temporary
-storage is private to the action, and the network namespace is unshared. Inputs
-are private copies and outputs are checked for missing, non-regular, or
-undeclared files before their content digests enter the report. A permanent
-fixture compiles and links a real C executable through this path.
+storage is private to the action, and the network namespace is unshared. File
+and directory inputs are private, re-verified copies; outputs are checked for
+missing, wrong-kind, or undeclared entries before their content digests enter
+the report. A permanent fixture compiles and links a real C executable through
+this path. The pkg-config resolver converts discovered include directories into
+logical, content-addressed SDK tree inputs while keeping their host paths only
+in execution bindings.
 
-This slice does not yet implement directory/tree artifacts, resolved SDK and
-toolchain path bindings, cache lookup/storage, generated adapter planning,
-diagnostic parsers, resource accounting, packaging/signing, or sandbox
-executors for non-Linux hosts. Those are extensions of this graph, not alternate
-build paths. In particular, the GTK fixture will move onto the executor only
-after GTK/GLib headers and libraries can be represented by content-identified
-SDK inputs without embedding host paths in the plan.
+This slice does not yet model the compiler's implicit system image, library
+search trees, or the final ScriptC link as declared inputs, so current native
+actions remain deliberately non-cacheable. Cache lookup/storage, generated
+adapter planning, diagnostic parsers, resource accounting, packaging/signing,
+and sandbox executors for non-Linux hosts also remain. Those are extensions of
+this graph, not alternate build paths. The GTK fixture now materializes its two
+hand-authored native adapter objects through the graph; ScriptC-generated units
+and the final executable link move over once the remaining toolchain and library
+inputs are explicit.

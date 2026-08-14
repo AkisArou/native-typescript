@@ -3,9 +3,21 @@ import type { ScriptCCheckout } from "@native-typescript/scriptc";
 import type { TargetDefinition } from "@native-typescript/target-api";
 
 export { planTarget, TargetPlanningError } from "./target-plan.ts";
+export { planCObjectCompilation } from "./c-toolchain.ts";
+export type {
+  ArtifactInputPath,
+  CObjectCompilationPlan,
+} from "./c-toolchain.ts";
+export { resolvePkgConfigCompileSdk } from "./pkg-config.ts";
+export type {
+  PkgConfigModuleSnapshot,
+  PkgConfigResolverSnapshot,
+  ResolvedPkgConfigCompileSdk,
+} from "./pkg-config.ts";
 export {
   ArtifactExecutionError,
   ArtifactGraphPlanningError,
+  digestArtifactPath,
   defineArtifactGraph,
   executeArtifactGraph,
 } from "./artifact-graph.ts";
