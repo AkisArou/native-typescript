@@ -197,11 +197,14 @@ analysis, and backend tests first.
 
 A native call separates logical source arguments from physical ABI parameters.
 Each source argument is evaluated exactly once; validated parameter projections
-then select or derive the ABI slots in declaration order. The first one-to-many
-projection maps a ScriptC UTF-8 string to a borrowed const data pointer and its
-byte length. This same contract is the extension seam for byte spans and
-callback/context pairs. Physical foreign-pointer types are ABI-only and are not
-members of the TypeScript/language-IR value model.
+then select or derive the ABI slots in declaration order. Implemented
+one-to-many projections map either a ScriptC UTF-8 string or an exact
+`Uint8Array` view to a borrowed const data pointer and byte length. The byte
+projection reads the view's current pointer and length directly, including a
+nonzero offset into a retained owner; the logical argument remains alive through
+the call and is released immediately afterward. This same contract is the
+extension seam for callback/context pairs. Physical foreign-pointer types are
+ABI-only and are not members of the TypeScript/language-IR value model.
 
 Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to

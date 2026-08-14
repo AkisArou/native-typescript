@@ -142,9 +142,12 @@ cell with alias-safe explicit disposal, automatic exact destruction, and
 checked borrowed method ingress. Borrowed UTF-8 input is also implemented as
 one source string evaluated once and projected without copying into const data
 and byte-length ABI slots; Unicode and embedded NUL behavior passes both
-backends. Foreign pointers remain ABI-only and cannot enter TypeScript values.
-Only reached bindings and native types enter emitted IR or the link. Borrowed
-bytes, callbacks, broader ownership modes, and owner-thread scheduling come
-next.
+backends. Borrowed `Uint8Array` input follows the same logical-to-physical
+projection path without copying. Exact view offsets and lengths, live
+backing-store mutation, single evaluation, and prompt post-call release pass
+both backends and the sanitizer/RC audit. Foreign pointers remain ABI-only and
+cannot enter TypeScript values. Only reached bindings and native types enter
+emitted IR or the link. Callbacks, broader ownership modes, and owner-thread
+scheduling come next.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

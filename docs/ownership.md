@@ -246,6 +246,11 @@ part of the binding. `string` never implies NUL-terminated UTF-8.
 
 ScriptC arrays and typed arrays are not pinned by default. A native API that
 retains bytes receives a copy, transfer, or separately allocated native buffer.
+The implemented call-scoped const-byte slice needs no pin or copy: ScriptC does
+not relocate a live `ScrBytes` allocation, and a view carries its exact data
+pointer while retaining its owner. The compiler keeps the logical view alive
+through the synchronous call and releases it immediately afterward. Mutable or
+retained access still requires a later explicit contract.
 
 ## Unsafe pointers
 

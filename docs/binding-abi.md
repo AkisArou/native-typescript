@@ -355,6 +355,10 @@ declarations, manifest bindings, target pointer width, Native IR, C symbols,
 and both ScriptC backends now agree end to end. The fixture's borrowed UTF-8
 binding additionally proves single source evaluation, exact byte length,
 Unicode encoding, embedded NUL preservation, and zero-copy data projection.
+Its borrowed-byte binding proves the parallel `Uint8Array` contract: an exact
+offset view and its byte length reach native code without copying, mutation of
+the shared backing store is visible before the call, and temporary view/owner
+references are released immediately after return.
 SCABI v1 remains pre-release until the rest of the acceptance surface passes
 the same path.
 

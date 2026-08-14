@@ -103,9 +103,10 @@ upstream or replaced cleanly by later upstream work.
 
 The focused cross-repository Native IR/SCABI gate translates the fixture's
 reached fixed- and pointer-width integer bindings, padded by-value struct,
-borrowed UTF-8 input, and owned opaque handle. It resolves their TypeScript
-declaration symbols and links the resulting source-lowered programs against
-the permanent C fixture through both ScriptC backends:
+borrowed UTF-8 and `Uint8Array`/Buffer input, and owned opaque handle. It
+resolves their TypeScript declaration symbols and links the resulting
+source-lowered programs against the permanent C fixture through both ScriptC
+backends:
 
 ```sh
 pnpm scriptc:test:native-ir

@@ -219,6 +219,83 @@ test("SCABI refuses UTF-8 contracts that require adapter work", () => {
   );
 });
 
+test("SCABI projects one borrowed Uint8Array into exact data and byte-length slots", () => {
+  const result = translateScabiNativeProgram(manifest, ["hash_bytes"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.input.sourceTypes, [
+    {
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "u64",
+      },
+      type: { kind: "nativeScalar", scalar: "u64" },
+    },
+  ]);
+  assert.deepEqual(result.input.bindings, [
+    {
+      id: "native-typescript.fixture.c-v1@0.0.0#hash_bytes",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "hashBytes",
+      },
+      entry: { kind: "c-symbol", symbol: "nts_hash_bytes" },
+      callingConvention: "c",
+      variadic: false,
+      sourceCall: { kind: "function" },
+      arguments: [{ name: "data", type: { kind: "bytes", elem: "u8" } }],
+      parameters: [
+        {
+          name: "data",
+          type: {
+            kind: "nativePointer",
+            pointee: "u8",
+            const: true,
+            addressSpace: 0,
+          },
+          passMode: "pointer",
+          ownership: { kind: "borrowed", scope: "call" },
+          projection: { kind: "bytesData", argument: 0 },
+        },
+        {
+          name: "length",
+          type: { kind: "nativeScalar", scalar: "usize" },
+          passMode: "value",
+          ownership: { kind: "value" },
+          projection: { kind: "bytesByteLength", argument: 0 },
+        },
+      ],
+      result: {
+        type: { kind: "nativeScalar", scalar: "u64" },
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    },
+  ]);
+});
+
+test("SCABI refuses byte contracts that require mutable native access", () => {
+  const mutable = structuredClone(manifest);
+  const binding = mutable.bindings.hash_bytes;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const data = binding.signature.parameters[0];
+  assert.equal(data?.marshal?.kind, "bytes");
+  if (data?.marshal?.kind !== "bytes") return;
+  Object.assign(data.marshal, { mutability: "mutable" as const });
+
+  const result = translateScabiNativeProgram(mutable, ["hash_bytes"]);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(
+    result.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("borrowed const byte spans")
+    ),
+    true,
+  );
+});
+
 test("SCABI translation rejects only requested unsupported bindings", () => {
   const supported = translateScabiNativeProgram(manifest, ["usize_identity"]);
   assert.equal(supported.ok, true);

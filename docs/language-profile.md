@@ -182,7 +182,24 @@ The expression is evaluated once, the existing UTF-8 storage is passed without
 a copy, and length is measured in bytes rather than UTF-16 code units. The
 foreign pointer exists only during lowering and is never a TypeScript-visible
 value. Mutable strings, transcoding, retained pointers, NUL-policy adaptation,
-and borrowed bytes remain outside this first slice.
+remain outside this first slice.
+
+## Borrowed byte views
+
+A reached SCABI byte-marshalling contract may borrow a `Uint8Array` for one
+synchronous native call. The implemented slice requires a non-null const `u8`
+pointer in address space zero, an explicit `usize` byte-length parameter, and
+call-scoped borrowing. `Buffer` shares ScriptC's `u8` byte representation and
+is accepted wherever its checker type maps to the same byte type.
+
+Native IR records one logical `{ kind: "bytes", elem: "u8" }` argument and
+projects its data pointer and byte length into two ABI slots. The expression is
+evaluated once. A `subarray` or Buffer slice passes its exact view pointer and
+length, not the retained owner's base address, and native code observes backing
+store mutations made before the call. No boundary copy is introduced. The
+logical value remains owned across the native call and is released immediately
+after return; mutable native access, retained pointers, transfers, and non-u8
+typed arrays remain outside this slice.
 
 ## Native handles
 

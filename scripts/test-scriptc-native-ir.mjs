@@ -24,6 +24,7 @@ const translated = translateScabiNativeProgram(manifest, [
   "usize_identity",
   "padded_roundtrip",
   "hash_utf8",
+  "hash_bytes",
   "counter_create",
   "counter_add",
   "counter_value",

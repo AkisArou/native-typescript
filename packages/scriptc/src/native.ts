@@ -49,11 +49,16 @@ export interface ScriptCNativePointerType {
 }
 
 export type ScriptCNativeAbiType = ScriptCNativeValueType | ScriptCNativePointerType;
-export type ScriptCNativeArgumentType = ScriptCNativeValueType | { readonly kind: "string" };
+export type ScriptCNativeArgumentType =
+  | ScriptCNativeValueType
+  | { readonly kind: "string" }
+  | { readonly kind: "bytes"; readonly elem: "u8" };
 export type ScriptCNativeParameterProjection =
   | { readonly kind: "argument"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
-  | { readonly kind: "utf8ByteLength"; readonly argument: number };
+  | { readonly kind: "utf8ByteLength"; readonly argument: number }
+  | { readonly kind: "bytesData"; readonly argument: number }
+  | { readonly kind: "bytesByteLength"; readonly argument: number };
 
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
@@ -212,26 +217,34 @@ function positionUnsupported(
   return null;
 }
 
-type Utf8ParameterPair = {
+type BorrowedDataParameterPair = {
+  readonly kind: "utf8" | "bytes";
   readonly lengthIndex: number;
   readonly pointee: "i8" | "u8";
 };
 
-function supportedUtf8Pair(
+function supportedBorrowedDataPair(
   manifest: ScabiManifest,
   binding: CallableBinding,
   dataIndex: number,
-): Utf8ParameterPair | string {
+): BorrowedDataParameterPair | string {
   const data = binding.signature.parameters[dataIndex]!;
   const marshal = data.marshal;
-  if (
-    marshal?.kind !== "string" ||
-    marshal.encoding !== "utf-8" ||
-    marshal.termination !== "none" ||
-    marshal.embeddedNul !== "allow" ||
-    marshal.length.kind !== "parameter"
-  ) {
-    return "only borrowed UTF-8 strings with explicit byte length, no terminator, and embedded NULs allowed are supported";
+  if (marshal?.kind === "string") {
+    if (
+      marshal.encoding !== "utf-8" ||
+      marshal.termination !== "none" ||
+      marshal.embeddedNul !== "allow" ||
+      marshal.length.kind !== "parameter"
+    ) {
+      return "only borrowed UTF-8 strings with explicit byte length, no terminator, and embedded NULs allowed are supported";
+    }
+  } else if (marshal?.kind === "bytes") {
+    if (marshal.mutability !== "const" || marshal.length.kind !== "parameter") {
+      return "only borrowed const byte spans with an explicit byte length are supported";
+    }
+  } else {
+    return "only borrowed UTF-8 strings and const byte spans are supported";
   }
   const pointer = manifest.types[data.type];
   const pointee = pointer?.kind === "pointer" ? manifest.types[pointer.pointee] : undefined;
@@ -241,9 +254,12 @@ function supportedUtf8Pair(
     data.callback !== undefined ||
     pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
     pointer.nullable || pointer.addressSpace !== 0 ||
-    pointee?.kind !== "integer" || pointee.bits !== 8
+    pointee?.kind !== "integer" || pointee.bits !== 8 ||
+    (marshal.kind === "bytes" && pointee.signed)
   ) {
-    return "UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero";
+    return marshal.kind === "string"
+      ? "UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero"
+      : "byte data must be a non-null borrowed const u8 pointer in address space zero";
   }
   const lengthIndex = binding.signature.parameters.findIndex(
     (parameter) => parameter.name === marshal.length.parameter,
@@ -257,9 +273,10 @@ function supportedUtf8Pair(
     length.callback !== undefined ||
     lengthType?.kind !== "integer" || lengthType.signed || lengthType.bits !== "pointer"
   ) {
-    return `UTF-8 byte length '${marshal.length.parameter}' must name an un-marshalled usize value parameter`;
+    return `${marshal.kind === "string" ? "UTF-8 byte" : "byte"} length '${marshal.length.parameter}' must name an un-marshalled usize value parameter`;
   }
   return {
+    kind: marshal.kind === "string" ? "utf8" : "bytes",
     lengthIndex,
     pointee: pointee.signed ? "i8" : "u8",
   };
@@ -292,8 +309,8 @@ function bindingUnsupported(binding: CallableBinding): string | null {
 }
 
 /** Translate the reachable SCABI bindings supported by ScriptC's current
- * exact-scalar, trivial native-struct, borrowed UTF-8, and owner-confined
- * handle IR.
+ * exact-scalar, trivial native-struct, borrowed UTF-8/byte-span, and
+ * owner-confined handle IR.
  * Unsupported unreachable records remain inert; requested records fail with
  * a precise manifest path. */
 export function translateScabiNativeProgram(
@@ -579,14 +596,14 @@ export function translateScabiNativeProgram(
 
     const sourceArguments: Array<ScriptCNativeBinding["arguments"][number]> = [];
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
-    const utf8ByData = new Map<number, Utf8ParameterPair>();
-    const utf8ByLength = new Map<number, Utf8ParameterPair>();
+    const borrowedByData = new Map<number, BorrowedDataParameterPair>();
+    const borrowedByLength = new Map<number, BorrowedDataParameterPair>();
     const directTypes = new Map<number, ScriptCNativeValueType>();
     const argumentByParameter = new Map<number, number>();
     let valid = true;
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       if (parameter.marshal === undefined) continue;
-      const pair = supportedUtf8Pair(manifest, binding, index);
+      const pair = supportedBorrowedDataPair(manifest, binding, index);
       if (typeof pair === "string") {
         diagnostics.push(
           diagnostic("NTS3002", `${path}/signature/parameters/${index}`, pair),
@@ -594,7 +611,7 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      if (utf8ByLength.has(pair.lengthIndex)) {
+      if (borrowedByLength.has(pair.lengthIndex)) {
         diagnostics.push(
           diagnostic(
             "NTS3002",
@@ -605,23 +622,25 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      utf8ByData.set(index, pair);
-      utf8ByLength.set(pair.lengthIndex, pair);
+      borrowedByData.set(index, pair);
+      borrowedByLength.set(pair.lengthIndex, pair);
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
-      if (utf8ByLength.has(index)) continue;
-      const utf8 = utf8ByData.get(index);
-      if (utf8 !== undefined) {
+      if (borrowedByLength.has(index)) continue;
+      const borrowed = borrowedByData.get(index);
+      if (borrowed !== undefined) {
         const argument = sourceArguments.length;
         sourceArguments.push(
           Object.freeze({
             name: parameter.name,
-            type: Object.freeze({ kind: "string" }),
+            type: borrowed.kind === "utf8"
+              ? Object.freeze({ kind: "string" } as const)
+              : Object.freeze({ kind: "bytes", elem: "u8" } as const),
           }),
         );
         argumentByParameter.set(index, argument);
-        argumentByParameter.set(utf8.lengthIndex, argument);
+        argumentByParameter.set(borrowed.lengthIndex, argument);
         continue;
       }
       if (parameter.marshal !== undefined) continue;
@@ -663,30 +682,38 @@ export function translateScabiNativeProgram(
           valid = false;
           continue;
         }
-        const utf8Data = utf8ByData.get(index);
-        const utf8Length = utf8ByLength.get(index);
+        const borrowedData = borrowedByData.get(index);
+        const borrowedLength = borrowedByLength.get(index);
         const directType = directTypes.get(index);
         parameters.push(Object.freeze(
-          utf8Data !== undefined
+          borrowedData !== undefined
             ? {
                 name: parameter.name,
                 type: Object.freeze({
                   kind: "nativePointer",
-                  pointee: utf8Data.pointee,
+                  pointee: borrowedData.pointee,
                   const: true,
                   addressSpace: 0,
                 } as const),
                 passMode: "pointer",
                 ownership: Object.freeze({ kind: "borrowed", scope: "call" } as const),
-                projection: Object.freeze({ kind: "utf8Data", argument } as const),
+                projection: Object.freeze({
+                  kind: borrowedData.kind === "utf8" ? "utf8Data" : "bytesData",
+                  argument,
+                } as const),
               }
-            : utf8Length !== undefined
+            : borrowedLength !== undefined
               ? {
                   name: parameter.name,
                   type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
                   passMode: "value",
                   ownership: Object.freeze({ kind: "value" } as const),
-                  projection: Object.freeze({ kind: "utf8ByteLength", argument } as const),
+                  projection: Object.freeze({
+                    kind: borrowedLength.kind === "utf8"
+                      ? "utf8ByteLength"
+                      : "bytesByteLength",
+                    argument,
+                  } as const),
                 }
               : {
                   name: parameter.name,
