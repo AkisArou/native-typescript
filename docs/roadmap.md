@@ -92,14 +92,16 @@ callback state and exception propagation, and the ASan/reference-count gate is
 clean. The fork also implements and independently stress-tests the generic
 instance-owned MPSC owner gateway, including wake coalescing, bounded drains,
 admission/stop races, reentrant shutdown, and exact event destruction. This is
-implemented foundation, not a substitute path.
+now paired with transport-only callback tokens whose generation identity and
+atomic leases linearize cancellation against foreign admission. Plain,
+ASan/UBSan, and TSan gates cover that boundary. This is implemented foundation,
+not a substitute path.
 
-Phase 1 still requires retained callback-table ownership, copied foreign-thread
-callback payloads and callback-token admission through the gateway, target wake
-and owner-loop integration, callback cancellation/race handling, error
-conversion, TypeScript-to-C exports, provider hooks, artifact execution, and
-the remaining workspace-side generator/product/reporting work before its exit
-gate can pass.
+Phase 1 still requires the cycle-aware retained callback owner table and
+closure/handle association, generated copied callback payloads, native
+cancellation lowering, target wake and owner-loop integration, error conversion,
+TypeScript-to-C exports, provider hooks, artifact execution, and the remaining
+workspace-side generator/product/reporting work before its exit gate can pass.
 
 ### Exit gate
 

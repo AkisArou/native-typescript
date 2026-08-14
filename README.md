@@ -155,8 +155,11 @@ broader ownership modes, and owner-thread scheduling come next. The ScriptC
 fork now also has the standalone foreign-thread ingress foundation: an
 instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
 shutdown states, and exact event destruction under admission races. It is
-threaded and sanitizer-tested, but is not yet connected to callback tokens or a
-target event loop. Only reached bindings and native types enter emitted IR or
-the link.
+threaded and sanitizer-tested. Retained callback transport tokens now build on
+that queue with slot/generation identity and one combined atomic
+state/invocation-lease word, so close and admission have an exact order and
+every admitted event remains owned through delivery or discard. The
+closure/handle ownership graph and target event-loop connection remain pending.
+Only reached bindings and native types enter emitted IR or the link.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

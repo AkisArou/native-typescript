@@ -103,8 +103,8 @@ reentrant stop/discard during delivery. Threaded and ASan/UBSan tests cover
 producer FIFO, races, reentrancy, and destruction accounting.
 
 This primitive does not itself retain a ScriptC closure or enter compiled code.
-The callback-token table, copied ABI payload records, target wake adapter, and
-owner-loop drain hook remain separate layers built on it.
+The callback-token/owner table, copied ABI payload records, target wake adapter,
+and owner-loop drain hook remain separate layers built on it.
 
 ## Callback tokens
 
@@ -125,6 +125,20 @@ The entry owns:
 - cancellation binding/state;
 - admitted invocation count;
 - reentrancy and shutdown policy.
+
+The ScriptC fork implements the transport half of this model. An opaque token
+carries immutable slot, generation, gateway, and ABI-signature identity plus a
+single atomic state/lease word. Admission and the active-to-closing transition
+therefore have one linearization order: a winning invocation owns a lease until
+its copied event is delivered or destroyed; a losing invocation destroys its
+payload immediately. Native cancellation completion and token destruction are
+separate owner operations, and destruction cannot succeed while any lease
+exists. The race fixture passes plain, ASan/UBSan, and Linux TSan gates.
+
+The token intentionally contains no closure pointer. Owner-side table lookup,
+closure anchoring, handle association, and cycle tracing remain the next layer;
+this avoids turning the table into a permanent hidden root that would leak a
+closure capturing its subscription handle.
 
 ### Admission
 
