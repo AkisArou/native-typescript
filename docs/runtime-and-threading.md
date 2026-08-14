@@ -93,6 +93,19 @@ Global ordering between independent foreign producers is the order in which the
 gateway atomically admits them; applications must not derive semantic meaning
 from competing external threads unless the native API specifies ordering.
 
+The ScriptC fork implements the generic queue and lifecycle foundation as an
+instance-owned `ScrOwnerGateway`. Admission transfers ownership of an intrusive,
+transport-owned event record; rejection, delivery, and shutdown each destroy it
+exactly once. Target wakes are coalesced, owner drains may be budgeted, and an
+interrupted detached batch is restored ahead of later admissions. The running,
+stopping, and stopped transitions are linearized with admission, including
+reentrant stop/discard during delivery. Threaded and ASan/UBSan tests cover
+producer FIFO, races, reentrancy, and destruction accounting.
+
+This primitive does not itself retain a ScriptC closure or enter compiled code.
+The callback-token table, copied ABI payload records, target wake adapter, and
+owner-loop drain hook remain separate layers built on it.
+
 ## Callback tokens
 
 A native callback entry is identified by an opaque token containing a table

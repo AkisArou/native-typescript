@@ -119,6 +119,16 @@ callback bindings, either backend, or the fixture's C implementation changes.
 The sanitizer form compiles both the ScriptC runtime and fixture with
 AddressSanitizer and enables the runtime reference-count audit.
 
+The retained-callback foundation has a separate threaded queue/lifecycle gate:
+
+```sh
+pnpm scriptc:test:owner-gateway
+```
+
+It builds and runs the runtime-owner gateway fixture both normally and with
+AddressSanitizer/UndefinedBehaviorSanitizer. Run it whenever gateway admission,
+waking, drain ordering, lifecycle, or event ownership changes.
+
 Run the workspace checks:
 
 ```bash

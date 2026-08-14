@@ -89,13 +89,17 @@ indirect padded structs, borrowed UTF-8 and byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. C and LLVM agree for these cases, including captured
 callback state and exception propagation, and the ASan/reference-count gate is
-clean. This is implemented foundation, not a substitute path.
+clean. The fork also implements and independently stress-tests the generic
+instance-owned MPSC owner gateway, including wake coalescing, bounded drains,
+admission/stop races, reentrant shutdown, and exact event destruction. This is
+implemented foundation, not a substitute path.
 
-Phase 1 still requires retained callback-table ownership, foreign-thread
-admission through the owner scheduler, callback cancellation/race handling,
-error conversion, TypeScript-to-C exports, provider hooks, artifact execution,
-and the remaining workspace-side generator/product/reporting work before its
-exit gate can pass.
+Phase 1 still requires retained callback-table ownership, copied foreign-thread
+callback payloads and callback-token admission through the gateway, target wake
+and owner-loop integration, callback cancellation/race handling, error
+conversion, TypeScript-to-C exports, provider hooks, artifact execution, and
+the remaining workspace-side generator/product/reporting work before its exit
+gate can pass.
 
 ### Exit gate
 

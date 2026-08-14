@@ -18,6 +18,7 @@
     "scriptc:install": "pnpm --dir third_party/scriptc install --frozen-lockfile",
     "scriptc:build": "pnpm --dir third_party/scriptc build",
     "scriptc:test:native-ir": "node scripts/test-scriptc-native-ir.mjs",
+    "scriptc:test:owner-gateway": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/owner-gateway.test.ts",
     "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
   },
   "devDependencies": {

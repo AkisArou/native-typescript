@@ -203,7 +203,7 @@ list.
 | Exact native integers | Partial systems capability | Fixed-width and pointer-sized integers through `i64`/`u64`/`isize`/`usize` are implemented through frontend, IR, C/LLVM, and ABI; add arithmetic and explicit conversions when demanded by bindings | scriptc fork |
 | Native structs/by-value ABI | Missing systems capability | Authoritative layouts and target ABI lowering | scriptc fork + SCABI |
 | Retained callbacks | Architectural constraint | Runtime-owned callback table and explicit cancellation | scriptc fork |
-| Foreign-thread callbacks | Architectural constraint | MPSC gateway to one owner executor; no foreign heap access | scriptc fork + target runtime |
+| Foreign-thread callbacks | Runtime gateway foundation implemented | The instance-owned MPSC queue, target wake seam, bounded owner drains, and shutdown races are implemented and sanitizer-tested; add callback tokens, copied ABI payloads, and target-loop integration without foreign heap access | scriptc fork + target runtime |
 | Owned native returns | First slice implemented | Nominal runtime cells, checked borrowed calls, and exact-once SCABI destruction are implemented through C/LLVM; add retained, weak, invalidation, and executor-aware release modes as bindings require them | scriptc fork + SCABI |
 | Shared-memory threads | Deliberate/runtime constraint | Preserve heap confinement; use multiple instances and explicit transport | architecture |
 | Common standard-library gaps | Missing coverage, case-by-case | Implement when semantics are sound and real programs require them | scriptc fork |
