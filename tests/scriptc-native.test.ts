@@ -296,6 +296,117 @@ test("SCABI refuses byte contracts that require mutable native access", () => {
   );
 });
 
+test("SCABI projects one call-scoped callback into function and context slots", () => {
+  const result = translateScabiNativeProgram(manifest, ["call_scoped"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const i32 = { kind: "nativeScalar", scalar: "i32" } as const;
+  const signature = {
+    callingConvention: "c",
+    parameters: [i32],
+    result: i32,
+    context: { placement: "last" },
+  } as const;
+  assert.deepEqual(result.input.sourceTypes, [
+    {
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "i32",
+      },
+      type: i32,
+    },
+  ]);
+  assert.deepEqual(result.input.bindings, [
+    {
+      id: "native-typescript.fixture.c-v1@0.0.0#call_scoped",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "callScoped",
+      },
+      entry: { kind: "c-symbol", symbol: "nts_call_scoped" },
+      callingConvention: "c",
+      variadic: false,
+      sourceCall: { kind: "function" },
+      arguments: [
+        { name: "callback", type: { kind: "func", params: [i32], ret: i32 } },
+        { name: "value", type: i32 },
+      ],
+      parameters: [
+        {
+          name: "callback",
+          type: { kind: "nativeCallback", signature },
+          passMode: "pointer",
+          ownership: { kind: "callScoped" },
+          projection: { kind: "callbackFunction", argument: 0 },
+        },
+        {
+          name: "context",
+          type: { kind: "nativeContext", addressSpace: 0 },
+          passMode: "pointer",
+          ownership: { kind: "callScoped" },
+          projection: { kind: "callbackContext", argument: 0 },
+        },
+        {
+          name: "value",
+          type: i32,
+          passMode: "value",
+          ownership: { kind: "value" },
+          projection: { kind: "argument", argument: 1 },
+        },
+      ],
+      result: {
+        type: i32,
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    },
+  ]);
+});
+
+test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () => {
+  const retained = structuredClone(manifest);
+  const retainedBinding = retained.bindings.call_scoped;
+  assert.notEqual(retainedBinding?.kind, "constant");
+  if (retainedBinding === undefined || retainedBinding.kind === "constant") return;
+  const callback = retainedBinding.signature.parameters[0]?.callback;
+  assert.notEqual(callback, undefined);
+  if (callback === undefined) return;
+  Object.assign(callback, { lifetime: "retained" as const });
+
+  const retainedResult = translateScabiNativeProgram(retained, ["call_scoped"]);
+  assert.equal(retainedResult.ok, false);
+  if (!retainedResult.ok) {
+    assert.equal(
+      retainedResult.diagnostics.some((diagnostic) =>
+        diagnostic.message.includes("same-caller call-lifetime callbacks")
+      ),
+      true,
+    );
+  }
+
+  const foreign = structuredClone(manifest);
+  const foreignBinding = foreign.bindings.call_scoped;
+  assert.notEqual(foreignBinding?.kind, "constant");
+  if (foreignBinding === undefined || foreignBinding.kind === "constant") return;
+  const foreignCallback = foreignBinding.signature.parameters[0]?.callback;
+  assert.notEqual(foreignCallback, undefined);
+  if (foreignCallback === undefined) return;
+  Object.assign(foreignCallback, {
+    deliveryExecutor: { kind: "foreign-attached-thread" as const },
+  });
+
+  const foreignResult = translateScabiNativeProgram(foreign, ["call_scoped"]);
+  assert.equal(foreignResult.ok, false);
+  if (foreignResult.ok) return;
+  assert.equal(
+    foreignResult.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("same-caller call-lifetime callbacks")
+    ),
+    true,
+  );
+});
+
 test("SCABI translation rejects only requested unsupported bindings", () => {
   const supported = translateScabiNativeProgram(manifest, ["usize_identity"]);
   assert.equal(supported.ok, true);

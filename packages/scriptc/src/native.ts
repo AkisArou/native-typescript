@@ -48,17 +48,52 @@ export interface ScriptCNativePointerType {
   readonly addressSpace: 0;
 }
 
-export type ScriptCNativeAbiType = ScriptCNativeValueType | ScriptCNativePointerType;
+export interface ScriptCNativeCallbackSignature {
+  readonly callingConvention: "c";
+  readonly parameters: readonly {
+    readonly kind: "nativeScalar";
+    readonly scalar: ScriptCNativeScalar;
+  }[];
+  readonly result:
+    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
+    | { readonly kind: "void" };
+  readonly context: { readonly placement: "last" };
+}
+
+export interface ScriptCNativeCallbackType {
+  readonly kind: "nativeCallback";
+  readonly signature: ScriptCNativeCallbackSignature;
+}
+
+export interface ScriptCNativeContextType {
+  readonly kind: "nativeContext";
+  readonly addressSpace: 0;
+}
+
+export type ScriptCNativeCallbackArgumentType = {
+  readonly kind: "func";
+  readonly params: ScriptCNativeCallbackSignature["parameters"];
+  readonly ret: ScriptCNativeCallbackSignature["result"];
+};
+
+export type ScriptCNativeAbiType =
+  | ScriptCNativeValueType
+  | ScriptCNativePointerType
+  | ScriptCNativeCallbackType
+  | ScriptCNativeContextType;
 export type ScriptCNativeArgumentType =
   | ScriptCNativeValueType
   | { readonly kind: "string" }
-  | { readonly kind: "bytes"; readonly elem: "u8" };
+  | { readonly kind: "bytes"; readonly elem: "u8" }
+  | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
   | { readonly kind: "argument"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
   | { readonly kind: "utf8ByteLength"; readonly argument: number }
   | { readonly kind: "bytesData"; readonly argument: number }
-  | { readonly kind: "bytesByteLength"; readonly argument: number };
+  | { readonly kind: "bytesByteLength"; readonly argument: number }
+  | { readonly kind: "callbackFunction"; readonly argument: number }
+  | { readonly kind: "callbackContext"; readonly argument: number };
 
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
@@ -122,7 +157,8 @@ export interface ScriptCNativeBinding {
     readonly ownership:
       | { readonly kind: "value" }
       | { readonly kind: "borrowed"; readonly scope: "call" }
-      | { readonly kind: "owned"; readonly transfer: "to-native" };
+      | { readonly kind: "owned"; readonly transfer: "to-native" }
+      | { readonly kind: "callScoped" };
     readonly projection: ScriptCNativeParameterProjection;
   }[];
   readonly result: {
@@ -222,6 +258,111 @@ type BorrowedDataParameterPair = {
   readonly lengthIndex: number;
   readonly pointee: "i8" | "u8";
 };
+
+type CallScopedCallbackPair = {
+  readonly functionIndex: number;
+  readonly contextIndex: number;
+  readonly parameterTypeIds: readonly NativeTypeId[];
+  readonly resultTypeId: NativeTypeId;
+};
+
+function supportedCallScopedCallbackPair(
+  manifest: ScabiManifest,
+  binding: CallableBinding,
+  callbackIndex: number,
+): CallScopedCallbackPair | string {
+  const parameter = binding.signature.parameters[callbackIndex]!;
+  const contract = parameter.callback;
+  const callbackType = manifest.types[parameter.type];
+  if (
+    contract === undefined ||
+    parameter.passMode !== "pointer" ||
+    parameter.nullable ||
+    parameter.ownership.kind !== "call-scoped" ||
+    parameter.marshal !== undefined ||
+    callbackType?.kind !== "callback"
+  ) {
+    return "callback data must be a non-null call-scoped C callback pointer";
+  }
+  if (
+    contract.lifetime !== "call" ||
+    contract.registrationOwner !== "native-call" ||
+    contract.cancellationBinding !== undefined ||
+    contract.contextParameter === undefined ||
+    contract.allowedInvocationExecutors.length !== 1 ||
+    contract.allowedInvocationExecutors[0]?.kind !== "same-as-caller" ||
+    contract.deliveryExecutor.kind !== "same-as-caller" ||
+    !contract.synchronousReturn ||
+    contract.reentrancy !== "required" ||
+    contract.postDisposal !== "not-invoked" ||
+    contract.shutdown !== "drain"
+  ) {
+    return "only synchronous, reentrant, same-caller call-lifetime callbacks are supported";
+  }
+  if (
+    callbackType.signature.callingConvention !== "c" ||
+    callbackType.signature.variadic ||
+    callbackType.context.placement !== "last" ||
+    callbackType.context.type === undefined
+  ) {
+    return "callback ABI must be non-variadic C with one trailing typed context pointer";
+  }
+  const contextIndex = binding.signature.parameters.findIndex(
+    (candidate) => candidate.name === contract.contextParameter,
+  );
+  const context = binding.signature.parameters[contextIndex];
+  const contextType = context === undefined ? undefined : manifest.types[context.type];
+  const contextPointee = contextType?.kind === "pointer"
+    ? manifest.types[contextType.pointee]
+    : undefined;
+  if (
+    contextIndex < 0 ||
+    contextIndex === callbackIndex ||
+    context === undefined ||
+    context.type !== callbackType.context.type ||
+    context.passMode !== "pointer" ||
+    context.nullable ||
+    context.ownership.kind !== "call-scoped" ||
+    context.marshal !== undefined ||
+    context.callback !== undefined ||
+    contextType?.kind !== "pointer" ||
+    contextType.addressSpace !== 0 ||
+    contextPointee?.kind !== "void"
+  ) {
+    return `callback context '${contract.contextParameter}' must name a non-null call-scoped address-space-zero void pointer`;
+  }
+  const supportedScalarPosition = (position: AbiParameter | AbiResult): boolean => {
+    const type = manifest.types[position.type];
+    return position.passMode === "value" &&
+      !position.nullable &&
+      position.ownership.kind === "value" &&
+      position.marshal === undefined &&
+      (!("callback" in position) || position.callback === undefined) &&
+      (type?.kind === "integer" || (type?.kind === "float" && type.bits === 64));
+  };
+  if (
+    callbackType.signature.parameters.some((position) => !supportedScalarPosition(position)) ||
+    !(manifest.types[callbackType.signature.result.type]?.kind === "void" ||
+      supportedScalarPosition(callbackType.signature.result))
+  ) {
+    return "callback parameters and result must use non-null exact scalar value semantics";
+  }
+  if (
+    contract.arguments.length !== callbackType.signature.parameters.length ||
+    contract.arguments.some((argument, index) =>
+      argument.parameter !== callbackType.signature.parameters[index]?.name ||
+      argument.transport !== "borrow"
+    )
+  ) {
+    return "callback argument transport must borrow every callback parameter in ABI order";
+  }
+  return {
+    functionIndex: callbackIndex,
+    contextIndex,
+    parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+    resultTypeId: callbackType.signature.result.type,
+  };
+}
 
 function supportedBorrowedDataPair(
   manifest: ScabiManifest,
@@ -598,6 +739,9 @@ export function translateScabiNativeProgram(
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
     const borrowedByData = new Map<number, BorrowedDataParameterPair>();
     const borrowedByLength = new Map<number, BorrowedDataParameterPair>();
+    const callbackByFunction = new Map<number, CallScopedCallbackPair>();
+    const callbackByContext = new Map<number, CallScopedCallbackPair>();
+    const callbackSignatures = new Map<number, ScriptCNativeCallbackSignature>();
     const directTypes = new Map<number, ScriptCNativeValueType>();
     const argumentByParameter = new Map<number, number>();
     let valid = true;
@@ -626,8 +770,38 @@ export function translateScabiNativeProgram(
       borrowedByLength.set(pair.lengthIndex, pair);
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
+      if (parameter.callback === undefined) continue;
+      const pair = supportedCallScopedCallbackPair(manifest, binding, index);
+      if (typeof pair === "string") {
+        diagnostics.push(
+          diagnostic("NTS3002", `${path}/signature/parameters/${index}`, pair),
+        );
+        valid = false;
+        continue;
+      }
+      if (
+        callbackByContext.has(pair.contextIndex) ||
+        borrowedByData.has(index) ||
+        borrowedByLength.has(index) ||
+        borrowedByData.has(pair.contextIndex) ||
+        borrowedByLength.has(pair.contextIndex)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            `${path}/signature/parameters/${index}`,
+            "A physical callback or context parameter cannot serve multiple source arguments",
+          ),
+        );
+        valid = false;
+        continue;
+      }
+      callbackByFunction.set(index, pair);
+      callbackByContext.set(pair.contextIndex, pair);
+    }
+    for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
-      if (borrowedByLength.has(index)) continue;
+      if (borrowedByLength.has(index) || callbackByContext.has(index)) continue;
       const borrowed = borrowedByData.get(index);
       if (borrowed !== undefined) {
         const argument = sourceArguments.length;
@@ -641,6 +815,79 @@ export function translateScabiNativeProgram(
         );
         argumentByParameter.set(index, argument);
         argumentByParameter.set(borrowed.lengthIndex, argument);
+        continue;
+      }
+      const callback = callbackByFunction.get(index);
+      if (callback !== undefined) {
+        const callbackParameters: Array<
+          ScriptCNativeCallbackSignature["parameters"][number]
+        > = [];
+        let callbackValid = true;
+        for (const [callbackIndex, typeId] of callback.parameterTypeIds.entries()) {
+          const type = lowerType(
+            typeId,
+            `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
+          );
+          if (type?.kind !== "nativeScalar") {
+            if (type !== null) {
+              diagnostics.push(
+                diagnostic(
+                  "NTS3002",
+                  `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
+                  "Callback parameters must be exact native scalars",
+                ),
+              );
+            }
+            callbackValid = false;
+          } else {
+            callbackParameters.push(type);
+          }
+        }
+        const callbackResult = lowerType(
+          callback.resultTypeId,
+          `${parameterPath}/type/signature/result/type`,
+        );
+        if (
+          callbackResult === null ||
+          (callbackResult.kind !== "nativeScalar" && callbackResult.kind !== "void")
+        ) {
+          if (callbackResult !== null) {
+            diagnostics.push(
+              diagnostic(
+                "NTS3002",
+                `${parameterPath}/type/signature/result/type`,
+                "Callback results must be an exact native scalar or void",
+              ),
+            );
+          }
+          callbackValid = false;
+        }
+        if (
+          !callbackValid ||
+          callbackResult === null ||
+          (callbackResult.kind !== "nativeScalar" && callbackResult.kind !== "void")
+        ) {
+          valid = false;
+          continue;
+        }
+        const signature = Object.freeze({
+          callingConvention: "c",
+          parameters: Object.freeze(callbackParameters),
+          result: callbackResult,
+          context: Object.freeze({ placement: "last" } as const),
+        } as const);
+        callbackSignatures.set(index, signature);
+        const argument = sourceArguments.length;
+        sourceArguments.push(Object.freeze({
+          name: parameter.name,
+          type: Object.freeze({
+            kind: "func",
+            params: signature.parameters,
+            ret: signature.result,
+          } as const),
+        }));
+        argumentByParameter.set(index, argument);
+        argumentByParameter.set(callback.contextIndex, argument);
         continue;
       }
       if (parameter.marshal !== undefined) continue;
@@ -684,6 +931,32 @@ export function translateScabiNativeProgram(
         }
         const borrowedData = borrowedByData.get(index);
         const borrowedLength = borrowedByLength.get(index);
+        const callbackFunction = callbackByFunction.get(index);
+        if (callbackFunction !== undefined) {
+          const signature = callbackSignatures.get(index);
+          if (signature === undefined) {
+            throw new Error(`missing lowered callback signature for ${bindingId}:${index}`);
+          }
+          parameters.push(Object.freeze({
+            name: parameter.name,
+            type: Object.freeze({ kind: "nativeCallback", signature } as const),
+            passMode: "pointer",
+            ownership: Object.freeze({ kind: "callScoped" } as const),
+            projection: Object.freeze({ kind: "callbackFunction", argument } as const),
+          }));
+          continue;
+        }
+        const callbackContext = callbackByContext.get(index);
+        if (callbackContext !== undefined) {
+          parameters.push(Object.freeze({
+            name: parameter.name,
+            type: Object.freeze({ kind: "nativeContext", addressSpace: 0 } as const),
+            passMode: "pointer",
+            ownership: Object.freeze({ kind: "callScoped" } as const),
+            projection: Object.freeze({ kind: "callbackContext", argument } as const),
+          }));
+          continue;
+        }
         const directType = directTypes.get(index);
         parameters.push(Object.freeze(
           borrowedData !== undefined

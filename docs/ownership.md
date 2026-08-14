@@ -114,6 +114,15 @@ A call-scoped pointer/reference is valid only during the dynamic native call.
 It cannot be converted to a general handle without a binding-declared retain or
 copy operation.
 
+For an implemented call-scoped callback, the generated C function pointer and
+its context borrow one compiled closure for exactly that dynamic call. Native
+code may invoke it synchronously and reentrantly on the caller, but may not
+store either pointer or deliver it from another executor. The compiler retains
+the logical closure through the outer call and releases it on normal and
+exceptional exits. This is intentionally not a callback-table entry: any
+lifetime that can outlive the call requires an explicit runtime-owned entry and
+cancellation/owner edge.
+
 ### Process proxy
 
 A process proxy represents a resource owned in another domain. Its local entry
@@ -199,6 +208,10 @@ Unrepresentable relationships make the binding unsafe or unsupported.
 A retained callback entry strongly owns its compiled closure unless its SCABI
 lifetime is weak. The native registration owns a callback token; the runtime
 entry owns the corresponding cancellation obligation.
+
+Call-scoped callbacks do not create that registration graph. They are dynamic
+borrows as defined above; promoting one to a retained registration implicitly
+would be a lifetime violation.
 
 The registration must define which event breaks each edge. Common patterns are:
 

@@ -232,6 +232,15 @@ transport-safe arguments. A callback requiring a synchronous TypeScript result
 from a foreign thread is unsupported until a separately specified execution
 model exists.
 
+The implemented first callback slice accepts only non-variadic C callbacks with
+exact scalar value parameters, an exact scalar or `void` result, and one typed
+context pointer in the trailing physical parameter position. The callback and
+context are non-null, call-scoped, owned by the native call, delivered
+synchronously on the caller, and explicitly reentrant. Every callback argument
+is borrowed in ABI order. Translation rejects retained lifetimes, cancellation,
+foreign executors, asynchronous delivery, missing context, or looser transport
+instead of approximating those contracts.
+
 ## Error contract
 
 Bindings explicitly select an error convention, including:

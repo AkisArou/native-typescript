@@ -104,18 +104,19 @@ upstream or replaced cleanly by later upstream work.
 The focused cross-repository Native IR/SCABI gate translates the fixture's
 reached fixed- and pointer-width integer bindings, padded by-value struct,
 borrowed UTF-8 and `Uint8Array`/Buffer input, and owned opaque handle. It
-resolves their TypeScript declaration symbols and links the resulting
-source-lowered programs against the permanent C fixture through both ScriptC
-backends:
+also translates the synchronous call-scoped exact-scalar callback and its
+trailing context parameter. It resolves their TypeScript declaration symbols
+and links the resulting source-lowered programs against the permanent C fixture
+through both ScriptC backends:
 
 ```sh
 pnpm scriptc:test:native-ir
 SCRIPTC_SAN=1 pnpm scriptc:test:native-ir
 ```
 
-Run it whenever Native IR, SCABI scalar, aggregate, marshalling, or handle
-bindings, either backend, or the fixture's C implementation changes. The
-sanitizer form compiles both the ScriptC runtime and fixture with
+Run it whenever Native IR, SCABI scalar, aggregate, marshalling, handle, or
+callback bindings, either backend, or the fixture's C implementation changes.
+The sanitizer form compiles both the ScriptC runtime and fixture with
 AddressSanitizer and enables the runtime reference-count audit.
 
 Run the workspace checks:

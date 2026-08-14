@@ -257,6 +257,20 @@ The compiler must reject callback captures that violate the requested lifetime
 or cross-thread transport rules. Runtime checks remain authoritative because
 TypeScript does not provide linear ownership.
 
+The implemented call-scoped slice accepts an ordinary statically typed closure
+where SCABI promises one synchronous, reentrant, same-caller C callback during
+the dynamic native call. Its parameters and result use exact native scalar
+types (or `void` for the result), and the native ABI supplies a required trailing
+context pointer. Native IR evaluates the closure once and projects it to a
+generated trampoline plus the borrowed closure context. Captured state therefore
+works without global or thread-local callback slots. A callback throw propagates
+through the outer native call into the surrounding TypeScript `catch`.
+
+The native side may not store or invoke either pointer after return. Retained,
+once, weak, cancellable, asynchronously delivered, foreign-thread, variadic, or
+aggregate callback contracts remain unsupported until their callback-table,
+owner-scheduler, transport, and lifetime primitives are implemented.
+
 ## Async behavior
 
 Promises and `async`/`await` preserve the ordering contract of the selected

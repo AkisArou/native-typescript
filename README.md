@@ -146,8 +146,12 @@ backends. Borrowed `Uint8Array` input follows the same logical-to-physical
 projection path without copying. Exact view offsets and lengths, live
 backing-store mutation, single evaluation, and prompt post-call release pass
 both backends and the sanitizer/RC audit. Foreign pointers remain ABI-only and
-cannot enter TypeScript values. Only reached bindings and native types enter
-emitted IR or the link. Callbacks, broader ownership modes, and owner-thread
-scheduling come next.
+cannot enter TypeScript values. Synchronous call-scoped callbacks are also
+implemented for non-variadic C signatures with exact scalar parameters/results
+and a required trailing context pointer. One source closure is projected into
+the physical function/context pair; captures, reentrancy, and callback
+exceptions pass both backends and the sanitizer/RC audit. Retained callbacks,
+foreign-thread ingress, broader ownership modes, and owner-thread scheduling
+come next. Only reached bindings and native types enter emitted IR or the link.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

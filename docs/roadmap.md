@@ -82,6 +82,21 @@ One fixture library exercises:
 
 The fixture remains the cross-backend and sanitizer regression suite.
 
+### Current implementation boundary
+
+The permanent fixture and Native IR path currently cover exact integers,
+indirect padded structs, borrowed UTF-8 and byte views, owned owner-confined
+opaque handles, and synchronous call-scoped callbacks with exact scalar values
+and trailing context. C and LLVM agree for these cases, including captured
+callback state and exception propagation, and the ASan/reference-count gate is
+clean. This is implemented foundation, not a substitute path.
+
+Phase 1 still requires retained callback-table ownership, foreign-thread
+admission through the owner scheduler, callback cancellation/race handling,
+error conversion, TypeScript-to-C exports, provider hooks, artifact execution,
+and the remaining workspace-side generator/product/reporting work before its
+exit gate can pass.
+
 ### Exit gate
 
 - C and LLVM backends have equivalent observable results.

@@ -202,9 +202,17 @@ one-to-many projections map either a ScriptC UTF-8 string or an exact
 `Uint8Array` view to a borrowed const data pointer and byte length. The byte
 projection reads the view's current pointer and length directly, including a
 nonzero offset into a retained owner; the logical argument remains alive through
-the call and is released immediately afterward. This same contract is the
-extension seam for callback/context pairs. Physical foreign-pointer types are
-ABI-only and are not members of the TypeScript/language-IR value model.
+the call and is released immediately afterward. A call-scoped callback uses the
+same logical-to-physical rule: one exact compiled function argument projects to
+a C function pointer and a required trailing context pointer. The context is the
+borrowed closure itself, so captures and nested/reentrant native calls preserve
+identity without thread-local state. The callback may run synchronously only on
+the native call's caller, and both physical values expire when that call
+returns. A thrown callback exception stays in ScriptC's pending-exception cell;
+the trampoline returns an ABI-zero placeholder and the outer native call enters
+ordinary compiler-generated unwinding. Physical foreign-pointer, callback, and
+context types are ABI-only and are not members of the TypeScript/language-IR
+value model.
 
 Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to
