@@ -3,6 +3,8 @@ import type { ScriptCCheckout } from "@native-typescript/scriptc";
 import type { TargetDefinition } from "@native-typescript/target-api";
 
 export { planTarget, TargetPlanningError } from "./target-plan.ts";
+export { planScriptCExecutable } from "./scriptc-build.ts";
+export type { ScriptCExecutableArtifactPlan } from "./scriptc-build.ts";
 export { planCObjectCompilation } from "./c-toolchain.ts";
 export type {
   ArtifactInputPath,

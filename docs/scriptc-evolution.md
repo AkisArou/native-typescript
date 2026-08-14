@@ -200,6 +200,7 @@ list.
 | --- | --- | --- | --- |
 | Target provider seam | Architectural constraint | Immutable phase/provider hooks and generic Native IR | scriptc fork + Target SPI |
 | Native IR neutrality | Architectural constraint | Separate language/host concepts from generic native operations | scriptc fork |
+| External native materialization | First end-to-end slice implemented | The compiler delegates one immutable complete native-build request, and the C driver exposes its exact uncached invocation for path-independent artifact planning without duplicating feature/runtime selection; add explicit vendor producers and complete toolchain identity | scriptc fork + Native TypeScript |
 | Exact native integers | Partial systems capability | Fixed-width and pointer-sized integers plus same-type wrapping `+`, `-`, and `*` are implemented through frontend, IR, C/LLVM, and ABI; add the remaining arithmetic, bitwise, comparison, and explicit conversion families | scriptc fork |
 | Native structs/by-value ABI | First slice implemented | Authoritative nominal layout plus indirect `byval`/`sret` lowering is implemented; add direct aggregate classifications, nested aggregates, and unions as authoritative target facts require | scriptc fork + SCABI |
 | TypeScript-to-C exports | First exact-scalar slice implemented | Explicit SCABI export roots resolve checked entry functions and emit exact C/LLVM wrappers; add broader ABI families and artifact-graph realization of declared adapters/products | scriptc fork + Native TypeScript |

@@ -23,6 +23,11 @@ export {
   type ScriptCNativeTranslationResult,
   type ScriptCNativeValueType,
 } from "./native.ts";
+export type {
+  ScriptCExternalCcArgument,
+  ScriptCExternalCcPlan,
+  ScriptCExternalCcPlanResolution,
+} from "./external-build.ts";
 
 export interface ScriptCCheckout {
   readonly branch: "native-typescript";

@@ -123,10 +123,13 @@ verifies ordinary and overflow calls.
 
 The first host-C artifact graph and Linux sandboxed executor now compile and
 link a permanent native fixture with content-verified sources, directory/SDK
-inputs, tools, and strict declared-output validation. The GTK application also
-materializes its GLib runtime and wrapper objects through this path. Phase 1
-still requires graphing ScriptC-generated units, export adapters, and final
-links; modeling implicit toolchain/system-library inputs; adding caching;
+inputs, tools, and strict declared-output validation. ScriptC now delegates its
+complete native-build request and exact compiler-driver invocation without
+duplicating runtime-source selection. The GTK application registers the emitted
+C/LLVM program as a verified graph input and materializes its GLib runtime,
+wrapper object, ScriptC runtime, and final executable through one graph. Phase 1
+still requires modeling compiler emission and export adapters as producer
+actions; making implicit toolchain/system-library inputs explicit; adding caching;
 broadening callback payload/lifetime and error/export families; provider hooks;
 and the remaining workspace-side generator/product/reporting work before its
 exit gate can pass.
@@ -180,7 +183,7 @@ enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
 and wrapper so it proves the downstream architecture without pretending the
 generator and full product pipeline exist. GIR/header ingestion, general
 GObject identity/floating-reference rules, generated signal adapters, graphing
-the compiler/final link, caching, full application lifecycle, resources, CLI
+compiler emission itself, caching, full application lifecycle, resources, CLI
 orchestration, and GTK packaging remain before the phase exit gate.
 
 ### Acceptance application
@@ -404,8 +407,9 @@ that establishes a permanent seam:
 16. materialize the runtime adapter and native products through the artifact
     graph, then extend the fixture toward the GTK acceptance application
     (**in progress: canonical host-C planning, sandboxed execution, SDK include
-    trees, and GTK native-object materialization are implemented; generated
-    compiler units, final linking, and caching remain**).
+    trees, GTK native objects, ScriptC runtime inputs, and final executable
+    linking are implemented; compiler-emission actions, complete toolchain
+    identity, and caching remain**).
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

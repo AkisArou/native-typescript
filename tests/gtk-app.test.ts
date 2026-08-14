@@ -16,6 +16,7 @@ import {
   digestArtifactPath,
   executeArtifactGraph,
   planCObjectCompilation,
+  planScriptCExecutable,
   resolvePkgConfigCompileSdk,
 } from "@native-typescript/core";
 import type {
@@ -34,7 +35,8 @@ const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-counter");
 const targetRoot = join(workspace, "packages/target-gtk");
-const runtimeInclude = join(scriptcRoot, "packages/runtime/src");
+const scriptcRuntimeRoot = join(scriptcRoot, "packages/runtime");
+const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nativeTarget = "x86_64-unknown-linux-gnu";
 const executionPlatform = "x86_64-linux";
@@ -74,6 +76,31 @@ async function sourceArtifact(options: {
     target: nativeTarget,
     domain: "target",
     cache: "exportable",
+    origin: {
+      kind: "source",
+      digest: content.digest,
+      fileName: options.fileName,
+      logicalPath: options.logicalPath,
+    },
+  };
+}
+
+async function generatedSourceArtifact(options: {
+  readonly id: string;
+  readonly path: string;
+  readonly fileName: string;
+  readonly logicalPath: string;
+  readonly mediaType: string;
+}): Promise<ArtifactDefinition> {
+  const content = await digestArtifactPath(options.path, "file");
+  return {
+    id: options.id,
+    kind: "generated-source",
+    entryType: "file",
+    mediaType: options.mediaType,
+    target: nativeTarget,
+    domain: "target",
+    cache: "none",
     origin: {
       kind: "source",
       digest: content.digest,
@@ -169,9 +196,15 @@ test(
           logicalPath: "fixtures/gtk-counter",
         }),
         sourceArtifact({
-          id: "headers/scriptc/runtime",
-          path: runtimeInclude,
+          id: "runtime/scriptc",
+          path: scriptcRuntimeRoot,
           fileName: "scriptc-runtime",
+          logicalPath: "third_party/scriptc/packages/runtime",
+        }),
+        sourceArtifact({
+          id: "headers/scriptc/runtime",
+          path: scriptcRuntimeInclude,
+          fileName: "scriptc-runtime-headers",
           logicalPath: "third_party/scriptc/packages/runtime/src",
         }),
       ]);
@@ -229,38 +262,6 @@ test(
         deterministic: false,
         cacheable: false,
       });
-      const graph = defineArtifactGraph({
-        artifacts: [
-          ...gtkSdk.artifacts,
-          ...localArtifacts,
-          runtimeObject.sourceTree,
-          runtimeObject.object,
-          counterObject.artifact,
-        ],
-        actions: [runtimeObject.action, counterObject.action],
-      });
-      const serializedGraph = JSON.stringify(graph);
-      for (const physicalPath of Object.values(gtkSdk.sourcePaths)) {
-        assert.equal(serializedGraph.includes(physicalPath), false);
-      }
-      const objectReport = await executeArtifactGraph(graph, {
-        buildRoot: join(scratch, "native-objects"),
-        sourcePaths: {
-          ...gtkSdk.sourcePaths,
-          [glibRuntimeArtifactIds.sourceTree]: runtimeHeadersPath,
-          "source/fixture/gtk-counter": fixtureTreePath,
-          "headers/scriptc/runtime": runtimeInclude,
-        },
-        tools: { "tool/clang": { path: clangPath } },
-        sandbox: { kind: "bubblewrap", path: sandboxPath },
-        maxConcurrency: 2,
-      });
-      const objects = [
-        objectReport.artifacts.find(({ id }) => id === runtimeObject.object.id)?.path,
-        objectReport.artifacts.find(({ id }) => id === counterObject.artifact.id)?.path,
-      ];
-      assert.equal(objects.every((path) => path !== undefined), true);
-
       const systemLibraries = manifest.linkInputs
         .filter(({ kind }) => kind === "system-library")
         .sort((left, right) => left.order - right.order)
@@ -269,7 +270,7 @@ test(
         pnpm,
         ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"],
       );
-      const { compile } = await import(
+      const { compile, compileC, planExternalCCommand } = await import(
         "../third_party/scriptc/packages/compiler/dist/index.js"
       );
       for (const backend of ["c", "llvm"] as const) {
@@ -283,8 +284,106 @@ test(
             [manifest.package.name]: join(fixtureRoot, "package.d.ts"),
           },
           native: translated.input,
-          nativeLinkInputs: objects as string[],
+          nativeLinkInputs: [runtimeObject.object.id, counterObject.artifact.id],
           nativeSystemLibraries: systemLibraries,
+          nativeBuildExecutor: async (request) => {
+            const programId = `generated/scriptc/${backend}/program`;
+            const outputId = `product/gtk-counter/${backend}`;
+            const generatedProgram = await generatedSourceArtifact({
+              id: programId,
+              path: request.cPath,
+              fileName: backend === "llvm" ? "program.ll" : "program.c",
+              logicalPath: `generated/scriptc/${backend}/program.${
+                backend === "llvm" ? "ll" : "c"
+              }`,
+              mediaType: backend === "llvm" ? "text/x-llvm" : "text/x-c",
+            });
+            const result: { binaryPath: string | null } = { binaryPath: null };
+            await compileC({
+              ...request,
+              commandExecutor: async (command) => {
+                const linkInputPaths = request.linkInputs ?? [];
+                assert.equal(linkInputPaths.length, 2);
+                const external = planExternalCCommand(command, {
+                  program: { id: programId, path: request.cPath },
+                  runtime: {
+                    id: "runtime/scriptc",
+                    path: scriptcRuntimeRoot,
+                  },
+                  linkInputs: [
+                    {
+                      id: runtimeObject.object.id,
+                      path: linkInputPaths[0]!,
+                    },
+                    {
+                      id: counterObject.artifact.id,
+                      path: linkInputPaths[1]!,
+                    },
+                  ],
+                  output: { id: outputId, path: request.outPath },
+                });
+                assert.equal(
+                  external.bindings.runtimeDirectory,
+                  scriptcRuntimeRoot,
+                );
+                const executablePlan = planScriptCExecutable({
+                  actionId: `link/scriptc-executable/${backend}`,
+                  plan: external.plan,
+                  artifactFileName: "gtk-counter",
+                  tool: clangTool,
+                  driverPlatform: "linux",
+                  executionPlatform,
+                  target: nativeTarget,
+                });
+                const graph = defineArtifactGraph({
+                  artifacts: [
+                    ...gtkSdk.artifacts,
+                    ...localArtifacts,
+                    runtimeObject.sourceTree,
+                    runtimeObject.object,
+                    counterObject.artifact,
+                    generatedProgram,
+                    executablePlan.artifact,
+                  ],
+                  actions: [
+                    runtimeObject.action,
+                    counterObject.action,
+                    executablePlan.action,
+                  ],
+                });
+                const serializedGraph = JSON.stringify(graph);
+                for (const physicalPath of [
+                  ...Object.values(gtkSdk.sourcePaths),
+                  runtimeHeadersPath,
+                  fixtureTreePath,
+                  scriptcRuntimeRoot,
+                  scriptcRuntimeInclude,
+                  request.cPath,
+                ]) {
+                  assert.equal(serializedGraph.includes(physicalPath), false);
+                }
+                const report = await executeArtifactGraph(graph, {
+                  buildRoot: join(scratch, `${backend}-artifacts`),
+                  sourcePaths: {
+                    ...gtkSdk.sourcePaths,
+                    [glibRuntimeArtifactIds.sourceTree]: runtimeHeadersPath,
+                    "source/fixture/gtk-counter": fixtureTreePath,
+                    "runtime/scriptc": scriptcRuntimeRoot,
+                    "headers/scriptc/runtime": scriptcRuntimeInclude,
+                    [programId]: request.cPath,
+                  },
+                  tools: { "tool/clang": { path: clangPath } },
+                  sandbox: { kind: "bubblewrap", path: sandboxPath },
+                  maxConcurrency: 2,
+                });
+                const product = report.artifacts.find(({ id }) => id === outputId);
+                assert.ok(product);
+                result.binaryPath = product.path;
+              },
+            });
+            assert.ok(result.binaryPath);
+            return { binaryPath: result.binaryPath };
+          },
         });
         assert.equal(
           result.ok,

@@ -315,12 +315,21 @@ this path. The pkg-config resolver converts discovered include directories into
 logical, content-addressed SDK tree inputs while keeping their host paths only
 in execution bindings.
 
-This slice does not yet model the compiler's implicit system image, library
-search trees, or the final ScriptC link as declared inputs, so current native
-actions remain deliberately non-cacheable. Cache lookup/storage, generated
+ScriptC exposes an immutable native-build request and permits an external
+materializer to receive its exact compiler-driver command. Native TypeScript
+rewrites every declared program, runtime, object, and output path in that
+command to a logical artifact reference; an unknown ambient path is rejected.
+This keeps ScriptC's own feature analysis and runtime-source selection as the
+single source of truth. The GTK fixture registers the emitted C or LLVM unit as
+a content-verified input and materializes both hand-authored native objects,
+the reached ScriptC runtime sources, and the final executable through one graph.
+
+Compiler emission itself is still performed before graph execution. The graph
+also does not yet model the compiler's implicit system image, library-search
+trees, or every toolchain-provided system library as declared inputs. Current
+native actions therefore remain deliberately non-cacheable. ScriptC features
+whose driver command introduces an undeclared vendor path are rejected until
+that producer is represented in the graph. Cache lookup/storage, generated
 adapter planning, diagnostic parsers, resource accounting, packaging/signing,
 and sandbox executors for non-Linux hosts also remain. Those are extensions of
-this graph, not alternate build paths. The GTK fixture now materializes its two
-hand-authored native adapter objects through the graph; ScriptC-generated units
-and the final executable link move over once the remaining toolchain and library
-inputs are explicit.
+this graph, not alternate build paths.
