@@ -1,0 +1,19 @@
+{
+  "name": "@native-typescript/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "native-typescript": "./src/main.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./node_modules/.tsbuild/dist/main.d.ts",
+      "default": "./src/main.ts"
+    }
+  },
+  "dependencies": {
+    "@native-typescript/core": "workspace:*"
+  }
+}
+

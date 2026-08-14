@@ -1,0 +1,4 @@
+[submodule "third_party/scriptc"]
+	path = third_party/scriptc
+	url = https://github.com/AkisArou/scriptc.git
+	branch = native-typescript

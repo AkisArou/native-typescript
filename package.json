@@ -1,0 +1,28 @@
+{
+  "name": "native-typescript",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "pnpm": ">=11.21.0 <12"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:watch": "tsc -b --watch --preserveWatchOutput",
+    "clean": "tsc -b --clean",
+    "dev": "node --watch packages/cli/src/main.ts",
+    "native-typescript": "node packages/cli/src/main.ts",
+    "test": "pnpm build && node --test tests/workspace.test.ts",
+    "scriptc:install": "pnpm --dir third_party/scriptc install --frozen-lockfile",
+    "scriptc:build": "pnpm --dir third_party/scriptc build",
+    "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
+  },
+  "devDependencies": {
+    "@native-typescript/cli": "workspace:*",
+    "@native-typescript/core": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}
