@@ -103,15 +103,23 @@ explicit active-registration roots, closing-entry lookup for admitted leases,
 generation-safe slot reuse, and exact anchor release. Result native handles now
 claim those registrations and order token close, blocking foreign destruction,
 and cancellation completion. This is implemented foundation, not a substitute
-path. Exact same-type integer `+`, `-`, and `*` now wrap at their declared
+path. The SCABI translator and both backends now complete the first retained
+callback slice: an `until-cancelled` callback with copied exact-scalar payloads,
+same-caller or arbitrary attached producer threads, owner delivery, and a
+result-handle cancellation dependency. Native creation is transactional:
+handle cells and lifecycle edges are prepared before the foreign factory, then
+committed without allocation or abandoned on a null result. The runtime exposes
+one-event dispatch plus a host-callable nextTick/microtask checkpoint, so every
+delivered callback is a distinct owner turn and callback exceptions stop before
+later admitted events. Exact same-type integer `+`, `-`, and `*` now wrap at their declared
 width without C undefined behavior. The first TypeScript-to-C export uses that
 path end to end: SCABI selection resolves an exact `i32` entry function, both
 backends emit the public C symbol, and an independent C host verifies ordinary
 and overflow calls.
 
-Phase 1 still requires generated copied callback payloads and invocation thunks,
-Native IR/SCABI cancellation attachment, target wake and owner-loop integration,
-the remaining error conventions and export families, provider hooks, artifact
+Phase 1 still requires concrete target wake/attached-loop integration, broader
+callback payload and lifetime families, the remaining error conventions and
+export families, provider hooks, artifact
 execution (including declared export-adapter outputs), and the remaining
 workspace-side generator/product/reporting work before its exit gate can pass.
 

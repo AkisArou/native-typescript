@@ -103,8 +103,10 @@ reentrant stop/discard during delivery. Threaded and ASan/UBSan tests cover
 producer FIFO, races, reentrancy, and destruction accounting.
 
 This primitive does not itself retain a ScriptC closure or enter compiled code.
-The callback-token/owner table, copied ABI payload records, target wake adapter,
-and owner-loop drain hook remain separate layers built on it.
+The callback-token/owner table, generated copied ABI payload records, retained
+callback service, target wake adapter, and owner-loop policy remain separate
+layers built on it. All but the concrete target wake adapter are now present in
+the first exact-scalar callback slice.
 
 ## Callback tokens
 
@@ -146,8 +148,9 @@ generated closure ABI.
 This is a declared external root, not a hidden cache: an active
 `until-cancelled` native registration keeps its callback alive. The result-
 handle association below carries the cancellation edge that removes that root.
-Generated invocation payloads, Native IR lowering, and target-loop
-drain/collect integration remain the next layers.
+Native IR and both backends now generate copied exact-scalar invocation records
+and ABI thunks. Foreign thunks see only the opaque token; owner dispatch resolves
+the closure from the table and converts the payload on the owner.
 
 The result-handle association is now implemented in the ScriptC runtime. A
 generic native-handle lifecycle edge runs every begin hook before clearing and
@@ -226,6 +229,16 @@ The owner loop observes this abstract order:
 Targets may batch gateway dequeues for performance, but must not starve host UI,
 I/O, or higher-priority work. The exact fairness budget is target policy and is
 observable in diagnostics, not language semantics.
+
+The ScriptC runtime enforces the turn boundary with two host-facing operations.
+Retained-callback dispatch consumes at most one event and reports idle,
+delivered, or pending-exception status. The loop checkpoint drains nextTicks and
+promise/microtask jobs to joint exhaustion, decides unhandled rejections, and
+runs scheduled cycle collection without polling ScriptC's standalone host loop.
+A target source repeats dispatch then checkpoint within its fairness budget and
+returns control to the platform scheduler afterward. Shutdown separately stops
+admission, delivers through the same turn path or discards payloads, and destroys
+the service only after cancellation and leases quiesce.
 
 A platform promise/future adapter settles a ScriptC promise by posting a
 gateway event. It does not resolve the promise directly on the platform thread.

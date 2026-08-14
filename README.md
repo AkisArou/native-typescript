@@ -150,8 +150,11 @@ cannot enter TypeScript values. Synchronous call-scoped callbacks are also
 implemented for non-variadic C signatures with exact scalar parameters/results
 and a required trailing context pointer. One source closure is projected into
 the physical function/context pair; captures, reentrancy, and callback
-exceptions pass both backends and the sanitizer/RC audit. Retained callbacks,
-broader ownership modes, and owner-thread scheduling come next. Exact integer
+exceptions pass both backends and the sanitizer/RC audit. Retained
+`until-cancelled` callbacks are now implemented for copied exact-scalar
+payloads: generated C and LLVM thunks admit opaque tokens from same or foreign
+threads without touching the ScriptC heap, and the owner invokes the rooted
+closure. Broader payload families and ownership modes remain future slices. Exact integer
 `errno` contracts are also implemented: the failure sentinel is checked in its
 native type, thread-local `errno` is captured before cleanup, and a symbolic,
 operation-qualified `Error` is thrown through the ordinary catch path in both
@@ -170,8 +173,12 @@ owner-side table now roots active registration anchors explicitly and retires
 them only after cancellation and all leases complete. Owned native handles now
 carry generic lifecycle edges, and a result-owned callback edge closes
 admission before the native destructor and completes cancellation only after it
-returns. Generated retained-callback lowering and the target event-loop
-connection remain pending. Only reached bindings and native types enter emitted
+returns. Native factories use a prepare/call/commit transaction so runtime OOM
+cannot strand a returned resource or staged callback registration. The runtime
+also exposes one-event owner dispatch and a host-callable nextTick/microtask
+checkpoint; this prevents batching from collapsing distinct JavaScript turns
+and leaves callback exceptions pending for the target error policy. A concrete
+target wake adapter and attached host-loop driver remain pending. Only reached bindings and native types enter emitted
 IR or the link. The first reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
