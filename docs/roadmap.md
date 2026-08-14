@@ -316,7 +316,10 @@ that establishes a permanent seam:
 10. lower nominal owned opaque handles, method receiver bindings, checked
     borrowed calls, alias-safe explicit disposal, and automatic exact-once
     destruction through C and LLVM (**implemented**);
-11. expand ownership beyond the first C handle mode and add callbacks.
+11. project one borrowed TypeScript UTF-8 string into const data and byte-length
+    ABI slots with single evaluation and no copy (**implemented**);
+12. add borrowed byte spans, expand ownership beyond the first C handle mode,
+    and add callbacks.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

@@ -168,6 +168,22 @@ identity. Native field reads are statically typed and lower directly from the
 nominal value. Field writes, nested aggregates, unions, and non-trivial
 ownership remain outside this slice.
 
+## Borrowed UTF-8 strings
+
+An ordinary TypeScript `string` remains a ScriptC-managed, well-formed UTF-8
+value. A reached SCABI string-marshalling contract may borrow its bytes for one
+synchronous native call. The implemented slice requires a non-null const
+`i8`/`u8` pointer in address space zero, an explicit `usize` byte-length
+parameter, no required terminator, embedded NULs allowed, and call-scoped
+borrowing.
+
+Native IR records one logical string argument and two physical ABI projections.
+The expression is evaluated once, the existing UTF-8 storage is passed without
+a copy, and length is measured in bytes rather than UTF-16 code units. The
+foreign pointer exists only during lowering and is never a TypeScript-visible
+value. Mutable strings, transcoding, retained pointers, NUL-policy adaptation,
+and borrowed bytes remain outside this first slice.
+
 ## Native handles
 
 `NativeHandle<T>` is opaque and nominal. Application code cannot construct,

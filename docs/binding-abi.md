@@ -352,7 +352,9 @@ declarations, authoritative C header, implementation, layout probe, and native
 behavior test are active conformance inputs. The fixture contract is ratified;
 its exact `i8`/`u8`, `i16`/`u16`, `i32`/`u32`, `i64`/`u64`, and `usize`
 declarations, manifest bindings, target pointer width, Native IR, C symbols,
-and both ScriptC backends now agree end to end.
+and both ScriptC backends now agree end to end. The fixture's borrowed UTF-8
+binding additionally proves single source evaluation, exact byte length,
+Unicode encoding, embedded NUL preservation, and zero-copy data projection.
 SCABI v1 remains pre-release until the rest of the acceptance surface passes
 the same path.
 

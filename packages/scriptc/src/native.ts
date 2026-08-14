@@ -41,6 +41,20 @@ export type ScriptCNativeValueType =
       readonly typeId: string;
     };
 
+export interface ScriptCNativePointerType {
+  readonly kind: "nativePointer";
+  readonly pointee: "i8" | "u8";
+  readonly const: boolean;
+  readonly addressSpace: 0;
+}
+
+export type ScriptCNativeAbiType = ScriptCNativeValueType | ScriptCNativePointerType;
+export type ScriptCNativeArgumentType = ScriptCNativeValueType | { readonly kind: "string" };
+export type ScriptCNativeParameterProjection =
+  | { readonly kind: "argument"; readonly argument: number }
+  | { readonly kind: "utf8Data"; readonly argument: number }
+  | { readonly kind: "utf8ByteLength"; readonly argument: number };
+
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
   | { readonly kind: "void" };
@@ -91,15 +105,20 @@ export interface ScriptCNativeBinding {
   readonly variadic: false;
   readonly sourceCall:
     | { readonly kind: "function" }
-    | { readonly kind: "method"; readonly receiverParameter: number };
+    | { readonly kind: "method"; readonly receiverArgument: number };
+  readonly arguments: readonly {
+    readonly name: string;
+    readonly type: ScriptCNativeArgumentType;
+  }[];
   readonly parameters: readonly {
     readonly name: string;
-    readonly type: ScriptCNativeValueType;
+    readonly type: ScriptCNativeAbiType;
     readonly passMode: "value" | "pointer";
     readonly ownership:
       | { readonly kind: "value" }
       | { readonly kind: "borrowed"; readonly scope: "call" }
       | { readonly kind: "owned"; readonly transfer: "to-native" };
+    readonly projection: ScriptCNativeParameterProjection;
   }[];
   readonly result: {
     readonly type: ScriptCNativeIrType;
@@ -193,6 +212,59 @@ function positionUnsupported(
   return null;
 }
 
+type Utf8ParameterPair = {
+  readonly lengthIndex: number;
+  readonly pointee: "i8" | "u8";
+};
+
+function supportedUtf8Pair(
+  manifest: ScabiManifest,
+  binding: CallableBinding,
+  dataIndex: number,
+): Utf8ParameterPair | string {
+  const data = binding.signature.parameters[dataIndex]!;
+  const marshal = data.marshal;
+  if (
+    marshal?.kind !== "string" ||
+    marshal.encoding !== "utf-8" ||
+    marshal.termination !== "none" ||
+    marshal.embeddedNul !== "allow" ||
+    marshal.length.kind !== "parameter"
+  ) {
+    return "only borrowed UTF-8 strings with explicit byte length, no terminator, and embedded NULs allowed are supported";
+  }
+  const pointer = manifest.types[data.type];
+  const pointee = pointer?.kind === "pointer" ? manifest.types[pointer.pointee] : undefined;
+  if (
+    data.passMode !== "pointer" || data.nullable ||
+    data.ownership.kind !== "borrowed" || data.ownership.scope !== "call" ||
+    data.callback !== undefined ||
+    pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
+    pointer.nullable || pointer.addressSpace !== 0 ||
+    pointee?.kind !== "integer" || pointee.bits !== 8
+  ) {
+    return "UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero";
+  }
+  const lengthIndex = binding.signature.parameters.findIndex(
+    (parameter) => parameter.name === marshal.length.parameter,
+  );
+  const length = binding.signature.parameters[lengthIndex];
+  const lengthType = length === undefined ? undefined : manifest.types[length.type];
+  if (
+    lengthIndex < 0 || lengthIndex === dataIndex || length === undefined ||
+    length.passMode !== "value" || length.nullable ||
+    length.ownership.kind !== "value" || length.marshal !== undefined ||
+    length.callback !== undefined ||
+    lengthType?.kind !== "integer" || lengthType.signed || lengthType.bits !== "pointer"
+  ) {
+    return `UTF-8 byte length '${marshal.length.parameter}' must name an un-marshalled usize value parameter`;
+  }
+  return {
+    lengthIndex,
+    pointee: pointee.signed ? "i8" : "u8",
+  };
+}
+
 function bindingUnsupported(binding: CallableBinding): string | null {
   if (!["function", "factory", "method"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
@@ -220,7 +292,8 @@ function bindingUnsupported(binding: CallableBinding): string | null {
 }
 
 /** Translate the reachable SCABI bindings supported by ScriptC's current
- * exact-scalar, trivial native-struct, and owner-confined handle IR.
+ * exact-scalar, trivial native-struct, borrowed UTF-8, and owner-confined
+ * handle IR.
  * Unsupported unreachable records remain inert; requested records fail with
  * a precise manifest path. */
 export function translateScabiNativeProgram(
@@ -504,10 +577,54 @@ export function translateScabiNativeProgram(
       continue;
     }
 
+    const sourceArguments: Array<ScriptCNativeBinding["arguments"][number]> = [];
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
+    const utf8ByData = new Map<number, Utf8ParameterPair>();
+    const utf8ByLength = new Map<number, Utf8ParameterPair>();
+    const directTypes = new Map<number, ScriptCNativeValueType>();
+    const argumentByParameter = new Map<number, number>();
     let valid = true;
     for (const [index, parameter] of binding.signature.parameters.entries()) {
+      if (parameter.marshal === undefined) continue;
+      const pair = supportedUtf8Pair(manifest, binding, index);
+      if (typeof pair === "string") {
+        diagnostics.push(
+          diagnostic("NTS3002", `${path}/signature/parameters/${index}`, pair),
+        );
+        valid = false;
+        continue;
+      }
+      if (utf8ByLength.has(pair.lengthIndex)) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            `${path}/signature/parameters/${index}/marshal/length`,
+            "A physical length parameter cannot describe multiple source arguments",
+          ),
+        );
+        valid = false;
+        continue;
+      }
+      utf8ByData.set(index, pair);
+      utf8ByLength.set(pair.lengthIndex, pair);
+    }
+    for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
+      if (utf8ByLength.has(index)) continue;
+      const utf8 = utf8ByData.get(index);
+      if (utf8 !== undefined) {
+        const argument = sourceArguments.length;
+        sourceArguments.push(
+          Object.freeze({
+            name: parameter.name,
+            type: Object.freeze({ kind: "string" }),
+          }),
+        );
+        argumentByParameter.set(index, argument);
+        argumentByParameter.set(utf8.lengthIndex, argument);
+        continue;
+      }
+      if (parameter.marshal !== undefined) continue;
       const unsupportedPosition = positionUnsupported(
         parameter,
         true,
@@ -528,18 +645,62 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      parameters.push(
-        Object.freeze({
-          name: parameter.name,
-          type,
-          passMode: parameter.passMode as "value" | "pointer",
-          ownership: parameter.ownership.kind === "borrowed"
-            ? Object.freeze({ kind: "borrowed", scope: "call" } as const)
-            : parameter.ownership.kind === "owned"
-              ? Object.freeze({ kind: "owned", transfer: "to-native" } as const)
-              : Object.freeze({ kind: "value" } as const),
-        }),
-      );
+      directTypes.set(index, type);
+      argumentByParameter.set(index, sourceArguments.length);
+      sourceArguments.push(Object.freeze({ name: parameter.name, type }));
+    }
+    if (valid) {
+      for (const [index, parameter] of binding.signature.parameters.entries()) {
+        const argument = argumentByParameter.get(index);
+        if (argument === undefined) {
+          diagnostics.push(
+            diagnostic(
+              "NTS3002",
+              `${path}/signature/parameters/${index}`,
+              "The parameter has no supported source-to-ABI projection",
+            ),
+          );
+          valid = false;
+          continue;
+        }
+        const utf8Data = utf8ByData.get(index);
+        const utf8Length = utf8ByLength.get(index);
+        const directType = directTypes.get(index);
+        parameters.push(Object.freeze(
+          utf8Data !== undefined
+            ? {
+                name: parameter.name,
+                type: Object.freeze({
+                  kind: "nativePointer",
+                  pointee: utf8Data.pointee,
+                  const: true,
+                  addressSpace: 0,
+                } as const),
+                passMode: "pointer",
+                ownership: Object.freeze({ kind: "borrowed", scope: "call" } as const),
+                projection: Object.freeze({ kind: "utf8Data", argument } as const),
+              }
+            : utf8Length !== undefined
+              ? {
+                  name: parameter.name,
+                  type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
+                  passMode: "value",
+                  ownership: Object.freeze({ kind: "value" } as const),
+                  projection: Object.freeze({ kind: "utf8ByteLength", argument } as const),
+                }
+              : {
+                  name: parameter.name,
+                  type: directType!,
+                  passMode: parameter.passMode as "value" | "pointer",
+                  ownership: parameter.ownership.kind === "borrowed"
+                    ? Object.freeze({ kind: "borrowed", scope: "call" } as const)
+                    : parameter.ownership.kind === "owned"
+                      ? Object.freeze({ kind: "owned", transfer: "to-native" } as const)
+                      : Object.freeze({ kind: "value" } as const),
+                  projection: Object.freeze({ kind: "argument", argument } as const),
+                },
+        ));
+      }
     }
 
     const resultPath = `${path}/signature/result`;
@@ -568,8 +729,9 @@ export function translateScabiNativeProgram(
         callingConvention: "c",
         variadic: false,
         sourceCall: binding.kind === "method"
-          ? Object.freeze({ kind: "method", receiverParameter: 0 } as const)
+          ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : Object.freeze({ kind: "function" } as const),
+        arguments: Object.freeze(sourceArguments),
         parameters: Object.freeze(parameters),
         result: Object.freeze({
           type: resultType,

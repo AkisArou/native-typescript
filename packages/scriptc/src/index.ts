@@ -2,12 +2,16 @@ import { fileURLToPath } from "node:url";
 
 export {
   translateScabiNativeProgram,
+  type ScriptCNativeAbiType,
+  type ScriptCNativeArgumentType,
   type ScriptCNativeBinding,
   type ScriptCNativeDeclaration,
   type ScriptCNativeFrontendInput,
   type ScriptCNativeHandleDefinition,
   type ScriptCNativeIntegerScalar,
   type ScriptCNativeIrType,
+  type ScriptCNativeParameterProjection,
+  type ScriptCNativePointerType,
   type ScriptCNativeScalar,
   type ScriptCNativeSourceType,
   type ScriptCNativeStructDefinition,

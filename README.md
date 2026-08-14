@@ -137,8 +137,14 @@ object-literal assertion constructs aggregate storage without reinterpreting a
 JavaScript object; C verifies size, alignment, and offsets at compile time, while
 LLVM emits the target's `byval`/`sret` contract. The padded-struct fixture passes
 through both backends, including statically typed field reads from returned
-values. Only reached bindings and native types enter emitted IR or the link.
-Handles, retained callbacks, owner-thread scheduling, and deterministic cleanup
-come next.
+values. Owned, owner-confined opaque handles now use a runtime-private managed
+cell with alias-safe explicit disposal, automatic exact destruction, and
+checked borrowed method ingress. Borrowed UTF-8 input is also implemented as
+one source string evaluated once and projected without copying into const data
+and byte-length ABI slots; Unicode and embedded NUL behavior passes both
+backends. Foreign pointers remain ABI-only and cannot enter TypeScript values.
+Only reached bindings and native types enter emitted IR or the link. Borrowed
+bytes, callbacks, broader ownership modes, and owner-thread scheduling come
+next.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

@@ -3,12 +3,31 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { parseScabiManifest } from "@native-typescript/scabi";
-import { translateScabiNativeProgram } from "@native-typescript/scriptc";
+import {
+  translateScabiNativeProgram,
+  type ScriptCNativeBinding,
+  type ScriptCNativeValueType,
+} from "@native-typescript/scriptc";
 
 const fixtureRoot = resolve(import.meta.dirname, "../fixtures/scabi-c-v1");
 const manifest = parseScabiManifest(
   readFileSync(resolve(fixtureRoot, "package.scabi.json"), "utf8"),
 );
+
+type DirectNativeParameter = Omit<
+  ScriptCNativeBinding["parameters"][number],
+  "projection" | "type"
+> & { readonly type: ScriptCNativeValueType };
+
+function directSignature(parameters: readonly DirectNativeParameter[]) {
+  return {
+    arguments: parameters.map(({ name, type }) => ({ name, type })),
+    parameters: parameters.map((parameter, argument) => ({
+      ...parameter,
+      projection: { kind: "argument" as const, argument },
+    })),
+  };
+}
 
 test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   const result = translateScabiNativeProgram(manifest, ["i32_identity"]);
@@ -38,14 +57,14 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         callingConvention: "c",
         variadic: false,
         sourceCall: { kind: "function" },
-        parameters: [
+        ...directSignature([
           {
             name: "value",
             type: { kind: "nativeScalar", scalar: "i32" },
             passMode: "value",
             ownership: { kind: "value" },
           },
-        ],
+        ]),
         result: {
           type: { kind: "nativeScalar", scalar: "i32" },
           passMode: "value",
@@ -123,6 +142,83 @@ test("SCABI translates every reached integer with exact signedness and width", (
   );
 });
 
+test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI slots", () => {
+  const result = translateScabiNativeProgram(manifest, ["hash_utf8"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.input.sourceTypes, [
+    {
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "u64",
+      },
+      type: { kind: "nativeScalar", scalar: "u64" },
+    },
+  ]);
+  assert.deepEqual(result.input.bindings, [
+    {
+      id: "native-typescript.fixture.c-v1@0.0.0#hash_utf8",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "hashUtf8",
+      },
+      entry: { kind: "c-symbol", symbol: "nts_hash_utf8" },
+      callingConvention: "c",
+      variadic: false,
+      sourceCall: { kind: "function" },
+      arguments: [{ name: "data", type: { kind: "string" } }],
+      parameters: [
+        {
+          name: "data",
+          type: {
+            kind: "nativePointer",
+            pointee: "i8",
+            const: true,
+            addressSpace: 0,
+          },
+          passMode: "pointer",
+          ownership: { kind: "borrowed", scope: "call" },
+          projection: { kind: "utf8Data", argument: 0 },
+        },
+        {
+          name: "length",
+          type: { kind: "nativeScalar", scalar: "usize" },
+          passMode: "value",
+          ownership: { kind: "value" },
+          projection: { kind: "utf8ByteLength", argument: 0 },
+        },
+      ],
+      result: {
+        type: { kind: "nativeScalar", scalar: "u64" },
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    },
+  ]);
+});
+
+test("SCABI refuses UTF-8 contracts that require adapter work", () => {
+  const terminated = structuredClone(manifest);
+  const binding = terminated.bindings.hash_utf8;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const data = binding.signature.parameters[0];
+  assert.equal(data?.marshal?.kind, "string");
+  if (data?.marshal?.kind !== "string") return;
+  Object.assign(data.marshal, { termination: "nul" as const });
+
+  const result = translateScabiNativeProgram(terminated, ["hash_utf8"]);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(
+    result.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("no terminator")
+    ),
+    true,
+  );
+});
+
 test("SCABI translation rejects only requested unsupported bindings", () => {
   const supported = translateScabiNativeProgram(manifest, ["usize_identity"]);
   assert.equal(supported.ok, true);
@@ -176,7 +272,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
-    parameters: [{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }],
+    ...directSignature([{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }]),
     result: { type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } },
   });
 });
@@ -215,14 +311,14 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
-    parameters: [
+    ...directSignature([
       {
         name: "initial_value",
         type: { kind: "nativeScalar", scalar: "i32" },
         passMode: "value",
         ownership: { kind: "value" },
       },
-    ],
+    ]),
     result: {
       type: { kind: "nativeHandle", typeId },
       passMode: "pointer",
@@ -242,15 +338,15 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     entry: { kind: "c-symbol", symbol: "nts_counter_destroy" },
     callingConvention: "c",
     variadic: false,
-    sourceCall: { kind: "method", receiverParameter: 0 },
-    parameters: [
+    sourceCall: { kind: "method", receiverArgument: 0 },
+    ...directSignature([
       {
         name: "counter",
         type: { kind: "nativeHandle", typeId },
         passMode: "pointer",
         ownership: { kind: "owned", transfer: "to-native" },
       },
-    ],
+    ]),
     result: {
       type: { kind: "void" },
       passMode: "value",

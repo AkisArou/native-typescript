@@ -195,6 +195,14 @@ operations; they do not inject unvalidated arbitrary IR. When a platform needs
 a genuinely new semantic category, Native IR is extended with validation,
 analysis, and backend tests first.
 
+A native call separates logical source arguments from physical ABI parameters.
+Each source argument is evaluated exactly once; validated parameter projections
+then select or derive the ABI slots in declaration order. The first one-to-many
+projection maps a ScriptC UTF-8 string to a borrowed const data pointer and its
+byte length. This same contract is the extension seam for byte spans and
+callback/context pairs. Physical foreign-pointer types are ABI-only and are not
+members of the TypeScript/language-IR value model.
+
 Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to
 interpret generic operations. For example, `isize` and `usize` remain distinct
