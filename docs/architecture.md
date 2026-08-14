@@ -184,6 +184,7 @@ families include:
 - exact scalar values and explicit conversions;
 - native aggregate construction, access, and copying;
 - statically identified native calls;
+- statically identified C-callable library exports;
 - opaque handle creation, retain, release, weak upgrade, and disposal;
 - call-scoped and retained callbacks;
 - scheduler hops and callback delivery;

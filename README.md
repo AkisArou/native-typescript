@@ -172,6 +172,11 @@ carry generic lifecycle edges, and a result-owned callback edge closes
 admission before the native destructor and completes cancellation only after it
 returns. Generated retained-callback lowering and the target event-loop
 connection remain pending. Only reached bindings and native types enter emitted
-IR or the link.
+IR or the link. The first reverse boundary is now implemented too: a SCABI
+`export` root explicitly maps an entry-module TypeScript function to an exact
+C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
+and LLVM, link into a static library, and execute from an independent C host;
+the translation retains the selected C-export adapter's provenance. Broader
+export types and artifact-graph materialization remain pending.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

@@ -13,28 +13,8 @@ const manifest = parseScabiManifest(
   readFileSync(join(fixtureRoot, "package.scabi.json"), "utf8"),
 );
 const translated = translateScabiNativeProgram(manifest, {
-  imports: [
-    "i8_identity",
-    "u8_identity",
-    "i16_identity",
-    "u16_identity",
-    "i32_identity",
-    "u32_identity",
-    "i64_identity",
-    "u64_identity",
-    "usize_identity",
-    "padded_roundtrip",
-    "hash_utf8",
-    "hash_bytes",
-    "call_scoped",
-    "fail_errno",
-    "counter_create",
-    "counter_add",
-    "counter_value",
-    "counter_destroyed_count",
-    "counter_verify",
-  ],
-  exports: [],
+  imports: [],
+  exports: [{ bindingId: "ts_add_i32", sourceExport: "ntsTsAddI32" }],
 });
 if (!translated.ok) {
   throw new Error(
@@ -43,21 +23,29 @@ if (!translated.ok) {
       .join("\n"),
   );
 }
+if (
+  translated.adapterInputIds.length !== 1 ||
+  translated.adapterInputIds[0] !== "ts_export_adapter"
+) {
+  throw new Error("SCABI export translation lost its C-export adapter provenance");
+}
 
 const result = spawnSync(
   pnpm,
-  ["exec", "vitest", "run", "tests/harness/native-ir.test.ts"],
+  [
+    "exec",
+    "vitest",
+    "run",
+    "tests/harness/native-ir.test.ts",
+    "-t",
+    "exports an exact i32 TypeScript function to a C host",
+  ],
   {
     cwd: scriptcRoot,
     env: {
       ...process.env,
-      SCRIPTC_NATIVE_IR_FIXTURE_SOURCE: join(
-        fixtureRoot,
-        "src/nts_scabi_fixture.c",
-      ),
-      SCRIPTC_NATIVE_IR_FIXTURE_INCLUDE: join(fixtureRoot, "include"),
       SCRIPTC_NATIVE_IR_DECLARATIONS: join(fixtureRoot, "package.d.ts"),
-      SCRIPTC_NATIVE_FRONTEND_INPUT: JSON.stringify(translated.input),
+      SCRIPTC_NATIVE_EXPORT_FRONTEND_INPUT: JSON.stringify(translated.input),
     },
     stdio: "inherit",
   },

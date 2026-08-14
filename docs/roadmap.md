@@ -103,13 +103,17 @@ explicit active-registration roots, closing-entry lookup for admitted leases,
 generation-safe slot reuse, and exact anchor release. Result native handles now
 claim those registrations and order token close, blocking foreign destruction,
 and cancellation completion. This is implemented foundation, not a substitute
-path.
+path. Exact same-type integer `+`, `-`, and `*` now wrap at their declared
+width without C undefined behavior. The first TypeScript-to-C export uses that
+path end to end: SCABI selection resolves an exact `i32` entry function, both
+backends emit the public C symbol, and an independent C host verifies ordinary
+and overflow calls.
 
 Phase 1 still requires generated copied callback payloads and invocation thunks,
 Native IR/SCABI cancellation attachment, target wake and owner-loop integration,
-the remaining error conventions, TypeScript-to-C exports, provider hooks,
-artifact execution, and the remaining workspace-side generator/product/reporting
-work before its exit gate can pass.
+the remaining error conventions and export families, provider hooks, artifact
+execution (including declared export-adapter outputs), and the remaining
+workspace-side generator/product/reporting work before its exit gate can pass.
 
 ### Exit gate
 

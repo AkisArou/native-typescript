@@ -14,6 +14,10 @@ const manifest = parseScabiManifest(
   readFileSync(resolve(fixtureRoot, "package.scabi.json"), "utf8"),
 );
 
+function selectImports(imports: readonly string[]) {
+  return { imports, exports: [] } as const;
+}
+
 type DirectNativeParameter = Omit<
   ScriptCNativeBinding["parameters"][number],
   "projection" | "type"
@@ -30,7 +34,7 @@ function directSignature(parameters: readonly DirectNativeParameter[]) {
 }
 
 test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
-  const result = translateScabiNativeProgram(manifest, ["i32_identity"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["i32_identity"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -73,14 +77,93 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         },
       },
     ],
+    exports: [],
   });
   assert.deepEqual(result.linkInputIds, []);
+  assert.deepEqual(result.adapterInputIds, []);
   assert.equal(Object.isFrozen(result.input), true);
   assert.equal(Object.isFrozen(result.input.bindings[0]), true);
 });
 
+test("SCABI maps a TypeScript implementation onto an exact C export contract", () => {
+  const result = translateScabiNativeProgram(manifest, {
+    imports: [],
+    exports: [{ bindingId: "ts_add_i32", sourceExport: "ntsTsAddI32" }],
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const i32 = { kind: "nativeScalar", scalar: "i32" } as const;
+  assert.deepEqual(result.input, {
+    target: { pointerBits: 64, abi: "sysv-amd64" },
+    sourceTypes: [{
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "i32",
+      },
+      type: i32,
+    }],
+    types: [],
+    bindings: [],
+    exports: [{
+      id: "native-typescript.fixture.c-v1@0.0.0#ts_add_i32",
+      sourceExport: "ntsTsAddI32",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "FixtureLibraryExports.ntsTsAddI32",
+      },
+      entry: { kind: "c-symbol", symbol: "nts_ts_add_i32" },
+      callingConvention: "c",
+      variadic: false,
+      error: { kind: "no-fail" },
+      parameters: [
+        {
+          name: "left",
+          type: i32,
+          passMode: "value",
+          ownership: { kind: "value" },
+        },
+        {
+          name: "right",
+          type: i32,
+          passMode: "value",
+          ownership: { kind: "value" },
+        },
+      ],
+      result: {
+        type: i32,
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    }],
+  });
+  assert.deepEqual(result.linkInputIds, []);
+  assert.deepEqual(result.adapterInputIds, ["ts_export_adapter"]);
+  assert.equal(Object.isFrozen(result.input.exports[0]), true);
+  assert.equal(Object.isFrozen(result.input.exports[0]?.parameters), true);
+});
+
+test("SCABI refuses a selected export whose adapter contract is not C-export", () => {
+  const invalid = structuredClone(manifest);
+  const adapter = invalid.adapterInputs.find(({ id }) => id === "ts_export_adapter");
+  assert.notEqual(adapter, undefined);
+  if (adapter === undefined) return;
+  Object.assign(adapter, { family: "jni" as const });
+
+  const result = translateScabiNativeProgram(invalid, {
+    imports: [],
+    exports: [{ bindingId: "ts_add_i32", sourceExport: "ntsTsAddI32" }],
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(
+    result.diagnostics.map(({ code, path }) => ({ code, path })),
+    [{ code: "NTS3002", path: "/bindings/ts_add_i32" }],
+  );
+});
+
 test("SCABI translates every reached integer with exact signedness and width", () => {
-  const result = translateScabiNativeProgram(manifest, [
+  const result = translateScabiNativeProgram(manifest, selectImports([
     "i8_identity",
     "u8_identity",
     "i16_identity",
@@ -90,7 +173,7 @@ test("SCABI translates every reached integer with exact signedness and width", (
     "i64_identity",
     "u64_identity",
     "usize_identity",
-  ]);
+  ]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -144,7 +227,7 @@ test("SCABI translates every reached integer with exact signedness and width", (
 });
 
 test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI slots", () => {
-  const result = translateScabiNativeProgram(manifest, ["hash_utf8"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["hash_utf8"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -210,7 +293,7 @@ test("SCABI refuses UTF-8 contracts that require adapter work", () => {
   if (data?.marshal?.kind !== "string") return;
   Object.assign(data.marshal, { termination: "nul" as const });
 
-  const result = translateScabiNativeProgram(terminated, ["hash_utf8"]);
+  const result = translateScabiNativeProgram(terminated, selectImports(["hash_utf8"]));
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(
@@ -222,7 +305,7 @@ test("SCABI refuses UTF-8 contracts that require adapter work", () => {
 });
 
 test("SCABI projects one borrowed Uint8Array into exact data and byte-length slots", () => {
-  const result = translateScabiNativeProgram(manifest, ["hash_bytes"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["hash_bytes"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -288,7 +371,7 @@ test("SCABI refuses byte contracts that require mutable native access", () => {
   if (data?.marshal?.kind !== "bytes") return;
   Object.assign(data.marshal, { mutability: "mutable" as const });
 
-  const result = translateScabiNativeProgram(mutable, ["hash_bytes"]);
+  const result = translateScabiNativeProgram(mutable, selectImports(["hash_bytes"]));
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(
@@ -300,7 +383,7 @@ test("SCABI refuses byte contracts that require mutable native access", () => {
 });
 
 test("SCABI projects one call-scoped callback into function and context slots", () => {
-  const result = translateScabiNativeProgram(manifest, ["call_scoped"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["call_scoped"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -378,7 +461,7 @@ test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () =
   if (callback === undefined) return;
   Object.assign(callback, { lifetime: "retained" as const });
 
-  const retainedResult = translateScabiNativeProgram(retained, ["call_scoped"]);
+  const retainedResult = translateScabiNativeProgram(retained, selectImports(["call_scoped"]));
   assert.equal(retainedResult.ok, false);
   if (!retainedResult.ok) {
     assert.equal(
@@ -400,7 +483,7 @@ test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () =
     deliveryExecutor: { kind: "foreign-attached-thread" as const },
   });
 
-  const foreignResult = translateScabiNativeProgram(foreign, ["call_scoped"]);
+  const foreignResult = translateScabiNativeProgram(foreign, selectImports(["call_scoped"]));
   assert.equal(foreignResult.ok, false);
   if (foreignResult.ok) return;
   assert.equal(
@@ -412,10 +495,10 @@ test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () =
 });
 
 test("SCABI translation rejects only requested unsupported bindings", () => {
-  const supported = translateScabiNativeProgram(manifest, ["usize_identity"]);
+  const supported = translateScabiNativeProgram(manifest, selectImports(["usize_identity"]));
   assert.equal(supported.ok, true);
 
-  const unsupported = translateScabiNativeProgram(manifest, ["f32_identity"]);
+  const unsupported = translateScabiNativeProgram(manifest, selectImports(["f32_identity"]));
   assert.equal(unsupported.ok, false);
   if (unsupported.ok) return;
   assert.deepEqual(
@@ -428,7 +511,7 @@ test("SCABI translation rejects only requested unsupported bindings", () => {
 });
 
 test("SCABI lowers an exact errno sentinel without losing its physical result", () => {
-  const result = translateScabiNativeProgram(manifest, ["fail_errno"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["fail_errno"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -465,7 +548,7 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
   assert.notEqual(binding?.kind, "constant");
   if (binding === undefined || binding.kind === "constant") return;
   Object.assign(binding.error, { failureValue: "2147483648" });
-  const rejected = translateScabiNativeProgram(invalid, ["fail_errno"]);
+  const rejected = translateScabiNativeProgram(invalid, selectImports(["fail_errno"]));
   assert.equal(rejected.ok, false);
   if (rejected.ok) return;
   assert.deepEqual(
@@ -475,7 +558,7 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
 });
 
 test("SCABI translates authoritative padded layout and by-value ABI metadata", () => {
-  const result = translateScabiNativeProgram(manifest, ["padded_roundtrip"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["padded_roundtrip"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -518,7 +601,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
 });
 
 test("SCABI closes owned handle factories over their exact destructor", () => {
-  const result = translateScabiNativeProgram(manifest, ["counter_create"]);
+  const result = translateScabiNativeProgram(manifest, selectImports(["counter_create"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
@@ -606,14 +689,14 @@ test("SCABI lowers nullable owned handles as errors rather than nullable source 
   Object.assign(binding, { error: { kind: "nullable" } as const });
   Object.assign(binding.signature.result, { nullable: true });
 
-  const result = translateScabiNativeProgram(nullable, ["counter_create"]);
+  const result = translateScabiNativeProgram(nullable, selectImports(["counter_create"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.input.bindings[0]?.error, { kind: "nullable" });
   assert.equal(result.input.bindings[0]?.result.type.kind, "nativeHandle");
 
   Object.assign(binding.signature.result, { nullable: false });
-  const rejected = translateScabiNativeProgram(nullable, ["counter_create"]);
+  const rejected = translateScabiNativeProgram(nullable, selectImports(["counter_create"]));
   assert.equal(rejected.ok, false);
   if (rejected.ok) return;
   assert.equal(
@@ -630,7 +713,7 @@ test("SCABI keeps the first opaque-handle slice owner-confined and destructor-on
   assert.equal(counterType?.kind, "handle");
   if (counterType?.kind !== "handle") return;
   Object.assign(counterType, { threadSafety: "shared" as const });
-  const nonConfinedResult = translateScabiNativeProgram(nonConfined, ["counter_create"]);
+  const nonConfinedResult = translateScabiNativeProgram(nonConfined, selectImports(["counter_create"]));
   assert.equal(nonConfinedResult.ok, false);
   if (nonConfinedResult.ok) return;
   assert.equal(
@@ -651,7 +734,7 @@ test("SCABI keeps the first opaque-handle slice owner-confined and destructor-on
       executor: { kind: "any-attached-thread" as const },
     },
   });
-  const wrongExecutorResult = translateScabiNativeProgram(wrongExecutor, ["counter_create"]);
+  const wrongExecutorResult = translateScabiNativeProgram(wrongExecutor, selectImports(["counter_create"]));
   assert.equal(wrongExecutorResult.ok, false);
   if (wrongExecutorResult.ok) return;
   assert.equal(
@@ -669,7 +752,7 @@ test("SCABI keeps the first opaque-handle slice owner-confined and destructor-on
     kind: "owned" as const,
     transfer: "to-native" as const,
   });
-  const generalConsumerResult = translateScabiNativeProgram(generalConsumer, ["counter_add"]);
+  const generalConsumerResult = translateScabiNativeProgram(generalConsumer, selectImports(["counter_add"]));
   assert.equal(generalConsumerResult.ok, false);
   if (generalConsumerResult.ok) return;
   assert.equal(

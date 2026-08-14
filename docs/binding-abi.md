@@ -198,6 +198,28 @@ A callable binding records:
 Variadic functions are unsupported unless a binding expands a finite typed
 surface or an explicit unsafe variadic operation is later specified.
 
+### TypeScript-implemented export roots
+
+An export binding describes the native ABI and public symbol; it does not guess
+which application function implements that contract. One compiler invocation
+therefore supplies an explicit program selection with separate reached imports
+and `{ bindingId, sourceExport }` export roots. `sourceExport` names an exported
+function in the library entry module. SCABI continues to own the qualified
+binding identity, declaration identity, C symbol, exact signature, executor,
+error contract, and adapter dependencies.
+
+The implemented first slice accepts a non-variadic, no-fail C export on the
+runtime owner with exact scalar value parameters and an exact scalar or `void`
+result. Its one `c-export` adapter input is validated and retained as
+provenance. ScriptC resolves the source function against its checked and
+lowered signature, emits the public wrapper through both backends, and shares
+the library lifecycle and trap funnel without converting through the legacy
+JavaScript-number export classes. The current fixture proves exact `i32`.
+Aggregate, buffer, ownership-bearing, asynchronous, and platform-specific
+export families remain unsupported. The future artifact planner must also
+materialize or account for the adapter input's declared output; the direct
+compiler conformance gate does not claim that product-level artifact step.
+
 ## Ownership contract
 
 Every pointer, object, handle, callback, string, and buffer position declares
@@ -389,6 +411,10 @@ Its borrowed-byte binding proves the parallel `Uint8Array` contract: an exact
 offset view and its byte length reach native code without copying, mutation of
 the shared backing store is visible before the call, and temporary view/owner
 references are released immediately after return.
+Its `ts_add_i32` export now proves the reverse boundary: the manifest export and
+C-export adapter select an entry-module TypeScript function, both ScriptC
+backends emit the exact `nts_ts_add_i32` symbol, wrapping arithmetic retains
+`i32` semantics, and an independently compiled C probe calls it successfully.
 SCABI v1 remains pre-release until the rest of the acceptance surface passes
 the same path.
 

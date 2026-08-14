@@ -182,6 +182,38 @@ export interface ScriptCNativeBinding {
   };
 }
 
+export interface ScriptCNativeExport {
+  readonly id: string;
+  readonly sourceExport: string;
+  readonly declaration: ScriptCNativeDeclaration;
+  readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
+  readonly callingConvention: "c";
+  readonly variadic: false;
+  readonly error: { readonly kind: "no-fail" };
+  readonly parameters: readonly {
+    readonly name: string;
+    readonly type: ScriptCNativeValueType;
+    readonly passMode: "value";
+    readonly ownership: { readonly kind: "value" };
+  }[];
+  readonly result: {
+    readonly type: ScriptCNativeIrType;
+    readonly passMode: "value";
+    readonly ownership: { readonly kind: "value" };
+  };
+}
+
+/** The application-level roots for one compiler invocation. Imports are
+ * reached native declarations called by TypeScript. Exports pair one SCABI
+ * ABI contract with the entry-module function that implements it. */
+export interface ScriptCNativeProgramSelection {
+  readonly imports: readonly string[];
+  readonly exports: readonly {
+    readonly bindingId: string;
+    readonly sourceExport: string;
+  }[];
+}
+
 /** Generic input consumed by the ScriptC frontend. It contains no SCABI
  * concepts: source identities prove checker types, target ABI facts resolve
  * generic target-sized types, and the binding table is the exact Native IR
@@ -194,6 +226,7 @@ export interface ScriptCNativeFrontendInput {
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
   readonly types: readonly ScriptCNativeTypeDefinition[];
   readonly bindings: readonly ScriptCNativeBinding[];
+  readonly exports: readonly ScriptCNativeExport[];
 }
 
 export interface ScriptCNativeTranslationDiagnostic {
@@ -208,6 +241,7 @@ export type ScriptCNativeTranslationResult =
       readonly ok: true;
       readonly input: ScriptCNativeFrontendInput;
       readonly linkInputIds: readonly string[];
+      readonly adapterInputIds: readonly string[];
     }
   | {
       readonly ok: false;
@@ -464,6 +498,50 @@ function bindingUnsupported(binding: CallableBinding): string | null {
   return null;
 }
 
+function exportBindingUnsupported(
+  manifest: ScabiManifest,
+  bindingId: string,
+  binding: CallableBinding,
+): string | null {
+  if (binding.kind !== "export") return `binding kind '${binding.kind}'`;
+  if (binding.entry.kind !== "adapter-symbol") return `entry kind '${binding.entry.kind}'`;
+  if (binding.signature.callingConvention !== "c") {
+    return `calling convention '${binding.signature.callingConvention}'`;
+  }
+  if (binding.signature.variadic) return "variadic exports";
+  if (binding.error.kind !== "no-fail") {
+    return `error contract '${binding.error.kind}'`;
+  }
+  if (
+    binding.thread.blocking ||
+    binding.thread.behavior !== "require" ||
+    binding.thread.executor.kind !== "runtime-owner"
+  ) {
+    return "exports currently require direct, nonblocking runtime-owner execution";
+  }
+  if (
+    binding.dependencies.bindings.length > 0 ||
+    binding.dependencies.linkInputs.length > 0 ||
+    binding.dependencies.permissions.length > 0
+  ) {
+    return "binding, link, or permission dependencies outside the exact export slice";
+  }
+  if (binding.dependencies.adapterInputs.length !== 1) {
+    return "exact exports require one C-export adapter input";
+  }
+  const adapterId = binding.dependencies.adapterInputs[0]!;
+  const adapter = manifest.adapterInputs.find(({ id }) => id === adapterId);
+  if (
+    adapter === undefined ||
+    adapter.family !== "c-export" ||
+    adapter.language !== "c" ||
+    !adapter.bindings.includes(bindingId)
+  ) {
+    return `adapter input '${adapterId}' is not a C-export adapter for this binding`;
+  }
+  return null;
+}
+
 /** Translate the reachable SCABI bindings supported by ScriptC's current
  * exact-scalar, trivial native-struct, borrowed UTF-8/byte-span, and
  * owner-confined handle IR.
@@ -471,15 +549,17 @@ function bindingUnsupported(binding: CallableBinding): string | null {
  * a precise manifest path. */
 export function translateScabiNativeProgram(
   manifest: ScabiManifest,
-  reachableBindingIds: readonly string[],
+  selection: ScriptCNativeProgramSelection,
 ): ScriptCNativeTranslationResult {
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const bindings: ScriptCNativeBinding[] = [];
+  const exports: ScriptCNativeExport[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
   const nativeTypes = new Map<NativeTypeId, ScriptCNativeTypeDefinition>();
   const visitedSourceTypes = new Set<NativeTypeId>();
   const activeTypes = new Set<NativeTypeId>();
   const linkInputIds = new Set<string>();
+  const adapterInputIds = new Set<string>();
 
   const lowerType = (
     typeId: NativeTypeId,
@@ -663,7 +743,7 @@ export function translateScabiNativeProgram(
     return type;
   };
 
-  const reachable = new Set(reachableBindingIds);
+  const reachable = new Set(selection.imports);
   let expanded = true;
   while (expanded) {
     expanded = false;
@@ -1130,6 +1210,129 @@ export function translateScabiNativeProgram(
     );
   }
 
+  const selectedExportBindings = new Set<string>();
+  const orderedExports = selection.exports
+    .map((selected, selectionIndex) => ({ selected, selectionIndex }))
+    .sort((left, right) =>
+      left.selected.bindingId.localeCompare(right.selected.bindingId) ||
+      left.selected.sourceExport.localeCompare(right.selected.sourceExport)
+    );
+  for (const { selected, selectionIndex } of orderedExports) {
+    const selectionPath = `/selection/exports/${selectionIndex}`;
+    if (selectedExportBindings.has(selected.bindingId)) {
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        `${selectionPath}/bindingId`,
+        `Native export binding '${selected.bindingId}' is selected more than once`,
+      ));
+      continue;
+    }
+    selectedExportBindings.add(selected.bindingId);
+    if (selected.sourceExport.length === 0) {
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        `${selectionPath}/sourceExport`,
+        "Native export source name cannot be empty",
+      ));
+      continue;
+    }
+
+    const path = `/bindings/${selected.bindingId}`;
+    const binding = manifest.bindings[selected.bindingId];
+    if (binding === undefined) {
+      diagnostics.push(diagnostic(
+        "NTS3001",
+        path,
+        `Native export binding '${selected.bindingId}' does not exist`,
+      ));
+      continue;
+    }
+    if (binding.kind === "constant") {
+      diagnostics.push(diagnostic("NTS3002", path, "Constants cannot be native exports"));
+      continue;
+    }
+    const unsupported = exportBindingUnsupported(manifest, selected.bindingId, binding);
+    if (unsupported !== null) {
+      diagnostics.push(diagnostic("NTS3002", path, unsupported));
+      continue;
+    }
+
+    let valid = true;
+    const parameters: ScriptCNativeExport["parameters"][number][] = [];
+    for (const [index, parameter] of binding.signature.parameters.entries()) {
+      const parameterPath = `${path}/signature/parameters/${index}`;
+      const unsupportedPosition = positionUnsupported(
+        parameter,
+        true,
+        manifest.types[parameter.type],
+      );
+      if (unsupportedPosition !== null) {
+        diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
+        valid = false;
+        continue;
+      }
+      const type = lowerType(parameter.type, `${parameterPath}/type`);
+      if (type === null) {
+        valid = false;
+      } else if (type.kind !== "nativeScalar") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${parameterPath}/type`,
+          "Native export parameters must be exact scalar values",
+        ));
+        valid = false;
+      } else {
+        parameters.push(Object.freeze({
+          name: parameter.name,
+          type,
+          passMode: "value",
+          ownership: Object.freeze({ kind: "value" } as const),
+        }));
+      }
+    }
+
+    const resultPath = `${path}/signature/result`;
+    const unsupportedResult = positionUnsupported(
+      binding.signature.result,
+      false,
+      manifest.types[binding.signature.result.type],
+    );
+    if (unsupportedResult !== null) {
+      diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
+      valid = false;
+    }
+    const resultType = lowerType(binding.signature.result.type, `${resultPath}/type`);
+    if (resultType === null) {
+      valid = false;
+    } else if (resultType.kind !== "nativeScalar" && resultType.kind !== "void") {
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        `${resultPath}/type`,
+        "Native export results must be an exact scalar value or void",
+      ));
+      valid = false;
+    }
+    if (!valid || resultType === null) continue;
+
+    const adapterId = binding.dependencies.adapterInputs[0]!;
+    adapterInputIds.add(adapterId);
+    exports.push(Object.freeze({
+      id: `${manifest.package.instance}#${selected.bindingId}`,
+      sourceExport: selected.sourceExport,
+      declaration: normalizeDeclaration(manifest, binding.declaration),
+      entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol } as const),
+      callingConvention: "c",
+      variadic: false,
+      error: Object.freeze({ kind: "no-fail" } as const),
+      parameters: Object.freeze(parameters),
+      result: Object.freeze({
+        type: resultType,
+        passMode: "value",
+        ownership: Object.freeze({ kind: "value" } as const),
+      }),
+    }));
+  }
+
   if (diagnostics.length > 0) {
     return Object.freeze({ ok: false, diagnostics: Object.freeze(diagnostics) });
   }
@@ -1143,7 +1346,9 @@ export function translateScabiNativeProgram(
       sourceTypes: Object.freeze([...sourceTypes.values()]),
       types: Object.freeze([...nativeTypes.values()]),
       bindings: Object.freeze(bindings),
+      exports: Object.freeze(exports),
     }),
     linkInputIds: Object.freeze([...linkInputIds].sort()),
+    adapterInputIds: Object.freeze([...adapterInputIds].sort()),
   });
 }

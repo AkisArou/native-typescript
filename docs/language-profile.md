@@ -120,6 +120,14 @@ behavior:
 This rule favors predictable low-level performance. APIs handling untrusted
 sizes should use checked operations.
 
+The implemented arithmetic slice covers same-type exact integer addition,
+subtraction, and multiplication through the frontend, Native IR, C, and LLVM.
+The C lowering computes in the corresponding unsigned representation and
+reconstructs signed bits without signed-overflow undefined behavior. Division,
+remainder, shifts, bitwise operations, comparisons, and the explicit helper
+families remain future slices and are not silently lowered as ordinary
+JavaScript-number operations.
+
 ### Conversion
 
 - There is no implicit conversion between ordinary `number` and an exact
