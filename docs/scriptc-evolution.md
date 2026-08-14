@@ -1,7 +1,7 @@
 # scriptc Evolution Policy
 
 Status: normative project policy  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 Native TypeScript builds on scriptc, but scriptc is an active experimental
 compiler. Its current limitations are observations about one revision, not the
@@ -203,8 +203,8 @@ list.
 | Exact native integers | Partial systems capability | Fixed-width and pointer-sized integers plus same-type wrapping `+`, `-`, and `*` are implemented through frontend, IR, C/LLVM, and ABI; add the remaining arithmetic, bitwise, comparison, and explicit conversion families | scriptc fork |
 | Native structs/by-value ABI | First slice implemented | Authoritative nominal layout plus indirect `byval`/`sret` lowering is implemented; add direct aggregate classifications, nested aggregates, and unions as authoritative target facts require | scriptc fork + SCABI |
 | TypeScript-to-C exports | First exact-scalar slice implemented | Explicit SCABI export roots resolve checked entry functions and emit exact C/LLVM wrappers; add broader ABI families and artifact-graph realization of declared adapters/products | scriptc fork + Native TypeScript |
-| Retained callbacks | First exact-scalar slice implemented | SCABI/Native IR, generated C/LLVM copied-payload thunks, rooted owner invocation, transactional result-handle cancellation, one-event dispatch, and microtask checkpoints are implemented; add broader payload/lifetime families and concrete target-loop providers | scriptc fork + target runtime |
-| Foreign-thread callbacks | First end-to-end slice implemented | Arbitrary attached producers admit exact-scalar copies through opaque tokens without heap access; owner delivery, exception fencing, cancellation races, and explicit shutdown pass threaded and sanitizer gates; add target wake adapters and richer transport-safe values | scriptc fork + target runtime |
+| Retained callbacks | First exact-scalar slice implemented | SCABI/Native IR, generated C/LLVM copied-payload thunks, rooted owner invocation, transactional result-handle cancellation, one-event dispatch, microtask checkpoints, and executable attached-loop liveness are implemented; add broader payload/lifetime families and additional target-loop providers | scriptc fork + target runtime |
+| Foreign-thread callbacks | First end-to-end slice implemented | Arbitrary attached producers admit exact-scalar copies through opaque tokens without heap access; owner delivery, exception fencing, cancellation races, explicit shutdown, and the GLib wake adapter pass threaded, sanitizer, and real GTK gates; add richer transport-safe values and more target adapters | scriptc fork + target runtime |
 | Owned native returns | First slice implemented | Nominal runtime cells, checked borrowed calls, and exact-once SCABI destruction are implemented through C/LLVM; add retained, weak, invalidation, and executor-aware release modes as bindings require them | scriptc fork + SCABI |
 | Shared-memory threads | Deliberate/runtime constraint | Preserve heap confinement; use multiple instances and explicit transport | architecture |
 | Common standard-library gaps | Missing coverage, case-by-case | Implement when semantics are sound and real programs require them | scriptc fork |

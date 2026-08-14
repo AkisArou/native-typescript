@@ -1,7 +1,7 @@
 # Runtime and Threading
 
 Status: normative  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 This document defines the runtime-instance, scheduling, callback, and shutdown
 model shared by all targets.
@@ -239,6 +239,16 @@ A target source repeats dispatch then checkpoint within its fairness budget and
 returns control to the platform scheduler afterward. Shutdown separately stops
 admission, delivers through the same turn path or discards payloads, and destroys
 the service only after cancellation and leases quiesce.
+
+For executable targets, the platform dispatcher is also a first-class ScriptC
+loop source. Its pending predicate participates in liveness, and its poll
+operation runs at most one host turn before returning control to ScriptC. The
+poll receives ScriptC's next timer deadline, or no deadline when none exists.
+This makes top-level TypeScript initialization return normally while the host
+loop owns application waiting; no compiled native call remains suspended around
+the UI loop. A host dispatcher cannot compose safely with ScriptC's independent
+fd pollers until both share one wait set, so that combination fails explicitly
+instead of using latency-prone periodic polling.
 
 A platform promise/future adapter settles a ScriptC promise by posting a
 gateway event. It does not resolve the promise directly on the platform thread.

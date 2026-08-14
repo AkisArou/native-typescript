@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: normative sequencing; scope changes require architecture review  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 The roadmap is a sequence of permanent vertical slices. A phase exists to prove
 and ship reusable architecture, not to create a disposable demo. Dates are set
@@ -111,17 +111,21 @@ handle cells and lifecycle edges are prepared before the foreign factory, then
 committed without allocation or abandoned on a null result. The runtime exposes
 one-event dispatch plus a host-callable nextTick/microtask checkpoint, so every
 delivered callback is a distinct owner turn and callback exceptions stop before
-later admitted events. Exact same-type integer `+`, `-`, and `*` now wrap at their declared
-width without C undefined behavior. The first TypeScript-to-C export uses that
-path end to end: SCABI selection resolves an exact `i32` entry function, both
-backends emit the public C symbol, and an independent C host verifies ordinary
-and overflow calls.
+later admitted events. An attached host scheduler is now a first-class
+executable-loop liveness source rather than a blocking native call: the runtime
+returns to ScriptC between host turns, hands the host the next ScriptC timer
+deadline, and rejects composition with poller-backed ScriptC I/O until a shared
+poll-set contract exists. Exact same-type integer `+`, `-`, and `*` now wrap at
+their declared width without C undefined behavior. The first TypeScript-to-C
+export uses that path end to end: SCABI selection resolves an exact `i32` entry
+function, both backends emit the public C symbol, and an independent C host
+verifies ordinary and overflow calls.
 
-Phase 1 still requires materializing the implemented GLib runtime adapter
-through the artifact/build graph, broader callback payload and lifetime
-families, the remaining error conventions and export families, provider hooks, artifact
-execution (including declared export-adapter outputs), and the remaining
-workspace-side generator/product/reporting work before its exit gate can pass.
+Phase 1 still requires materializing runtime adapters through the artifact/build
+graph, broader callback payload and lifetime families, the remaining error
+conventions and export families, provider hooks, artifact execution (including
+declared export-adapter outputs), and the remaining workspace-side
+generator/product/reporting work before its exit gate can pass.
 
 ### Exit gate
 
@@ -154,12 +158,24 @@ stack.
 ### Current implementation boundary
 
 The GTK target package now declares the first concrete runtime provider and
-ships its GLib C adapter. Owner and foreign-thread wakes attach asynchronous
-sources to a selected `GMainContext`; each source performs exactly one retained
-callback dispatch and one ScriptC microtask checkpoint. Failure delivery and
-source lifetime are explicit and sanitizer-tested. GIR/header ingestion,
-GObject ownership and signals, artifact-graph integration, application
-lifecycle, and GTK packaging remain before the acceptance application.
+ships its GLib C adapter. The adapter attaches the selected `GMainContext` as
+ScriptC's executable host scheduler, composes ScriptC timer deadlines with GLib
+blocking waits, and uses asynchronous sources for owner- and foreign-thread
+callback wakes. Each source performs exactly one retained callback dispatch and
+one ScriptC microtask checkpoint. Failure delivery, thread affinity, stop/detach
+ordering, and source lifetime are explicit and sanitizer-tested.
+
+A permanent narrow fixture now compiles through both C and LLVM into a native
+GTK executable, creates a real window and button, delivers the button signal to
+a retained TypeScript callback, observes its microtask, and tears down the
+signal, handle, callback service, attached loop, and window with exact
+destruction assertions. It contains no JavaScript engine. The fixture uses a
+hand-authored canonical SCABI manifest and wrapper so it proves the downstream
+architecture without pretending the generator and product pipeline exist.
+GIR/header ingestion, general GObject identity/floating-reference rules,
+generated signal adapters, artifact-graph integration and caching, full
+application lifecycle, resources, CLI orchestration, and GTK packaging remain
+before the phase exit gate.
 
 ### Acceptance application
 

@@ -9,6 +9,9 @@
 
 static ScrOwnerGatewayWakeFn configured_wake;
 static void *configured_wake_context;
+static ScrAttachedLoopPendingFn configured_pending;
+static ScrAttachedLoopPollFn configured_poll;
+static void *configured_loop_context;
 static _Atomic size_t pending_callbacks;
 static ScrRetainedCallbackDispatch dispatch_results[16];
 static size_t dispatch_result_count;
@@ -37,6 +40,29 @@ bool scr_retained_callbacks_configure(ScrOwnerGatewayWakeFn wake,
   if (configured_wake != NULL) return false;
   configured_wake = wake;
   configured_wake_context = wake_context;
+  return true;
+}
+
+bool scr_retained_callbacks_pending(void) {
+  return atomic_load_explicit(&pending_callbacks, memory_order_acquire) != 0;
+}
+
+bool scr_loop_set_attached(ScrAttachedLoopPendingFn pending,
+                           ScrAttachedLoopPollFn poll, void *context) {
+  if (configured_poll != NULL) return false;
+  configured_pending = pending;
+  configured_poll = poll;
+  configured_loop_context = context;
+  return true;
+}
+
+bool scr_loop_clear_attached(void *context) {
+  if (configured_poll == NULL || configured_loop_context != context) {
+    return false;
+  }
+  configured_pending = NULL;
+  configured_poll = NULL;
+  configured_loop_context = NULL;
   return true;
 }
 
@@ -142,6 +168,11 @@ int main(int argc, char **argv) {
   assert(runtime != NULL);
   assert(nts_glib_runtime_start(runtime));
   assert(!nts_glib_runtime_start(runtime));
+  assert(configured_pending(configured_loop_context));
+  assert(configured_poll(configured_loop_context, 0.0) ==
+         SCR_ATTACHED_LOOP_POLL_COMPLETE);
+  assert(configured_poll(configured_loop_context, 1.25) ==
+         SCR_ATTACHED_LOOP_POLL_COMPLETE);
 
   if (argc == 2 && strcmp(argv[1], "wrong-owner") == 0) {
     plan_dispatch(SCR_RETAINED_CALLBACK_DISPATCH_DELIVERED,
@@ -162,7 +193,12 @@ int main(int argc, char **argv) {
   admit();
   admit();
   assert(dispatch_count == 0);
-  iterate_until(context, 2);
+  assert(configured_poll(configured_loop_context, 0.0) ==
+         SCR_ATTACHED_LOOP_POLL_COMPLETE);
+  assert(dispatch_count == 1);
+  assert(configured_poll(configured_loop_context, 0.0) ==
+         SCR_ATTACHED_LOOP_POLL_COMPLETE);
+  assert(dispatch_count == 2);
   assert(strcmp(order, "DCDC") == 0);
 
   plan_dispatch(SCR_RETAINED_CALLBACK_DISPATCH_DELIVERED,
@@ -199,10 +235,14 @@ int main(int argc, char **argv) {
   assert(!exception_pending);
   assert(checkpoint_count == 6);
 
+  nts_glib_runtime_request_stop(runtime);
+  assert(!configured_pending(configured_loop_context));
+
   /* A source already attached at detach holds the adapter memory safely but
    * observes inactive state and cannot enter ScriptC. */
   configured_wake(configured_wake_context);
   nts_glib_runtime_detach(runtime);
+  assert(configured_poll == NULL);
   assert(g_main_context_iteration(context, false));
   assert(dispatch_count == 6);
   while (g_main_context_pending(context)) {

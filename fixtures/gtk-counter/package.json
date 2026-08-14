@@ -1,0 +1,6 @@
+{
+  "name": "@native-typescript/gtk-counter-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "types": "./package.d.ts"
+}

@@ -145,6 +145,18 @@ callback attempted by the foreign destructor, delivery of an earlier lease,
 and alias-safe repeated disposal. Native-handle runtime changes must also pass
 the fork's full `tests/harness/native-ir.test.ts` suite for both backends.
 
+The GTK owner-loop and native-application gates are:
+
+```sh
+node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
+```
+
+The first test compiles the GLib adapter in plain, ASan/UBSan, and TSan modes.
+The second builds the ScriptC compiler, translates the canonical GTK fixture
+manifest, compiles its adapter objects, emits C and LLVM executables, and runs
+both against a real GTK/Xvfb event loop. It skips only when Linux x64, GTK 4, or
+Xvfb is unavailable.
+
 Run the workspace checks:
 
 ```bash

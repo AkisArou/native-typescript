@@ -1,7 +1,7 @@
 # Target Service Provider Interface
 
 Status: normative; capability and composition API implemented  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 The Target SPI lets platforms participate in compilation without embedding
 their logic throughout scriptc. It is a set of narrow provider contracts, not a
@@ -163,14 +163,18 @@ It supplies:
 - shutdown hooks.
 
 The first concrete runtime-provider slice is implemented in
-`@native-typescript/target-gtk`. Its C adapter attaches ScriptC retained-callback
-wakes to a selected `GMainContext`, always through a newly attached GLib source.
-It therefore never invokes TypeScript inline from a native factory even when
-the wake originates on the owner thread. Each source dispatches one callback,
-runs the ScriptC checkpoint, and routes callback, checkpoint, and unhandled-
-rejection failures through an owner-side sink. Plain, ASan/UBSan, and TSan tests
-cover owner and foreign-thread wake paths plus teardown of an already-scheduled
-source. Artifact-graph materialization and GTK application lifecycle remain
+`@native-typescript/target-gtk`. Its C adapter installs a selected
+`GMainContext` as the executable's attached host scheduler and attaches every
+retained-callback wake through a fresh GLib source. It therefore never invokes
+TypeScript inline from a native factory even when the wake originates on the
+owner thread. ScriptC contributes the next timer deadline to the GLib wait;
+poller-backed ScriptC I/O is rejected until the runtime has a shared poll-set
+contract. Each callback source dispatches one event, runs the ScriptC
+checkpoint, and routes callback, checkpoint, and unhandled-rejection failures
+through an owner-side sink. Plain, ASan/UBSan, TSan, and real GTK executable
+tests cover owner and foreign-thread wake paths, timer waits, teardown of an
+already-scheduled source, and complete loop attachment/detachment.
+Artifact-graph materialization and general GTK application lifecycle remain
 separate provider work.
 
 The provider must preserve the runtime rules in

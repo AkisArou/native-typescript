@@ -29,6 +29,11 @@ NtsGlibRuntime *nts_glib_runtime_new(GMainContext *context, gint priority,
  * created. Dispatching the context from another thread is an affinity trap. */
 bool nts_glib_runtime_start(NtsGlibRuntime *runtime);
 
+/* Ends attached-loop liveness and wakes a blocked owner poll. Already-admitted
+ * callbacks still drain before the ScriptC loop observes quiescence. Safe to
+ * request from any thread; native event producers must be stopped separately. */
+void nts_glib_runtime_request_stop(NtsGlibRuntime *runtime);
+
 /* Prevents already-scheduled GLib sources from entering ScriptC and releases
  * the caller's reference. Call on the owner immediately after successfully
  * destroying the retained-callback service; runtime is invalid afterward. */
