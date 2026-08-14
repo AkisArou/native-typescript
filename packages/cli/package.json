@@ -7,13 +7,9 @@
     "native-typescript": "./src/main.ts"
   },
   "exports": {
-    ".": {
-      "types": "./node_modules/.tsbuild/dist/main.d.ts",
-      "default": "./src/main.ts"
-    }
+    ".": "./src/main.ts"
   },
   "dependencies": {
     "@native-typescript/core": "workspace:*"
   }
 }
-

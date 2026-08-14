@@ -4,14 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./node_modules/.tsbuild/dist/index.d.ts",
-      "default": "./src/index.ts"
-    }
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@native-typescript/scriptc": "workspace:*",
     "@native-typescript/target-api": "workspace:*"
   }
 }
-
