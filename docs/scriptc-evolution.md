@@ -200,7 +200,7 @@ list.
 | --- | --- | --- | --- |
 | Target provider seam | Architectural constraint | Immutable phase/provider hooks and generic Native IR | scriptc fork + Target SPI |
 | Native IR neutrality | Architectural constraint | Separate language/host concepts from generic native operations | scriptc fork |
-| Exact native integers | Partial systems capability | Narrow integers are implemented through frontend, IR, C/LLVM, and ABI; define BigInt and target-width semantics for `i64`/`u64`/`isize`/`usize` | scriptc fork |
+| Exact native integers | Partial systems capability | Fixed-width integers through `i64`/`u64` are implemented through frontend, IR, C/LLVM, and ABI using an exact BigInt-literal boundary for 64-bit construction; define distinct target-width semantics for `isize`/`usize` | scriptc fork |
 | Native structs/by-value ABI | Missing systems capability | Authoritative layouts and target ABI lowering | scriptc fork + SCABI |
 | Retained callbacks | Architectural constraint | Runtime-owned callback table and explicit cancellation | scriptc fork |
 | Foreign-thread callbacks | Architectural constraint | MPSC gateway to one owner executor; no foreign heap access | scriptc fork + target runtime |

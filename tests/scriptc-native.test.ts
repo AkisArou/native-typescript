@@ -54,7 +54,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   assert.equal(Object.isFrozen(result.input.bindings[0]), true);
 });
 
-test("SCABI translates every reached narrow integer with exact signedness and width", () => {
+test("SCABI translates every reached fixed-width integer with exact signedness and width", () => {
   const result = translateScabiNativeProgram(manifest, [
     "i8_identity",
     "u8_identity",
@@ -62,6 +62,8 @@ test("SCABI translates every reached narrow integer with exact signedness and wi
     "u16_identity",
     "i32_identity",
     "u32_identity",
+    "i64_identity",
+    "u64_identity",
   ]);
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -80,6 +82,8 @@ test("SCABI translates every reached narrow integer with exact signedness and wi
       u16: "u16",
       i32: "i32",
       u32: "u32",
+      i64: "i64",
+      u64: "u64",
     },
   );
   assert.deepEqual(
@@ -102,22 +106,24 @@ test("SCABI translates every reached narrow integer with exact signedness and wi
       u16Identity: { parameter: "u16", result: "u16" },
       i32Identity: { parameter: "i32", result: "i32" },
       u32Identity: { parameter: "u32", result: "u32" },
+      i64Identity: { parameter: "i64", result: "i64" },
+      u64Identity: { parameter: "u64", result: "u64" },
     },
   );
 });
 
 test("SCABI translation rejects only requested unsupported bindings", () => {
-  const supported = translateScabiNativeProgram(manifest, ["u32_identity"]);
+  const supported = translateScabiNativeProgram(manifest, ["u64_identity"]);
   assert.equal(supported.ok, true);
 
-  const unsupported = translateScabiNativeProgram(manifest, ["i64_identity"]);
+  const unsupported = translateScabiNativeProgram(manifest, ["usize_identity"]);
   assert.equal(unsupported.ok, false);
   if (unsupported.ok) return;
   assert.deepEqual(
     unsupported.diagnostics.map(({ code, path }) => ({ code, path })),
     [
-      { code: "NTS3002", path: "/bindings/i64_identity/signature/parameters/0/type" },
-      { code: "NTS3002", path: "/bindings/i64_identity/signature/result/type" },
+      { code: "NTS3002", path: "/bindings/usize_identity/signature/parameters/0/type" },
+      { code: "NTS3002", path: "/bindings/usize_identity/signature/result/type" },
     ],
   );
 });

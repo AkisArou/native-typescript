@@ -102,7 +102,7 @@ upstream or replaced cleanly by later upstream work.
 ## Validation before commit
 
 The focused cross-repository Native IR/SCABI gate translates the fixture's
-reached narrow-integer bindings, resolves their TypeScript declaration symbols,
+reached fixed-width-integer bindings, resolves their TypeScript declaration symbols,
 and links the resulting source-lowered program against the permanent C fixture
 through both ScriptC backends:
 

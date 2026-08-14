@@ -125,9 +125,11 @@ Capability-aware target planning, the SCABI v1 core manifest/C conformance
 fixture, and the first ScriptC Native IR slice are implemented. That compiler
 slice translates reached SCABI bindings into a manifest-neutral compiler input,
 recognizes exact TypeScript declaration symbols, and lowers signed and unsigned
-8-, 16-, and 32-bit integer literals and calls through both C and LLVM without a
-JavaScript-number carrier. Only reached bindings enter emitted IR or the link.
-The 64-bit/pointer-width scalar contract, aggregates, handles, retained
+8-, 16-, 32-, and 64-bit integer literals and calls through both C and LLVM
+without a JavaScript-number carrier. The 64-bit source boundary accepts only
+exact BigInt literals or values already carrying that native type; it does not
+claim general JavaScript BigInt support. Only reached bindings enter emitted IR
+or the link. Pointer-width scalars, aggregates, handles, retained
 callbacks, owner-thread scheduling, and deterministic cleanup come next.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

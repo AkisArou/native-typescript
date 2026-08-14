@@ -19,6 +19,8 @@ const translated = translateScabiNativeProgram(manifest, [
   "u16_identity",
   "i32_identity",
   "u32_identity",
+  "i64_identity",
+  "u64_identity",
 ]);
 if (!translated.ok) {
   throw new Error(

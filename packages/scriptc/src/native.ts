@@ -18,7 +18,9 @@ export type ScriptCNativeIntegerScalar =
   | "i16"
   | "u16"
   | "i32"
-  | "u32";
+  | "u32"
+  | "i64"
+  | "u64";
 
 export type ScriptCNativeIrType =
   | {
@@ -165,13 +167,16 @@ export function translateScabiNativeProgram(
     if (nativeType.kind === "void") return Object.freeze({ kind: "void" });
     if (
       nativeType.kind !== "integer" ||
-      (nativeType.bits !== 8 && nativeType.bits !== 16 && nativeType.bits !== 32)
+      (nativeType.bits !== 8 &&
+        nativeType.bits !== 16 &&
+        nativeType.bits !== 32 &&
+        nativeType.bits !== 64)
     ) {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           path,
-          `Native type '${typeId}' is outside ScriptC's exact narrow-integer slice`,
+          `Native type '${typeId}' is outside ScriptC's exact fixed-width-integer slice`,
         ),
       );
       return null;

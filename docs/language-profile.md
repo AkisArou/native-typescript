@@ -86,8 +86,10 @@ The exact package name is finalized with the first public API, but symbol
 identity and semantics are fixed by this specification.
 
 The implemented direct-call conformance slice currently covers `i8`, `u8`,
-`i16`, `u16`, `i32`, and `u32`. The 64-bit and pointer-width integers remain
-specified here but await their BigInt and target-width frontend contracts;
+`i16`, `u16`, `i32`, `u32`, `i64`, and `u64`. The fixed 64-bit types use
+decimal BigInt literals as construction syntax and remain exact Native IR
+values; this does not introduce a general JavaScript BigInt representation.
+Pointer-width integers await their target-width identity contract, while
 floating-point exact types await their rounding-operation contract.
 
 ### Representation
@@ -120,8 +122,9 @@ sizes should use checked operations.
 
 - There is no implicit conversion between ordinary `number` and an exact
   integer variable.
-- A numeric literal may be contextually typed as an exact scalar when it is
-  integral and in range.
+- A decimal `number` literal may construct an integer up to 32 bits when it is
+  integral and in range; a decimal BigInt literal is required for `i64` and
+  `u64`. The carrier families never convert implicitly.
 - Widening between exact integer types is allowed only when every source value
   is representable in the destination.
 - Narrowing, signedness changes, float-to-integer conversion, and integer-to-
