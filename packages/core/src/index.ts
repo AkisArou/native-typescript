@@ -3,6 +3,30 @@ import type { ScriptCCheckout } from "@native-typescript/scriptc";
 import type { TargetDefinition } from "@native-typescript/target-api";
 
 export { planTarget, TargetPlanningError } from "./target-plan.ts";
+export {
+  ArtifactExecutionError,
+  ArtifactGraphPlanningError,
+  defineArtifactGraph,
+  executeArtifactGraph,
+} from "./artifact-graph.ts";
+export type {
+  ActionArtifactOrigin,
+  ArtifactActionArgument,
+  ArtifactActionDefinition,
+  ArtifactActionEnvironment,
+  ArtifactActionReport,
+  ArtifactDefinition,
+  ArtifactExecutionOptions,
+  ArtifactExecutionReport,
+  ArtifactGraph,
+  ArtifactGraphDiagnostic,
+  ArtifactGraphDiagnosticCode,
+  ArtifactKind,
+  ArtifactSandboxBinding,
+  ArtifactToolBinding,
+  MaterializedArtifact,
+  SourceArtifactOrigin,
+} from "./artifact-graph.ts";
 export type {
   CapabilitySource,
   ResolvedCapability,

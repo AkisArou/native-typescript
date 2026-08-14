@@ -121,10 +121,12 @@ export uses that path end to end: SCABI selection resolves an exact `i32` entry
 function, both backends emit the public C symbol, and an independent C host
 verifies ordinary and overflow calls.
 
-Phase 1 still requires materializing runtime adapters through the artifact/build
-graph, broader callback payload and lifetime families, the remaining error
-conventions and export families, provider hooks, artifact execution (including
-declared export-adapter outputs), and the remaining workspace-side
+The first host-C artifact graph and Linux sandboxed executor now compile and
+link a permanent native fixture with content-verified sources/tools and strict
+declared-output validation. Phase 1 still requires materializing runtime and
+export adapters through that graph, adding SDK/tree inputs and caching, broader
+callback payload and lifetime families, the remaining error conventions and
+export families, provider hooks, and the remaining workspace-side
 generator/product/reporting work before its exit gate can pass.
 
 ### Exit gate
@@ -396,7 +398,9 @@ that establishes a permanent seam:
 15. attach the owner-turn contract to a real GLib main context without inline
     native-call reentrancy (**implemented**);
 16. materialize the runtime adapter and native products through the artifact
-    graph, then extend the fixture toward the GTK acceptance application.
+    graph, then extend the fixture toward the GTK acceptance application
+    (**in progress: canonical host-C planning and sandboxed execution are
+    implemented; SDK inputs and GTK product integration remain**).
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

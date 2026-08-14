@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "types": []
+    "types": ["node"]
   },
   "references": [
     { "path": "../target-api" },

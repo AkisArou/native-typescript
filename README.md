@@ -182,8 +182,12 @@ and leaves callback exceptions pending for the target error policy. A concrete
 GLib adapter now posts those turns to an attached `GMainContext` from owner or
 foreign threads without inline reentrancy. It routes callback/checkpoint
 failures through an owner-side sink and passes plain, ASan/UBSan, and TSan
-conformance. Build-graph materialization of that adapter remains pending. Only reached bindings and native types enter emitted
-IR or the link. The first reverse boundary is now implemented too: a SCABI
+conformance. The first canonical artifact graph and Linux sandboxed executor
+now content-verify sources and tools, compile and link a real host-C product,
+and reject cycles, content drift, and undeclared outputs. GTK SDK inputs and
+build-graph materialization of the GLib adapter remain pending. Only reached
+bindings and native types enter emitted IR or the link. The first reverse
+boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
 and LLVM, link into a static library, and execute from an independent C host;

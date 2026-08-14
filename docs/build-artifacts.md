@@ -1,7 +1,7 @@
 # Build Artifacts
 
 Status: normative architecture  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 Native TypeScript models a build as a deterministic artifact graph. Compilation,
 adapter generation, native tools, resources, packaging, and signing are visible
@@ -293,3 +293,28 @@ The build suite includes:
 - parallel execution without output races;
 - unsigned package reproducibility;
 - provenance and SBOM completeness.
+
+## Current implementation boundary
+
+The first host-C slice is implemented in `@native-typescript/core`. It defines
+a canonical, deeply immutable schema-v1 graph for regular-file sources and
+products, validates identities, producer ownership, declared path arguments,
+tool consistency, action policy, and dependency cycles, and keeps physical
+workspace and tool paths outside the plan. Source files and executable tools
+are content-verified before execution.
+
+The Linux executor runs dependency-ready actions with bounded parallelism in
+separate Bubblewrap sandboxes. The host filesystem is read-only, only the
+current action directory is writable, the environment is cleared, temporary
+storage is private to the action, and the network namespace is unshared. Inputs
+are private copies and outputs are checked for missing, non-regular, or
+undeclared files before their content digests enter the report. A permanent
+fixture compiles and links a real C executable through this path.
+
+This slice does not yet implement directory/tree artifacts, resolved SDK and
+toolchain path bindings, cache lookup/storage, generated adapter planning,
+diagnostic parsers, resource accounting, packaging/signing, or sandbox
+executors for non-Linux hosts. Those are extensions of this graph, not alternate
+build paths. In particular, the GTK fixture will move onto the executor only
+after GTK/GLib headers and libraries can be represented by content-identified
+SDK inputs without embedding host paths in the plan.
