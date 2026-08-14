@@ -331,6 +331,20 @@ function validateLayout(
       ),
     );
   }
+  if (
+    layout.abiPassing !== undefined &&
+    (!Number.isSafeInteger(layout.abiPassing.alignment) ||
+      !isPowerOfTwo(layout.abiPassing.alignment) ||
+      layout.abiPassing.alignment > layout.alignment)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "NTS2020",
+        `/types/${id}/abiPassing/alignment`,
+        "Indirect ABI alignment must be a power-of-two safe integer no greater than the aggregate alignment",
+      ),
+    );
+  }
 }
 
 function validateTypes(

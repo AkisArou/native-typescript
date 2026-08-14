@@ -85,12 +85,13 @@ f32  f64
 The exact package name is finalized with the first public API, but symbol
 identity and semantics are fixed by this specification.
 
-The implemented direct-call conformance slice currently covers `i8`, `u8`,
+The implemented scalar direct-call conformance slice currently covers `i8`, `u8`,
 `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `isize`, and `usize`. Fixed 64-bit
 and pointer-sized types use decimal BigInt literals as construction syntax and
 remain exact Native IR values; this does not introduce a general JavaScript
-BigInt representation. Floating-point exact types await their
-rounding-operation contract.
+BigInt representation. A finite numeric literal can construct exact `f64` for
+the implemented native-aggregate boundary, but general exact floating-point
+operations still await their rounding-operation contract.
 
 ### Representation
 
@@ -157,6 +158,15 @@ TypeScript records.
 
 Explicit copy/conversion functions bridge native aggregates and ordinary
 records when useful.
+
+The implemented first slice supports nominal, default-packed, trivially
+copyable structs with exact scalar fields and authoritative indirect ABI
+passing. Its direct object-literal assertion is a compile-time representation
+constructor: every field must be present exactly once and already be an exact
+native value. It does not accept an arbitrary object or preserve object
+identity. Native field reads are statically typed and lower directly from the
+nominal value. Field writes, nested aggregates, unions, and non-trivial
+ownership remain outside this slice.
 
 ## Native handles
 

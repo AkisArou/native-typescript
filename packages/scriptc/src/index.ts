@@ -7,9 +7,12 @@ export {
   type ScriptCNativeFrontendInput,
   type ScriptCNativeIntegerScalar,
   type ScriptCNativeIrType,
+  type ScriptCNativeScalar,
   type ScriptCNativeSourceType,
+  type ScriptCNativeStructDefinition,
   type ScriptCNativeTranslationDiagnostic,
   type ScriptCNativeTranslationResult,
+  type ScriptCNativeValueType,
 } from "./native.ts";
 
 export interface ScriptCCheckout {

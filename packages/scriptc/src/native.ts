@@ -24,16 +24,44 @@ export type ScriptCNativeIntegerScalar =
   | "isize"
   | "usize";
 
-export type ScriptCNativeIrType =
+export type ScriptCNativeScalar = ScriptCNativeIntegerScalar | "f64";
+
+export type ScriptCNativeValueType =
   | {
       readonly kind: "nativeScalar";
-      readonly scalar: ScriptCNativeIntegerScalar;
+      readonly scalar: ScriptCNativeScalar;
     }
+  | {
+      readonly kind: "nativeStruct";
+      readonly typeId: string;
+    };
+
+export type ScriptCNativeIrType =
+  | ScriptCNativeValueType
   | { readonly kind: "void" };
 
 export interface ScriptCNativeSourceType {
   readonly declaration: ScriptCNativeDeclaration;
-  readonly type: Exclude<ScriptCNativeIrType, { readonly kind: "void" }>;
+  readonly type: ScriptCNativeValueType;
+}
+
+export interface ScriptCNativeStructDefinition {
+  readonly id: string;
+  readonly declaration: ScriptCNativeDeclaration;
+  readonly size: number;
+  readonly alignment: number;
+  readonly packing: "default";
+  readonly triviallyCopyable: true;
+  readonly destruction: "trivial";
+  readonly abi: {
+    readonly kind: "indirect";
+    readonly alignment: number;
+  };
+  readonly fields: readonly {
+    readonly name: string;
+    readonly type: { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar };
+    readonly offset: number;
+  }[];
 }
 
 export interface ScriptCNativeBinding {
@@ -44,7 +72,7 @@ export interface ScriptCNativeBinding {
   readonly variadic: false;
   readonly parameters: readonly {
     readonly name: string;
-    readonly type: Exclude<ScriptCNativeIrType, { readonly kind: "void" }>;
+    readonly type: ScriptCNativeValueType;
     readonly passMode: "value";
   }[];
   readonly result: {
@@ -60,8 +88,10 @@ export interface ScriptCNativeBinding {
 export interface ScriptCNativeFrontendInput {
   readonly target: {
     readonly pointerBits: 32 | 64;
+    readonly abi: string;
   };
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
+  readonly types: readonly ScriptCNativeStructDefinition[];
   readonly bindings: readonly ScriptCNativeBinding[];
 }
 
@@ -146,8 +176,8 @@ function bindingUnsupported(binding: CallableBinding): string | null {
 }
 
 /** Translate the reachable SCABI bindings supported by ScriptC's current
- * exact-scalar Native IR. Unsupported unreachable records remain inert;
- * requested records fail with a precise manifest path. */
+ * exact-scalar and trivial native-struct IR. Unsupported unreachable records
+ * remain inert; requested records fail with a precise manifest path. */
 export function translateScabiNativeProgram(
   manifest: ScabiManifest,
   reachableBindingIds: readonly string[],
@@ -155,7 +185,9 @@ export function translateScabiNativeProgram(
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const bindings: ScriptCNativeBinding[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
+  const nativeTypes = new Map<NativeTypeId, ScriptCNativeStructDefinition>();
   const visitedSourceTypes = new Set<NativeTypeId>();
+  const activeTypes = new Set<NativeTypeId>();
   const linkInputIds = new Set<string>();
 
   const lowerType = (
@@ -170,42 +202,131 @@ export function translateScabiNativeProgram(
       return null;
     }
     if (nativeType.kind === "void") return Object.freeze({ kind: "void" });
-    if (nativeType.kind !== "integer") {
+    if (nativeType.kind === "integer" || nativeType.kind === "float") {
+      if (nativeType.kind === "float" && nativeType.bits !== 64) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            path,
+            `Native float type '${typeId}' is outside ScriptC's exact f64 slice`,
+          ),
+        );
+        return null;
+      }
+      const scalar: ScriptCNativeScalar = nativeType.kind === "float"
+        ? "f64"
+        : nativeType.bits === "pointer"
+          ? nativeType.signed
+            ? "isize"
+            : "usize"
+          : `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
+      const type = Object.freeze({ kind: "nativeScalar", scalar } as const);
+      if (!visitedSourceTypes.has(typeId)) {
+        visitedSourceTypes.add(typeId);
+        const declaration = manifest.declarations.types[typeId];
+        if (declaration === undefined) {
+          diagnostics.push(
+            diagnostic(
+              "NTS3003",
+              `/declarations/types/${typeId}`,
+              `Reachable native type '${typeId}' has no TypeScript declaration identity`,
+            ),
+          );
+        } else {
+          sourceTypes.set(
+            typeId,
+            Object.freeze({
+              declaration: normalizeDeclaration(manifest, declaration),
+              type,
+            }),
+          );
+        }
+      }
+      return type;
+    }
+    if (nativeType.kind !== "struct") {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           path,
-          `Native type '${typeId}' is outside ScriptC's exact integer slice`,
+          `Native type '${typeId}' is outside ScriptC's scalar-and-struct slice`,
         ),
       );
       return null;
     }
-    const scalar: ScriptCNativeIntegerScalar = nativeType.bits === "pointer"
-      ? nativeType.signed
-        ? "isize"
-        : "usize"
-      : `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
-    const type = Object.freeze({ kind: "nativeScalar", scalar } as const);
+    if (
+      nativeType.packing !== "default" ||
+      !nativeType.triviallyCopyable ||
+      nativeType.destruction !== "trivial" ||
+      nativeType.abiPassing?.kind !== "indirect"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS3002",
+          path,
+          `Native struct '${typeId}' requires default packing, trivial value semantics, and authoritative indirect ABI passing`,
+        ),
+      );
+      return null;
+    }
+    if (activeTypes.has(typeId)) {
+      diagnostics.push(diagnostic("NTS3002", path, `Native struct '${typeId}' is recursive`));
+      return null;
+    }
+    const id = `${manifest.package.instance}#type:${typeId}`;
+    const type = Object.freeze({ kind: "nativeStruct", typeId: id } as const);
+    if (nativeTypes.has(typeId)) return type;
+    activeTypes.add(typeId);
+    const declaration = manifest.declarations.types[typeId];
+    if (declaration === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "NTS3003",
+          `/declarations/types/${typeId}`,
+          `Reachable native type '${typeId}' has no TypeScript declaration identity`,
+        ),
+      );
+      activeTypes.delete(typeId);
+      return null;
+    }
+    const fields: ScriptCNativeStructDefinition["fields"][number][] = [];
+    let valid = true;
+    for (const [index, field] of nativeType.fields.entries()) {
+      if (field.bitField !== undefined) {
+        diagnostics.push(diagnostic("NTS3002", `${path}/fields/${index}`, "Bit fields are outside ScriptC's native struct slice"));
+        valid = false;
+        continue;
+      }
+      const fieldType = lowerType(field.type, `${path}/fields/${index}/type`);
+      if (fieldType === null || fieldType.kind !== "nativeScalar") {
+        if (fieldType !== null) {
+          diagnostics.push(diagnostic("NTS3002", `${path}/fields/${index}/type`, "Nested native aggregates are not supported yet"));
+        }
+        valid = false;
+        continue;
+      }
+      fields.push(Object.freeze({ name: field.name, type: fieldType, offset: field.offset }));
+    }
+    activeTypes.delete(typeId);
+    if (!valid) return null;
+    const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
+    nativeTypes.set(typeId, Object.freeze({
+      id,
+      declaration: normalizedDeclaration,
+      size: nativeType.size,
+      alignment: nativeType.alignment,
+      packing: "default",
+      triviallyCopyable: true,
+      destruction: "trivial",
+      abi: Object.freeze({
+        kind: "indirect",
+        alignment: nativeType.abiPassing.alignment,
+      }),
+      fields: Object.freeze(fields),
+    }));
     if (!visitedSourceTypes.has(typeId)) {
       visitedSourceTypes.add(typeId);
-      const declaration = manifest.declarations.types[typeId];
-      if (declaration === undefined) {
-        diagnostics.push(
-          diagnostic(
-            "NTS3003",
-            `/declarations/types/${typeId}`,
-            `Reachable native type '${typeId}' has no TypeScript declaration identity`,
-          ),
-        );
-      } else {
-        sourceTypes.set(
-          typeId,
-          Object.freeze({
-            declaration: normalizeDeclaration(manifest, declaration),
-            type,
-          }),
-        );
-      }
+      sourceTypes.set(typeId, Object.freeze({ declaration: normalizedDeclaration, type }));
     }
     return type;
   };
@@ -289,8 +410,12 @@ export function translateScabiNativeProgram(
   return Object.freeze({
     ok: true,
     input: Object.freeze({
-      target: Object.freeze({ pointerBits: manifest.target.pointerWidth }),
+      target: Object.freeze({
+        pointerBits: manifest.target.pointerWidth,
+        abi: manifest.target.abi,
+      }),
       sourceTypes: Object.freeze([...sourceTypes.values()]),
+      types: Object.freeze([...nativeTypes.values()]),
       bindings: Object.freeze(bindings),
     }),
     linkInputIds: Object.freeze([...linkInputIds].sort()),

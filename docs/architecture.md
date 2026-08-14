@@ -199,7 +199,10 @@ Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to
 interpret generic operations. For example, `isize` and `usize` remain distinct
 Native IR types while the module's pointer width determines their bounds and
-backend representation. The compiler rejects disagreement between those facts
+backend representation. Nominal aggregate definitions carry authoritative
+size, alignment, field offsets, and an explicit passing classification; the
+initial indirect classification maps to copied `byval` parameters and hidden
+`sret` result storage. The compiler rejects disagreement between those facts
 and the selected code-generation target.
 
 ### Artifact graph

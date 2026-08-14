@@ -269,6 +269,15 @@
         "bitField": { "$ref": "#/$defs/bitField" }
       }
     },
+    "aggregateAbiPassing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "alignment"],
+      "properties": {
+        "kind": { "const": "indirect" },
+        "alignment": { "type": "integer", "minimum": 1 }
+      }
+    },
     "structType": {
       "type": "object",
       "additionalProperties": false,
@@ -294,7 +303,7 @@
         },
         "triviallyCopyable": { "type": "boolean" },
         "destruction": { "enum": ["trivial", "binding"] },
-        "abiClassification": { "$ref": "#/$defs/nonEmptyString" }
+        "abiPassing": { "$ref": "#/$defs/aggregateAbiPassing" }
       }
     },
     "unionType": {
@@ -322,7 +331,7 @@
         },
         "triviallyCopyable": { "type": "boolean" },
         "destruction": { "enum": ["trivial", "binding"] },
-        "abiClassification": { "$ref": "#/$defs/nonEmptyString" },
+        "abiPassing": { "$ref": "#/$defs/aggregateAbiPassing" },
         "discriminator": { "$ref": "#/$defs/id" }
       }
     },
@@ -351,7 +360,7 @@
         },
         "triviallyCopyable": { "type": "boolean" },
         "destruction": { "enum": ["trivial", "binding"] },
-        "abiClassification": { "$ref": "#/$defs/nonEmptyString" }
+        "abiPassing": { "$ref": "#/$defs/aggregateAbiPassing" }
       }
     },
     "handleType": {

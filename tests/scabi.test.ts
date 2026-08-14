@@ -84,7 +84,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:fa465ef469fad34b06ce67edae0925964ae5492ca9bab738d89080f0d4f05702",
+    "sha256:ade6b4b5e7751829e9a4e81e5fc26228594bb92958e25eae69cafc087ad79110",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -185,6 +185,21 @@ test("SCABI rejects a layout that omits required tail storage", () => {
     types: {
       ...manifest.types,
       padded: { ...padded, size: 16 },
+    },
+  };
+
+  assert.deepEqual(validationCodes(invalid), ["NTS2020"]);
+});
+
+test("SCABI rejects aggregate passing alignment beyond the value alignment", () => {
+  const padded = manifest.types.padded;
+  assert.equal(padded?.kind, "struct");
+  if (padded?.kind !== "struct") return;
+  const invalid = {
+    ...manifest,
+    types: {
+      ...manifest.types,
+      padded: { ...padded, abiPassing: { kind: "indirect" as const, alignment: 16 } },
     },
   };
 

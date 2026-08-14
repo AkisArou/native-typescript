@@ -140,13 +140,18 @@ A by-value aggregate records:
 - packing;
 - union overlap;
 - flexible-array restrictions;
-- target ABI classification where layout alone is insufficient;
+- explicit by-value ABI passing metadata where layout alone is insufficient;
 - whether the value is trivially copyable;
 - destruction requirements.
 
 The generator computes layout using the authoritative platform compiler or
 metadata system. The Native TypeScript compiler verifies internal consistency
 but does not recreate target ABI layout heuristics from declarations.
+
+For the first aggregate slice, `abiPassing: { kind: "indirect", alignment }`
+means value parameters use ABI-owned copied argument storage and results use
+caller-provided return storage. This is an executable contract consumed by the
+backends, not a descriptive target-name string.
 
 For C and Objective-C headers, the authoritative generator uses Clang AST and
 target layout information. Text parsing is not an accepted ABI source.

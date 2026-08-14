@@ -16,7 +16,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   if (!result.ok) return;
 
   assert.deepEqual(result.input, {
-    target: { pointerBits: 64 },
+    target: { pointerBits: 64, abi: "sysv-amd64" },
     sourceTypes: [
       {
         declaration: {
@@ -26,6 +26,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         type: { kind: "nativeScalar", scalar: "i32" },
       },
     ],
+    types: [],
     bindings: [
       {
         id: "native-typescript.fixture.c-v1@0.0.0#i32_identity",
@@ -74,7 +75,7 @@ test("SCABI translates every reached integer with exact signedness and width", (
     Object.fromEntries(
       result.input.sourceTypes.map(({ declaration, type }) => [
         declaration.name,
-        type.scalar,
+        type.kind === "nativeScalar" ? type.scalar : type.kind,
       ]),
     ),
     {
@@ -94,7 +95,10 @@ test("SCABI translates every reached integer with exact signedness and width", (
       result.input.bindings.map((binding) => [
         binding.declaration.name,
         {
-          parameter: binding.parameters[0]?.type.scalar,
+          parameter:
+            binding.parameters[0]?.type.kind === "nativeScalar"
+              ? binding.parameters[0].type.scalar
+              : binding.parameters[0]?.type.kind,
           result:
             binding.result.type.kind === "nativeScalar"
               ? binding.result.type.scalar
@@ -130,4 +134,44 @@ test("SCABI translation rejects only requested unsupported bindings", () => {
       { code: "NTS3002", path: "/bindings/f32_identity/signature/result/type" },
     ],
   );
+});
+
+test("SCABI translates authoritative padded layout and by-value ABI metadata", () => {
+  const result = translateScabiNativeProgram(manifest, ["padded_roundtrip"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const typeId = "native-typescript.fixture.c-v1@0.0.0#type:padded";
+  assert.deepEqual(result.input.types, [
+    {
+      id: typeId,
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "Padded",
+      },
+      size: 24,
+      alignment: 8,
+      packing: "default",
+      triviallyCopyable: true,
+      destruction: "trivial",
+      abi: { kind: "indirect", alignment: 8 },
+      fields: [
+        { name: "tag", type: { kind: "nativeScalar", scalar: "u8" }, offset: 0 },
+        { name: "value", type: { kind: "nativeScalar", scalar: "u64" }, offset: 8 },
+        { name: "ratio", type: { kind: "nativeScalar", scalar: "f64" }, offset: 16 },
+      ],
+    },
+  ]);
+  assert.deepEqual(result.input.bindings[0], {
+    id: "native-typescript.fixture.c-v1@0.0.0#padded_roundtrip",
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "paddedRoundtrip",
+    },
+    entry: { kind: "c-symbol", symbol: "nts_padded_roundtrip" },
+    callingConvention: "c",
+    variadic: false,
+    parameters: [{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value" }],
+    result: { type: { kind: "nativeStruct", typeId }, passMode: "value" },
+  });
 });

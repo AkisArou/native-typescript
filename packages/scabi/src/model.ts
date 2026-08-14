@@ -115,7 +115,14 @@ export interface NativeLayout {
   readonly packing: "default" | number;
   readonly triviallyCopyable: boolean;
   readonly destruction: "trivial" | "binding";
-  readonly abiClassification?: string;
+  /** Authoritative by-value ABI lowering. `indirect` means parameters are
+   * copied into ABI-owned argument storage and results use caller-provided
+   * return storage. Layout alone is deliberately not used to rediscover a
+   * platform ABI's register-classification rules. */
+  readonly abiPassing?: {
+    readonly kind: "indirect";
+    readonly alignment: number;
+  };
 }
 
 export interface StructType extends NativeLayout {

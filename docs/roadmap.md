@@ -311,7 +311,9 @@ that establishes a permanent seam:
    through C and LLVM without adding general BigInt (**implemented**);
 8. define pointer-width identity and lower `isize`/`usize` using explicit
    target ABI facts (**implemented**);
-9. expand the same path to aggregates, ownership, and callbacks.
+9. lower nominal padded structs, typed field reads, and authoritative indirect
+   by-value ABI passing through C and LLVM (**implemented**);
+10. expand the same path to ownership and callbacks.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

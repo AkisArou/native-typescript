@@ -130,8 +130,15 @@ both C and LLVM without a JavaScript-number carrier. Fixed 64-bit and
 `isize`/`usize` source boundaries accept only exact BigInt literals or values
 already carrying that native type; pointer-sized ranges come from SCABI target
 metadata and are checked against the selected backend. This does not claim
-general JavaScript BigInt support. Only reached bindings enter emitted IR or
-the link. Aggregates, handles, retained callbacks, owner-thread scheduling, and
-deterministic cleanup come next.
+general JavaScript BigInt support. The same permanent path now supports nominal,
+default-packed, trivially copyable native structs whose fields are exact scalars
+and whose SCABI metadata explicitly selects indirect by-value passing. A direct
+object-literal assertion constructs aggregate storage without reinterpreting a
+JavaScript object; C verifies size, alignment, and offsets at compile time, while
+LLVM emits the target's `byval`/`sret` contract. The padded-struct fixture passes
+through both backends, including statically typed field reads from returned
+values. Only reached bindings and native types enter emitted IR or the link.
+Handles, retained callbacks, owner-thread scheduling, and deterministic cleanup
+come next.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.
