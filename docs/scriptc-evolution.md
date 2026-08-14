@@ -204,7 +204,7 @@ list.
 | Native structs/by-value ABI | Missing systems capability | Authoritative layouts and target ABI lowering | scriptc fork + SCABI |
 | Retained callbacks | Architectural constraint | Runtime-owned callback table and explicit cancellation | scriptc fork |
 | Foreign-thread callbacks | Architectural constraint | MPSC gateway to one owner executor; no foreign heap access | scriptc fork + target runtime |
-| Owned native returns | Missing ownership capability | SCABI allocator/destructor contract and handle table | scriptc fork + SCABI |
+| Owned native returns | First slice implemented | Nominal runtime cells, checked borrowed calls, and exact-once SCABI destruction are implemented through C/LLVM; add retained, weak, invalidation, and executor-aware release modes as bindings require them | scriptc fork + SCABI |
 | Shared-memory threads | Deliberate/runtime constraint | Preserve heap confinement; use multiple instances and explicit transport | architecture |
 | Common standard-library gaps | Missing coverage, case-by-case | Implement when semantics are sound and real programs require them | scriptc fork |
 | Dynamic function patterns used by React | Mixed; investigation required | Classify each pattern, implement general semantics or explicit transform | scriptc fork/framework |

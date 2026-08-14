@@ -23,6 +23,7 @@ typedef struct NtsPadded {
 typedef int32_t (*NtsCallCallback)(int32_t value, void *context);
 typedef void (*NtsRetainedCallback)(int32_t value, void *context);
 typedef struct NtsSubscription NtsSubscription;
+typedef struct NtsCounter NtsCounter;
 
 NTS_SCABI_EXPORT int8_t nts_i8_identity(int8_t value);
 NTS_SCABI_EXPORT uint8_t nts_u8_identity(uint8_t value);
@@ -58,6 +59,19 @@ NTS_SCABI_EXPORT int32_t nts_subscription_emit_foreign(
     int32_t value);
 NTS_SCABI_EXPORT void nts_subscription_destroy(
     NtsSubscription *subscription);
+
+NTS_SCABI_EXPORT NtsCounter *nts_counter_create(int32_t initial_value);
+NTS_SCABI_EXPORT int32_t nts_counter_add(
+    NtsCounter *counter,
+    int32_t delta);
+NTS_SCABI_EXPORT int32_t nts_counter_value(NtsCounter *counter);
+NTS_SCABI_EXPORT void nts_counter_destroy(NtsCounter *counter);
+NTS_SCABI_EXPORT int32_t nts_counter_destroyed_count(void);
+NTS_SCABI_EXPORT int32_t nts_counter_verify(
+    int32_t actual_value,
+    int32_t actual_destroyed,
+    int32_t expected_value,
+    int32_t expected_destroyed);
 
 NTS_SCABI_EXPORT int32_t nts_fail_errno(int32_t error_number);
 

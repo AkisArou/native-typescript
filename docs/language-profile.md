@@ -178,6 +178,23 @@ Handle equality means native identity only when the binding declares an
 identity policy. Otherwise equality is rejected rather than guessed. Detailed
 lifetime rules are in [Ownership](ownership.md).
 
+The implemented first slice accepts handles only from SCABI bindings that
+transfer an owned, non-null C pointer and name its exact destructor. ScriptC
+aliases share one reference-counted runtime cell. A binding-declared method
+borrows the checked pointer for the duration of its direct call; a wrong-type
+or disposed handle throws a catchable `TypeError` before native code runs.
+An owned receiver operation such as `dispose()` clears the cell and invokes
+the destructor synchronously and idempotently. Releasing the final alias does
+the same automatically if explicit disposal has not occurred.
+
+The pointer, destructor, and nominal type tag remain runtime-private. This
+slice is confined to the runtime owner lane and does not yet provide retained
+or weak handles, binding-declared identity unification, external native
+invalidation, executor-hopping destruction, callbacks, or foreign-thread
+ingress. It therefore rejects handle equality, sendable/shared handle types,
+non-owner handle calls, and general consuming transfers even when their SCABI
+metadata is retained for a later slice.
+
 ## Unsafe pointers
 
 Unsafe memory access is available only through an explicitly imported unsafe

@@ -23,6 +23,11 @@ const translated = translateScabiNativeProgram(manifest, [
   "u64_identity",
   "usize_identity",
   "padded_roundtrip",
+  "counter_create",
+  "counter_add",
+  "counter_value",
+  "counter_destroyed_count",
+  "counter_verify",
 ]);
 if (!translated.ok) {
   throw new Error(

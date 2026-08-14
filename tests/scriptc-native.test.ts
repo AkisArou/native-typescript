@@ -37,16 +37,19 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         entry: { kind: "c-symbol", symbol: "nts_i32_identity" },
         callingConvention: "c",
         variadic: false,
+        sourceCall: { kind: "function" },
         parameters: [
           {
             name: "value",
             type: { kind: "nativeScalar", scalar: "i32" },
             passMode: "value",
+            ownership: { kind: "value" },
           },
         ],
         result: {
           type: { kind: "nativeScalar", scalar: "i32" },
           passMode: "value",
+          ownership: { kind: "value" },
         },
       },
     ],
@@ -144,6 +147,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
   const typeId = "native-typescript.fixture.c-v1@0.0.0#type:padded";
   assert.deepEqual(result.input.types, [
     {
+      kind: "struct",
       id: typeId,
       declaration: {
         module: "@native-typescript/scabi-c-v1-fixture",
@@ -171,7 +175,143 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     entry: { kind: "c-symbol", symbol: "nts_padded_roundtrip" },
     callingConvention: "c",
     variadic: false,
-    parameters: [{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value" }],
-    result: { type: { kind: "nativeStruct", typeId }, passMode: "value" },
+    sourceCall: { kind: "function" },
+    parameters: [{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }],
+    result: { type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } },
   });
+});
+
+test("SCABI closes owned handle factories over their exact destructor", () => {
+  const result = translateScabiNativeProgram(manifest, ["counter_create"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const typeId = `${instance}#type:counter`;
+  assert.deepEqual(result.input.types, [
+    {
+      kind: "handle",
+      id: typeId,
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "Counter",
+      },
+      nativeName: "NtsCounter",
+      threadSafety: "confined",
+      identity: "pointer",
+    },
+  ]);
+  assert.deepEqual(
+    result.input.bindings.map((binding) => binding.id),
+    [`${instance}#counter_create`, `${instance}#counter_destroy`],
+  );
+  assert.deepEqual(result.input.bindings[0], {
+    id: `${instance}#counter_create`,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "createCounter",
+    },
+    entry: { kind: "c-symbol", symbol: "nts_counter_create" },
+    callingConvention: "c",
+    variadic: false,
+    sourceCall: { kind: "function" },
+    parameters: [
+      {
+        name: "initial_value",
+        type: { kind: "nativeScalar", scalar: "i32" },
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    ],
+    result: {
+      type: { kind: "nativeHandle", typeId },
+      passMode: "pointer",
+      ownership: {
+        kind: "owned",
+        transfer: "to-runtime",
+        destructor: `${instance}#counter_destroy`,
+      },
+    },
+  });
+  assert.deepEqual(result.input.bindings[1], {
+    id: `${instance}#counter_destroy`,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "Counter.dispose",
+    },
+    entry: { kind: "c-symbol", symbol: "nts_counter_destroy" },
+    callingConvention: "c",
+    variadic: false,
+    sourceCall: { kind: "method", receiverParameter: 0 },
+    parameters: [
+      {
+        name: "counter",
+        type: { kind: "nativeHandle", typeId },
+        passMode: "pointer",
+        ownership: { kind: "owned", transfer: "to-native" },
+      },
+    ],
+    result: {
+      type: { kind: "void" },
+      passMode: "value",
+      ownership: { kind: "value" },
+    },
+  });
+  assert.deepEqual(result.linkInputIds, []);
+});
+
+test("SCABI keeps the first opaque-handle slice owner-confined and destructor-only", () => {
+  const nonConfined = structuredClone(manifest);
+  const counterType = nonConfined.types.counter;
+  assert.equal(counterType?.kind, "handle");
+  if (counterType?.kind !== "handle") return;
+  Object.assign(counterType, { threadSafety: "shared" as const });
+  const nonConfinedResult = translateScabiNativeProgram(nonConfined, ["counter_create"]);
+  assert.equal(nonConfinedResult.ok, false);
+  if (nonConfinedResult.ok) return;
+  assert.equal(
+    nonConfinedResult.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("outside the owner-confined slice")
+    ),
+    true,
+  );
+
+  const wrongExecutor = structuredClone(manifest);
+  const counterCreate = wrongExecutor.bindings.counter_create;
+  assert.notEqual(counterCreate?.kind, "constant");
+  if (counterCreate === undefined || counterCreate.kind === "constant") return;
+  Object.assign(counterCreate, {
+    thread: {
+      behavior: "any" as const,
+      blocking: false,
+      executor: { kind: "any-attached-thread" as const },
+    },
+  });
+  const wrongExecutorResult = translateScabiNativeProgram(wrongExecutor, ["counter_create"]);
+  assert.equal(wrongExecutorResult.ok, false);
+  if (wrongExecutorResult.ok) return;
+  assert.equal(
+    wrongExecutorResult.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/counter_create/thread"
+    ),
+    true,
+  );
+
+  const generalConsumer = structuredClone(manifest);
+  const counterAdd = generalConsumer.bindings.counter_add;
+  assert.notEqual(counterAdd?.kind, "constant");
+  if (counterAdd === undefined || counterAdd.kind === "constant") return;
+  Object.assign(counterAdd.signature.parameters[0]!.ownership, {
+    kind: "owned" as const,
+    transfer: "to-native" as const,
+  });
+  const generalConsumerResult = translateScabiNativeProgram(generalConsumer, ["counter_add"]);
+  assert.equal(generalConsumerResult.ok, false);
+  if (generalConsumerResult.ok) return;
+  assert.equal(
+    generalConsumerResult.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/counter_add/signature/parameters"
+    ),
+    true,
+  );
 });

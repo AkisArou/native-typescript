@@ -14,6 +14,12 @@ struct NtsSubscription {
   bool closing;
 };
 
+struct NtsCounter {
+  int32_t value;
+};
+
+static int32_t nts_counter_destroyed = 0;
+
 typedef struct NtsForeignInvocation {
   NtsSubscription *subscription;
   int32_t value;
@@ -198,6 +204,39 @@ void nts_subscription_destroy(NtsSubscription *subscription) {
   pthread_cond_destroy(&subscription->idle);
   pthread_mutex_destroy(&subscription->mutex);
   free(subscription);
+}
+
+NtsCounter *nts_counter_create(int32_t initial_value) {
+  NtsCounter *counter = (NtsCounter *)malloc(sizeof *counter);
+  if (counter == NULL) {
+    return NULL;
+  }
+  counter->value = initial_value;
+  return counter;
+}
+
+int32_t nts_counter_add(NtsCounter *counter, int32_t delta) {
+  counter->value += delta;
+  return counter->value;
+}
+
+int32_t nts_counter_value(NtsCounter *counter) { return counter->value; }
+
+void nts_counter_destroy(NtsCounter *counter) {
+  nts_counter_destroyed += 1;
+  free(counter);
+}
+
+int32_t nts_counter_destroyed_count(void) { return nts_counter_destroyed; }
+
+int32_t nts_counter_verify(
+    int32_t actual_value,
+    int32_t actual_destroyed,
+    int32_t expected_value,
+    int32_t expected_destroyed) {
+  return actual_value == expected_value && actual_destroyed == expected_destroyed
+             ? 42
+             : 1;
 }
 
 int32_t nts_fail_errno(int32_t error_number) {

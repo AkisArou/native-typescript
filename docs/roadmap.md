@@ -313,7 +313,10 @@ that establishes a permanent seam:
    target ABI facts (**implemented**);
 9. lower nominal padded structs, typed field reads, and authoritative indirect
    by-value ABI passing through C and LLVM (**implemented**);
-10. expand the same path to ownership and callbacks.
+10. lower nominal owned opaque handles, method receiver bindings, checked
+    borrowed calls, alias-safe explicit disposal, and automatic exact-once
+    destruction through C and LLVM (**implemented**);
+11. expand ownership beyond the first C handle mode and add callbacks.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

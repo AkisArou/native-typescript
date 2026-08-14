@@ -20,8 +20,9 @@ without pretending that TypeScript has linear types.
 
 A managed native reference is an opaque `NativeHandle<T>`. Its implementation
 contains enough identity to locate a runtime handle-table entry and reject a
-reused slot, normally an index plus generation. The physical representation is
-runtime-private and not a public ABI.
+reused slot. A recyclable table normally uses an index plus generation; an
+implementation may instead use a uniquely allocated, non-recycled entry. The
+physical representation is runtime-private and not a public ABI.
 
 A handle-table entry conceptually stores:
 
@@ -42,6 +43,14 @@ debug provenance
 
 Application code cannot extract the native pointer or table index from a safe
 handle.
+
+The implemented first C slice uses a uniquely allocated, reference-counted
+entry as the handle value. It stores the native pointer, exact destructor,
+compiler-emitted nominal type tag, and diagnostic type name. Because an entry
+is never reused, its allocation identity supplies the generation guarantee.
+This deliberately leaves room to replace the physical storage with an indexed
+table when weak references, identity maps, native invalidation, or cross-domain
+handles require it; that change cannot alter the source or SCABI contract.
 
 ## States
 

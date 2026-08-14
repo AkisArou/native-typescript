@@ -4,6 +4,7 @@ import type {
   CallableBinding,
   DeclarationReference,
   NativeTypeId,
+  NativeType,
   ScabiManifest,
 } from "@native-typescript/scabi";
 
@@ -34,6 +35,10 @@ export type ScriptCNativeValueType =
   | {
       readonly kind: "nativeStruct";
       readonly typeId: string;
+    }
+  | {
+      readonly kind: "nativeHandle";
+      readonly typeId: string;
     };
 
 export type ScriptCNativeIrType =
@@ -46,6 +51,7 @@ export interface ScriptCNativeSourceType {
 }
 
 export interface ScriptCNativeStructDefinition {
+  readonly kind: "struct";
   readonly id: string;
   readonly declaration: ScriptCNativeDeclaration;
   readonly size: number;
@@ -64,20 +70,47 @@ export interface ScriptCNativeStructDefinition {
   }[];
 }
 
+export interface ScriptCNativeHandleDefinition {
+  readonly kind: "handle";
+  readonly id: string;
+  readonly declaration: ScriptCNativeDeclaration;
+  readonly nativeName: string;
+  readonly threadSafety: "confined";
+  readonly identity: "none" | "pointer" | "binding" | "platform";
+}
+
+export type ScriptCNativeTypeDefinition =
+  | ScriptCNativeStructDefinition
+  | ScriptCNativeHandleDefinition;
+
 export interface ScriptCNativeBinding {
   readonly id: string;
   readonly declaration: ScriptCNativeDeclaration;
   readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
   readonly callingConvention: "c";
   readonly variadic: false;
+  readonly sourceCall:
+    | { readonly kind: "function" }
+    | { readonly kind: "method"; readonly receiverParameter: number };
   readonly parameters: readonly {
     readonly name: string;
     readonly type: ScriptCNativeValueType;
-    readonly passMode: "value";
+    readonly passMode: "value" | "pointer";
+    readonly ownership:
+      | { readonly kind: "value" }
+      | { readonly kind: "borrowed"; readonly scope: "call" }
+      | { readonly kind: "owned"; readonly transfer: "to-native" };
   }[];
   readonly result: {
     readonly type: ScriptCNativeIrType;
-    readonly passMode: "value";
+    readonly passMode: "value" | "pointer";
+    readonly ownership:
+      | { readonly kind: "value" }
+      | {
+          readonly kind: "owned";
+          readonly transfer: "to-runtime";
+          readonly destructor: string;
+        };
   };
 }
 
@@ -91,7 +124,7 @@ export interface ScriptCNativeFrontendInput {
     readonly abi: string;
   };
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
-  readonly types: readonly ScriptCNativeStructDefinition[];
+  readonly types: readonly ScriptCNativeTypeDefinition[];
   readonly bindings: readonly ScriptCNativeBinding[];
 }
 
@@ -137,10 +170,20 @@ function normalizeDeclaration(
 function positionUnsupported(
   position: AbiResult,
   isParameter: boolean,
+  type: NativeType | undefined,
 ): string | null {
-  if (position.passMode !== "value") return `pass mode '${position.passMode}'`;
+  const handle = type?.kind === "handle";
+  if (position.passMode !== (handle ? "pointer" : "value")) {
+    return `pass mode '${position.passMode}'`;
+  }
   if (position.nullable) return "nullable values";
-  if (position.ownership.kind !== "value") {
+  const validOwnership = handle
+    ? isParameter
+      ? (position.ownership.kind === "borrowed" && position.ownership.scope === "call") ||
+        (position.ownership.kind === "owned" && position.ownership.transfer === "to-native")
+      : position.ownership.kind === "owned" && position.ownership.transfer === "to-runtime"
+    : position.ownership.kind === "value";
+  if (!validOwnership) {
     return `ownership '${position.ownership.kind}'`;
   }
   if (position.marshal !== undefined) return `marshalling '${position.marshal.kind}'`;
@@ -151,33 +194,35 @@ function positionUnsupported(
 }
 
 function bindingUnsupported(binding: CallableBinding): string | null {
-  if (binding.kind !== "function") return `binding kind '${binding.kind}'`;
+  if (!["function", "factory", "method"].includes(binding.kind)) {
+    return `binding kind '${binding.kind}'`;
+  }
   if (binding.entry.kind !== "c-symbol") return `entry kind '${binding.entry.kind}'`;
   if (binding.signature.callingConvention !== "c") {
     return `calling convention '${binding.signature.callingConvention}'`;
   }
   if (binding.signature.variadic !== false) return "variadic calls";
   if (binding.error.kind !== "no-fail") return `error contract '${binding.error.kind}'`;
-  if (
-    binding.thread.behavior !== "any" ||
-    binding.thread.executor.kind !== "any-attached-thread" ||
-    binding.thread.blocking
-  ) {
+  const directThread =
+    !binding.thread.blocking &&
+    ((binding.thread.behavior === "any" && binding.thread.executor.kind === "any-attached-thread") ||
+      (binding.thread.behavior === "require" && binding.thread.executor.kind === "runtime-owner"));
+  if (!directThread) {
     return "thread, executor, or blocking semantics outside the direct-call slice";
   }
   if (
-    binding.dependencies.bindings.length > 0 ||
     binding.dependencies.adapterInputs.length > 0 ||
     binding.dependencies.permissions.length > 0
   ) {
-    return "binding, adapter, or permission dependencies outside the direct-call slice";
+    return "adapter or permission dependencies outside the direct-call slice";
   }
   return null;
 }
 
 /** Translate the reachable SCABI bindings supported by ScriptC's current
- * exact-scalar and trivial native-struct IR. Unsupported unreachable records
- * remain inert; requested records fail with a precise manifest path. */
+ * exact-scalar, trivial native-struct, and owner-confined handle IR.
+ * Unsupported unreachable records remain inert; requested records fail with
+ * a precise manifest path. */
 export function translateScabiNativeProgram(
   manifest: ScabiManifest,
   reachableBindingIds: readonly string[],
@@ -185,7 +230,7 @@ export function translateScabiNativeProgram(
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const bindings: ScriptCNativeBinding[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
-  const nativeTypes = new Map<NativeTypeId, ScriptCNativeStructDefinition>();
+  const nativeTypes = new Map<NativeTypeId, ScriptCNativeTypeDefinition>();
   const visitedSourceTypes = new Set<NativeTypeId>();
   const activeTypes = new Set<NativeTypeId>();
   const linkInputIds = new Set<string>();
@@ -241,6 +286,46 @@ export function translateScabiNativeProgram(
             }),
           );
         }
+      }
+      return type;
+    }
+    if (nativeType.kind === "handle") {
+      if (nativeType.threadSafety !== "confined") {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            path,
+            `Handle thread safety '${nativeType.threadSafety}' is outside the owner-confined slice`,
+          ),
+        );
+        return null;
+      }
+      const id = `${manifest.package.instance}#type:${typeId}`;
+      const type = Object.freeze({ kind: "nativeHandle", typeId: id } as const);
+      if (nativeTypes.has(typeId)) return type;
+      const declaration = manifest.declarations.types[typeId];
+      if (declaration === undefined) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3003",
+            `/declarations/types/${typeId}`,
+            `Reachable native type '${typeId}' has no TypeScript declaration identity`,
+          ),
+        );
+        return null;
+      }
+      const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
+      nativeTypes.set(typeId, Object.freeze({
+        kind: "handle",
+        id,
+        declaration: normalizedDeclaration,
+        nativeName: nativeType.nativeName,
+        threadSafety: nativeType.threadSafety,
+        identity: nativeType.identity,
+      }));
+      if (!visitedSourceTypes.has(typeId)) {
+        visitedSourceTypes.add(typeId);
+        sourceTypes.set(typeId, Object.freeze({ declaration: normalizedDeclaration, type }));
       }
       return type;
     }
@@ -311,6 +396,7 @@ export function translateScabiNativeProgram(
     if (!valid) return null;
     const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
     nativeTypes.set(typeId, Object.freeze({
+      kind: "struct",
       id,
       declaration: normalizedDeclaration,
       size: nativeType.size,
@@ -331,7 +417,38 @@ export function translateScabiNativeProgram(
     return type;
   };
 
-  for (const bindingId of [...new Set(reachableBindingIds)].sort()) {
+  const reachable = new Set(reachableBindingIds);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const bindingId of [...reachable].sort()) {
+      const binding = manifest.bindings[bindingId];
+      if (
+        binding === undefined || binding.kind === "constant" ||
+        bindingUnsupported(binding) !== null
+      ) {
+        continue;
+      }
+      for (const dependency of binding.dependencies.bindings) {
+        if (!reachable.has(dependency)) {
+          reachable.add(dependency);
+          expanded = true;
+        }
+      }
+    }
+  }
+
+  const destructorIds = new Set<string>();
+  for (const bindingId of reachable) {
+    const binding = manifest.bindings[bindingId];
+    if (binding === undefined || binding.kind === "constant") continue;
+    const ownership = binding.signature.result.ownership;
+    if (ownership.kind === "owned" && ownership.transfer === "to-runtime") {
+      destructorIds.add(ownership.destructor);
+    }
+  }
+
+  for (const bindingId of [...reachable].sort()) {
     const path = `/bindings/${bindingId}`;
     const binding = manifest.bindings[bindingId];
     if (binding === undefined) {
@@ -351,12 +468,51 @@ export function translateScabiNativeProgram(
       diagnostics.push(diagnostic("NTS3002", path, unsupported));
       continue;
     }
+    const handlePositions = [
+      ...binding.signature.parameters,
+      binding.signature.result,
+    ].filter((position) => manifest.types[position.type]?.kind === "handle");
+    if (
+      handlePositions.length > 0 &&
+      !(binding.thread.behavior === "require" &&
+        binding.thread.executor.kind === "runtime-owner" &&
+        !binding.thread.blocking)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS3002",
+          `${path}/thread`,
+          "Opaque handles currently require a direct, nonblocking runtime-owner call",
+        ),
+      );
+      continue;
+    }
+    if (
+      binding.signature.parameters.some(
+        (parameter) =>
+          parameter.ownership.kind === "owned" && parameter.ownership.transfer === "to-native",
+      ) &&
+      !destructorIds.has(bindingId)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS3002",
+          `${path}/signature/parameters`,
+          "General ownership-consuming calls are outside the exact-destructor slice",
+        ),
+      );
+      continue;
+    }
 
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
     let valid = true;
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
-      const unsupportedPosition = positionUnsupported(parameter, true);
+      const unsupportedPosition = positionUnsupported(
+        parameter,
+        true,
+        manifest.types[parameter.type],
+      );
       if (unsupportedPosition !== null) {
         diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
         valid = false;
@@ -373,12 +529,25 @@ export function translateScabiNativeProgram(
         continue;
       }
       parameters.push(
-        Object.freeze({ name: parameter.name, type, passMode: "value" }),
+        Object.freeze({
+          name: parameter.name,
+          type,
+          passMode: parameter.passMode as "value" | "pointer",
+          ownership: parameter.ownership.kind === "borrowed"
+            ? Object.freeze({ kind: "borrowed", scope: "call" } as const)
+            : parameter.ownership.kind === "owned"
+              ? Object.freeze({ kind: "owned", transfer: "to-native" } as const)
+              : Object.freeze({ kind: "value" } as const),
+        }),
       );
     }
 
     const resultPath = `${path}/signature/result`;
-    const unsupportedResult = positionUnsupported(binding.signature.result, false);
+    const unsupportedResult = positionUnsupported(
+      binding.signature.result,
+      false,
+      manifest.types[binding.signature.result.type],
+    );
     if (unsupportedResult !== null) {
       diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
       valid = false;
@@ -398,8 +567,23 @@ export function translateScabiNativeProgram(
         entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol }),
         callingConvention: "c",
         variadic: false,
+        sourceCall: binding.kind === "method"
+          ? Object.freeze({ kind: "method", receiverParameter: 0 } as const)
+          : Object.freeze({ kind: "function" } as const),
         parameters: Object.freeze(parameters),
-        result: Object.freeze({ type: resultType, passMode: "value" }),
+        result: Object.freeze({
+          type: resultType,
+          passMode: binding.signature.result.passMode as "value" | "pointer",
+          ownership:
+            binding.signature.result.ownership.kind === "owned" &&
+              binding.signature.result.ownership.transfer === "to-runtime"
+            ? Object.freeze({
+                kind: "owned",
+                transfer: "to-runtime",
+                destructor: `${manifest.package.instance}#${binding.signature.result.ownership.destructor}`,
+              } as const)
+            : Object.freeze({ kind: "value" } as const),
+        }),
       }),
     );
   }
