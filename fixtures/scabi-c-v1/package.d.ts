@@ -30,6 +30,8 @@ export interface OwnedBytes {
 
 export interface Subscription {
   readonly [nativeResource]: "Subscription";
+  emit(value: i32): i32;
+  emitForeign(value: i32): i32;
   dispose(): void;
 }
 
@@ -70,11 +72,6 @@ export declare function counterVerify(
   expectedValue: i32,
   expectedDestroyed: i32,
 ): i32;
-export declare function emit(subscription: Subscription, value: i32): void;
-export declare function emitForeign(
-  subscription: Subscription,
-  value: i32,
-): void;
 export declare function failErrno(errorNumber: i32): never;
 
 export interface FixtureLibraryExports {

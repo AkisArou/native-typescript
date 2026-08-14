@@ -416,7 +416,21 @@ test("SCABI projects one call-scoped callback into function and context slots", 
       sourceCall: { kind: "function" },
       error: { kind: "no-fail" },
       arguments: [
-        { name: "callback", type: { kind: "func", params: [i32], ret: i32 } },
+        {
+          name: "callback",
+          type: { kind: "func", params: [i32], ret: i32 },
+          callback: {
+            lifetime: "call",
+            registrationOwner: { kind: "native-call" },
+            allowedInvocationExecutors: ["same-as-caller"],
+            deliveryExecutor: "same-as-caller",
+            synchronousReturn: true,
+            transports: [{ kind: "borrow" }],
+            reentrancy: "required",
+            postDisposal: "not-invoked",
+            shutdown: "drain",
+          },
+        },
         { name: "value", type: i32 },
       ],
       parameters: [
@@ -424,14 +438,14 @@ test("SCABI projects one call-scoped callback into function and context slots", 
           name: "callback",
           type: { kind: "nativeCallback", signature },
           passMode: "pointer",
-          ownership: { kind: "callScoped" },
+          ownership: { kind: "callback", lifetime: "call" },
           projection: { kind: "callbackFunction", argument: 0 },
         },
         {
           name: "context",
           type: { kind: "nativeContext", addressSpace: 0 },
           passMode: "pointer",
-          ownership: { kind: "callScoped" },
+          ownership: { kind: "callback", lifetime: "call" },
           projection: { kind: "callbackContext", argument: 0 },
         },
         {
@@ -451,7 +465,98 @@ test("SCABI projects one call-scoped callback into function and context slots", 
   ]);
 });
 
-test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () => {
+test("SCABI translates an until-cancelled callback with exact result ownership", () => {
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["subscription_create"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const i32 = { kind: "nativeScalar", scalar: "i32" } as const;
+  const callback = {
+    lifetime: "until-cancelled",
+    registrationOwner: { kind: "result" },
+    cancellationBinding: `${instance}#subscription_destroy`,
+    allowedInvocationExecutors: ["same-as-caller", "any-attached-thread"],
+    deliveryExecutor: "runtime-owner",
+    synchronousReturn: false,
+    transports: [{ kind: "copy" }],
+    reentrancy: "allowed",
+    postDisposal: "not-invoked",
+    shutdown: "drain",
+  } as const;
+  const typeId = `${instance}#type:subscription`;
+  assert.deepEqual(result.input.types, [{
+    kind: "handle",
+    id: typeId,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "Subscription",
+    },
+    nativeName: "NtsSubscription",
+    threadSafety: "shared",
+    identity: "pointer",
+  }]);
+  assert.deepEqual(result.input.bindings[0], {
+    id: `${instance}#subscription_create`,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "subscribe",
+    },
+    entry: { kind: "c-symbol", symbol: "nts_subscription_create" },
+    callingConvention: "c",
+    variadic: false,
+    sourceCall: { kind: "function" },
+    error: { kind: "nullable" },
+    arguments: [{
+      name: "callback",
+      type: { kind: "func", params: [i32], ret: { kind: "void" } },
+      callback,
+    }],
+    parameters: [
+      {
+        name: "callback",
+        type: {
+          kind: "nativeCallback",
+          signature: {
+            callingConvention: "c",
+            parameters: [i32],
+            result: { kind: "void" },
+            context: { placement: "last" },
+          },
+        },
+        passMode: "pointer",
+        ownership: { kind: "callback", lifetime: "until-cancelled" },
+        projection: { kind: "callbackFunction", argument: 0 },
+      },
+      {
+        name: "context",
+        type: { kind: "nativeContext", addressSpace: 0 },
+        passMode: "pointer",
+        ownership: { kind: "callback", lifetime: "until-cancelled" },
+        projection: { kind: "callbackContext", argument: 0 },
+      },
+    ],
+    result: {
+      type: { kind: "nativeHandle", typeId },
+      passMode: "pointer",
+      ownership: {
+        kind: "owned",
+        transfer: "to-runtime",
+        destructor: `${instance}#subscription_destroy`,
+      },
+    },
+  });
+  assert.deepEqual(
+    result.input.bindings.map(({ id }) => id),
+    [`${instance}#subscription_create`, `${instance}#subscription_destroy`],
+  );
+  assert.deepEqual(result.linkInputIds, ["pthread"]);
+});
+
+test("SCABI refuses callback contracts outside the two executable slices", () => {
   const retained = structuredClone(manifest);
   const retainedBinding = retained.bindings.call_scoped;
   assert.notEqual(retainedBinding?.kind, "constant");
@@ -466,7 +571,7 @@ test("SCABI refuses callbacks whose lifetime or executor needs an adapter", () =
   if (!retainedResult.ok) {
     assert.equal(
       retainedResult.diagnostics.some((diagnostic) =>
-        diagnostic.message.includes("same-caller call-lifetime callbacks")
+        diagnostic.message.includes("outside the implemented call and until-cancelled slice")
       ),
       true,
     );
@@ -707,18 +812,18 @@ test("SCABI lowers nullable owned handles as errors rather than nullable source 
   );
 });
 
-test("SCABI keeps the first opaque-handle slice owner-confined and destructor-only", () => {
+test("SCABI distinguishes native-resource sharing from managed handle transfer", () => {
   const nonConfined = structuredClone(manifest);
   const counterType = nonConfined.types.counter;
   assert.equal(counterType?.kind, "handle");
   if (counterType?.kind !== "handle") return;
-  Object.assign(counterType, { threadSafety: "shared" as const });
+  Object.assign(counterType, { threadSafety: "sendable" as const });
   const nonConfinedResult = translateScabiNativeProgram(nonConfined, selectImports(["counter_create"]));
   assert.equal(nonConfinedResult.ok, false);
   if (nonConfinedResult.ok) return;
   assert.equal(
     nonConfinedResult.diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("outside the owner-confined slice")
+      diagnostic.message.includes("ownership transfer between runtime executors")
     ),
     true,
   );

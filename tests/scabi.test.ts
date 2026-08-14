@@ -84,7 +84,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:d64f22599764f6a580b21cfc14e6b0375105c3b5e03bd771ca55ffe60822f824",
+    "sha256:6f5ab60f38780c3fa86439b7697b7f7c2b12a4495ba5ea0652d6adbece81c462",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);

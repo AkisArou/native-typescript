@@ -76,6 +76,34 @@ export type ScriptCNativeCallbackArgumentType = {
   readonly ret: ScriptCNativeCallbackSignature["result"];
 };
 
+export type ScriptCNativeCallbackContract =
+  | {
+      readonly lifetime: "call";
+      readonly registrationOwner: { readonly kind: "native-call" };
+      readonly allowedInvocationExecutors: readonly ["same-as-caller"];
+      readonly deliveryExecutor: "same-as-caller";
+      readonly synchronousReturn: true;
+      readonly transports: readonly { readonly kind: "borrow" }[];
+      readonly reentrancy: "required";
+      readonly postDisposal: "not-invoked";
+      readonly shutdown: "drain";
+    }
+  | {
+      readonly lifetime: "until-cancelled";
+      readonly registrationOwner: { readonly kind: "result" };
+      readonly cancellationBinding: string;
+      readonly allowedInvocationExecutors: readonly (
+        | "same-as-caller"
+        | "any-attached-thread"
+      )[];
+      readonly deliveryExecutor: "runtime-owner";
+      readonly synchronousReturn: false;
+      readonly transports: readonly { readonly kind: "copy" }[];
+      readonly reentrancy: "allowed" | "required";
+      readonly postDisposal: "not-invoked";
+      readonly shutdown: "drain";
+    };
+
 export type ScriptCNativeAbiType =
   | ScriptCNativeValueType
   | ScriptCNativePointerType
@@ -134,7 +162,9 @@ export interface ScriptCNativeHandleDefinition {
   readonly id: string;
   readonly declaration: ScriptCNativeDeclaration;
   readonly nativeName: string;
-  readonly threadSafety: "confined";
+  /** Safety of the foreign resource. The managed handle cell remains owned
+   * by the ScriptC runtime thread even when native code shares the resource. */
+  readonly threadSafety: "confined" | "shared";
   readonly identity: "none" | "pointer" | "binding" | "platform";
 }
 
@@ -157,6 +187,7 @@ export interface ScriptCNativeBinding {
   readonly arguments: readonly {
     readonly name: string;
     readonly type: ScriptCNativeArgumentType;
+    readonly callback?: ScriptCNativeCallbackContract;
   }[];
   readonly parameters: readonly {
     readonly name: string;
@@ -166,7 +197,10 @@ export interface ScriptCNativeBinding {
       | { readonly kind: "value" }
       | { readonly kind: "borrowed"; readonly scope: "call" }
       | { readonly kind: "owned"; readonly transfer: "to-native" }
-      | { readonly kind: "callScoped" };
+      | {
+          readonly kind: "callback";
+          readonly lifetime: "call" | "until-cancelled";
+        };
     readonly projection: ScriptCNativeParameterProjection;
   }[];
   readonly result: {
@@ -279,7 +313,14 @@ function positionUnsupported(
   if (position.passMode !== (handle ? "pointer" : "value")) {
     return `pass mode '${position.passMode}'`;
   }
-  if (position.nullable && !allowNullable) return "nullable values";
+  const nonNullManagedHandleArgument =
+    handle &&
+    isParameter &&
+    position.ownership.kind === "owned" &&
+    position.ownership.transfer === "to-native";
+  if (position.nullable && !allowNullable && !nonNullManagedHandleArgument) {
+    return "nullable values";
+  }
   const validOwnership = handle
     ? isParameter
       ? (position.ownership.kind === "borrowed" && position.ownership.scope === "call") ||
@@ -302,18 +343,19 @@ type BorrowedDataParameterPair = {
   readonly pointee: "i8" | "u8";
 };
 
-type CallScopedCallbackPair = {
+type SupportedCallbackPair = {
   readonly functionIndex: number;
   readonly contextIndex: number;
   readonly parameterTypeIds: readonly NativeTypeId[];
   readonly resultTypeId: NativeTypeId;
+  readonly contract: ScriptCNativeCallbackContract;
 };
 
 function supportedCallScopedCallbackPair(
   manifest: ScabiManifest,
   binding: CallableBinding,
   callbackIndex: number,
-): CallScopedCallbackPair | string {
+): SupportedCallbackPair | string {
   const parameter = binding.signature.parameters[callbackIndex]!;
   const contract = parameter.callback;
   const callbackType = manifest.types[parameter.type];
@@ -404,7 +446,168 @@ function supportedCallScopedCallbackPair(
     contextIndex,
     parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
     resultTypeId: callbackType.signature.result.type,
+    contract: Object.freeze({
+      lifetime: "call",
+      registrationOwner: Object.freeze({ kind: "native-call" }),
+      allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
+      deliveryExecutor: "same-as-caller",
+      synchronousReturn: true,
+      transports: Object.freeze(
+        contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
+      ),
+      reentrancy: "required",
+      postDisposal: "not-invoked",
+      shutdown: "drain",
+    }),
   };
+}
+
+function supportedRetainedCallbackPair(
+  manifest: ScabiManifest,
+  binding: CallableBinding,
+  callbackIndex: number,
+): SupportedCallbackPair | string {
+  const parameter = binding.signature.parameters[callbackIndex]!;
+  const contract = parameter.callback;
+  const callbackType = manifest.types[parameter.type];
+  if (
+    contract === undefined ||
+    parameter.passMode !== "pointer" ||
+    parameter.nullable ||
+    parameter.ownership.kind !== "borrowed" ||
+    parameter.ownership.scope !== "registration" ||
+    parameter.ownership.anchor !== "result" ||
+    parameter.marshal !== undefined ||
+    callbackType?.kind !== "callback"
+  ) {
+    return "retained callback data must be a non-null registration-borrowed C callback pointer anchored to the result";
+  }
+  const allowedInvocationExecutors = contract.allowedInvocationExecutors.map(
+    (executor) => executor.kind,
+  );
+  if (
+    contract.lifetime !== "until-cancelled" ||
+    contract.registrationOwner !== "result" ||
+    contract.cancellationBinding === undefined ||
+    contract.contextParameter === undefined ||
+    allowedInvocationExecutors.length === 0 ||
+    allowedInvocationExecutors.some(
+      (executor) => executor !== "same-as-caller" && executor !== "any-attached-thread",
+    ) ||
+    new Set(allowedInvocationExecutors).size !== allowedInvocationExecutors.length ||
+    contract.deliveryExecutor.kind !== "runtime-owner" ||
+    contract.synchronousReturn ||
+    (contract.reentrancy !== "allowed" && contract.reentrancy !== "required") ||
+    contract.postDisposal !== "not-invoked" ||
+    contract.shutdown !== "drain"
+  ) {
+    return "only until-cancelled callbacks copied onto the runtime owner with explicit result-owned cancellation are supported";
+  }
+  if (
+    callbackType.signature.callingConvention !== "c" ||
+    callbackType.signature.variadic ||
+    callbackType.context.placement !== "last" ||
+    callbackType.context.type === undefined
+  ) {
+    return "callback ABI must be non-variadic C with one trailing typed context pointer";
+  }
+  const contextIndex = binding.signature.parameters.findIndex(
+    (candidate) => candidate.name === contract.contextParameter,
+  );
+  const context = binding.signature.parameters[contextIndex];
+  const contextType = context === undefined ? undefined : manifest.types[context.type];
+  const contextPointee = contextType?.kind === "pointer"
+    ? manifest.types[contextType.pointee]
+    : undefined;
+  if (
+    contextIndex < 0 ||
+    contextIndex === callbackIndex ||
+    context === undefined ||
+    context.type !== callbackType.context.type ||
+    context.passMode !== "pointer" ||
+    context.nullable ||
+    context.ownership.kind !== "borrowed" ||
+    context.ownership.scope !== "registration" ||
+    context.ownership.anchor !== parameter.name ||
+    context.marshal !== undefined ||
+    context.callback !== undefined ||
+    contextType?.kind !== "pointer" ||
+    contextType.addressSpace !== 0 ||
+    contextPointee?.kind !== "void"
+  ) {
+    return `callback context '${contract.contextParameter}' must name a non-null registration-borrowed address-space-zero void pointer anchored to '${parameter.name}'`;
+  }
+  const supportedScalarPosition = (position: AbiParameter | AbiResult): boolean => {
+    const type = manifest.types[position.type];
+    return position.passMode === "value" &&
+      !position.nullable &&
+      position.ownership.kind === "value" &&
+      position.marshal === undefined &&
+      (!("callback" in position) || position.callback === undefined) &&
+      (type?.kind === "integer" || (type?.kind === "float" && type.bits === 64));
+  };
+  if (
+    callbackType.signature.parameters.some((position) => !supportedScalarPosition(position)) ||
+    manifest.types[callbackType.signature.result.type]?.kind !== "void"
+  ) {
+    return "retained callback parameters must be exact scalar values and its result must be void";
+  }
+  if (
+    contract.arguments.length !== callbackType.signature.parameters.length ||
+    contract.arguments.some((argument, index) =>
+      argument.parameter !== callbackType.signature.parameters[index]?.name ||
+      argument.transport !== "copy"
+    )
+  ) {
+    return "retained callback transport must copy every callback parameter in ABI order";
+  }
+  const result = binding.signature.result;
+  if (
+    manifest.types[result.type]?.kind !== "handle" ||
+    result.passMode !== "pointer" ||
+    !result.nullable ||
+    result.ownership.kind !== "owned" ||
+    result.ownership.transfer !== "to-runtime" ||
+    result.ownership.destructor !== contract.cancellationBinding ||
+    !binding.dependencies.bindings.includes(contract.cancellationBinding)
+  ) {
+    return `retained callback registration must return a nullable owned handle cancelled by declared dependency '${contract.cancellationBinding}'`;
+  }
+  return {
+    functionIndex: callbackIndex,
+    contextIndex,
+    parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+    resultTypeId: callbackType.signature.result.type,
+    contract: Object.freeze({
+      lifetime: "until-cancelled",
+      registrationOwner: Object.freeze({ kind: "result" }),
+      cancellationBinding: `${manifest.package.instance}#${contract.cancellationBinding}`,
+      allowedInvocationExecutors: Object.freeze(
+        allowedInvocationExecutors as ("same-as-caller" | "any-attached-thread")[],
+      ),
+      deliveryExecutor: "runtime-owner",
+      synchronousReturn: false,
+      transports: Object.freeze(
+        contract.arguments.map(() => Object.freeze({ kind: "copy" } as const)),
+      ),
+      reentrancy: contract.reentrancy,
+      postDisposal: "not-invoked",
+      shutdown: "drain",
+    }),
+  };
+}
+
+function supportedCallbackPair(
+  manifest: ScabiManifest,
+  binding: CallableBinding,
+  callbackIndex: number,
+): SupportedCallbackPair | string {
+  const lifetime = binding.signature.parameters[callbackIndex]?.callback?.lifetime;
+  return lifetime === "call"
+    ? supportedCallScopedCallbackPair(manifest, binding, callbackIndex)
+    : lifetime === "until-cancelled"
+      ? supportedRetainedCallbackPair(manifest, binding, callbackIndex)
+      : `callback lifetime '${lifetime ?? "missing"}' is outside the implemented call and until-cancelled slice`;
 }
 
 function supportedBorrowedDataPair(
@@ -470,6 +673,9 @@ function bindingUnsupported(binding: CallableBinding): string | null {
   if (!["function", "factory", "method"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
   }
+  if (binding.kind === "method" && !binding.declaration.name.includes(".")) {
+    return "method declaration identity must name its containing type and member";
+  }
   if (binding.entry.kind !== "c-symbol") return `entry kind '${binding.entry.kind}'`;
   if (binding.signature.callingConvention !== "c") {
     return `calling convention '${binding.signature.callingConvention}'`;
@@ -483,9 +689,11 @@ function bindingUnsupported(binding: CallableBinding): string | null {
     return `error contract '${binding.error.kind}'`;
   }
   const directThread =
-    !binding.thread.blocking &&
-    ((binding.thread.behavior === "any" && binding.thread.executor.kind === "any-attached-thread") ||
-      (binding.thread.behavior === "require" && binding.thread.executor.kind === "runtime-owner"));
+    (binding.thread.behavior === "any" &&
+      binding.thread.executor.kind === "any-attached-thread" &&
+      !binding.thread.blocking) ||
+    (binding.thread.behavior === "require" &&
+      binding.thread.executor.kind === "runtime-owner");
   if (!directThread) {
     return "thread, executor, or blocking semantics outside the direct-call slice";
   }
@@ -616,12 +824,12 @@ export function translateScabiNativeProgram(
       return type;
     }
     if (nativeType.kind === "handle") {
-      if (nativeType.threadSafety !== "confined") {
+      if (nativeType.threadSafety === "sendable") {
         diagnostics.push(
           diagnostic(
             "NTS3002",
             path,
-            `Handle thread safety '${nativeType.threadSafety}' is outside the owner-confined slice`,
+            "Sendable handles require managed ownership transfer between runtime executors",
           ),
         );
         return null;
@@ -802,13 +1010,13 @@ export function translateScabiNativeProgram(
       handlePositions.length > 0 &&
       !(binding.thread.behavior === "require" &&
         binding.thread.executor.kind === "runtime-owner" &&
-        !binding.thread.blocking)
+        (!binding.thread.blocking || destructorIds.has(bindingId)))
     ) {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           `${path}/thread`,
-          "Opaque handles currently require a direct, nonblocking runtime-owner call",
+          "Opaque handles require a direct runtime-owner call; only exact destructors may block",
         ),
       );
       continue;
@@ -834,8 +1042,8 @@ export function translateScabiNativeProgram(
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
     const borrowedByData = new Map<number, BorrowedDataParameterPair>();
     const borrowedByLength = new Map<number, BorrowedDataParameterPair>();
-    const callbackByFunction = new Map<number, CallScopedCallbackPair>();
-    const callbackByContext = new Map<number, CallScopedCallbackPair>();
+    const callbackByFunction = new Map<number, SupportedCallbackPair>();
+    const callbackByContext = new Map<number, SupportedCallbackPair>();
     const callbackSignatures = new Map<number, ScriptCNativeCallbackSignature>();
     const directTypes = new Map<number, ScriptCNativeValueType>();
     const argumentByParameter = new Map<number, number>();
@@ -866,7 +1074,7 @@ export function translateScabiNativeProgram(
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       if (parameter.callback === undefined) continue;
-      const pair = supportedCallScopedCallbackPair(manifest, binding, index);
+      const pair = supportedCallbackPair(manifest, binding, index);
       if (typeof pair === "string") {
         diagnostics.push(
           diagnostic("NTS3002", `${path}/signature/parameters/${index}`, pair),
@@ -980,6 +1188,7 @@ export function translateScabiNativeProgram(
             params: signature.parameters,
             ret: signature.result,
           } as const),
+          callback: callback.contract,
         }));
         argumentByParameter.set(index, argument);
         argumentByParameter.set(callback.contextIndex, argument);
@@ -1036,7 +1245,10 @@ export function translateScabiNativeProgram(
             name: parameter.name,
             type: Object.freeze({ kind: "nativeCallback", signature } as const),
             passMode: "pointer",
-            ownership: Object.freeze({ kind: "callScoped" } as const),
+            ownership: Object.freeze({
+              kind: "callback",
+              lifetime: callbackFunction.contract.lifetime,
+            } as const),
             projection: Object.freeze({ kind: "callbackFunction", argument } as const),
           }));
           continue;
@@ -1047,7 +1259,10 @@ export function translateScabiNativeProgram(
             name: parameter.name,
             type: Object.freeze({ kind: "nativeContext", addressSpace: 0 } as const),
             passMode: "pointer",
-            ownership: Object.freeze({ kind: "callScoped" } as const),
+            ownership: Object.freeze({
+              kind: "callback",
+              lifetime: callbackContext.contract.lifetime,
+            } as const),
             projection: Object.freeze({ kind: "callbackContext", argument } as const),
           }));
           continue;
