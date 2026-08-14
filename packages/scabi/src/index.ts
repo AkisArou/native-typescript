@@ -27,6 +27,7 @@ export type {
   CallableBinding,
   CallableBindingKind,
   ConstantBinding,
+  DeclarationContract,
   DeclarationReference,
   EnumType,
   ErrorContract,

@@ -155,6 +155,32 @@ function validateTypeReferences(
   manifest: ScabiManifest,
   diagnostics: ScabiDiagnostic[],
 ): void {
+  const declarationIdentities = new Set<string>();
+  for (const [typeId, declaration] of Object.entries(
+    manifest.declarations.types,
+  )) {
+    if (manifest.types[typeId] === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2010",
+          `/declarations/types/${typeId}`,
+          `Native type ${typeId} does not exist`,
+        ),
+      );
+    }
+    const identity = `${declaration.module}\0${declaration.name}`;
+    if (declarationIdentities.has(identity)) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2021",
+          `/declarations/types/${typeId}`,
+          `Source type ${declaration.module}::${declaration.name} is mapped more than once`,
+        ),
+      );
+    }
+    declarationIdentities.add(identity);
+  }
+
   for (const [id, type] of Object.entries(manifest.types)) {
     for (const reference of typeReferences(type)) {
       if (manifest.types[reference] === undefined) {

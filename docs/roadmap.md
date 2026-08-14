@@ -302,7 +302,9 @@ that establishes a permanent seam:
    (**implemented**);
 4. lower and validate one exact scalar C call through both backends
    (**implemented**);
-5. expand the same path to aggregates, ownership, and callbacks.
+5. resolve exact declaration symbols and translate reached SCABI bindings into
+   the compiler frontend (**implemented**);
+6. expand the same path to aggregates, ownership, and callbacks.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

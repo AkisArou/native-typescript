@@ -101,8 +101,10 @@ upstream or replaced cleanly by later upstream work.
 
 ## Validation before commit
 
-The focused cross-repository Native IR/SCABI gate links the same exact-scalar
-IR program against the permanent fixture through both ScriptC backends:
+The focused cross-repository Native IR/SCABI gate translates the fixture's
+reached exact-scalar binding, resolves its TypeScript declaration symbols, and
+links the resulting source-lowered program against the permanent C fixture
+through both ScriptC backends:
 
 ```sh
 pnpm scriptc:test:native-ir

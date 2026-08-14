@@ -11,7 +11,7 @@
     "target",
     "sdk",
     "generator",
-    "declarationsDigest",
+    "declarations",
     "types",
     "bindings",
     "linkInputs",
@@ -25,7 +25,7 @@
     "target": { "$ref": "#/$defs/targetIdentity" },
     "sdk": { "$ref": "#/$defs/sdkIdentity" },
     "generator": { "$ref": "#/$defs/generatorIdentity" },
-    "declarationsDigest": { "$ref": "#/$defs/digest" },
+    "declarations": { "$ref": "#/$defs/declarationContract" },
     "types": {
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/id" },
@@ -755,6 +755,19 @@
       "properties": {
         "module": { "$ref": "#/$defs/nonEmptyString" },
         "name": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "declarationContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "types"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/digest" },
+        "types": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "$ref": "#/$defs/declarationReference" }
+        }
       }
     },
     "callableBinding": {

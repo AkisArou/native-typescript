@@ -29,6 +29,9 @@ importers:
       '@native-typescript/scabi':
         specifier: workspace:*
         version: link:packages/scabi
+      '@native-typescript/scriptc':
+        specifier: workspace:*
+        version: link:packages/scriptc
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:packages/target-api
@@ -60,7 +63,11 @@ importers:
         specifier: 'catalog:'
         version: 8.20.0
 
-  packages/scriptc: {}
+  packages/scriptc:
+    dependencies:
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
 
   packages/target-api: {}
 

@@ -123,9 +123,10 @@ pnpm test
 The repository is not yet an application framework or production compiler.
 Capability-aware target planning, the SCABI v1 core manifest/C conformance
 fixture, and the first ScriptC Native IR slice are implemented. That compiler
-slice validates and serializes binding-ID-based exact `i32` calls and lowers
-them through both C and LLVM without a JavaScript-number carrier. Frontend
-declaration recognition and SCABI-to-Native-IR translation come next, followed
-by the remaining exact values, aggregates, handles, retained callbacks,
-owner-thread scheduling, and deterministic cleanup. Platform UI and framework
-work begins only after those contracts pass their conformance gates.
+slice translates reached SCABI bindings into a manifest-neutral compiler input,
+recognizes exact TypeScript declaration symbols, and lowers `i32` literals and
+calls through both C and LLVM without a JavaScript-number carrier. Only reached
+bindings enter emitted IR or the link. The remaining exact values, aggregates,
+handles, retained callbacks, owner-thread scheduling, and deterministic cleanup
+come next. Platform UI and framework work begins only after those contracts
+pass their conformance gates.

@@ -84,7 +84,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:46ac8cde02821cfb99d112605ff26ef200fec5719e97436b31fd422efb90951e",
+    "sha256:fa465ef469fad34b06ce67edae0925964ae5492ca9bab738d89080f0d4f05702",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -97,7 +97,11 @@ test("SCABI fixture provenance matches declarations and header", () => {
     resolve(fixtureRoot, "include/nts_scabi_fixture.h"),
   );
 
-  assert.equal(manifest.declarationsDigest, declarationDigest);
+  assert.equal(manifest.declarations.digest, declarationDigest);
+  assert.deepEqual(manifest.declarations.types.i32, {
+    module: ".",
+    name: "i32",
+  });
   assert.equal(manifest.sdk.metadataDigest, headerDigest);
   assert.deepEqual(manifest.generator.inputDigests, [headerDigest]);
 });
@@ -185,6 +189,32 @@ test("SCABI rejects a layout that omits required tail storage", () => {
   };
 
   assert.deepEqual(validationCodes(invalid), ["NTS2020"]);
+});
+
+test("SCABI rejects unknown and ambiguous source type identities", () => {
+  const unknown = {
+    ...manifest,
+    declarations: {
+      ...manifest.declarations,
+      types: {
+        ...manifest.declarations.types,
+        ghost: { module: ".", name: "Ghost" },
+      },
+    },
+  };
+  assert.deepEqual(validationCodes(unknown), ["NTS2010"]);
+
+  const duplicate = {
+    ...manifest,
+    declarations: {
+      ...manifest.declarations,
+      types: {
+        ...manifest.declarations.types,
+        u32: manifest.declarations.types.i32,
+      },
+    },
+  };
+  assert.deepEqual(validationCodes(duplicate), ["NTS2021"]);
 });
 
 test("SCABI rejects implicit ownership for a native pointer", () => {

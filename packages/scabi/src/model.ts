@@ -322,6 +322,14 @@ export interface DeclarationReference {
   readonly name: string;
 }
 
+/** Source declarations covered by this manifest. Native type IDs are ABI
+ * identities and need not resemble their exported TypeScript names, so the
+ * relationship is explicit rather than inferred from spelling. */
+export interface DeclarationContract {
+  readonly digest: Sha256Digest;
+  readonly types: Readonly<Record<NativeTypeId, DeclarationReference>>;
+}
+
 export type CallableBindingKind =
   | "function"
   | "constructor"
@@ -396,7 +404,7 @@ export interface ScabiManifest {
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
   readonly generator: GeneratorIdentity;
-  readonly declarationsDigest: Sha256Digest;
+  readonly declarations: DeclarationContract;
   readonly types: Readonly<Record<NativeTypeId, NativeType>>;
   readonly bindings: Readonly<Record<NativeBindingId, NativeBinding>>;
   readonly linkInputs: readonly LinkInput[];

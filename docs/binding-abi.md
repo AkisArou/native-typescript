@@ -25,6 +25,11 @@ binding-package/
 the native contract. The compiler verifies that declarations and binding
 records agree for every reachable export.
 
+Native type IDs are manifest-local ABI identities, not source names. The
+declaration contract therefore maps projected native types to exact exported
+TypeScript declaration identities; the compiler never assumes that a type ID
+and an alias happen to share a spelling.
+
 Generated adapters may be stored in the package or produced as build artifacts.
 Their provenance and exact inputs are always recorded.
 
@@ -55,7 +60,10 @@ interface ScabiManifest {
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
   readonly generator: GeneratorIdentity;
-  readonly declarationsDigest: string;
+  readonly declarations: {
+    readonly digest: string;
+    readonly types: Readonly<Record<string, DeclarationReference>>;
+  };
   readonly types: Readonly<Record<string, NativeType>>;
   readonly bindings: Readonly<Record<string, NativeBinding>>;
   readonly linkInputs: readonly LinkInput[];
@@ -156,8 +164,10 @@ SCABI distinguishes:
 - exported TypeScript-to-native entry points;
 - platform activation or registration records.
 
-Each binding has a stable manifest-local ID. Native IR references this ID,
-never an unchecked symbol string supplied by application source.
+Each binding has a stable manifest-local ID. Translation qualifies it with the
+package instance before it enters Native IR, so bindings from multiple packages
+share one collision-free namespace. Calls reference that stable identity, never
+an unchecked symbol string supplied by application source.
 
 ## Function contract
 
@@ -335,8 +345,9 @@ After a public v1 contract exists:
 The permanent fixture lives in `fixtures/scabi-c-v1`. Its canonical manifest,
 declarations, authoritative C header, implementation, layout probe, and native
 behavior test are active conformance inputs. The fixture contract is ratified;
-SCABI v1 remains pre-release until compiler lowering and declaration agreement
-also pass it end to end.
+its exact `i32` declaration, manifest binding, Native IR, C symbol, and both
+ScriptC backends now agree end to end. SCABI v1 remains pre-release until the
+rest of the acceptance surface passes the same path.
 
 SCABI v1 is not considered complete until one fixture proves:
 

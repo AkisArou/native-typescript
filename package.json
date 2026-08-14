@@ -24,6 +24,7 @@
     "@native-typescript/cli": "workspace:*",
     "@native-typescript/core": "workspace:*",
     "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/scriptc": "workspace:*",
     "@native-typescript/target-api": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"

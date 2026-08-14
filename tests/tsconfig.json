@@ -8,6 +8,7 @@
   "references": [
     { "path": "../packages/core" },
     { "path": "../packages/scabi" },
+    { "path": "../packages/scriptc" },
     { "path": "../packages/target-api" }
   ]
 }
