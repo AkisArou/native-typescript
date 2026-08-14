@@ -304,7 +304,11 @@ that establishes a permanent seam:
    (**implemented**);
 5. resolve exact declaration symbols and translate reached SCABI bindings into
    the compiler frontend (**implemented**);
-6. expand the same path to aggregates, ownership, and callbacks.
+6. extend the exact direct-call path across signed and unsigned 8-, 16-, and
+   32-bit integers, including C ABI extension rules and an IR version fence
+   (**implemented**);
+7. define the BigInt/pointer-width scalar contract, then expand the same path to
+   aggregates, ownership, and callbacks.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

@@ -345,9 +345,10 @@ After a public v1 contract exists:
 The permanent fixture lives in `fixtures/scabi-c-v1`. Its canonical manifest,
 declarations, authoritative C header, implementation, layout probe, and native
 behavior test are active conformance inputs. The fixture contract is ratified;
-its exact `i32` declaration, manifest binding, Native IR, C symbol, and both
-ScriptC backends now agree end to end. SCABI v1 remains pre-release until the
-rest of the acceptance surface passes the same path.
+its exact `i8`/`u8`, `i16`/`u16`, and `i32`/`u32` declarations, manifest
+bindings, Native IR, C symbols, and both ScriptC backends now agree end to end.
+SCABI v1 remains pre-release until the rest of the acceptance surface passes
+the same path.
 
 SCABI v1 is not considered complete until one fixture proves:
 

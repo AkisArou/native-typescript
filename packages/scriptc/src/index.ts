@@ -5,6 +5,7 @@ export {
   type ScriptCNativeBinding,
   type ScriptCNativeDeclaration,
   type ScriptCNativeFrontendInput,
+  type ScriptCNativeIntegerScalar,
   type ScriptCNativeIrType,
   type ScriptCNativeSourceType,
   type ScriptCNativeTranslationDiagnostic,

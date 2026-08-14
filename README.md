@@ -124,9 +124,10 @@ The repository is not yet an application framework or production compiler.
 Capability-aware target planning, the SCABI v1 core manifest/C conformance
 fixture, and the first ScriptC Native IR slice are implemented. That compiler
 slice translates reached SCABI bindings into a manifest-neutral compiler input,
-recognizes exact TypeScript declaration symbols, and lowers `i32` literals and
-calls through both C and LLVM without a JavaScript-number carrier. Only reached
-bindings enter emitted IR or the link. The remaining exact values, aggregates,
-handles, retained callbacks, owner-thread scheduling, and deterministic cleanup
-come next. Platform UI and framework work begins only after those contracts
-pass their conformance gates.
+recognizes exact TypeScript declaration symbols, and lowers signed and unsigned
+8-, 16-, and 32-bit integer literals and calls through both C and LLVM without a
+JavaScript-number carrier. Only reached bindings enter emitted IR or the link.
+The 64-bit/pointer-width scalar contract, aggregates, handles, retained
+callbacks, owner-thread scheduling, and deterministic cleanup come next.
+Platform UI and framework work begins only after those contracts pass their
+conformance gates.

@@ -12,8 +12,19 @@ export interface ScriptCNativeDeclaration {
   readonly name: string;
 }
 
+export type ScriptCNativeIntegerScalar =
+  | "i8"
+  | "u8"
+  | "i16"
+  | "u16"
+  | "i32"
+  | "u32";
+
 export type ScriptCNativeIrType =
-  | { readonly kind: "nativeScalar"; readonly scalar: "i32" }
+  | {
+      readonly kind: "nativeScalar";
+      readonly scalar: ScriptCNativeIntegerScalar;
+    }
   | { readonly kind: "void" };
 
 export interface ScriptCNativeSourceType {
@@ -154,19 +165,20 @@ export function translateScabiNativeProgram(
     if (nativeType.kind === "void") return Object.freeze({ kind: "void" });
     if (
       nativeType.kind !== "integer" ||
-      nativeType.signed !== true ||
-      nativeType.bits !== 32
+      (nativeType.bits !== 8 && nativeType.bits !== 16 && nativeType.bits !== 32)
     ) {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           path,
-          `Native type '${typeId}' is outside ScriptC's exact-i32 slice`,
+          `Native type '${typeId}' is outside ScriptC's exact narrow-integer slice`,
         ),
       );
       return null;
     }
-    const type = Object.freeze({ kind: "nativeScalar", scalar: "i32" } as const);
+    const scalar: ScriptCNativeIntegerScalar =
+      `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
+    const type = Object.freeze({ kind: "nativeScalar", scalar } as const);
     if (!visitedSourceTypes.has(typeId)) {
       visitedSourceTypes.add(typeId);
       const declaration = manifest.declarations.types[typeId];

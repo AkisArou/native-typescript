@@ -12,7 +12,14 @@ const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const manifest = parseScabiManifest(
   readFileSync(join(fixtureRoot, "package.scabi.json"), "utf8"),
 );
-const translated = translateScabiNativeProgram(manifest, ["i32_identity"]);
+const translated = translateScabiNativeProgram(manifest, [
+  "i8_identity",
+  "u8_identity",
+  "i16_identity",
+  "u16_identity",
+  "i32_identity",
+  "u32_identity",
+]);
 if (!translated.ok) {
   throw new Error(
     translated.diagnostics

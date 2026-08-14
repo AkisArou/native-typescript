@@ -85,6 +85,11 @@ f32  f64
 The exact package name is finalized with the first public API, but symbol
 identity and semantics are fixed by this specification.
 
+The implemented direct-call conformance slice currently covers `i8`, `u8`,
+`i16`, `u16`, `i32`, and `u32`. The 64-bit and pointer-width integers remain
+specified here but await their BigInt and target-width frontend contracts;
+floating-point exact types await their rounding-operation contract.
+
 ### Representation
 
 - Fixed-width integers have exactly the named width.
