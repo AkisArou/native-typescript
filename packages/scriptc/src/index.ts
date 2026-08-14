@@ -6,6 +6,7 @@ export {
   type ScriptCNativeArgumentType,
   type ScriptCNativeBinding,
   type ScriptCNativeDeclaration,
+  type ScriptCNativeErrorContract,
   type ScriptCNativeFrontendInput,
   type ScriptCNativeHandleDefinition,
   type ScriptCNativeIntegerScalar,

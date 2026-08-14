@@ -57,6 +57,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         callingConvention: "c",
         variadic: false,
         sourceCall: { kind: "function" },
+        error: { kind: "no-fail" },
         ...directSignature([
           {
             name: "value",
@@ -167,6 +168,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
+      error: { kind: "no-fail" },
       arguments: [{ name: "data", type: { kind: "string" } }],
       parameters: [
         {
@@ -244,6 +246,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
+      error: { kind: "no-fail" },
       arguments: [{ name: "data", type: { kind: "bytes", elem: "u8" } }],
       parameters: [
         {
@@ -328,6 +331,7 @@ test("SCABI projects one call-scoped callback into function and context slots", 
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
+      error: { kind: "no-fail" },
       arguments: [
         { name: "callback", type: { kind: "func", params: [i32], ret: i32 } },
         { name: "value", type: i32 },
@@ -423,6 +427,53 @@ test("SCABI translation rejects only requested unsupported bindings", () => {
   );
 });
 
+test("SCABI lowers an exact errno sentinel without losing its physical result", () => {
+  const result = translateScabiNativeProgram(manifest, ["fail_errno"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.input.bindings, [
+    {
+      id: "native-typescript.fixture.c-v1@0.0.0#fail_errno",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "failErrno",
+      },
+      entry: { kind: "c-symbol", symbol: "nts_fail_errno" },
+      callingConvention: "c",
+      variadic: false,
+      sourceCall: { kind: "function" },
+      error: { kind: "errno", failureValue: "-1" },
+      ...directSignature([
+        {
+          name: "error_number",
+          type: { kind: "nativeScalar", scalar: "i32" },
+          passMode: "value",
+          ownership: { kind: "value" },
+        },
+      ]),
+      result: {
+        type: { kind: "nativeScalar", scalar: "i32" },
+        passMode: "value",
+        ownership: { kind: "value" },
+      },
+    },
+  ]);
+
+  const invalid = structuredClone(manifest);
+  const binding = invalid.bindings.fail_errno;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.error, { failureValue: "2147483648" });
+  const rejected = translateScabiNativeProgram(invalid, ["fail_errno"]);
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.deepEqual(
+    rejected.diagnostics.map(({ code, path }) => ({ code, path })),
+    [{ code: "NTS3002", path: "/bindings/fail_errno/error/failureValue" }],
+  );
+});
+
 test("SCABI translates authoritative padded layout and by-value ABI metadata", () => {
   const result = translateScabiNativeProgram(manifest, ["padded_roundtrip"]);
   assert.equal(result.ok, true);
@@ -460,6 +511,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
+    error: { kind: "no-fail" },
     ...directSignature([{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }]),
     result: { type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } },
   });
@@ -499,6 +551,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
+    error: { kind: "no-fail" },
     ...directSignature([
       {
         name: "initial_value",
@@ -527,6 +580,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "method", receiverArgument: 0 },
+    error: { kind: "no-fail" },
     ...directSignature([
       {
         name: "counter",

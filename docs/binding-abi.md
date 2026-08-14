@@ -260,6 +260,18 @@ The contract identifies success conditions, error extraction, cleanup ordering,
 and the resulting TypeScript error shape. Foreign exceptions may not unwind
 through ScriptC-generated frames.
 
+The implemented first error slice accepts `errno` only with an exact integer
+value result and a canonical in-range decimal failure sentinel. The generated
+call compares the physical result without a JavaScript-number conversion and,
+on failure, snapshots the calling thread's `errno` before any cleanup or error
+allocation. It throws an ordinary `Error` whose message is
+`<ERRNO>: <text>, <module>.<declaration>` and whose `code` is the symbolic errno
+name. A TypeScript exception already pending from a synchronous callback in the
+same native call has precedence and is not overwritten. Non-failure results
+retain their exact native type. A declaration may use `never` when that binding
+itself guarantees there is no success path; the integer remains present in
+Native IR solely to test the ABI sentinel.
+
 ## Thread and executor contract
 
 Thread affinity is expressed as an executor identity and call behavior:

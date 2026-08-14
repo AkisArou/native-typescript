@@ -99,6 +99,10 @@ export type ScriptCNativeIrType =
   | ScriptCNativeValueType
   | { readonly kind: "void" };
 
+export type ScriptCNativeErrorContract =
+  | { readonly kind: "no-fail" }
+  | { readonly kind: "errno"; readonly failureValue: string };
+
 export interface ScriptCNativeSourceType {
   readonly declaration: ScriptCNativeDeclaration;
   readonly type: ScriptCNativeValueType;
@@ -146,6 +150,9 @@ export interface ScriptCNativeBinding {
   readonly sourceCall:
     | { readonly kind: "function" }
     | { readonly kind: "method"; readonly receiverArgument: number };
+  /** Failure detection is explicit Native IR data. Backends must snapshot
+   * errno immediately after observing the exact failure sentinel. */
+  readonly error: ScriptCNativeErrorContract;
   readonly arguments: readonly {
     readonly name: string;
     readonly type: ScriptCNativeArgumentType;
@@ -432,7 +439,9 @@ function bindingUnsupported(binding: CallableBinding): string | null {
     return `calling convention '${binding.signature.callingConvention}'`;
   }
   if (binding.signature.variadic !== false) return "variadic calls";
-  if (binding.error.kind !== "no-fail") return `error contract '${binding.error.kind}'`;
+  if (binding.error.kind !== "no-fail" && binding.error.kind !== "errno") {
+    return `error contract '${binding.error.kind}'`;
+  }
   const directThread =
     !binding.thread.blocking &&
     ((binding.thread.behavior === "any" && binding.thread.executor.kind === "any-attached-thread") ||
@@ -1018,6 +1027,45 @@ export function translateScabiNativeProgram(
       `${resultPath}/type`,
     );
     if (resultType === null) valid = false;
+    if (binding.error.kind === "errno") {
+      const nativeResult = manifest.types[binding.signature.result.type];
+      if (
+        nativeResult?.kind !== "integer" ||
+        binding.signature.result.passMode !== "value" ||
+        binding.signature.result.ownership.kind !== "value"
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            `${path}/error`,
+            "errno requires an exact integer value result",
+          ),
+        );
+        valid = false;
+      } else {
+        const bits = nativeResult.bits === "pointer"
+          ? manifest.target.pointerWidth
+          : nativeResult.bits;
+        const value = /^-?(?:0|[1-9][0-9]*)$/.test(binding.error.failureValue) &&
+            binding.error.failureValue !== "-0"
+          ? BigInt(binding.error.failureValue)
+          : null;
+        const min = nativeResult.signed ? -(1n << BigInt(bits - 1)) : 0n;
+        const max = nativeResult.signed
+          ? (1n << BigInt(bits - 1)) - 1n
+          : (1n << BigInt(bits)) - 1n;
+        if (value === null || value < min || value > max) {
+          diagnostics.push(
+            diagnostic(
+              "NTS3002",
+              `${path}/error/failureValue`,
+              `errno failureValue must be a canonical decimal ${nativeResult.signed ? "signed" : "unsigned"} ${bits}-bit integer`,
+            ),
+          );
+          valid = false;
+        }
+      }
+    }
     if (!valid || resultType === null) continue;
 
     for (const id of binding.dependencies.linkInputs) linkInputIds.add(id);
@@ -1031,6 +1079,12 @@ export function translateScabiNativeProgram(
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : Object.freeze({ kind: "function" } as const),
+        error: binding.error.kind === "errno"
+          ? Object.freeze({
+              kind: "errno",
+              failureValue: binding.error.failureValue,
+            } as const)
+          : Object.freeze({ kind: "no-fail" } as const),
         arguments: Object.freeze(sourceArguments),
         parameters: Object.freeze(parameters),
         result: Object.freeze({

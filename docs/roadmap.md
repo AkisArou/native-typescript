@@ -87,9 +87,11 @@ The fixture remains the cross-backend and sanitizer regression suite.
 The permanent fixture and Native IR path currently cover exact integers,
 indirect padded structs, borrowed UTF-8 and byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
-and trailing context. C and LLVM agree for these cases, including captured
-callback state and exception propagation, and the ASan/reference-count gate is
-clean. The fork also implements and independently stress-tests the generic
+and trailing context. Exact integer `errno` sentinels now snapshot the calling
+thread's error before cleanup and become operation-qualified catchable errors.
+C and LLVM agree for these cases, including captured callback state and
+exception propagation, and the ASan/reference-count gate is clean. The fork
+also implements and independently stress-tests the generic
 instance-owned MPSC owner gateway, including wake coalescing, bounded drains,
 admission/stop races, reentrant shutdown, and exact event destruction. This is
 now paired with transport-only callback tokens whose generation identity and
@@ -103,9 +105,9 @@ path.
 
 Phase 1 still requires generated copied callback payloads and invocation thunks,
 Native IR/SCABI cancellation attachment, target wake and owner-loop integration,
-error conversion, TypeScript-to-C exports, provider hooks, artifact execution,
-and the remaining workspace-side generator/product/reporting work before its
-exit gate can pass.
+the remaining error conventions, TypeScript-to-C exports, provider hooks,
+artifact execution, and the remaining workspace-side generator/product/reporting
+work before its exit gate can pass.
 
 ### Exit gate
 

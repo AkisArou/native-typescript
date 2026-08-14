@@ -228,6 +228,19 @@ ingress. It therefore rejects handle equality, sendable/shared handle types,
 non-owner handle calls, and general consuming transfers even when their SCABI
 metadata is retained for a later slice.
 
+## Native errno failures
+
+An implemented `errno` binding returns an exact native integer physically and
+declares one exact failure sentinel. ScriptC snapshots thread-local `errno`
+immediately after that sentinel is observed, then throws a catchable `Error`
+with a symbolic `.code` and an operation-qualified message. No error machinery
+is emitted for `no-fail` bindings. If a synchronous native callback already
+left a TypeScript exception pending, that original exception wins.
+
+This slice does not infer nullable pointers, sentinel-only errors, status
+codes, HRESULT, JNI exceptions, `NSError`, or platform exceptions. Those
+remain distinct contracts rather than aliases for `errno`.
+
 ## Unsafe pointers
 
 Unsafe memory access is available only through an explicitly imported unsafe

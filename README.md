@@ -151,8 +151,12 @@ implemented for non-variadic C signatures with exact scalar parameters/results
 and a required trailing context pointer. One source closure is projected into
 the physical function/context pair; captures, reentrancy, and callback
 exceptions pass both backends and the sanitizer/RC audit. Retained callbacks,
-broader ownership modes, and owner-thread scheduling come next. The ScriptC
-fork now also has the standalone foreign-thread ingress foundation: an
+broader ownership modes, and owner-thread scheduling come next. Exact integer
+`errno` contracts are also implemented: the failure sentinel is checked in its
+native type, thread-local `errno` is captured before cleanup, and a symbolic,
+operation-qualified `Error` is thrown through the ordinary catch path in both
+backends. Other native error conventions remain explicit future slices. The
+ScriptC fork now also has the standalone foreign-thread ingress foundation: an
 instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
 shutdown states, and exact event destruction under admission races. It is
 threaded and sanitizer-tested. Retained callback transport tokens now build on
