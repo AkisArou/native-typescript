@@ -1,0 +1,278 @@
+# Target Service Provider Interface
+
+Status: normative architecture; TypeScript API names are provisional until implemented  
+Last revised: 2026-08-14
+
+The Target SPI lets platforms participate in compilation without embedding
+their logic throughout scriptc. It is a set of narrow provider contracts, not a
+single plugin with access to compiler internals.
+
+## Design requirements
+
+- Providers are resolved before compilation and frozen into an immutable plan.
+- Provider output is deterministic for declared inputs.
+- All exchanged values are serializable data unless an interface explicitly
+  supplies a restricted service object.
+- Providers return diagnostics and artifact descriptions; they do not terminate
+  the process or write arbitrary output files.
+- The core compiler validates every Native IR operation independently of a
+  target.
+- A provider cannot introduce opaque language or Native IR semantics.
+- Tool execution occurs through the build executor and is captured in the
+  artifact graph.
+- Capability/version mismatch fails before source lowering.
+
+## Target composition
+
+Conceptually, a target definition contains:
+
+```ts
+interface TargetDefinition {
+  readonly descriptor: TargetDescriptor;
+  readonly moduleResolvers: readonly ModuleResolver[];
+  readonly bindingProviders: readonly BindingProvider[];
+  readonly nativeLowering: NativeLoweringProvider;
+  readonly runtime: RuntimeProvider;
+  readonly artifactProviders: readonly ArtifactProvider[];
+  readonly packager: Packager;
+}
+```
+
+This shape documents ownership. The implemented API may use functions and
+opaque validated constructors rather than directly exposing these interfaces.
+
+## Target descriptor
+
+The descriptor identifies the target and its compatibility requirements:
+
+```ts
+interface TargetDescriptor {
+  readonly id: string;
+  readonly version: string;
+  readonly triple: string;
+  readonly pointerWidth: 32 | 64;
+  readonly endianness: "little" | "big";
+  readonly objectFormat: "elf" | "macho" | "coff" | "wasm";
+  readonly applicationModel: "executable" | "library" | "hosted-app";
+  readonly requiredCompilerCapabilities: readonly string[];
+  readonly supportedBindingFamilies: readonly string[];
+}
+```
+
+The final descriptor also records minimum OS/API versions and target feature
+flags. A target ID is stable and globally namespaced. Build configuration never
+selects a target by importing arbitrary executable configuration from a
+dependency.
+
+## Module resolution
+
+A `ModuleResolver` handles a declared namespace or condition, for example
+`native:c`, `native:gtk`, or platform-selected package exports.
+
+Its output is one of:
+
+- an ordinary source or declaration module;
+- a binding module associated with a SCABI package;
+- an explicit dynamic-realm module;
+- a source-located refusal explaining target availability;
+- no opinion, allowing the next resolver to run.
+
+Resolution order is deterministic and duplicate ownership is an error. A
+resolver may not read ambient process state that is absent from the build
+environment description.
+
+Platform suffixes and conditional exports are normalized by core resolution;
+targets contribute conditions, not their own unrelated module graph.
+
+## Binding provider
+
+A `BindingProvider` turns platform metadata into a validated SCABI package or
+locates a pre-generated package whose SDK fingerprint matches the build.
+
+```ts
+interface BindingRequest {
+  readonly target: TargetDescriptor;
+  readonly module: string;
+  readonly requestedMembers: readonly string[];
+  readonly sdk: SdkIdentity;
+}
+
+interface BindingResult {
+  readonly manifestArtifact: ArtifactId;
+  readonly declarationArtifact: ArtifactId;
+  readonly adapterArtifacts: readonly ArtifactId[];
+  readonly diagnostics: readonly Diagnostic[];
+}
+```
+
+Binding discovery and reachability specialization are separate stages. A
+provider may ingest a complete SDK, while the planner emits adapters only for
+reachable bindings.
+
+Bindings are declarative and validated under [Binding ABI](binding-abi.md).
+
+## Native lowering provider
+
+The lowering provider maps validated, generic Native IR to backend fragments
+and declared artifacts.
+
+It receives:
+
+- frozen Native IR;
+- resolved binding records;
+- target ABI and SDK identity;
+- a read-only layout/query service;
+- source and binding provenance for diagnostics.
+
+It returns:
+
+- LLVM/C lowering contributions;
+- generated adapter-source artifacts;
+- required runtime features;
+- link inputs and ordering constraints;
+- diagnostics.
+
+It must not:
+
+- change language types or call-graph reachability;
+- invent ownership or error policy absent from a binding;
+- execute a linker or package manager directly;
+- retain compiler AST or checker objects after the lowering call;
+- emit untracked files;
+- silently fall back to a different ABI.
+
+The generic operation set is deliberately closed. If JNI and Objective-C need
+different realization of `native.call`, they provide different lowerings. If a
+platform needs a new semantic operation that the compiler must analyze, the
+Native IR is extended first.
+
+## Runtime provider
+
+A `RuntimeProvider` describes how the target hosts ScriptC runtime instances and
+maps abstract executors to platform schedulers.
+
+It supplies:
+
+- runtime library artifacts;
+- owner-executor creation or attachment;
+- scheduler wake integration;
+- callback-gateway integration;
+- thread-affinity mappings;
+- process/application lifecycle hooks;
+- error and trap sinks;
+- shutdown hooks.
+
+The provider must preserve the runtime rules in
+[Runtime and threading](runtime-and-threading.md). It cannot opt a target into a
+shared ScriptC heap or allow foreign-thread heap access.
+
+For initial UI targets, the runtime owner executor is the platform UI executor.
+A later target may place computation in another runtime instance, but it must
+use explicit transport between instances.
+
+## Artifact providers
+
+Artifact providers contribute deterministic nodes such as:
+
+- generated JNI registration sources;
+- Objective-C++ protocol adapters;
+- COM activation metadata;
+- application manifests and permission fragments;
+- resources and asset catalogs;
+- generated capability schemas;
+- debugging metadata.
+
+Each artifact declares its content hash inputs, media/type identity, logical
+purpose, and consumers. Generated source is not an untracked side effect.
+
+## Packager
+
+The packager converts a validated artifact graph into a final product using
+declared tools.
+
+```ts
+interface PackagePlan {
+  readonly product: "executable" | "library" | "application" | "sdk";
+  readonly roots: readonly ArtifactId[];
+  readonly steps: readonly ToolInvocation[];
+  readonly outputs: readonly OutputDeclaration[];
+}
+```
+
+The packager may invoke Clang, a linker, Gradle/D8, Xcode tools, Windows SDK
+tools, or equivalent declared toolchains through the executor. It may not hide
+network access, dependency installation, signing, or mutation outside declared
+build/output directories.
+
+Signing is an explicit non-cacheable or securely cache-scoped step. Unsigned
+artifacts remain separately reproducible.
+
+## Provider capabilities
+
+Provider compatibility uses named capabilities rather than testing package
+versions throughout the compiler. Examples include:
+
+```text
+native-ir/v1
+scabi/v1
+runtime-owner-executor/v1
+retained-callback/v1
+foreign-callback-ingress/v1
+artifact-graph/v1
+partition-interface/v1
+```
+
+Before 1.0, a capability changes atomically and old implementations are
+removed. Once public compatibility is promised, capability versions permit
+deliberate side-by-side protocol versions at the boundary, not scattered
+feature checks.
+
+## Lifecycle
+
+Target planning follows this order:
+
+1. Resolve the target descriptor and provider set.
+2. Validate compiler/provider capabilities.
+3. Snapshot toolchain and SDK identities.
+4. Resolve the complete source and binding graph.
+5. Validate SCABI manifests.
+6. Lower source to language IR.
+7. Compute reachability, effects, ownership, and partitions.
+8. Lower to Native IR.
+9. Ask providers for lowering and artifact descriptions.
+10. Validate the complete artifact graph.
+11. Execute cache misses.
+12. Package, sign if requested, and produce reports.
+
+Provider registration is closed after step 1.
+
+## Diagnostics
+
+Providers return structured diagnostics with:
+
+- stable code;
+- severity;
+- source location or binding-provenance location;
+- target and provider identity;
+- explanation;
+- remediation when one is known.
+
+Raw native tool output is attached to a build step, not substituted for a
+source-level diagnostic when the provider can map it to a binding or source
+operation.
+
+## Test contract
+
+Every target must pass common suites for:
+
+- descriptor and capability validation;
+- deterministic resolution;
+- SCABI validation failures;
+- exact scalar and layout lowering;
+- ownership transitions;
+- callback lifecycle and shutdown;
+- artifact graph determinism;
+- clean rebuild equivalence;
+- unsupported-operation diagnostics.
+
+Target-specific suites add ABI, scheduler, lifecycle, and packaging tests.

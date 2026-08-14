@@ -1,0 +1,359 @@
+# Architecture
+
+Status: normative pre-1.0 architecture  
+Last revised: 2026-08-14
+
+This document defines the system boundaries and invariants that implementation
+must preserve. Focused specifications may add detail but may not weaken these
+rules.
+
+The key words **must**, **must not**, **should**, and **may** are normative.
+
+## Mission
+
+Native TypeScript extends scriptc so TypeScript can be used across the native
+software stack: executables, servers, native libraries, operating-system APIs,
+desktop and mobile applications, native UI, React renderers, isolated services,
+and potentially the real browser DOM.
+
+The project optimizes for a clean, high-performance architecture with explicit
+semantics. It does not preserve unpublished internal APIs when a refactor finds
+a better boundary.
+
+## Goals
+
+- Compile supported TypeScript and TSX ahead of time to native machine code.
+- Preserve JavaScript-observable behavior where the static language profile
+  promises it.
+- Expose low-level native platforms without forcing a framework.
+- Make native ABI, ownership, threading, errors, and process transitions
+  visible to the compiler and developer.
+- Generate repetitive platform glue from validated metadata.
+- Allow independent targets without turning every target into a scriptc fork.
+- Produce native libraries as well as packaged applications.
+- Make performance, compatibility, authority, and generated artifacts
+  inspectable.
+
+## Non-goals
+
+- Accept every JavaScript program statically.
+- Hide a JavaScript engine behind unsupported operations.
+- Emulate every platform through one lowest-common-denominator UI API.
+- Make native pointers appear memory-safe.
+- Promise transparent object identity across runtimes or processes.
+- Reimplement platform linkers, DEX compilers, Xcode, Gradle, or equivalent
+  tools when a reliable platform toolchain already owns that job.
+- Freeze public APIs before the underlying contracts have passed conformance
+  gates.
+
+## System invariants
+
+### Static execution is explicit
+
+Every reachable operation in an AOT-only build must either lower statically or
+produce a precise diagnostic. A dynamic compatibility realm is an explicit
+build input, a separate runtime domain, and visible in the build report.
+
+### Syntax and semantics are separate promises
+
+Applications use ordinary TypeScript syntax. Static execution follows the
+documented Native TypeScript language profile, which may be narrower than the
+behavior accepted by a JavaScript VM. No limitation is silently inferred from
+scriptc's current implementation.
+
+### The compiler owns semantics; targets own platform realization
+
+The compiler owns language semantics, generic specialization, control flow,
+effects, native value categories, ownership operations, callback operations,
+partitions, validation, and backend-independent diagnostics.
+
+Targets own platform binding discovery, native ABI lowering, scheduler
+adapters, generated glue, resources, toolchain inputs, and packaging.
+
+If several targets need a semantic operation, it belongs in the generic
+compiler model. A target must not encode new language semantics in an opaque
+code-generation callback.
+
+### Native boundaries are declarative
+
+Native declarations resolve to immutable, validated binding records before
+lowering. Arbitrary executable code is forbidden in binding manifests.
+Generated adapters are declared artifacts with provenance and cache keys.
+
+### Runtime heaps are owner-confined
+
+Each ScriptC runtime instance has exactly one owner executor. Only work running
+on that executor may access the instance's heap. Foreign threads communicate by
+copying transport-safe values into a scheduler gateway.
+
+Multiple runtime instances may execute concurrently, but do not share ordinary
+heap objects. Shared memory, if introduced, uses explicit native buffer types
+with separately specified synchronization.
+
+### Native resources are handles
+
+Managed native resources are represented by opaque, generation-checked
+handles. The runtime enforces lifetime, identity, thread affinity, process
+affinity, and disposal. Compiler analysis improves diagnostics but is not the
+sole safety boundary.
+
+### Cross-domain communication is asynchronous and authorized
+
+Cross-process calls use typed operations and a closed transport-safe value
+algebra. The build's reachability graph may remove unused operations, but an
+explicit policy grants authority. Raw pointers and implicit shared object
+identity never cross a domain boundary.
+
+### Builds are artifact graphs
+
+A native application build is not a single compiler invocation. It is a
+deterministic directed acyclic graph of language IR, native IR, objects,
+archives, generated adapter sources, metadata, resources, platform compilation,
+linking, signing, and packaging.
+
+### Compatibility is measured
+
+Claims such as Node compatibility, React compatibility, or DOM compatibility
+must name a version and a conformance suite. Source-level similarity alone is
+not compatibility.
+
+## Compilation model
+
+```text
+source graph
+    │
+    ▼
+TypeScript parse, bind, and type check
+    │
+    ▼
+ScriptC language IR
+    │   JavaScript/TypeScript semantics only
+    ▼
+whole-program analysis
+    │   reachability, specialization, effects, ownership, partitions
+    ▼
+Native IR
+    │   generic calls, layouts, handles, callbacks, scheduling, transport
+    ├───────────────┬──────────────────┬────────────────────┐
+    ▼               ▼                  ▼                    ▼
+LLVM/C lowering  native adapters   domain interfaces   build resources
+    └───────────────┴──────────────────┴────────────────────┘
+                            │
+                            ▼
+                       artifact graph
+                            │
+                            ▼
+             executable / library / application / SDK
+```
+
+### Source graph
+
+The source graph contains application modules, statically compiled dependency
+modules, type declarations, platform-selected modules, and explicit dynamic
+realm boundaries. Platform resolution is complete before semantic lowering.
+
+### Language IR
+
+Language IR represents supported TypeScript and JavaScript behavior without
+embedding a particular native toolkit. Existing scriptc host operations must be
+progressively separated from the language value model where necessary.
+
+The language IR must remain serializable, validated, and source-located.
+Changes to its schema require deterministic cache invalidation.
+
+### Whole-program analysis
+
+Analysis computes:
+
+- reachable functions, types, bindings, and adapters;
+- generic specializations;
+- effects and required schedulers;
+- ownership transitions and escaping borrows;
+- partition membership and cross-domain interfaces;
+- required runtime features;
+- static versus dynamic coverage.
+
+Analysis results are immutable inputs to lowering. A target may describe the
+effects and constraints of its bindings, but may not mutate the program graph.
+
+### Native IR
+
+Native IR is a target-independent contract for native semantics. Its operation
+families include:
+
+- exact scalar values and explicit conversions;
+- native aggregate construction, access, and copying;
+- statically identified native calls;
+- opaque handle creation, retain, release, weak upgrade, and disposal;
+- call-scoped and retained callbacks;
+- scheduler hops and callback delivery;
+- remote calls, remote handles, transferable buffers, and streams;
+- explicit unsafe pointer operations.
+
+Native IR is closed and versioned inside the compiler. Targets lower these
+operations; they do not inject unvalidated arbitrary IR. When a platform needs
+a genuinely new semantic category, Native IR is extended with validation,
+analysis, and backend tests first.
+
+### Artifact graph
+
+Lowering produces typed artifact nodes rather than writing files as a side
+effect. The build planner validates the complete graph before the executor runs
+external tools. See [Build artifacts](build-artifacts.md).
+
+## Component boundaries
+
+### scriptc fork
+
+The fork owns generally reusable compiler and runtime capability:
+
+- frontend and language IR changes;
+- Native IR and validation;
+- exact native scalar support;
+- ownership and callback operations;
+- runtime instance and scheduler gateway primitives;
+- backend support;
+- static coverage and conformance diagnostics;
+- the stable integration hooks required by target providers.
+
+Changes should be independently reviewable and upstreamable when they benefit
+scriptc generally. Current scriptc limitations are evidence, not permanent
+requirements. See [scriptc evolution](scriptc-evolution.md).
+
+### Native TypeScript workspace
+
+This repository owns platform composition:
+
+- target provider contracts;
+- SCABI schemas and generators;
+- target packages and SDK projections;
+- application build planning;
+- platform runtime adapters;
+- packaging;
+- framework renderers;
+- capability policy and domain planning;
+- cross-target conformance suites.
+
+### Package roles
+
+The initial workspace roles are:
+
+- `@native-typescript/scriptc`: typed integration with the pinned compiler fork;
+- `@native-typescript/target-api`: provider contracts and immutable target
+  descriptions;
+- `@native-typescript/core`: build planning, validation, and orchestration;
+- `@native-typescript/cli`: user-facing commands and reports.
+
+Future packages should be created around stable ownership boundaries, not one
+package per small type. Likely boundaries include the SCABI schema, runtime ABI,
+binding generators, and individual targets.
+
+## Target composition
+
+A target is a composition of providers, not one mutable plugin object:
+
+```text
+TargetDescriptor
+BindingProvider[]
+NativeLoweringProvider
+RuntimeProvider
+ArtifactProvider[]
+Packager
+```
+
+Providers declare capabilities and version requirements. The planner resolves
+them once, rejects conflicts, and freezes a target plan. Details are defined in
+[Target SPI](target-spi.md).
+
+## Framework position
+
+Framework integrations consume public compiler/runtime capabilities:
+
+```text
+application
+    ↓ optional
+React / renderer / framework package
+    ↓
+target declarations and native bindings
+    ↓
+Native IR and target runtime
+```
+
+A renderer must not gain privileged compiler hooks unavailable to ordinary
+target packages. Compiler changes required by React must be justified as
+general language compatibility work.
+
+## Platform direction
+
+### C and native libraries
+
+The C ABI is the first conformance target because it validates layouts, calls,
+errors, exported functions, callbacks, and ownership without adding a managed
+platform runtime.
+
+### Native desktop and mobile
+
+GTK/GObject, Windows/COM/WinRT, Android/JNI, and Apple/Objective-C use the same
+Native IR while providing platform-specific binding schemas and runtime
+adapters. Generated Java or Objective-C++ is compiled by the platform's normal
+toolchain.
+
+### React
+
+Actual React and a pinned reconciler build are compatibility targets. They must
+pass a static-coverage and behavioral conformance gate before a renderer is
+declared supported. React is not required to validate the base ABI.
+
+### DOM and Chromium
+
+Direct Blink access remains an intended research direction, not a committed
+foundation dependency. A feasibility program must first demonstrate execution
+contexts, wrapper identity, lifetime, exceptions, events, promises, and task
+ordering with no application JavaScript. The core architecture must remain
+useful if this research concludes that direct Blink maintenance is not viable.
+
+## Performance principles
+
+- Native calls should lower to direct calls or the minimum platform-required
+  transition after compile-time resolution.
+- Ownership bookkeeping must be explicit and measurable.
+- No generic reflection registry is shipped when reachability can specialize it.
+- Cross-domain latency is visible in types, diagnostics, and traces.
+- Release behavior is deterministic; optimization level must not change
+  language semantics.
+- Clean release builds may be expensive, but incremental builds reuse validated
+  artifacts at the narrowest sound boundary.
+- Performance claims require representative benchmarks and comparison against
+  the relevant platform implementation.
+
+## Security principles
+
+- Native UI applications run in the platform application sandbox unless they
+  opt into additional isolation.
+- Untrusted or browser-facing domains are separate processes by default.
+- Capability interfaces are finite, typed, authenticated to a caller, scoped,
+  and validated by the privileged receiver.
+- Generated code and prebuilt SDKs carry provenance.
+- Unsafe pointer access is never implied by importing a normal binding package.
+- Dynamic compatibility realms receive no authority not explicitly granted to
+  their enclosing domain.
+
+## Pre-1.0 refactor policy
+
+The repository has no public compatibility obligation before 1.0. When an
+internal contract changes:
+
+1. update all producers and consumers in the same change;
+2. delete the replaced representation and tests;
+3. invalidate incompatible caches and manifests;
+4. do not add deprecated aliases, dual readers, or silent migrations;
+5. record the architectural reason in the affected specification.
+
+Git history is the archive. The active tree contains only the current model.
+
+## Decision rule
+
+When choosing between a local shortcut and a generally correct primitive, use
+the primitive if it is required by more than one credible target or corrects a
+language/runtime invariant. A feature may be deferred, but the architecture
+must not make it impossible or require platform-specific compiler forks later.

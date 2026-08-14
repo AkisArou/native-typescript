@@ -1,0 +1,263 @@
+# Language Profile
+
+Status: normative foundation; individual supported operations remain versioned  
+Last revised: 2026-08-14
+
+This document defines the source-language promise. It distinguishes the
+language architecture from scriptc's current implementation coverage.
+
+## Source language
+
+Native TypeScript accepts ordinary `.ts`, `.tsx`, `.js`, and `.jsx` syntax
+through the TypeScript parser and checker. The project does not add parser
+syntax for native operations, ownership, threads, or process domains.
+
+Native semantics are expressed through:
+
+- declarations from identity-known packages;
+- compiler-recognized intrinsic types and functions;
+- validated binding metadata;
+- target and platform module resolution;
+- build configuration;
+- optional standard TypeScript decorators or string directives only after a
+  separate specification establishes their semantics.
+
+Recognition is based on resolved symbol identity, never on an unqualified
+spelling such as a type named `i32` in application code.
+
+## Static profile
+
+The static profile is the set of TypeScript and JavaScript behavior for which
+the compiler provides an ahead-of-time representation with defined observable
+semantics.
+
+For every reachable source operation, the compiler must do exactly one of:
+
+1. lower it statically;
+2. route it to an explicitly selected dynamic realm;
+3. reject it with a source-located diagnostic and actionable reason.
+
+The compiler must not guess, silently change lanes, or accept an operation that
+will fail only because no lowering exists.
+
+The current scriptc limitation list is not the definition of this profile.
+Limitations are classified and revisited under
+[scriptc evolution](scriptc-evolution.md).
+
+## Compatibility levels
+
+Build reports distinguish:
+
+- **Static exact**: promised JavaScript-observable behavior is compiled
+  statically.
+- **Static specified divergence**: behavior is static and intentionally differs
+  under a documented Native TypeScript rule.
+- **Dynamic**: execution occurs in an explicit compatibility realm.
+- **Unsupported**: no selected execution mode can provide the behavior.
+
+A package compatibility claim names the package version, target, mode, test
+suite, and known divergences. A percentage of statically lowered statements is
+useful diagnostic data, not by itself a compatibility claim.
+
+## JavaScript values
+
+Ordinary TypeScript `number` preserves the project's JavaScript-number
+contract and is not reinterpreted as a native integer because an ABI happens to
+expect one. `boolean`, strings, nullish values, records, classes, arrays,
+closures, promises, errors, and supported standard-library objects retain their
+defined ScriptC representations.
+
+Native values extend this world but do not silently alter ordinary values.
+
+## Exact native scalars
+
+The compiler recognizes exact scalar types exported by a canonical package:
+
+```text
+i8   u8
+i16  u16
+i32  u32
+i64  u64
+isize usize
+f32  f64
+```
+
+The exact package name is finalized with the first public API, but symbol
+identity and semantics are fixed by this specification.
+
+### Representation
+
+- Fixed-width integers have exactly the named width.
+- `isize` and `usize` match the target pointer width.
+- Signed integers use two's-complement representation.
+- `f32` rounds at each operation to IEEE-754 binary32.
+- `f64` is IEEE-754 binary64 and may share representation with ordinary
+  JavaScript `number`, but remains a distinct ABI intent when required.
+
+### Arithmetic
+
+Exact integer arithmetic is deterministic and never invokes C or LLVM undefined
+behavior:
+
+- addition, subtraction, and multiplication wrap modulo the type width;
+- signed results are interpreted as two's-complement values;
+- division by zero traps;
+- signed minimum divided by `-1` traps;
+- shifts mask neither the count nor the result implicitly; an out-of-range
+  shift count traps;
+- checked, saturating, and explicitly wrapping helper families may expose more
+  obvious intent without changing the primitive semantics.
+
+This rule favors predictable low-level performance. APIs handling untrusted
+sizes should use checked operations.
+
+### Conversion
+
+- There is no implicit conversion between ordinary `number` and an exact
+  integer variable.
+- A numeric literal may be contextually typed as an exact scalar when it is
+  integral and in range.
+- Widening between exact integer types is allowed only when every source value
+  is representable in the destination.
+- Narrowing, signedness changes, float-to-integer conversion, and integer-to-
+  float conversion use explicit compiler intrinsics.
+- Conversion APIs name their behavior: checked, truncating, or wrapping.
+
+### ABI use
+
+Binding declarations must use exact scalars wherever the native ABI does.
+Ordinary `number` is accepted only when the binding explicitly declares a
+JavaScript-number conversion policy.
+
+## Native aggregates
+
+Native structs and unions are layout values, distinct from ordinary structural
+TypeScript records.
+
+- Their field order, size, alignment, packing, and target ABI are supplied by
+  validated binding metadata.
+- They are nominal by binding identity even if two layouts are identical.
+- Field access is statically typed.
+- Passing or returning an aggregate follows the target calling convention,
+  including hidden return storage where required.
+- A native aggregate containing pointers or handles inherits their lifetime
+  restrictions.
+- An ordinary object is never reinterpreted as a native aggregate.
+
+Explicit copy/conversion functions bridge native aggregates and ordinary
+records when useful.
+
+## Native handles
+
+`NativeHandle<T>` is opaque and nominal. Application code cannot construct,
+inspect, compare numerically, serialize, or cast a handle through ordinary
+TypeScript operations.
+
+Handle equality means native identity only when the binding declares an
+identity policy. Otherwise equality is rejected rather than guessed. Detailed
+lifetime rules are in [Ownership](ownership.md).
+
+## Unsafe pointers
+
+Unsafe memory access is available only through an explicitly imported unsafe
+capability and a build policy that permits it.
+
+An unsafe pointer:
+
+- is target- and address-space-specific;
+- carries pointee type, mutability, and optional alignment information;
+- may not be serialized or cross a process boundary;
+- may not be captured by a retained callback unless its binding proves a
+  compatible lifetime;
+- may not survive `await` by default;
+- requires explicit load, store, offset, cast, and lifetime operations;
+- never makes the pointed-to memory managed by ScriptC.
+
+The compiler rejects unsafe operations outside the capability. The API is an
+escape hatch, not a mechanism used by generated safe bindings.
+
+## Functions and callbacks
+
+Ordinary compiled closures and native callback entries are different
+representations. A binding operation explicitly creates a callback entry with a
+signature, lifetime, delivery executor, and argument transport contract.
+
+The compiler must reject callback captures that violate the requested lifetime
+or cross-thread transport rules. Runtime checks remain authoritative because
+TypeScript does not provide linear ownership.
+
+## Async behavior
+
+Promises and `async`/`await` preserve the ordering contract of the selected
+ScriptC static profile. A scheduler hop is an explicit Native IR effect. A
+continuation resumes on the runtime instance's owner executor unless a
+specified API creates or targets another runtime instance.
+
+Native callbacks and platform promises are adapted into the same owner-owned
+microtask and task model described in
+[Runtime and threading](runtime-and-threading.md).
+
+## Effects
+
+Effects describe constraints and observable boundaries; they are not a general
+effect-type syntax exposed to application authors in the first release.
+
+Initial effect categories include:
+
+- pure computation;
+- runtime-local mutation;
+- native call;
+- owner-executor requirement;
+- named platform-executor requirement;
+- unsafe memory;
+- blocking operation;
+- domain capability call;
+- dynamic realm execution.
+
+Effects are inferred from resolved operations and propagated through the call
+graph. They drive validation and reporting. They do not automatically relocate
+functions between domains in the first implementation.
+
+## Dynamic realms
+
+A dynamic realm is an isolated compatibility mechanism, not a fallback branch
+inside an individual expression.
+
+- The build explicitly selects the engine and packages assigned to it.
+- Values cross through a defined copy/handle boundary.
+- Static and dynamic object identities are not silently unified.
+- The realm receives only the capabilities granted to its enclosing domain.
+- Coverage and build reports identify every dynamic module and transition.
+- AOT-only builds reject all reachable dynamic requirements.
+
+## Error semantics
+
+Language errors, native errors, runtime traps, and domain transport failures are
+distinct categories.
+
+- Catchable TypeScript errors follow the static language profile.
+- Native bindings declare how error indicators become typed errors.
+- C++, Objective-C, Java, Swift, or platform exceptions never unwind through
+  generated C/LLVM frames without an adapter boundary.
+- Memory-safety invariant failures trap rather than continue in corrupted
+  state.
+- Cross-domain failures use serializable error records and preserve a causal
+  trace where available.
+
+Bindings may not claim that every platform failure is an ordinary exception;
+the mapping is explicit per operation.
+
+## Language evolution gate
+
+A static feature is accepted when it has:
+
+1. defined source and runtime semantics;
+2. IR representation and validation;
+3. C and LLVM backend behavior where applicable;
+4. ownership and error behavior;
+5. differential tests against the relevant JavaScript or native reference;
+6. coverage diagnostics for unsupported edges;
+7. target and cache-version effects documented.
+
+Implementation coverage may grow continuously. The semantic promise changes
+only through this specification and its conformance tests.

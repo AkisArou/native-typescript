@@ -14,7 +14,7 @@
     "clean": "tsc -b --clean",
     "dev": "node --watch packages/cli/src/main.ts",
     "native-typescript": "node packages/cli/src/main.ts",
-    "test": "pnpm build && node --test tests/workspace.test.ts",
+    "test": "pnpm build && node --test tests/*.test.ts",
     "scriptc:install": "pnpm --dir third_party/scriptc install --frozen-lockfile",
     "scriptc:build": "pnpm --dir third_party/scriptc build",
     "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
