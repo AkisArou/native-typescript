@@ -1,0 +1,12 @@
+{
+  "name": "@native-typescript/target-gtk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@native-typescript/target-api": "workspace:*"
+  }
+}

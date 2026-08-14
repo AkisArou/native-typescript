@@ -117,9 +117,9 @@ path end to end: SCABI selection resolves an exact `i32` entry function, both
 backends emit the public C symbol, and an independent C host verifies ordinary
 and overflow calls.
 
-Phase 1 still requires concrete target wake/attached-loop integration, broader
-callback payload and lifetime families, the remaining error conventions and
-export families, provider hooks, artifact
+Phase 1 still requires materializing the implemented GLib runtime adapter
+through the artifact/build graph, broader callback payload and lifetime
+families, the remaining error conventions and export families, provider hooks, artifact
 execution (including declared export-adapter outputs), and the remaining
 workspace-side generator/product/reporting work before its exit gate can pass.
 
@@ -150,6 +150,16 @@ stack.
 - Signal registration and deterministic disconnection.
 - GTK application lifecycle and packaging.
 - Raw TypeScript access to a deliberately narrow but real GTK surface.
+
+### Current implementation boundary
+
+The GTK target package now declares the first concrete runtime provider and
+ships its GLib C adapter. Owner and foreign-thread wakes attach asynchronous
+sources to a selected `GMainContext`; each source performs exactly one retained
+callback dispatch and one ScriptC microtask checkpoint. Failure delivery and
+source lifetime are explicit and sanitizer-tested. GIR/header ingestion,
+GObject ownership and signals, artifact-graph integration, application
+lifecycle, and GTK packaging remain before the acceptance application.
 
 ### Acceptance application
 
@@ -362,7 +372,15 @@ that establishes a permanent seam:
 12. project borrowed `Uint8Array`/Buffer views into const data and byte-length
     ABI slots with exact offsets, single evaluation, no copy, and prompt
     post-call release (**implemented**);
-13. expand ownership beyond the first C handle mode and add callbacks.
+13. add exact call-scoped callback projection and exception propagation
+    (**implemented**);
+14. add `until-cancelled` retained callbacks with transactional result
+    ownership, foreign-thread ingress, copied exact-scalar payloads, and
+    one-turn owner dispatch (**implemented**);
+15. attach the owner-turn contract to a real GLib main context without inline
+    native-call reentrancy (**implemented**);
+16. materialize the runtime adapter and native products through the artifact
+    graph, then extend the fixture toward the GTK acceptance application.
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

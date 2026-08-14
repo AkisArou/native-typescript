@@ -35,6 +35,9 @@ importers:
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:packages/target-api
+      '@native-typescript/target-gtk':
+        specifier: workspace:*
+        version: link:packages/target-gtk
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -70,6 +73,12 @@ importers:
         version: link:../scabi
 
   packages/target-api: {}
+
+  packages/target-gtk:
+    dependencies:
+      '@native-typescript/target-api':
+        specifier: workspace:*
+        version: link:../target-api
 
 packages:
 

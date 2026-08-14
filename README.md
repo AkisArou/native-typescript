@@ -92,7 +92,8 @@ packages/
 ├── core/         build planning and orchestration
 ├── scabi/        native binding schema, canonicalization, and validation
 ├── scriptc/      integration with the pinned scriptc fork
-└── target-api/   target-provider contracts
+├── target-api/   target-provider contracts
+└── target-gtk/   GTK target metadata and GLib owner-runtime adapter
 
 third_party/
 └── scriptc/      pinned fork as a Git submodule
@@ -178,7 +179,10 @@ cannot strand a returned resource or staged callback registration. The runtime
 also exposes one-event owner dispatch and a host-callable nextTick/microtask
 checkpoint; this prevents batching from collapsing distinct JavaScript turns
 and leaves callback exceptions pending for the target error policy. A concrete
-target wake adapter and attached host-loop driver remain pending. Only reached bindings and native types enter emitted
+GLib adapter now posts those turns to an attached `GMainContext` from owner or
+foreign threads without inline reentrancy. It routes callback/checkpoint
+failures through an owner-side sink and passes plain, ASan/UBSan, and TSan
+conformance. Build-graph materialization of that adapter remains pending. Only reached bindings and native types enter emitted
 IR or the link. The first reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C

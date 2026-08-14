@@ -274,7 +274,9 @@ The initial workspace roles are:
 - `@native-typescript/scabi`: the closed binding model, canonical serializer,
   schema validation, and semantic validation;
 - `@native-typescript/core`: build planning, validation, and orchestration;
-- `@native-typescript/cli`: user-facing commands and reports.
+- `@native-typescript/cli`: user-facing commands and reports;
+- `@native-typescript/target-gtk`: GTK target metadata and the GLib
+  main-context runtime adapter.
 
 Future packages should be created around stable ownership boundaries, not one
 package per small type. Likely additional boundaries include the runtime ABI,

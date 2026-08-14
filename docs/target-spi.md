@@ -162,6 +162,17 @@ It supplies:
 - error and trap sinks;
 - shutdown hooks.
 
+The first concrete runtime-provider slice is implemented in
+`@native-typescript/target-gtk`. Its C adapter attaches ScriptC retained-callback
+wakes to a selected `GMainContext`, always through a newly attached GLib source.
+It therefore never invokes TypeScript inline from a native factory even when
+the wake originates on the owner thread. Each source dispatches one callback,
+runs the ScriptC checkpoint, and routes callback, checkpoint, and unhandled-
+rejection failures through an owner-side sink. Plain, ASan/UBSan, and TSan tests
+cover owner and foreign-thread wake paths plus teardown of an already-scheduled
+source. Artifact-graph materialization and GTK application lifecycle remain
+separate provider work.
+
 The provider must preserve the runtime rules in
 [Runtime and threading](runtime-and-threading.md). It cannot opt a target into a
 shared ScriptC heap or allow foreign-thread heap access.
