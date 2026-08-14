@@ -135,10 +135,19 @@ payload immediately. Native cancellation completion and token destruction are
 separate owner operations, and destruction cannot succeed while any lease
 exists. The race fixture passes plain, ASan/UBSan, and Linux TSan gates.
 
-The token intentionally contains no closure pointer. Owner-side table lookup,
-closure anchoring, handle association, and cycle tracing remain the next layer;
-this avoids turning the table into a permanent hidden root that would leak a
-closure capturing its subscription handle.
+The token intentionally contains no closure pointer. The ScriptC fork now also
+implements the owner-only table: it maps slot/generation/signature identity to
+a strongly owned registration anchor, permits already-admitted leases to find a
+closing entry, and unlinks/releases the anchor only after cancellation and the
+last lease. Slots advance their generation on reuse and retire rather than wrap.
+The table uses retain/release hooks so this lifecycle core is not coupled to one
+generated closure ABI.
+
+This is a declared external root, not a hidden cache: an active
+`until-cancelled` native registration keeps its callback alive. The pending
+result-handle association carries the cancellation edge that removes that root.
+Generated invocation payloads, native cancellation lowering, and target-loop
+drain/collect integration remain the next layers.
 
 ### Admission
 

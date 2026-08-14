@@ -20,6 +20,7 @@
     "scriptc:test:native-ir": "node scripts/test-scriptc-native-ir.mjs",
     "scriptc:test:owner-gateway": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/owner-gateway.test.ts",
     "scriptc:test:callback-token": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-token.test.ts",
+    "scriptc:test:callback-table": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-table.test.ts",
     "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
   },
   "devDependencies": {

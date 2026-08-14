@@ -209,6 +209,20 @@ A retained callback entry strongly owns its compiled closure unless its SCABI
 lifetime is weak. The native registration owns a callback token; the runtime
 entry owns the corresponding cancellation obligation.
 
+An active `retained` or `until-cancelled` registration is an explicit external
+root. The owner callback table records that root and its binding/owner
+provenance; it is not ordinary unreachable ScriptC garbage. For a
+result-owned registration, the result handle carries the edge that initiates
+cancellation and removes the table root. If the callback captures that handle,
+explicit disposal is therefore the deterministic operation that breaks the
+cycle. A `weak` lifetime uses a different non-rooting entry and must not be
+implemented by silently weakening this contract.
+
+The implemented table already enforces the root's transport lifetime: it owns
+the anchor through active and closing states and releases it only after native
+cancellation has completed and every admitted invocation lease has finished.
+Result-handle association and checked root provenance are still pending.
+
 Call-scoped callbacks do not create that registration graph. They are dynamic
 borrows as defined above; promoting one to a retained registration implicitly
 would be a lifetime violation.

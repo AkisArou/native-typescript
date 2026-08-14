@@ -159,7 +159,10 @@ threaded and sanitizer-tested. Retained callback transport tokens now build on
 that queue with slot/generation identity and one combined atomic
 state/invocation-lease word, so close and admission have an exact order and
 every admitted event remains owned through delivery or discard. The
-closure/handle ownership graph and target event-loop connection remain pending.
-Only reached bindings and native types enter emitted IR or the link.
+owner-side table now roots active registration anchors explicitly and retires
+them only after cancellation and all leases complete. Result-handle
+association, generated retained-callback lowering, and the target event-loop
+connection remain pending. Only reached bindings and native types enter emitted
+IR or the link.
 Platform UI and framework work begins only after those contracts pass their
 conformance gates.

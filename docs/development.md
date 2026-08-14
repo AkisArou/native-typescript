@@ -124,6 +124,7 @@ The retained-callback foundation has a separate threaded queue/lifecycle gate:
 ```sh
 pnpm scriptc:test:owner-gateway
 pnpm scriptc:test:callback-token
+pnpm scriptc:test:callback-table
 ```
 
 The gateway command builds and runs its runtime fixture both normally and with
@@ -131,6 +132,11 @@ AddressSanitizer/UndefinedBehaviorSanitizer. Run it whenever gateway admission,
 waking, drain ordering, lifecycle, or event ownership changes. The token gate
 adds concurrent close/admission coverage and exact invocation-lease accounting;
 on Linux it also runs under ThreadSanitizer.
+
+The table gate verifies explicit anchor rooting, closing-entry delivery,
+generation-safe slot reuse, reentrant unlink-before-release teardown, and exact
+release after cancellation plus the final lease. It runs under the same three
+sanitizer modes as the token gate.
 
 Run the workspace checks:
 
