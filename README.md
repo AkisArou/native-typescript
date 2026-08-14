@@ -155,8 +155,11 @@ broader ownership modes, and owner-thread scheduling come next. Exact integer
 `errno` contracts are also implemented: the failure sentinel is checked in its
 native type, thread-local `errno` is captured before cleanup, and a symbolic,
 operation-qualified `Error` is thrown through the ordinary catch path in both
-backends. Other native error conventions remain explicit future slices. The
-ScriptC fork now also has the standalone foreign-thread ingress foundation: an
+backends. Nullable owned handle results also throw before null wrapping;
+non-null results preserve their exact destructor during ordinary returns and
+callback-exception unwinding. Other native error conventions remain explicit
+future slices. The ScriptC fork now also has the standalone foreign-thread
+ingress foundation: an
 instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
 shutdown states, and exact event destruction under admission races. It is
 threaded and sanitizer-tested. Retained callback transport tokens now build on

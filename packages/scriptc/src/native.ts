@@ -101,7 +101,8 @@ export type ScriptCNativeIrType =
 
 export type ScriptCNativeErrorContract =
   | { readonly kind: "no-fail" }
-  | { readonly kind: "errno"; readonly failureValue: string };
+  | { readonly kind: "errno"; readonly failureValue: string }
+  | { readonly kind: "nullable" };
 
 export interface ScriptCNativeSourceType {
   readonly declaration: ScriptCNativeDeclaration;
@@ -238,12 +239,13 @@ function positionUnsupported(
   position: AbiResult,
   isParameter: boolean,
   type: NativeType | undefined,
+  allowNullable = false,
 ): string | null {
   const handle = type?.kind === "handle";
   if (position.passMode !== (handle ? "pointer" : "value")) {
     return `pass mode '${position.passMode}'`;
   }
-  if (position.nullable) return "nullable values";
+  if (position.nullable && !allowNullable) return "nullable values";
   const validOwnership = handle
     ? isParameter
       ? (position.ownership.kind === "borrowed" && position.ownership.scope === "call") ||
@@ -439,7 +441,11 @@ function bindingUnsupported(binding: CallableBinding): string | null {
     return `calling convention '${binding.signature.callingConvention}'`;
   }
   if (binding.signature.variadic !== false) return "variadic calls";
-  if (binding.error.kind !== "no-fail" && binding.error.kind !== "errno") {
+  if (
+    binding.error.kind !== "no-fail" &&
+    binding.error.kind !== "errno" &&
+    binding.error.kind !== "nullable"
+  ) {
     return `error contract '${binding.error.kind}'`;
   }
   const directThread =
@@ -1017,6 +1023,7 @@ export function translateScabiNativeProgram(
       binding.signature.result,
       false,
       manifest.types[binding.signature.result.type],
+      binding.error.kind === "nullable",
     );
     if (unsupportedResult !== null) {
       diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
@@ -1065,6 +1072,23 @@ export function translateScabiNativeProgram(
           valid = false;
         }
       }
+    } else if (binding.error.kind === "nullable") {
+      if (
+        manifest.types[binding.signature.result.type]?.kind !== "handle" ||
+        !binding.signature.result.nullable ||
+        binding.signature.result.passMode !== "pointer" ||
+        binding.signature.result.ownership.kind !== "owned" ||
+        binding.signature.result.ownership.transfer !== "to-runtime"
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            `${path}/error`,
+            "nullable requires a nullable owned handle result transferred to the runtime",
+          ),
+        );
+        valid = false;
+      }
     }
     if (!valid || resultType === null) continue;
 
@@ -1084,7 +1108,9 @@ export function translateScabiNativeProgram(
               kind: "errno",
               failureValue: binding.error.failureValue,
             } as const)
-          : Object.freeze({ kind: "no-fail" } as const),
+          : binding.error.kind === "nullable"
+            ? Object.freeze({ kind: "nullable" } as const)
+            : Object.freeze({ kind: "no-fail" } as const),
         arguments: Object.freeze(sourceArguments),
         parameters: Object.freeze(parameters),
         result: Object.freeze({

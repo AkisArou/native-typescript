@@ -89,9 +89,11 @@ indirect padded structs, borrowed UTF-8 and byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. Exact integer `errno` sentinels now snapshot the calling
 thread's error before cleanup and become operation-qualified catchable errors.
-C and LLVM agree for these cases, including captured callback state and
-exception propagation, and the ASan/reference-count gate is clean. The fork
-also implements and independently stress-tests the generic
+Nullable owned handle results now throw before null wrapping, while non-null
+results retain exact destructor ownership even during exception unwinding. C
+and LLVM agree for these cases, including captured callback state and exception
+propagation, and the ASan/reference-count gate is clean. The fork also
+implements and independently stress-tests the generic
 instance-owned MPSC owner gateway, including wake coalescing, bounded drains,
 admission/stop races, reentrant shutdown, and exact event destruction. This is
 now paired with transport-only callback tokens whose generation identity and

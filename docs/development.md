@@ -105,8 +105,8 @@ The focused cross-repository Native IR/SCABI gate translates the fixture's
 reached fixed- and pointer-width integer bindings, padded by-value struct,
 borrowed UTF-8 and `Uint8Array`/Buffer input, and owned opaque handle. It
 also translates the synchronous call-scoped exact-scalar callback and its
-trailing context parameter, plus the exact integer `errno` failure sentinel.
-It resolves their TypeScript declaration symbols
+trailing context parameter, plus exact integer `errno` and nullable owned-handle
+failures. It resolves their TypeScript declaration symbols
 and links the resulting source-lowered programs against the permanent C fixture
 through both ScriptC backends:
 

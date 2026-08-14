@@ -598,6 +598,32 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
   assert.deepEqual(result.linkInputIds, []);
 });
 
+test("SCABI lowers nullable owned handles as errors rather than nullable source values", () => {
+  const nullable = structuredClone(manifest);
+  const binding = nullable.bindings.counter_create;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding, { error: { kind: "nullable" } as const });
+  Object.assign(binding.signature.result, { nullable: true });
+
+  const result = translateScabiNativeProgram(nullable, ["counter_create"]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.bindings[0]?.error, { kind: "nullable" });
+  assert.equal(result.input.bindings[0]?.result.type.kind, "nativeHandle");
+
+  Object.assign(binding.signature.result, { nullable: false });
+  const rejected = translateScabiNativeProgram(nullable, ["counter_create"]);
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/counter_create/error"
+    ),
+    true,
+  );
+});
+
 test("SCABI keeps the first opaque-handle slice owner-confined and destructor-only", () => {
   const nonConfined = structuredClone(manifest);
   const counterType = nonConfined.types.counter;

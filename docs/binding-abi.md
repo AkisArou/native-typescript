@@ -272,6 +272,15 @@ retain their exact native type. A declaration may use `never` when that binding
 itself guarantees there is no success path; the integer remains present in
 Native IR solely to test the ABI sentinel.
 
+The implemented nullable slice is narrower: it applies only to an owned native
+handle result transferred to the runtime. A null pointer throws an ordinary
+`Error` with `<module>.<declaration> returned null` before handle construction;
+a non-null pointer is wrapped with the declared destructor exactly as a
+`no-fail` owned result. The TypeScript declaration remains the non-null handle
+type because null is a failure, not a source value. If a synchronous callback
+already threw and native code nevertheless returns a non-null owned pointer,
+ScriptC wraps it before unwinding so ordinary cleanup still runs the destructor.
+
 ## Thread and executor contract
 
 Thread affinity is expressed as an executor identity and call behavior:
