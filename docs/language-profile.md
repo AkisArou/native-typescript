@@ -86,16 +86,17 @@ The exact package name is finalized with the first public API, but symbol
 identity and semantics are fixed by this specification.
 
 The implemented direct-call conformance slice currently covers `i8`, `u8`,
-`i16`, `u16`, `i32`, `u32`, `i64`, and `u64`. The fixed 64-bit types use
-decimal BigInt literals as construction syntax and remain exact Native IR
-values; this does not introduce a general JavaScript BigInt representation.
-Pointer-width integers await their target-width identity contract, while
-floating-point exact types await their rounding-operation contract.
+`i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `isize`, and `usize`. Fixed 64-bit
+and pointer-sized types use decimal BigInt literals as construction syntax and
+remain exact Native IR values; this does not introduce a general JavaScript
+BigInt representation. Floating-point exact types await their
+rounding-operation contract.
 
 ### Representation
 
 - Fixed-width integers have exactly the named width.
-- `isize` and `usize` match the target pointer width.
+- `isize` and `usize` match the target pointer width. SCABI supplies that width
+  and ScriptC rejects a frontend/backend target mismatch before lowering.
 - Signed integers use two's-complement representation.
 - `f32` rounds at each operation to IEEE-754 binary32.
 - `f64` is IEEE-754 binary64 and may share representation with ordinary
@@ -123,8 +124,10 @@ sizes should use checked operations.
 - There is no implicit conversion between ordinary `number` and an exact
   integer variable.
 - A decimal `number` literal may construct an integer up to 32 bits when it is
-  integral and in range; a decimal BigInt literal is required for `i64` and
-  `u64`. The carrier families never convert implicitly.
+  integral and in range; a decimal BigInt literal is required for `i64`,
+  `u64`, `isize`, and `usize`. The pointer-sized BigInt carrier is stable on
+  both 32- and 64-bit targets; only its accepted range changes. The carrier
+  families never convert implicitly.
 - Widening between exact integer types is allowed only when every source value
   is representable in the destination.
 - Narrowing, signedness changes, float-to-integer conversion, and integer-to-

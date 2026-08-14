@@ -195,6 +195,13 @@ operations; they do not inject unvalidated arbitrary IR. When a platform needs
 a genuinely new semantic category, Native IR is extended with validation,
 analysis, and backend tests first.
 
+Target independence does not mean target facts are implicit. A module that
+reaches target-dependent Native IR records the validated ABI facts needed to
+interpret generic operations. For example, `isize` and `usize` remain distinct
+Native IR types while the module's pointer width determines their bounds and
+backend representation. The compiler rejects disagreement between those facts
+and the selected code-generation target.
+
 ### Artifact graph
 
 Lowering produces typed artifact nodes rather than writing files as a side

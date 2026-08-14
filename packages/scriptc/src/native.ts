@@ -20,7 +20,9 @@ export type ScriptCNativeIntegerScalar =
   | "i32"
   | "u32"
   | "i64"
-  | "u64";
+  | "u64"
+  | "isize"
+  | "usize";
 
 export type ScriptCNativeIrType =
   | {
@@ -51,11 +53,14 @@ export interface ScriptCNativeBinding {
   };
 }
 
-/** Generic input consumed by the ScriptC frontend. It contains no SCABI or
- * target-specific concepts: source identities prove checker types, while
- * the binding table is the exact Native IR contract emitted after
- * reachability. */
+/** Generic input consumed by the ScriptC frontend. It contains no SCABI
+ * concepts: source identities prove checker types, target ABI facts resolve
+ * generic target-sized types, and the binding table is the exact Native IR
+ * contract emitted after reachability. */
 export interface ScriptCNativeFrontendInput {
+  readonly target: {
+    readonly pointerBits: 32 | 64;
+  };
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
   readonly bindings: readonly ScriptCNativeBinding[];
 }
@@ -165,24 +170,21 @@ export function translateScabiNativeProgram(
       return null;
     }
     if (nativeType.kind === "void") return Object.freeze({ kind: "void" });
-    if (
-      nativeType.kind !== "integer" ||
-      (nativeType.bits !== 8 &&
-        nativeType.bits !== 16 &&
-        nativeType.bits !== 32 &&
-        nativeType.bits !== 64)
-    ) {
+    if (nativeType.kind !== "integer") {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           path,
-          `Native type '${typeId}' is outside ScriptC's exact fixed-width-integer slice`,
+          `Native type '${typeId}' is outside ScriptC's exact integer slice`,
         ),
       );
       return null;
     }
-    const scalar: ScriptCNativeIntegerScalar =
-      `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
+    const scalar: ScriptCNativeIntegerScalar = nativeType.bits === "pointer"
+      ? nativeType.signed
+        ? "isize"
+        : "usize"
+      : `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
     const type = Object.freeze({ kind: "nativeScalar", scalar } as const);
     if (!visitedSourceTypes.has(typeId)) {
       visitedSourceTypes.add(typeId);
@@ -287,6 +289,7 @@ export function translateScabiNativeProgram(
   return Object.freeze({
     ok: true,
     input: Object.freeze({
+      target: Object.freeze({ pointerBits: manifest.target.pointerWidth }),
       sourceTypes: Object.freeze([...sourceTypes.values()]),
       bindings: Object.freeze(bindings),
     }),
