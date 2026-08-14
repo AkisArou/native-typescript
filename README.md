@@ -7,8 +7,9 @@ static compiler, runtime, and native ABI so TypeScript can target native
 libraries, operating-system APIs, native UI toolkits, mobile applications,
 React renderers, and—if the engineering proves viable—the browser DOM.
 
-The project is pre-implementation. Its current work is the architecture that
-the implementation will preserve.
+The project is in early implementation. Its first production seam validates
+compiler and provider capabilities and freezes target composition before any
+compiler or platform work begins.
 
 ## Direction
 
@@ -89,6 +90,7 @@ must be resolved in the documents before implementation proceeds.
 packages/
 ├── cli/          command-line entry point
 ├── core/         build planning and orchestration
+├── scabi/        native binding schema, canonicalization, and validation
 ├── scriptc/      integration with the pinned scriptc fork
 └── target-api/   target-provider contracts
 
@@ -96,6 +98,7 @@ third_party/
 └── scriptc/      pinned fork as a Git submodule
 
 docs/             normative architecture and development documentation
+fixtures/         permanent native ABI and conformance fixtures
 tests/            workspace-level tests
 ```
 
@@ -118,8 +121,11 @@ pnpm test
 ## Status
 
 The repository is not yet an application framework or production compiler.
-The first implementation phase is the reusable compiler/runtime foundation:
-a target extension seam, versioned C ABI bindings, exact native values, opaque
-handles, retained callbacks, owner-thread scheduling, and deterministic
-cleanup. Platform UI and framework work begins only after those contracts pass
-their conformance gates.
+Capability-aware target planning, the SCABI v1 core manifest/C conformance
+fixture, and the first ScriptC Native IR slice are implemented. That compiler
+slice validates and serializes binding-ID-based exact `i32` calls and lowers
+them through both C and LLVM without a JavaScript-number carrier. Frontend
+declaration recognition and SCABI-to-Native-IR translation come next, followed
+by the remaining exact values, aggregates, handles, retained callbacks,
+owner-thread scheduling, and deterministic cleanup. Platform UI and framework
+work begins only after those contracts pass their conformance gates.

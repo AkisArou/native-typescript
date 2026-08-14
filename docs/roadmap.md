@@ -296,10 +296,12 @@ Every phase maintains:
 After Phase 0 review, implementation begins with the smallest part of Phase 1
 that establishes a permanent seam:
 
-1. model compiler capabilities and immutable target planning;
-2. ratify the first SCABI C fixture;
-3. add the generic Native IR required by that fixture to the scriptc fork;
-4. lower and validate one exact scalar C call through both backends;
+1. model compiler capabilities and immutable target planning (**implemented**);
+2. ratify the first SCABI C fixture (**implemented**);
+3. add the generic Native IR required by that fixture to the scriptc fork
+   (**implemented**);
+4. lower and validate one exact scalar C call through both backends
+   (**implemented**);
 5. expand the same path to aggregates, ownership, and callbacks.
 
 No separate prototype API is created. Each increment extends the conformance

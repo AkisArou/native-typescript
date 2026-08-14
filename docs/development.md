@@ -101,6 +101,18 @@ upstream or replaced cleanly by later upstream work.
 
 ## Validation before commit
 
+The focused cross-repository Native IR/SCABI gate links the same exact-scalar
+IR program against the permanent fixture through both ScriptC backends:
+
+```sh
+pnpm scriptc:test:native-ir
+SCRIPTC_SAN=1 pnpm scriptc:test:native-ir
+```
+
+Run it whenever Native IR, SCABI scalar bindings, either backend, or the
+fixture's C implementation changes. The sanitizer form compiles both the
+ScriptC runtime and fixture with AddressSanitizer.
+
 Run the workspace checks:
 
 ```bash

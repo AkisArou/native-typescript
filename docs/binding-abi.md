@@ -1,6 +1,6 @@
 # Binding ABI
 
-Status: normative architecture; SCABI v1 is finalized by the first C implementation  
+Status: normative; core SCABI v1 model and C fixture implemented  
 Last revised: 2026-08-14
 
 SCABI is the declarative boundary between TypeScript declarations, native ABI
@@ -331,6 +331,12 @@ After a public v1 contract exists:
   new manifest, not hidden compiler migration logic.
 
 ## C v1 acceptance fixture
+
+The permanent fixture lives in `fixtures/scabi-c-v1`. Its canonical manifest,
+declarations, authoritative C header, implementation, layout probe, and native
+behavior test are active conformance inputs. The fixture contract is ratified;
+SCABI v1 remains pre-release until compiler lowering and declaration agreement
+also pass it end to end.
 
 SCABI v1 is not considered complete until one fixture proves:
 

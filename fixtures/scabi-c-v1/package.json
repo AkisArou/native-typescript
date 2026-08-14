@@ -1,0 +1,6 @@
+{
+  "name": "@native-typescript/scabi-c-v1-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "types": "./package.d.ts"
+}

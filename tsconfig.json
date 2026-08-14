@@ -6,6 +6,9 @@
       "path": "./packages/target-api"
     },
     {
+      "path": "./packages/scabi"
+    },
+    {
       "path": "./packages/scriptc"
     },
     {

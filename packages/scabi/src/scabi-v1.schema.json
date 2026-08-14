@@ -1,0 +1,835 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://native-typescript.dev/schema/scabi/v1",
+  "title": "Native TypeScript SCABI v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "package",
+    "target",
+    "sdk",
+    "generator",
+    "declarationsDigest",
+    "types",
+    "bindings",
+    "linkInputs",
+    "adapterInputs",
+    "permissions"
+  ],
+  "properties": {
+    "schema": { "const": "native-typescript.scabi" },
+    "schemaVersion": { "const": 1 },
+    "package": { "$ref": "#/$defs/packageIdentity" },
+    "target": { "$ref": "#/$defs/targetIdentity" },
+    "sdk": { "$ref": "#/$defs/sdkIdentity" },
+    "generator": { "$ref": "#/$defs/generatorIdentity" },
+    "declarationsDigest": { "$ref": "#/$defs/digest" },
+    "types": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/nativeType" }
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/nativeBinding" }
+    },
+    "linkInputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/linkInput" }
+    },
+    "adapterInputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/adapterInput" }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/permission" }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "idArray": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/id" },
+      "uniqueItems": true
+    },
+    "packageIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "namespace", "instance"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "version": { "$ref": "#/$defs/nonEmptyString" },
+        "namespace": { "$ref": "#/$defs/nonEmptyString" },
+        "instance": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "targetIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "triple",
+        "architecture",
+        "pointerWidth",
+        "endianness",
+        "objectFormat",
+        "minimumPlatformVersion",
+        "abi",
+        "features"
+      ],
+      "properties": {
+        "triple": { "$ref": "#/$defs/nonEmptyString" },
+        "architecture": { "$ref": "#/$defs/nonEmptyString" },
+        "pointerWidth": { "enum": [32, 64] },
+        "endianness": { "enum": ["little", "big"] },
+        "objectFormat": { "enum": ["elf", "macho", "coff", "wasm"] },
+        "minimumPlatformVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "abi": { "$ref": "#/$defs/nonEmptyString" },
+        "features": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "sdkIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "name",
+        "version",
+        "metadataDigest",
+        "toolchain",
+        "toolchainVersion",
+        "toolchainAbi",
+        "deploymentTarget",
+        "modules"
+      ],
+      "properties": {
+        "vendor": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "version": { "$ref": "#/$defs/nonEmptyString" },
+        "metadataDigest": { "$ref": "#/$defs/digest" },
+        "toolchain": { "$ref": "#/$defs/nonEmptyString" },
+        "toolchainVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "toolchainAbi": { "$ref": "#/$defs/nonEmptyString" },
+        "deploymentTarget": { "$ref": "#/$defs/nonEmptyString" },
+        "modules": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "generatorIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "revision", "arguments", "inputDigests"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "version": { "$ref": "#/$defs/nonEmptyString" },
+        "revision": { "$ref": "#/$defs/nonEmptyString" },
+        "arguments": { "$ref": "#/$defs/stringArray" },
+        "inputDigests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/digest" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "voidType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "void" } }
+    },
+    "integerType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "signed", "bits"],
+      "properties": {
+        "kind": { "const": "integer" },
+        "signed": { "type": "boolean" },
+        "bits": { "enum": [8, 16, 32, 64, "pointer"] }
+      }
+    },
+    "floatType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "bits"],
+      "properties": {
+        "kind": { "const": "float" },
+        "bits": { "enum": [32, 64] }
+      }
+    },
+    "booleanType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "storage", "falseValue", "trueValue"],
+      "properties": {
+        "kind": { "const": "boolean" },
+        "storage": { "$ref": "#/$defs/id" },
+        "falseValue": { "type": "string" },
+        "trueValue": { "type": "string" }
+      }
+    },
+    "enumType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "underlying", "members"],
+      "properties": {
+        "kind": { "const": "enum" },
+        "underlying": { "$ref": "#/$defs/id" },
+        "members": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "flagsType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "underlying", "members"],
+      "properties": {
+        "kind": { "const": "flags" },
+        "underlying": { "$ref": "#/$defs/id" },
+        "members": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "pointerType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "pointee", "mutability", "nullable", "addressSpace"],
+      "properties": {
+        "kind": { "const": "pointer" },
+        "pointee": { "$ref": "#/$defs/id" },
+        "mutability": { "enum": ["const", "mutable"] },
+        "nullable": { "type": "boolean" },
+        "addressSpace": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "arrayType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "element", "length"],
+      "properties": {
+        "kind": { "const": "array" },
+        "element": { "$ref": "#/$defs/id" },
+        "length": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sliceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "element", "pointerType", "lengthType", "mutability"],
+      "properties": {
+        "kind": { "const": "slice" },
+        "element": { "$ref": "#/$defs/id" },
+        "pointerType": { "$ref": "#/$defs/id" },
+        "lengthType": { "$ref": "#/$defs/id" },
+        "mutability": { "enum": ["const", "mutable"] }
+      }
+    },
+    "bitField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bitOffset", "bitWidth"],
+      "properties": {
+        "bitOffset": { "type": "integer", "minimum": 0 },
+        "bitWidth": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "nativeField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "offset"],
+      "properties": {
+        "name": { "$ref": "#/$defs/id" },
+        "type": { "$ref": "#/$defs/id" },
+        "offset": { "type": "integer", "minimum": 0 },
+        "bitField": { "$ref": "#/$defs/bitField" }
+      }
+    },
+    "structType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "fields",
+        "size",
+        "alignment",
+        "packing",
+        "triviallyCopyable",
+        "destruction"
+      ],
+      "properties": {
+        "kind": { "const": "struct" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/nativeField" } },
+        "size": { "type": "integer", "minimum": 0 },
+        "alignment": { "type": "integer", "minimum": 1 },
+        "packing": {
+          "oneOf": [
+            { "const": "default" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "triviallyCopyable": { "type": "boolean" },
+        "destruction": { "enum": ["trivial", "binding"] },
+        "abiClassification": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "unionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "fields",
+        "size",
+        "alignment",
+        "packing",
+        "triviallyCopyable",
+        "destruction"
+      ],
+      "properties": {
+        "kind": { "const": "union" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/nativeField" } },
+        "size": { "type": "integer", "minimum": 0 },
+        "alignment": { "type": "integer", "minimum": 1 },
+        "packing": {
+          "oneOf": [
+            { "const": "default" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "triviallyCopyable": { "type": "boolean" },
+        "destruction": { "enum": ["trivial", "binding"] },
+        "abiClassification": { "$ref": "#/$defs/nonEmptyString" },
+        "discriminator": { "$ref": "#/$defs/id" }
+      }
+    },
+    "opaqueValueType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "nativeName",
+        "size",
+        "alignment",
+        "packing",
+        "triviallyCopyable",
+        "destruction"
+      ],
+      "properties": {
+        "kind": { "const": "opaque-value" },
+        "nativeName": { "$ref": "#/$defs/nonEmptyString" },
+        "size": { "type": "integer", "minimum": 0 },
+        "alignment": { "type": "integer", "minimum": 1 },
+        "packing": {
+          "oneOf": [
+            { "const": "default" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "triviallyCopyable": { "type": "boolean" },
+        "destruction": { "enum": ["trivial", "binding"] },
+        "abiClassification": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "handleType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nativeName", "threadSafety", "identity"],
+      "properties": {
+        "kind": { "const": "handle" },
+        "nativeName": { "$ref": "#/$defs/nonEmptyString" },
+        "threadSafety": { "enum": ["confined", "sendable", "shared"] },
+        "identity": { "enum": ["none", "pointer", "binding", "platform"] }
+      }
+    },
+    "callbackContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placement"],
+      "properties": {
+        "placement": { "enum": ["none", "first", "last"] },
+        "type": { "$ref": "#/$defs/id" }
+      }
+    },
+    "callbackType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "signature", "context"],
+      "properties": {
+        "kind": { "const": "callback" },
+        "signature": { "$ref": "#/$defs/functionSignature" },
+        "context": { "$ref": "#/$defs/callbackContext" }
+      }
+    },
+    "platformObjectType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "family", "nativeName", "threadSafety"],
+      "properties": {
+        "kind": { "const": "platform-object" },
+        "family": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeName": { "$ref": "#/$defs/nonEmptyString" },
+        "threadSafety": { "enum": ["confined", "sendable", "shared"] }
+      }
+    },
+    "nativeType": {
+      "oneOf": [
+        { "$ref": "#/$defs/voidType" },
+        { "$ref": "#/$defs/integerType" },
+        { "$ref": "#/$defs/floatType" },
+        { "$ref": "#/$defs/booleanType" },
+        { "$ref": "#/$defs/enumType" },
+        { "$ref": "#/$defs/flagsType" },
+        { "$ref": "#/$defs/pointerType" },
+        { "$ref": "#/$defs/arrayType" },
+        { "$ref": "#/$defs/sliceType" },
+        { "$ref": "#/$defs/structType" },
+        { "$ref": "#/$defs/unionType" },
+        { "$ref": "#/$defs/opaqueValueType" },
+        { "$ref": "#/$defs/handleType" },
+        { "$ref": "#/$defs/callbackType" },
+        { "$ref": "#/$defs/platformObjectType" }
+      ]
+    },
+    "ownership": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "value" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "scope"],
+          "properties": {
+            "kind": { "const": "borrowed" },
+            "scope": {
+              "enum": ["call", "callback", "receiver", "registration", "returned-owner"]
+            },
+            "anchor": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "transfer", "destructor"],
+          "properties": {
+            "kind": { "const": "owned" },
+            "transfer": { "const": "to-runtime" },
+            "destructor": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "transfer"],
+          "properties": {
+            "kind": { "const": "owned" },
+            "transfer": { "const": "to-native" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "retain", "release"],
+          "properties": {
+            "kind": { "const": "retained" },
+            "retain": { "$ref": "#/$defs/id" },
+            "release": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "upgrade"],
+          "properties": {
+            "kind": { "const": "weak" },
+            "upgrade": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "retain"],
+          "properties": {
+            "kind": { "const": "autoreleased" },
+            "retain": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "call-scoped" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "release"],
+          "properties": {
+            "kind": { "const": "process-proxy" },
+            "release": { "$ref": "#/$defs/id" }
+          }
+        }
+      ]
+    },
+    "parameterLength": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "parameter"],
+      "properties": {
+        "kind": { "const": "parameter" },
+        "parameter": { "$ref": "#/$defs/id" }
+      }
+    },
+    "marshalling": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "encoding", "length", "termination", "embeddedNul"],
+          "properties": {
+            "kind": { "const": "string" },
+            "encoding": { "enum": ["utf-8", "utf-16", "latin-1"] },
+            "length": { "$ref": "#/$defs/parameterLength" },
+            "termination": { "enum": ["none", "nul"] },
+            "embeddedNul": { "enum": ["allow", "reject"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "length", "mutability"],
+          "properties": {
+            "kind": { "const": "bytes" },
+            "length": { "$ref": "#/$defs/parameterLength" },
+            "mutability": { "enum": ["const", "mutable"] }
+          }
+        }
+      ]
+    },
+    "executor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "enum": [
+                "runtime-owner",
+                "platform-ui",
+                "any-attached-thread",
+                "same-as-receiver",
+                "same-as-caller",
+                "callback-defined"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "named-dispatcher" },
+            "name": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      ]
+    },
+    "callbackArgument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter", "transport"],
+      "properties": {
+        "parameter": { "$ref": "#/$defs/id" },
+        "transport": { "enum": ["borrow", "copy", "retain", "transfer"] }
+      }
+    },
+    "callbackContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lifetime",
+        "registrationOwner",
+        "allowedInvocationExecutors",
+        "deliveryExecutor",
+        "synchronousReturn",
+        "arguments",
+        "reentrancy",
+        "postDisposal",
+        "shutdown"
+      ],
+      "properties": {
+        "lifetime": { "enum": ["call", "once", "retained", "weak", "until-cancelled"] },
+        "registrationOwner": { "$ref": "#/$defs/nonEmptyString" },
+        "cancellationBinding": { "$ref": "#/$defs/id" },
+        "contextParameter": { "$ref": "#/$defs/id" },
+        "allowedInvocationExecutors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/executor" }
+        },
+        "deliveryExecutor": { "$ref": "#/$defs/executor" },
+        "synchronousReturn": { "type": "boolean" },
+        "arguments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/callbackArgument" }
+        },
+        "reentrancy": { "enum": ["forbidden", "allowed", "required"] },
+        "postDisposal": { "enum": ["not-invoked", "may-race"] },
+        "shutdown": { "enum": ["drain", "discard"] }
+      }
+    },
+    "abiResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "passMode", "nullable", "ownership"],
+      "properties": {
+        "type": { "$ref": "#/$defs/id" },
+        "passMode": { "enum": ["value", "pointer", "reference", "hidden-return", "platform-object"] },
+        "nullable": { "type": "boolean" },
+        "ownership": { "$ref": "#/$defs/ownership" },
+        "marshal": { "$ref": "#/$defs/marshalling" }
+      }
+    },
+    "abiParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "passMode", "nullable", "ownership"],
+      "properties": {
+        "name": { "$ref": "#/$defs/id" },
+        "type": { "$ref": "#/$defs/id" },
+        "passMode": { "enum": ["value", "pointer", "reference", "hidden-return", "platform-object"] },
+        "nullable": { "type": "boolean" },
+        "ownership": { "$ref": "#/$defs/ownership" },
+        "marshal": { "$ref": "#/$defs/marshalling" },
+        "callback": { "$ref": "#/$defs/callbackContract" }
+      }
+    },
+    "functionSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callingConvention", "variadic", "parameters", "result"],
+      "properties": {
+        "callingConvention": { "enum": ["c", "system", "stdcall", "fastcall", "thiscall", "vectorcall"] },
+        "variadic": { "const": false },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/abiParameter" }
+        },
+        "result": { "$ref": "#/$defs/abiResult" }
+      }
+    },
+    "threadContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executor", "behavior", "blocking"],
+      "properties": {
+        "executor": { "$ref": "#/$defs/executor" },
+        "behavior": { "enum": ["require", "dispatch-async", "dispatch-sync", "any"] },
+        "blocking": { "type": "boolean" }
+      }
+    },
+    "errorContract": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["no-fail", "nullable", "hresult", "jni-pending-exception"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "failureValue"],
+          "properties": {
+            "kind": { "enum": ["sentinel", "errno"] },
+            "failureValue": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "successValues"],
+          "properties": {
+            "kind": { "const": "status-code" },
+            "successValues": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "parameter"],
+          "properties": {
+            "kind": { "const": "nserror" },
+            "parameter": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "adapter"],
+          "properties": {
+            "kind": { "const": "platform-exception" },
+            "adapter": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "successCallback", "errorCallback"],
+          "properties": {
+            "kind": { "const": "async-callback" },
+            "successCallback": { "$ref": "#/$defs/id" },
+            "errorCallback": { "$ref": "#/$defs/id" }
+          }
+        }
+      ]
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindings", "linkInputs", "adapterInputs", "permissions"],
+      "properties": {
+        "bindings": { "$ref": "#/$defs/idArray" },
+        "linkInputs": { "$ref": "#/$defs/idArray" },
+        "adapterInputs": { "$ref": "#/$defs/idArray" },
+        "permissions": { "$ref": "#/$defs/idArray" }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumPlatformVersion", "unavailableFeatures"],
+      "properties": {
+        "minimumPlatformVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "unavailableFeatures": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "entryPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "symbol"],
+      "properties": {
+        "kind": { "enum": ["c-symbol", "adapter-symbol"] },
+        "symbol": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "declarationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module", "name"],
+      "properties": {
+        "module": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "callableBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "declaration", "entry", "signature", "thread", "error", "dependencies"],
+      "properties": {
+        "kind": { "enum": ["function", "constructor", "factory", "method", "static-method", "getter", "setter", "listener", "export"] },
+        "declaration": { "$ref": "#/$defs/declarationReference" },
+        "entry": { "$ref": "#/$defs/entryPoint" },
+        "signature": { "$ref": "#/$defs/functionSignature" },
+        "thread": { "$ref": "#/$defs/threadContract" },
+        "error": { "$ref": "#/$defs/errorContract" },
+        "dependencies": { "$ref": "#/$defs/dependencies" },
+        "availability": { "$ref": "#/$defs/availability" }
+      }
+    },
+    "constantBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "declaration", "type", "value", "dependencies"],
+      "properties": {
+        "kind": { "const": "constant" },
+        "declaration": { "$ref": "#/$defs/declarationReference" },
+        "type": { "$ref": "#/$defs/id" },
+        "value": { "type": ["string", "number", "boolean"] },
+        "dependencies": { "$ref": "#/$defs/dependencies" },
+        "availability": { "$ref": "#/$defs/availability" }
+      }
+    },
+    "nativeBinding": {
+      "oneOf": [
+        { "$ref": "#/$defs/callableBinding" },
+        { "$ref": "#/$defs/constantBinding" }
+      ]
+    },
+    "linkInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "order"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["static-library", "shared-library", "system-library", "framework", "object", "weak-import", "link-group", "exported-symbol-list", "runtime-component"] },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "order": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "adapterOptionValue": {
+      "type": ["string", "number", "boolean"]
+    },
+    "adapterInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "language", "bindings", "outputs", "options"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "family": { "$ref": "#/$defs/nonEmptyString" },
+        "language": { "enum": ["c", "c++", "objective-c++", "java", "kotlin", "swift"] },
+        "bindings": { "$ref": "#/$defs/idArray" },
+        "outputs": { "$ref": "#/$defs/stringArray" },
+        "options": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/adapterOptionValue" }
+        }
+      }
+    },
+    "permission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "description"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "description": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    }
+  }
+}

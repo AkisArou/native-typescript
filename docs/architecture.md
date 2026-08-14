@@ -241,11 +241,13 @@ The initial workspace roles are:
 - `@native-typescript/scriptc`: typed integration with the pinned compiler fork;
 - `@native-typescript/target-api`: provider contracts and immutable target
   descriptions;
+- `@native-typescript/scabi`: the closed binding model, canonical serializer,
+  schema validation, and semantic validation;
 - `@native-typescript/core`: build planning, validation, and orchestration;
 - `@native-typescript/cli`: user-facing commands and reports.
 
 Future packages should be created around stable ownership boundaries, not one
-package per small type. Likely boundaries include the SCABI schema, runtime ABI,
+package per small type. Likely additional boundaries include the runtime ABI,
 binding generators, and individual targets.
 
 ## Target composition

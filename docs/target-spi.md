@@ -1,6 +1,6 @@
 # Target Service Provider Interface
 
-Status: normative architecture; TypeScript API names are provisional until implemented  
+Status: normative; capability and composition API implemented  
 Last revised: 2026-08-14
 
 The Target SPI lets platforms participate in compilation without embedding
@@ -227,6 +227,16 @@ removed. Once public compatibility is promised, capability versions permit
 deliberate side-by-side protocol versions at the boundary, not scattered
 feature checks.
 
+Capability IDs use the normalized form `name/vN` and match exactly. Compiler
+requirements and provider requirements are separate so a provider cannot
+accidentally satisfy a compiler contract. Planning rejects malformed or
+duplicate declarations, missing requirements, duplicate provider identities,
+and provider placement under the wrong role.
+
+Every selected runtime provider must advertise both
+`runtime-owner-executor/v1` and `foreign-callback-ingress/v1`. These are
+architectural requirements, even before a target uses retained callbacks.
+
 ## Lifecycle
 
 Target planning follows this order:
@@ -245,6 +255,12 @@ Target planning follows this order:
 12. Package, sign if requested, and produce reports.
 
 Provider registration is closed after step 1.
+
+The implemented `planTarget` operation performs step 1 and capability
+validation as a pure planning operation. It snapshots and freezes the compiler
+descriptor, target definition, ordered provider set, and resolved capability
+sources. Later phases consume that immutable result rather than re-reading
+mutable registration state.
 
 ## Diagnostics
 

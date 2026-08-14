@@ -17,11 +17,14 @@
     "test": "pnpm build && node --test tests/*.test.ts",
     "scriptc:install": "pnpm --dir third_party/scriptc install --frozen-lockfile",
     "scriptc:build": "pnpm --dir third_party/scriptc build",
+    "scriptc:test:native-ir": "node scripts/test-scriptc-native-ir.mjs",
     "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
   },
   "devDependencies": {
     "@native-typescript/cli": "workspace:*",
     "@native-typescript/core": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/target-api": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }
