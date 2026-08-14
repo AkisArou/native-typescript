@@ -144,10 +144,23 @@ The table uses retain/release hooks so this lifecycle core is not coupled to one
 generated closure ABI.
 
 This is a declared external root, not a hidden cache: an active
-`until-cancelled` native registration keeps its callback alive. The pending
-result-handle association carries the cancellation edge that removes that root.
-Generated invocation payloads, native cancellation lowering, and target-loop
+`until-cancelled` native registration keeps its callback alive. The result-
+handle association below carries the cancellation edge that removes that root.
+Generated invocation payloads, Native IR lowering, and target-loop
 drain/collect integration remain the next layers.
+
+The result-handle association is now implemented in the ScriptC runtime. A
+generic native-handle lifecycle edge runs every begin hook before clearing and
+destroying the foreign resource, then runs completion hooks after the destructor
+has quiesced native callbacks. The callback specialization claims a staged table
+entry, closes token admission in the begin hook, marks native cancellation
+complete afterward, and opportunistically collects the entry. Reentrant or
+repeated handle disposal sees the edge already detached and is harmless.
+
+The conformance test attempts another native callback from inside the foreign
+destructor and verifies that it is rejected, while an invocation admitted
+before disposal remains deliverable and keeps the anchor rooted. The same test
+runs plain and under ASan/UBSan and TSan.
 
 ### Admission
 

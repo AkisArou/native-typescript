@@ -221,7 +221,13 @@ implemented by silently weakening this contract.
 The implemented table already enforces the root's transport lifetime: it owns
 the anchor through active and closing states and releases it only after native
 cancellation has completed and every admitted invocation lease has finished.
-Result-handle association and checked root provenance are still pending.
+Result-handle association is also implemented at the runtime layer. The handle
+claims the registration exactly once, closes admission before invoking its
+foreign destructor, and completes cancellation only after that destructor
+returns. This ordering lets a blocking cancellation operation guarantee that no
+native callback still uses the token while preserving earlier invocation
+leases. Generated binding attachment and checked root provenance are still
+pending.
 
 Call-scoped callbacks do not create that registration graph. They are dynamic
 borrows as defined above; promoting one to a retained registration implicitly

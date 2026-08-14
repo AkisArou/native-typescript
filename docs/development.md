@@ -125,6 +125,7 @@ The retained-callback foundation has a separate threaded queue/lifecycle gate:
 pnpm scriptc:test:owner-gateway
 pnpm scriptc:test:callback-token
 pnpm scriptc:test:callback-table
+pnpm scriptc:test:callback-handle
 ```
 
 The gateway command builds and runs its runtime fixture both normally and with
@@ -137,6 +138,11 @@ The table gate verifies explicit anchor rooting, closing-entry delivery,
 generation-safe slot reuse, reentrant unlink-before-release teardown, and exact
 release after cancellation plus the final lease. It runs under the same three
 sanitizer modes as the token gate.
+
+The handle gate verifies the result-owned cancellation order, rejection of a
+callback attempted by the foreign destructor, delivery of an earlier lease,
+and alias-safe repeated disposal. Native-handle runtime changes must also pass
+the fork's full `tests/harness/native-ir.test.ts` suite for both backends.
 
 Run the workspace checks:
 

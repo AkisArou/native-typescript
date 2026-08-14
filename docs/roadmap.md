@@ -96,14 +96,16 @@ now paired with transport-only callback tokens whose generation identity and
 atomic leases linearize cancellation against foreign admission. Plain,
 ASan/UBSan, and TSan gates cover that boundary. The owner-only table now adds
 explicit active-registration roots, closing-entry lookup for admitted leases,
-generation-safe slot reuse, and exact anchor release. This is implemented
-foundation, not a substitute path.
+generation-safe slot reuse, and exact anchor release. Result native handles now
+claim those registrations and order token close, blocking foreign destruction,
+and cancellation completion. This is implemented foundation, not a substitute
+path.
 
-Phase 1 still requires result-handle/callback association, generated copied
-callback payloads and invocation thunks, native cancellation lowering, target
-wake and owner-loop integration, error conversion, TypeScript-to-C exports,
-provider hooks, artifact execution, and the remaining workspace-side
-generator/product/reporting work before its exit gate can pass.
+Phase 1 still requires generated copied callback payloads and invocation thunks,
+Native IR/SCABI cancellation attachment, target wake and owner-loop integration,
+error conversion, TypeScript-to-C exports, provider hooks, artifact execution,
+and the remaining workspace-side generator/product/reporting work before its
+exit gate can pass.
 
 ### Exit gate
 

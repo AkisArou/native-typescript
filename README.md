@@ -160,8 +160,10 @@ that queue with slot/generation identity and one combined atomic
 state/invocation-lease word, so close and admission have an exact order and
 every admitted event remains owned through delivery or discard. The
 owner-side table now roots active registration anchors explicitly and retires
-them only after cancellation and all leases complete. Result-handle
-association, generated retained-callback lowering, and the target event-loop
+them only after cancellation and all leases complete. Owned native handles now
+carry generic lifecycle edges, and a result-owned callback edge closes
+admission before the native destructor and completes cancellation only after it
+returns. Generated retained-callback lowering and the target event-loop
 connection remain pending. Only reached bindings and native types enter emitted
 IR or the link.
 Platform UI and framework work begins only after those contracts pass their
