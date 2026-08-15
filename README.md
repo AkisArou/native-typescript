@@ -186,13 +186,16 @@ conformance. The first canonical artifact graph and Linux sandboxed executor
 now content-verify file/tree sources and tools, compile and link a real host-C
 product, and reject cycles, content drift, and undeclared outputs. Pkg-config
 include trees resolve to logical SDK artifacts without host paths in the plan,
-and the real GTK fixture's GLib runtime and wrapper objects use that path.
+and the real GTK fixture's GLib runtime and wrapper objects use that path. A
+schema-versioned local action cache now keys deterministic actions by their
+complete logical request and verified input content, verifies every hit, rejects
+corrupt entries, and publishes concurrent misses atomically.
 ScriptC now exposes its complete native-build request and exact compiler-driver
 invocation without duplicating its runtime-source selection. The GTK fixture
 registers the emitted C/LLVM unit as a verified graph input and materializes its
 adapter objects, ScriptC runtime, and final executable in one graph. Compiler
 emission itself and implicit system toolchain/library trees are not graph
-actions yet, so these native actions remain deliberately non-cacheable. Only
+actions yet, so the GTK native actions remain deliberately non-cacheable. Only
 reached bindings and native types enter emitted IR or the link. The first
 reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact

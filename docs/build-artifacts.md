@@ -127,6 +127,18 @@ invalidate sound cache entries.
 Cache lookup never weakens validation. Cached IR, SCABI, and analysis artifacts
 are schema-checked when loaded.
 
+The implemented local cache uses an explicit root and a versioned namespace.
+Only deterministic actions whose complete output set opts into `local` or
+`exportable` storage are eligible. The key covers the canonical action, declared
+tool identity, staged input names and types, verified input digests and sizes,
+and output names and types. A hit is copied into the new build root and rehashed
+before use; captured stdout/stderr are restored from separately verified cache
+blobs, and the tool binary is needed only on a miss. Corrupt layouts, manifests,
+types, top-level modes, digests, or sizes fail rather than degrading to an
+unreported miss.
+Misses publish complete multi-output entries with an atomic directory rename,
+so concurrent builds can race safely without observing partial data.
+
 ## Compilation granularity
 
 Per-file native caching is not promised when whole-program semantics make it
@@ -315,6 +327,12 @@ this path. The pkg-config resolver converts discovered include directories into
 logical, content-addressed SDK tree inputs while keeping their host paths only
 in execution bindings.
 
+The executor also implements the schema-v1 local action cache described above.
+Action reports distinguish execution from cache materialization and expose the
+canonical cache key. Tests cover tool-free hits, input invalidation, file and
+directory outputs, dependent executable restoration, content and schema
+corruption, and concurrent publication.
+
 ScriptC exposes an immutable native-build request and permits an external
 materializer to receive its exact compiler-driver command. Native TypeScript
 rewrites every declared program, runtime, object, and output path in that
@@ -329,7 +347,7 @@ also does not yet model the compiler's implicit system image, library-search
 trees, or every toolchain-provided system library as declared inputs. Current
 native actions therefore remain deliberately non-cacheable. ScriptC features
 whose driver command introduces an undeclared vendor path are rejected until
-that producer is represented in the graph. Cache lookup/storage, generated
-adapter planning, diagnostic parsers, resource accounting, packaging/signing,
-and sandbox executors for non-Linux hosts also remain. Those are extensions of
-this graph, not alternate build paths.
+that producer is represented in the graph. Cache eviction, export/import and
+remote transport, generated adapter planning, diagnostic parsers, resource
+accounting, packaging/signing, and sandbox executors for non-Linux hosts also
+remain. Those are extensions of this graph, not alternate build paths.

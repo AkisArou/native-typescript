@@ -5,12 +5,23 @@ import {
   cp,
   copyFile,
   mkdir,
-  readFile,
   readdir,
   realpath,
   stat,
 } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
+import {
+  computeActionCacheKey,
+  prepareArtifactCache,
+  publishActionToCache,
+  restoreActionFromCache,
+  type ArtifactCacheBinding,
+  type PreparedArtifactCache,
+} from "./artifact-cache.ts";
+import { ArtifactExecutionError, digestArtifactPath } from "./artifact-io.ts";
+
+export { ArtifactExecutionError, digestArtifactPath } from "./artifact-io.ts";
+export type { ArtifactCacheBinding } from "./artifact-cache.ts";
 
 export type ArtifactKind =
   | "source"
@@ -496,6 +507,15 @@ function validateArtifactGraph(
           ),
         );
       }
+      if (action.cacheable && artifact?.cache === "none") {
+        diagnostics.push(
+          diagnostic(
+            "NTS2007",
+            `${path}.outputs`,
+            `Cacheable action output ${output} must opt into local or exportable storage`,
+          ),
+        );
+      }
       if (!action.arguments.some(
         (argument) => argument.kind === "output-path" && argument.artifact === output,
       )) {
@@ -590,6 +610,7 @@ export interface ArtifactExecutionOptions {
   readonly sourcePaths: Readonly<Record<string, string>>;
   readonly tools: Readonly<Record<string, ArtifactToolBinding>>;
   readonly sandbox: ArtifactSandboxBinding;
+  readonly cache?: ArtifactCacheBinding;
   readonly maxConcurrency?: number;
 }
 
@@ -608,7 +629,8 @@ export interface MaterializedArtifact {
 
 export interface ArtifactActionReport {
   readonly id: string;
-  readonly status: "executed";
+  readonly status: "executed" | "cached";
+  readonly cacheKey: string | null;
   readonly durationMs: number;
   readonly stdout: string;
   readonly stderr: string;
@@ -621,131 +643,44 @@ export interface ArtifactExecutionReport {
   readonly actions: readonly ArtifactActionReport[];
 }
 
-async function verifyToolBindings(
-  graph: ArtifactGraph,
+async function verifyToolBinding(
+  action: ArtifactActionDefinition,
   tools: Readonly<Record<string, ArtifactToolBinding>>,
-): Promise<void> {
-  const verified = new Set<string>();
-  for (const action of graph.actions) {
-    if (verified.has(action.tool.id)) continue;
-    const tool = tools[action.tool.id];
-    if (tool === undefined) {
-      throw new ArtifactExecutionError(`No tool binding was supplied for ${action.tool.id}`);
-    }
-    if (!isAbsolute(tool.path)) {
-      throw new ArtifactExecutionError(
-        `Tool ${action.tool.id} requires an absolute executable path`,
-      );
-    }
-    let file;
-    try {
-      file = await stat(tool.path);
-    } catch {
-      throw new ArtifactExecutionError(`Tool ${action.tool.id} does not exist at ${tool.path}`);
-    }
-    if (!file.isFile()) {
-      throw new ArtifactExecutionError(`Tool ${action.tool.id} is not a regular file`);
-    }
-    const content = await digestFile(tool.path);
-    if (content.digest !== action.tool.digest) {
-      throw new ArtifactExecutionError(
-        `Tool ${action.tool.id} digest mismatch: expected ${action.tool.digest}, received ${content.digest}`,
-      );
-    }
-    verified.add(action.tool.id);
+): Promise<ArtifactToolBinding> {
+  const tool = tools[action.tool.id];
+  if (tool === undefined) {
+    throw new ArtifactExecutionError(`No tool binding was supplied for ${action.tool.id}`, {
+      actionId: action.id,
+    });
   }
-}
-
-export class ArtifactExecutionError extends Error {
-  override readonly name = "ArtifactExecutionError";
-  readonly actionId: string | null;
-  readonly stdout: string;
-  readonly stderr: string;
-
-  constructor(
-    message: string,
-    options: {
-      readonly actionId?: string;
-      readonly stdout?: string;
-      readonly stderr?: string;
-    } = {},
-  ) {
-    super(message);
-    this.actionId = options.actionId ?? null;
-    this.stdout = options.stdout ?? "";
-    this.stderr = options.stderr ?? "";
+  if (!isAbsolute(tool.path)) {
+    throw new ArtifactExecutionError(
+      `Tool ${action.tool.id} requires an absolute executable path`,
+      { actionId: action.id },
+    );
   }
-}
-
-async function digestFile(path: string): Promise<{ digest: string; size: number }> {
-  const bytes = await readFile(path);
-  return {
-    digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
-    size: bytes.byteLength,
-  };
-}
-
-function updateLength(hash: ReturnType<typeof createHash>, value: number): void {
-  const encoded = Buffer.allocUnsafe(8);
-  encoded.writeBigUInt64BE(BigInt(value));
-  hash.update(encoded);
-}
-
-async function digestDirectory(
-  root: string,
-): Promise<{ digest: string; size: number }> {
-  const hash = createHash("sha256");
-  hash.update("native-typescript.directory.v1\0");
-  let size = 0;
-
-  async function visit(directory: string, relativeDirectory: string): Promise<void> {
-    const entries = (await readdir(directory, { withFileTypes: true }))
-      .sort((left, right) => compareText(left.name, right.name));
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      const relativePath = relativeDirectory.length === 0
-        ? entry.name
-        : `${relativeDirectory}/${entry.name}`;
-      if (entry.isDirectory()) {
-        const encodedPath = Buffer.from(relativePath, "utf8");
-        hash.update("d");
-        updateLength(hash, encodedPath.byteLength);
-        hash.update(encodedPath);
-        await visit(path, relativePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        throw new ArtifactExecutionError(
-          `Directory artifact contains unsupported entry ${relativePath}`,
-        );
-      }
-      const bytes = await readFile(path);
-      const encodedPath = Buffer.from(relativePath, "utf8");
-      hash.update("f");
-      updateLength(hash, encodedPath.byteLength);
-      hash.update(encodedPath);
-      updateLength(hash, bytes.byteLength);
-      hash.update(bytes);
-      size += bytes.byteLength;
-    }
+  let file;
+  try {
+    file = await stat(tool.path);
+  } catch {
+    throw new ArtifactExecutionError(
+      `Tool ${action.tool.id} does not exist at ${tool.path}`,
+      { actionId: action.id },
+    );
   }
-
-  await visit(root, "");
-  return { digest: `sha256:${hash.digest("hex")}`, size };
-}
-
-export async function digestArtifactPath(
-  path: string,
-  entryType: "file" | "directory",
-): Promise<{ digest: string; size: number }> {
-  const entry = await stat(path);
-  if (entryType === "file" && !entry.isFile()) {
-    throw new ArtifactExecutionError(`Expected a regular file at ${path}`);
+  if (!file.isFile()) {
+    throw new ArtifactExecutionError(`Tool ${action.tool.id} is not a regular file`, {
+      actionId: action.id,
+    });
   }
-  if (entryType === "directory" && !entry.isDirectory()) {
-    throw new ArtifactExecutionError(`Expected a directory at ${path}`);
+  const content = await digestArtifactPath(tool.path, "file");
+  if (content.digest !== action.tool.digest) {
+    throw new ArtifactExecutionError(
+      `Tool ${action.tool.id} digest mismatch: expected ${action.tool.digest}, received ${content.digest}`,
+      { actionId: action.id },
+    );
   }
-  return entryType === "file" ? await digestFile(path) : await digestDirectory(path);
+  return tool;
 }
 
 function physicalName(id: string, fileName: string): string {
@@ -829,26 +764,61 @@ async function runCommand(options: {
   });
 }
 
+interface ArtifactActionLayout {
+  readonly actionRoot: string;
+  readonly inputRoot: string;
+  readonly outputRoot: string;
+  readonly temporaryRoot: string;
+  readonly outputPaths: ReadonlyMap<string, string>;
+}
+
+function artifactActionLayout(options: {
+  readonly action: ArtifactActionDefinition;
+  readonly artifactsById: ReadonlyMap<string, ArtifactDefinition>;
+  readonly buildRoot: string;
+}): ArtifactActionLayout {
+  const actionRoot = join(
+    options.buildRoot,
+    "actions",
+    physicalName(options.action.id, "action"),
+  );
+  const outputRoot = join(actionRoot, "outputs");
+  const outputPaths = new Map<string, string>();
+  for (const outputId of options.action.outputs) {
+    const definition = options.artifactsById.get(outputId);
+    if (definition === undefined) {
+      throw new ArtifactExecutionError(
+        `Action ${options.action.id} lost output ${outputId}`,
+        { actionId: options.action.id },
+      );
+    }
+    outputPaths.set(
+      outputId,
+      join(outputRoot, physicalName(outputId, definition.origin.fileName)),
+    );
+  }
+  return Object.freeze({
+    actionRoot,
+    inputRoot: join(actionRoot, "inputs"),
+    outputRoot,
+    temporaryRoot: join(actionRoot, "temporary"),
+    outputPaths,
+  });
+}
+
 async function executeAction(options: {
   readonly action: ArtifactActionDefinition;
   readonly artifactsById: ReadonlyMap<string, ArtifactDefinition>;
   readonly materialized: ReadonlyMap<string, MaterializedArtifact>;
-  readonly buildRoot: string;
+  readonly layout: ArtifactActionLayout;
   readonly tool: ArtifactToolBinding;
   readonly sandbox: ArtifactSandboxBinding;
+  readonly cacheKey: string | null;
 }): Promise<ArtifactActionReport> {
   const { action } = options;
-  const actionRoot = join(
-    options.buildRoot,
-    "actions",
-    physicalName(action.id, "action"),
-  );
-  const inputRoot = join(actionRoot, "inputs");
-  const outputRoot = join(actionRoot, "outputs");
-  const temporaryRoot = join(actionRoot, "temporary");
-  await mkdir(inputRoot, { recursive: true });
-  await mkdir(outputRoot, { recursive: true });
-  await mkdir(temporaryRoot, { recursive: true });
+  await mkdir(options.layout.inputRoot, { recursive: true });
+  await mkdir(options.layout.outputRoot, { recursive: true });
+  await mkdir(options.layout.temporaryRoot, { recursive: true });
 
   const inputPaths = new Map<string, string>();
   for (const inputId of action.inputs) {
@@ -861,7 +831,7 @@ async function executeAction(options: {
       );
     }
     const inputPath = join(
-      inputRoot,
+      options.layout.inputRoot,
       physicalName(inputId, definition.origin.fileName),
     );
     if (input.entryType === "file") {
@@ -885,25 +855,11 @@ async function executeAction(options: {
     inputPaths.set(inputId, inputPath);
   }
 
-  const outputPaths = new Map<string, string>();
-  for (const outputId of action.outputs) {
-    const definition = options.artifactsById.get(outputId);
-    if (definition === undefined) {
-      throw new ArtifactExecutionError(`Action ${action.id} lost output ${outputId}`, {
-        actionId: action.id,
-      });
-    }
-    outputPaths.set(
-      outputId,
-      join(outputRoot, physicalName(outputId, definition.origin.fileName)),
-    );
-  }
-
   const commandArguments = action.arguments.map((argument) => {
     if (argument.kind === "literal") return argument.value;
     const artifactPath = argument.kind === "input-path"
       ? inputPaths.get(argument.artifact)
-      : outputPaths.get(argument.artifact);
+      : options.layout.outputPaths.get(argument.artifact);
     if (artifactPath === undefined) {
       throw new ArtifactExecutionError(
         `Action ${action.id} could not resolve ${argument.artifact}`,
@@ -921,7 +877,7 @@ async function executeAction(options: {
   const command = await runCommand({
     executable: options.tool.path,
     arguments: commandArguments,
-    cwd: actionRoot,
+    cwd: options.layout.actionRoot,
     environment,
     actionId: action.id,
     sandbox: options.sandbox,
@@ -931,10 +887,13 @@ async function executeAction(options: {
   const expectedEntries = new Map(
     action.outputs.map((outputId) => {
       const definition = options.artifactsById.get(outputId)!;
-      return [basename(outputPaths.get(outputId)!), definition.entryType] as const;
+      return [
+        basename(options.layout.outputPaths.get(outputId)!),
+        definition.entryType,
+      ] as const;
     }),
   );
-  const actualEntries = await readdir(outputRoot, { withFileTypes: true });
+  const actualEntries = await readdir(options.layout.outputRoot, { withFileTypes: true });
   const unexpected = actualEntries
     .filter((entry) => {
       const expectedType = expectedEntries.get(entry.name);
@@ -953,7 +912,7 @@ async function executeAction(options: {
 
   const outputs: MaterializedArtifact[] = [];
   for (const outputId of action.outputs) {
-    const path = outputPaths.get(outputId)!;
+    const path = options.layout.outputPaths.get(outputId)!;
     const definition = options.artifactsById.get(outputId)!;
     let file;
     try {
@@ -984,10 +943,72 @@ async function executeAction(options: {
   return Object.freeze({
     id: action.id,
     status: "executed",
+    cacheKey: options.cacheKey,
     durationMs,
     ...command,
     outputs: Object.freeze(outputs),
   });
+}
+
+async function executeOrRestoreAction(options: {
+  readonly action: ArtifactActionDefinition;
+  readonly artifactsById: ReadonlyMap<string, ArtifactDefinition>;
+  readonly materialized: ReadonlyMap<string, MaterializedArtifact>;
+  readonly buildRoot: string;
+  readonly cache: PreparedArtifactCache | null;
+  readonly resolveTool: () => Promise<ArtifactToolBinding>;
+  readonly sandbox: ArtifactSandboxBinding;
+}): Promise<ArtifactActionReport> {
+  const context = {
+    action: options.action,
+    artifactsById: options.artifactsById,
+    materialized: options.materialized,
+  } as const;
+  const cacheKey = options.action.cacheable
+    ? computeActionCacheKey(context)
+    : null;
+  const layout = artifactActionLayout(options);
+  if (options.cache !== null && cacheKey !== null) {
+    const started = process.hrtime.bigint();
+    const restored = await restoreActionFromCache({
+      cache: options.cache,
+      context,
+      cacheKey,
+      outputPaths: layout.outputPaths,
+    });
+    if (restored !== null) {
+      return Object.freeze({
+        id: options.action.id,
+        status: "cached",
+        cacheKey,
+        durationMs: Number(process.hrtime.bigint() - started) / 1_000_000,
+        stdout: restored.stdout,
+        stderr: restored.stderr,
+        outputs: restored.outputs,
+      });
+    }
+  }
+
+  const report = await executeAction({
+    action: options.action,
+    artifactsById: options.artifactsById,
+    materialized: options.materialized,
+    layout,
+    tool: await options.resolveTool(),
+    sandbox: options.sandbox,
+    cacheKey,
+  });
+  if (options.cache !== null && cacheKey !== null) {
+    await publishActionToCache({
+      cache: options.cache,
+      context,
+      cacheKey,
+      stdout: report.stdout,
+      stderr: report.stderr,
+      outputs: report.outputs,
+    });
+  }
+  return report;
 }
 
 export async function executeArtifactGraph(
@@ -1005,7 +1026,17 @@ export async function executeArtifactGraph(
   }
   await mkdir(options.buildRoot, { recursive: false });
   const buildRoot = await realpath(options.buildRoot);
-  await verifyToolBindings(graph, options.tools);
+  const cache = options.cache === undefined
+    ? null
+    : await prepareArtifactCache(options.cache);
+  const verifiedTools = new Map<string, Promise<ArtifactToolBinding>>();
+  const resolveTool = (action: ArtifactActionDefinition): Promise<ArtifactToolBinding> => {
+    const existing = verifiedTools.get(action.tool.id);
+    if (existing !== undefined) return existing;
+    const verification = verifyToolBinding(action, options.tools);
+    verifiedTools.set(action.tool.id, verification);
+    return verification;
+  };
 
   const artifactsById = new Map(graph.artifacts.map((artifact) => [artifact.id, artifact]));
   const materialized = new Map<string, MaterializedArtifact>();
@@ -1062,18 +1093,13 @@ export async function executeArtifactGraph(
       const batch = ready.slice(offset, offset + concurrency);
       const batchReports = await Promise.all(
         batch.map(async (action) => {
-          const tool = options.tools[action.tool.id];
-          if (tool === undefined) {
-            throw new ArtifactExecutionError(`No tool binding was supplied for ${action.tool.id}`, {
-              actionId: action.id,
-            });
-          }
-          return await executeAction({
+          return await executeOrRestoreAction({
             action,
             artifactsById,
             materialized,
             buildRoot,
-            tool,
+            cache,
+            resolveTool: async () => await resolveTool(action),
             sandbox: options.sandbox,
           });
         }),

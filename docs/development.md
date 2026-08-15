@@ -57,6 +57,20 @@ pnpm build:watch
 Source executed by Node must use erasable TypeScript syntax. Use explicit
 `.ts` extensions for relative imports and `import type` for type-only imports.
 
+Artifact execution accepts an explicit reusable local cache binding:
+
+```ts
+await executeArtifactGraph(graph, {
+  // ...source, tool, sandbox, and build-root bindings...
+  cache: { kind: "local", path: absoluteCachePath },
+});
+```
+
+Each build root must be new; the cache root is intentionally reused. Cache hits
+are content-verified and do not require the declared tool to be installed. An
+invalid or corrupt cache entry fails loudly so it cannot silently replace a
+trusted build result.
+
 ## Updating scriptc
 
 The fork keeps `main` as an unmodified mirror of `vercel-labs/scriptc`. Project

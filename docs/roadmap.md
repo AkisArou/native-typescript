@@ -129,7 +129,8 @@ duplicating runtime-source selection. The GTK application registers the emitted
 C/LLVM program as a verified graph input and materializes its GLib runtime,
 wrapper object, ScriptC runtime, and final executable through one graph. Phase 1
 still requires modeling compiler emission and export adapters as producer
-actions; making implicit toolchain/system-library inputs explicit; adding caching;
+actions; making implicit toolchain/system-library inputs explicit so native
+actions can use the implemented local cache; adding cache eviction/export;
 broadening callback payload/lifetime and error/export families; provider hooks;
 and the remaining workspace-side generator/product/reporting work before its
 exit gate can pass.
@@ -183,8 +184,9 @@ enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
 and wrapper so it proves the downstream architecture without pretending the
 generator and full product pipeline exist. GIR/header ingestion, general
 GObject identity/floating-reference rules, generated signal adapters, graphing
-compiler emission itself, caching, full application lifecycle, resources, CLI
-orchestration, and GTK packaging remain before the phase exit gate.
+compiler emission itself, enabling cacheability for the complete native
+toolchain, full application lifecycle, resources, CLI orchestration, and GTK
+packaging remain before the phase exit gate.
 
 ### Acceptance application
 
@@ -409,7 +411,7 @@ that establishes a permanent seam:
     (**in progress: canonical host-C planning, sandboxed execution, SDK include
     trees, GTK native objects, ScriptC runtime inputs, and final executable
     linking are implemented; compiler-emission actions, complete toolchain
-    identity, and caching remain**).
+    identity, and cache enablement for native actions remain**).
 
 No separate prototype API is created. Each increment extends the conformance
 fixture and the production path.

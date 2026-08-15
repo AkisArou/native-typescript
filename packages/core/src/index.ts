@@ -29,6 +29,7 @@ export type {
   ArtifactActionDefinition,
   ArtifactActionEnvironment,
   ArtifactActionReport,
+  ArtifactCacheBinding,
   ArtifactDefinition,
   ArtifactExecutionOptions,
   ArtifactExecutionReport,
