@@ -496,6 +496,25 @@ test(
         translatedConnect?.arguments[1]?.callback?.registrationOwner,
         { kind: "argument", argument: 0 },
       );
+      assert.deepEqual(
+        translatedConnect?.arguments[1]?.callback?.sourceArguments,
+        [{ kind: "registration-owner" }],
+      );
+      assert.deepEqual(
+        translatedConnect?.arguments[1]?.type.kind === "func"
+          ? translatedConnect.arguments[1].type.params
+          : undefined,
+        [translatedConnect?.arguments[0]?.type],
+      );
+      const physicalCallback = translatedConnect?.parameters.find(
+        ({ projection }) => projection.kind === "callbackFunction",
+      );
+      assert.deepEqual(
+        physicalCallback?.type.kind === "nativeCallback"
+          ? physicalCallback.type.signature.parameters
+          : undefined,
+        [],
+      );
       for (const declarationName of ["Button", "SignalConnection"]) {
         const definition: ScriptCNativeTypeDefinition | undefined =
           gtkTranslated.input.types.find(

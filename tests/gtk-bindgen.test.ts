@@ -275,7 +275,7 @@ test(
       assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
-        /onClicked\(callback: \(\) => void\): SignalConnection;/u,
+        /onClicked\(callback: \(button: Button\) => void\): SignalConnection;/u,
       );
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
       assert.match(

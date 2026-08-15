@@ -75,9 +75,16 @@ export interface ScriptCNativeContextType {
 
 export type ScriptCNativeCallbackArgumentType = {
   readonly kind: "func";
-  readonly params: ScriptCNativeCallbackSignature["parameters"];
+  readonly params: readonly (
+    | ScriptCNativeCallbackSignature["parameters"][number]
+    | { readonly kind: "nativeHandle"; readonly typeId: string }
+  )[];
   readonly ret: ScriptCNativeCallbackSignature["result"];
 };
+
+export type ScriptCNativeCallbackSourceArgument =
+  | { readonly kind: "callback-parameter"; readonly parameter: number }
+  | { readonly kind: "registration-owner" };
 
 export type ScriptCNativeCallbackContract =
   | {
@@ -87,6 +94,7 @@ export type ScriptCNativeCallbackContract =
       readonly deliveryExecutor: "same-as-caller";
       readonly synchronousReturn: true;
       readonly transports: readonly { readonly kind: "borrow" }[];
+      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
       readonly reentrancy: "required";
       readonly postDisposal: "not-invoked";
       readonly shutdown: "drain";
@@ -104,6 +112,7 @@ export type ScriptCNativeCallbackContract =
       readonly deliveryExecutor: "runtime-owner";
       readonly synchronousReturn: false;
       readonly transports: readonly { readonly kind: "copy" }[];
+      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
       readonly reentrancy: "allowed" | "required";
       readonly postDisposal: "not-invoked";
       readonly shutdown: "drain";
@@ -651,9 +660,73 @@ type SupportedCallbackPair = {
   readonly functionIndex: number;
   readonly contextIndex: number;
   readonly parameterTypeIds: readonly NativeTypeId[];
+  readonly sourceArguments: readonly (
+    | {
+        readonly kind: "callback-parameter";
+        readonly parameter: number;
+        readonly typeId: NativeTypeId;
+      }
+    | {
+        readonly kind: "registration-owner";
+        readonly typeId: NativeTypeId;
+      }
+  )[];
   readonly resultTypeId: NativeTypeId;
   readonly contract: ScriptCNativeCallbackContract;
 };
+
+function supportedCallbackSourceArguments(
+  binding: CallableBinding,
+  callbackType: Extract<NativeType, { readonly kind: "callback" }>,
+  contract: NonNullable<AbiParameter["callback"]>,
+): SupportedCallbackPair["sourceArguments"] | string {
+  const sourceArguments = contract.sourceArguments ??
+    callbackType.signature.parameters.map(({ name }) => ({
+      kind: "callback-parameter" as const,
+      parameter: name,
+    }));
+  const physicalIndexByName = new Map(
+    callbackType.signature.parameters.map((parameter, index) => [parameter.name, index]),
+  );
+  const projectedPhysical = new Set<number>();
+  let ownerProjected = false;
+  const result: Array<SupportedCallbackPair["sourceArguments"][number]> = [];
+  for (const argument of sourceArguments) {
+    if (argument.kind === "callback-parameter") {
+      const parameter = physicalIndexByName.get(argument.parameter);
+      if (parameter === undefined || projectedPhysical.has(parameter)) {
+        return "callback source arguments must project each physical parameter exactly once";
+      }
+      projectedPhysical.add(parameter);
+      result.push(Object.freeze({
+        kind: "callback-parameter",
+        parameter,
+        typeId: callbackType.signature.parameters[parameter]!.type,
+      }));
+      continue;
+    }
+    if (
+      ownerProjected ||
+      contract.lifetime === "call" ||
+      contract.registrationOwner === "result"
+    ) {
+      return "a callback can inject only one receiver registration owner";
+    }
+    const owner = binding.signature.parameters.find(
+      ({ name }) => name === contract.registrationOwner,
+    );
+    if (owner === undefined) return "callback registration owner does not exist";
+    ownerProjected = true;
+    result.push(Object.freeze({
+      kind: "registration-owner",
+      typeId: owner.type,
+    }));
+  }
+  if (projectedPhysical.size !== callbackType.signature.parameters.length) {
+    return "callback source arguments must project every physical parameter";
+  }
+  return Object.freeze(result);
+}
 
 function supportedCallScopedCallbackPair(
   manifest: ScabiManifest,
@@ -745,10 +818,13 @@ function supportedCallScopedCallbackPair(
   ) {
     return "callback argument transport must borrow every callback parameter in ABI order";
   }
+  const sourceArguments = supportedCallbackSourceArguments(binding, callbackType, contract);
+  if (typeof sourceArguments === "string") return sourceArguments;
   return {
     functionIndex: callbackIndex,
     contextIndex,
     parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+    sourceArguments,
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
       lifetime: "call",
@@ -759,6 +835,14 @@ function supportedCallScopedCallbackPair(
       transports: Object.freeze(
         contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
       ),
+      sourceArguments: Object.freeze(sourceArguments.map((argument) =>
+        argument.kind === "callback-parameter"
+          ? Object.freeze({
+              kind: "callback-parameter" as const,
+              parameter: argument.parameter,
+            })
+          : Object.freeze({ kind: "registration-owner" as const })
+      )),
       reentrancy: "required",
       postDisposal: "not-invoked",
       shutdown: "drain",
@@ -881,6 +965,14 @@ function supportedRetainedCallbackPair(
   ) {
     return "retained callback transport must copy every callback parameter in ABI order";
   }
+  const sourceArguments = supportedCallbackSourceArguments(binding, callbackType, contract);
+  if (typeof sourceArguments === "string") return sourceArguments;
+  if (
+    sourceArguments.some(({ kind }) => kind === "registration-owner") &&
+    allowedInvocationExecutors.some((executor) => executor !== "same-as-caller")
+  ) {
+    return "managed registration-owner injection requires same-caller native invocation";
+  }
   const result = binding.signature.result;
   if (
     manifest.types[result.type]?.kind !== "handle" ||
@@ -897,6 +989,7 @@ function supportedRetainedCallbackPair(
     functionIndex: callbackIndex,
     contextIndex,
     parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+    sourceArguments,
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
       lifetime: "until-cancelled",
@@ -915,6 +1008,14 @@ function supportedRetainedCallbackPair(
       transports: Object.freeze(
         contract.arguments.map(() => Object.freeze({ kind: "copy" } as const)),
       ),
+      sourceArguments: Object.freeze(sourceArguments.map((argument) =>
+        argument.kind === "callback-parameter"
+          ? Object.freeze({
+              kind: "callback-parameter" as const,
+              parameter: argument.parameter,
+            })
+          : Object.freeze({ kind: "registration-owner" as const })
+      )),
       reentrancy: contract.reentrancy,
       postDisposal: "not-invoked",
       shutdown: "drain",
@@ -1617,8 +1718,11 @@ export function translateScabiNativeProgram(
       }
       const callback = callbackByFunction.get(index);
       if (callback !== undefined) {
-        const callbackParameters: Array<
+        const physicalCallbackParameters: Array<
           ScriptCNativeCallbackSignature["parameters"][number]
+        > = [];
+        const callbackParameters: Array<
+          ScriptCNativeCallbackArgumentType["params"][number]
         > = [];
         let callbackValid = true;
         for (const [callbackIndex, typeId] of callback.parameterTypeIds.entries()) {
@@ -1632,12 +1736,37 @@ export function translateScabiNativeProgram(
                 diagnostic(
                   "NTS3002",
                   `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
-                  "Callback parameters must be exact native scalars",
+                  "Physical callback parameters must be exact native scalars",
                 ),
               );
             }
             callbackValid = false;
           } else {
+            physicalCallbackParameters.push(type);
+          }
+        }
+        for (const [callbackIndex, sourceArgument] of callback.sourceArguments.entries()) {
+          const type = lowerType(
+            sourceArgument.typeId,
+            `${parameterPath}/callback/sourceArguments/${callbackIndex}/type`,
+          );
+          if (
+            (sourceArgument.kind === "callback-parameter" && type?.kind !== "nativeScalar") ||
+            (sourceArgument.kind === "registration-owner" && type?.kind !== "nativeHandle")
+          ) {
+            if (type !== null) {
+              diagnostics.push(
+                diagnostic(
+                  "NTS3002",
+                  `${parameterPath}/callback/sourceArguments/${callbackIndex}/type`,
+                  sourceArgument.kind === "callback-parameter"
+                    ? "Physical callback source parameters must be exact native scalars"
+                    : "A registration-owner source parameter must be a native handle",
+                ),
+              );
+            }
+            callbackValid = false;
+          } else if (type?.kind === "nativeScalar" || type?.kind === "nativeHandle") {
             callbackParameters.push(type);
           }
         }
@@ -1670,7 +1799,7 @@ export function translateScabiNativeProgram(
         }
         const signature = Object.freeze({
           callingConvention: "c",
-          parameters: Object.freeze(callbackParameters),
+          parameters: Object.freeze(physicalCallbackParameters),
           result: callbackResult,
           context: Object.freeze({ placement: "last" } as const),
         } as const);
@@ -1705,7 +1834,7 @@ export function translateScabiNativeProgram(
           name: parameter.name,
           type: Object.freeze({
             kind: "func",
-            params: signature.parameters,
+            params: Object.freeze(callbackParameters),
             ret: signature.result,
           } as const),
           callback: sourceCallbackContract,

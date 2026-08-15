@@ -298,7 +298,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   const generated = generateGtkScabiPackage(options(snapshot(["clicked"])));
   assert.match(
     generated.declarations,
-    /onClicked\(callback: \(\) => void\): SignalConnection;/u,
+    /onClicked\(callback: \(button: Button\) => void\): SignalConnection;/u,
   );
   assert.match(
     generated.declarations,
@@ -329,6 +329,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     deliveryExecutor: { kind: "runtime-owner" },
     synchronousReturn: false,
     arguments: [],
+    sourceArguments: [{ kind: "registration-owner" }],
     reentrancy: "allowed",
     postDisposal: "not-invoked",
     shutdown: "drain",

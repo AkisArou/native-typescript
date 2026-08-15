@@ -950,6 +950,9 @@ export function generateGtkScabiPackage(
               deliveryExecutor: Object.freeze({ kind: "runtime-owner" }),
               synchronousReturn: false,
               arguments: Object.freeze([]),
+              sourceArguments: Object.freeze([
+                Object.freeze({ kind: "registration-owner" as const }),
+              ]),
               reentrancy: "allowed",
               postDisposal: "not-invoked",
               shutdown: "drain",
@@ -988,7 +991,7 @@ export function generateGtkScabiPackage(
       declarations.add(declaration);
       adapterBindings.push(connectId);
       classLines.push(
-        `  on${upperCamel(callable.name)}(callback: () => void): SignalConnection;`,
+        `  on${upperCamel(callable.name)}(callback: (${lowerCamel(class_.name)}: ${class_.name}) => void): SignalConnection;`,
       );
     }
     let hasCanonicalConstructor = false;

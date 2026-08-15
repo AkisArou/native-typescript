@@ -336,6 +336,8 @@ A callback record contains:
 - allowed invocation executors/threads;
 - synchronous-return requirement;
 - argument copy/borrow rules;
+- ordered source-argument projection, independently of the physical callback
+  parameters;
 - reentrancy policy;
 - post-disposal behavior guaranteed by the native API.
 
@@ -359,6 +361,16 @@ turn. The cancellation handle closes new admission before its destructor and
 completes only after native disconnection returns. Normal cancellation keeps
 the closure alive until admitted leases drain; collector cancellation suppresses
 those already-admitted deliveries before reclaiming their closure.
+
+`sourceArguments` is an explicit logical projection. A
+`callback-parameter` entry selects one physical callback parameter; a
+`registration-owner` entry injects the existing managed receiver identity
+without manufacturing another foreign-pointer wrapper. The latter is
+currently restricted to same-caller native invocation. Each admitted turn
+takes a temporary live retain of the receiver and releases it with the copied
+invocation record, while the registration table keeps only a checked weak
+owner pointer. This preserves the sender through queued delivery without
+adding a permanent connection-to-receiver cycle.
 
 Registration ownership may be the result handle or a borrowed non-null method
 receiver. Receiver ownership preallocates a receiver-to-result edge before the

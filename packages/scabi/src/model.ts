@@ -293,6 +293,13 @@ export interface CallbackArgumentContract {
   readonly transport: "borrow" | "copy" | "retain" | "transfer";
 }
 
+export type CallbackSourceArgumentContract =
+  | {
+      readonly kind: "callback-parameter";
+      readonly parameter: string;
+    }
+  | { readonly kind: "registration-owner" };
+
 export interface CallbackContract {
   readonly lifetime: "call" | "once" | "retained" | "weak" | "until-cancelled";
   readonly registrationOwner: string;
@@ -302,6 +309,9 @@ export interface CallbackContract {
   readonly deliveryExecutor: ExecutorIdentity;
   readonly synchronousReturn: boolean;
   readonly arguments: readonly CallbackArgumentContract[];
+  /** Ordered managed callback parameters. Omission is the identity projection
+   * of physical callback parameters in ABI order. */
+  readonly sourceArguments?: readonly CallbackSourceArgumentContract[];
   readonly reentrancy: "forbidden" | "allowed" | "required";
   readonly postDisposal: "not-invoked" | "may-race";
   readonly shutdown: "drain" | "discard";

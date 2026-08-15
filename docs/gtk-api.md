@@ -161,11 +161,13 @@ receiver-to-connection and connection-to-closure edges to trial deletion, and
 its conformance gate collects the exact receiver/connection/closure cycle under
 plain, address-sanitized, and thread-sanitized builds.
 
-Cross-thread signals use the same source shape when their payload can be
-transported safely. Foreign threads may enqueue copied or natively retained
-payloads through the owner gateway, but they never execute TypeScript or touch
-the ScriptC heap directly. A signal requiring a synchronous cross-thread return
-is unsupported until a separate deadlock and reentrancy contract exists.
+Cross-thread signals may use the same source shape once the emitter itself has
+a transport-safe identity contract. Foreign threads may enqueue copied or
+natively retained payloads through the owner gateway, but they never execute
+TypeScript or touch the ScriptC heap directly. The current managed-emitter
+projection is therefore same-caller only. A signal requiring a synchronous
+cross-thread return is unsupported until a separate deadlock and reentrancy
+contract exists.
 
 ## Resource release
 
@@ -258,14 +260,15 @@ No signal handle or GObject release call is required in the ordinary path.
 The implemented GTK slice now emits class declarations, canonical
 `new Class()` construction, named static constructors, and receiver-owned
 signals that all return one public `SignalConnection` capability with
-`disconnect()`. It still emits method-shaped accessors, zero-argument signal
-callbacks, public GObject `dispose()` methods, and no `connected` observation
-yet. Those remaining declarations accurately describe the current runtime but
-are not the final public contract.
+`disconnect()`, and zero-payload signals receive their typed emitter as the
+first callback argument. It still emits method-shaped accessors, public
+GObject `dispose()` methods, and no `connected` observation yet. Those
+remaining declarations accurately describe the current runtime but are not
+the final public contract.
 
 The migration is intentionally one-way:
 
-1. inject the typed sender parameter and add a proven `connected` observation;
+1. add a proven `connected` observation;
 2. remove routine object `dispose()` declarations;
 3. project proven GObject properties and broader signal payloads.
 

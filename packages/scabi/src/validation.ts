@@ -1017,6 +1017,83 @@ function validateCallback(
     }
   }
 
+  const sourceArguments = contract.sourceArguments ??
+    callbackType.signature.parameters.map(({ name }) => ({
+      kind: "callback-parameter" as const,
+      parameter: name,
+    }));
+  const projectedParameters = new Set<string>();
+  let registrationOwnerCount = 0;
+  for (const [argumentIndex, argument] of sourceArguments.entries()) {
+    const argumentPath = `${path}/sourceArguments/${argumentIndex}`;
+    const candidate = argument as unknown as Record<string, unknown>;
+    if (
+      candidate["kind"] === "callback-parameter" &&
+      Object.keys(candidate).sort().join(",") === "kind,parameter" &&
+      typeof candidate["parameter"] === "string"
+    ) {
+      const parameter = candidate["parameter"];
+      if (!callbackParameters.has(parameter)) {
+        diagnostics.push(
+          diagnostic(
+            "NTS2040",
+            `${argumentPath}/parameter`,
+            `Callback parameter ${parameter} does not exist`,
+          ),
+        );
+      }
+      if (projectedParameters.has(parameter)) {
+        diagnostics.push(
+          diagnostic(
+            "NTS2040",
+            `${argumentPath}/parameter`,
+            `Callback parameter ${parameter} is projected twice`,
+          ),
+        );
+      }
+      projectedParameters.add(parameter);
+      continue;
+    }
+    if (
+      candidate["kind"] !== "registration-owner" ||
+      Object.keys(candidate).join(",") !== "kind"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          argumentPath,
+          "Callback source arguments must project one callback parameter or the registration owner",
+        ),
+      );
+      continue;
+    }
+    registrationOwnerCount++;
+    if (
+      registrationOwnerCount > 1 ||
+      contract.lifetime === "call" ||
+      contract.registrationOwner === "result"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          argumentPath,
+          "A managed registration-owner argument requires one receiver-owned callback",
+        ),
+      );
+    }
+  }
+  for (const name of callbackParameters) {
+    if (!projectedParameters.has(name)) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/sourceArguments`,
+          `Callback parameter ${name} has no source projection`,
+        ),
+      );
+    }
+  }
+
   if (callbackIsForeign(contract)) {
     if (contract.synchronousReturn || resultType?.kind !== "void") {
       diagnostics.push(
@@ -1033,6 +1110,15 @@ function validateCallback(
           "NTS2040",
           `${path}/arguments`,
           "Foreign-thread callback arguments cannot be borrowed",
+        ),
+      );
+    }
+    if (registrationOwnerCount !== 0) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/sourceArguments`,
+          "Foreign-thread callbacks cannot inject a managed registration owner",
         ),
       );
     }

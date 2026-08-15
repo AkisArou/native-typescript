@@ -607,6 +607,27 @@
         "transport": { "enum": ["borrow", "copy", "retain", "transfer"] }
       }
     },
+    "callbackSourceArgument": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "parameter"],
+          "properties": {
+            "kind": { "const": "callback-parameter" },
+            "parameter": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "registration-owner" }
+          }
+        }
+      ]
+    },
     "callbackContract": {
       "type": "object",
       "additionalProperties": false,
@@ -637,6 +658,10 @@
         "arguments": {
           "type": "array",
           "items": { "$ref": "#/$defs/callbackArgument" }
+        },
+        "sourceArguments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/callbackSourceArgument" }
         },
         "reentrancy": { "enum": ["forbidden", "allowed", "required"] },
         "postDisposal": { "enum": ["not-invoked", "may-race"] },

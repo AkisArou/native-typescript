@@ -21,6 +21,7 @@ export type {
   BindingDependencies,
   BooleanType,
   CallbackArgumentContract,
+  CallbackSourceArgumentContract,
   CallbackContext,
   CallbackContract,
   CallbackType,

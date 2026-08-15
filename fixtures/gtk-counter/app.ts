@@ -41,9 +41,12 @@ window.setChild(button);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);
-button.onClicked((): void => {
-  const updated = button.getLabel();
-  if (initial === "Generated: initial" && updated === "Generated: updated") {
+button.onClicked((sender): void => {
+  const updated = sender.getLabel();
+  if (
+    initial === "Generated: initial" &&
+    updated === "Generated: updated"
+  ) {
     generatedValue = 41 as i32;
     generatedReady = true;
   } else {
