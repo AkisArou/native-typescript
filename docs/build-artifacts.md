@@ -213,6 +213,17 @@ by later compiler planning and is cache-reused across distinct build roots. The
 bundled generator is a build input only and is never linked or packaged into the
 target application.
 
+The native objects a target contributes to the application link follow the same
+rule. `planGtkTargetObjects()` returns one immutable fragment containing the
+target-owned GLib owner-runtime object and the generated GObject adapter
+object, together with their artifact and action definitions. Artifact
+identities, per-object dialect policy, and dependency edges belong to the
+target package: the GLib runtime is portable C compiled under the strict
+dialect, while the generated adapters reach GNU extensions through the GTK
+headers. An application build supplies only the SDK compile arguments, tool
+identity, and execution facts, so it cannot reconstruct those edges
+inconsistently or diverge from the target's own compilation policy.
+
 Adapters should be narrow and mechanical. Application behavior belongs in
 TypeScript or a documented platform runtime component, not generated bespoke
 logic that cannot be tested independently.

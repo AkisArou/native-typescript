@@ -43,8 +43,7 @@ import {
   glibRuntimeArtifactIds,
   ingestGir,
   planGtkBindingAnalysis,
-  planGlibRuntimeObject,
-  planGObjectAdapterObject,
+  planGtkTargetObjects,
 } from "@native-typescript/target-gtk";
 import type {
   GObjectAdapterSource,
@@ -471,18 +470,6 @@ test(
         generatedGtkDescriptor.files.adapterSource.digest,
         sha256(generatedGtkAdapterPath),
       );
-      const gobjectAdapterObject = planGObjectAdapterObject({
-        adapter: gobjectAdapter,
-        sourceArtifactId: "source/gtk4/gobject-adapters",
-        objectArtifactId: "object/gtk4/gobject-adapters",
-        actionId: "compile/gtk4/gobject-adapters",
-        logicalPath: "generated/gtk4/gobject-adapters.c",
-        artifactFileName: "gobject-adapters.o",
-        arguments: gtkSdk.compileArguments,
-        tool: clangTool,
-        executionPlatform,
-        target: nativeTarget,
-      });
       const gtkTranslated = translateScabiNativeProgram(generatedGtkManifest, {
         imports: [
           "gtk_box_append",
@@ -701,14 +688,17 @@ test(
         runtimeHeadersPath,
         "directory",
       );
-      const runtimeObject = planGlibRuntimeObject({
-        sourceTreeDigest: runtimeTreeContent.digest,
+      const targetObjects = planGtkTargetObjects({
+        adapter: gobjectAdapter,
+        glibRuntimeSourceTreeDigest: runtimeTreeContent.digest,
         scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
-        arguments: baseArguments,
+        sdkArguments: gtkSdk.compileArguments,
         tool: clangTool,
         executionPlatform,
         target: nativeTarget,
       });
+      const runtimeObject = targetObjects.runtime;
+      const gobjectAdapterObject = targetObjects.adapters;
       const counterArguments: readonly ArtifactActionArgument[] = [
         ...baseArguments,
         { kind: "literal", value: "-I" },
@@ -850,19 +840,15 @@ test(
             ...localArtifacts,
             compilerEmitter,
             planArtifact,
-            runtimeObject.sourceTree,
-            runtimeObject.object,
+            ...targetObjects.artifacts,
             counterObject.artifact,
-            gobjectAdapterObject.source,
-            gobjectAdapterObject.object,
             emissionPlan.artifact,
             executablePlan.artifact,
           ],
           actions: [
             emissionPlan.action,
-            runtimeObject.action,
+            ...targetObjects.actions,
             counterObject.action,
-            gobjectAdapterObject.action,
             executablePlan.action,
           ],
         });

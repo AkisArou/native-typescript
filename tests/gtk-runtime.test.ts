@@ -8,7 +8,9 @@ import {
   glibRuntimeArtifactIds,
   glibRuntimeNative,
   glibRuntimeProvider,
+  gtkTargetObjectArtifactIds,
   planGlibRuntimeObject,
+  planGtkTargetObjects,
 } from "@native-typescript/target-gtk";
 import { capabilities } from "@native-typescript/target-api";
 
@@ -93,6 +95,78 @@ test("GTK target contributes its GLib runtime as an artifact-graph fragment", ()
   ]);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.action.arguments), true);
+});
+
+test("GTK target objects compose one fragment with per-object dialect policy", () => {
+  const sdkArguments = [
+    { kind: "input-path", artifact: "sdk/gtk4/include" },
+  ] as const;
+  const plan = planGtkTargetObjects({
+    adapter: {
+      schema: "native-typescript.gobject-adapter-source",
+      schemaVersion: 6,
+      source: "/* generated */\n",
+      sourceDigest: `sha256:${"3".repeat(64)}`,
+      constructors: [],
+      signalConnection: null,
+      signals: [],
+      valueMethods: [],
+    },
+    glibRuntimeSourceTreeDigest: `sha256:${"1".repeat(64)}`,
+    scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
+    sdkArguments,
+    tool: {
+      id: "tool/clang",
+      version: "1",
+      digest: `sha256:${"2".repeat(64)}`,
+    },
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+
+  assert.equal(plan.runtime.object.id, gtkTargetObjectArtifactIds.glibRuntimeObject);
+  assert.equal(plan.adapters.source.id, gtkTargetObjectArtifactIds.adapterSource);
+  assert.equal(plan.adapters.object.id, gtkTargetObjectArtifactIds.adapterObject);
+
+  // The GLib runtime is portable C held to the strict dialect; the generated
+  // GObject adapters reach GNU extensions through the GTK headers.
+  const literals = (action: (typeof plan)["runtime"]["action"]): string[] =>
+    action.arguments.flatMap((argument) =>
+      argument.kind === "literal" ? [argument.value] : [],
+    );
+  assert.deepEqual(literals(plan.runtime.action).slice(0, 6), [
+    "-std=c11",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-pedantic",
+  ]);
+  assert.deepEqual(literals(plan.adapters.action).slice(0, 4), [
+    "-std=gnu11",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+  ]);
+
+  // Every object sees the SDK include tree, and the fragment declares it.
+  for (const action of [plan.runtime.action, plan.adapters.action]) {
+    assert.equal(action.inputs.includes("sdk/gtk4/include"), true);
+  }
+
+  assert.deepEqual(
+    plan.artifacts.map(({ id }) => id),
+    [
+      gtkTargetObjectArtifactIds.glibRuntimeSourceTree,
+      gtkTargetObjectArtifactIds.glibRuntimeObject,
+      gtkTargetObjectArtifactIds.adapterSource,
+      gtkTargetObjectArtifactIds.adapterObject,
+    ],
+  );
+  assert.deepEqual(plan.actions, [plan.runtime.action, plan.adapters.action]);
+  assert.equal(Object.isFrozen(plan), true);
+  assert.equal(Object.isFrozen(plan.artifacts), true);
+  assert.equal(Object.isFrozen(plan.actions), true);
 });
 
 for (const sanitizer of ["none", "address", "thread"] as const) {
