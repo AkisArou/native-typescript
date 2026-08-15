@@ -109,6 +109,31 @@ Generation records the generator name, version, source revision, normalized
 arguments, and input digests. Generator upgrades invalidate derived bindings
 unless they prove byte-identical output.
 
+### Metadata ingestion boundary
+
+Platform metadata is an input to binding generation, not a binding manifest and
+not an ABI authority by implication. An ingester first produces an immutable,
+schema-versioned snapshot whose source is identified by a portable logical path
+and content digest. Physical SDK paths never enter the snapshot. Namespace,
+version, selection, and unsupported-feature failures are diagnostics rather than
+best-effort defaults.
+
+Large platform descriptions are ingested by explicit class/member selection.
+The snapshot sorts all unordered metadata and contains only selected declarations
+plus their required semantic dependencies. Unsupported declarations outside that
+selection do not block a build; an unsupported fact reached by the selection
+fails generation. This is the metadata-side counterpart of binding and adapter
+reachability, and prevents an SDK's unrelated surface from becoming part of a
+binding's identity or cost.
+
+For GObject targets, GIR is authoritative for introspection names, inheritance,
+interfaces, ownership annotations, nullability, callback scope, and signal
+metadata within the guarantees of the selected SDK. It is not authoritative for
+C layout or calling convention. The generator must reconcile selected GIR facts
+with the matching headers and target compiler's Clang AST/layout results before
+emitting SCABI. Missing ownership or a disagreement between GIR and the
+authoritative C view is an error; the generator does not guess.
+
 ## Native type algebra
 
 Every type is a tagged value. Core SCABI v1 supports:

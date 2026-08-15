@@ -173,6 +173,18 @@ callback wakes. Each source performs exactly one retained callback dispatch and
 one ScriptC microtask checkpoint. Failure delivery, thread affinity, stop/detach
 ordering, and source lifetime are explicit and sanitizer-tested.
 
+The first GIR boundary is also implemented. A namespace/version and explicit
+class/member selection are parsed into a content-addressed, schema-versioned,
+deeply immutable snapshot. The selected surface preserves C and GType identity,
+inheritance/interfaces, constructors, methods, receivers, signals, ownership,
+nullability, callback metadata, arrays, and nested type references. Output order
+is canonical, malformed or ambiguous reachable metadata fails with stable
+diagnostics, and unsupported unselected SDK declarations are ignored. A compact
+fixture and the installed real `Gtk-4.0.gir` `Gtk.Button` surface form the gate.
+This snapshot is deliberately pre-SCABI: Clang-backed header/layout
+reconciliation and GIR-to-SCABI/declaration generation remain required before
+the metadata can drive application compilation.
+
 A permanent narrow fixture now compiles through both C and LLVM into a native
 GTK executable, creates a real window and button, delivers the button signal to
 a retained TypeScript callback, observes its microtask, and tears down the
@@ -182,11 +194,12 @@ GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
 and wrapper so it proves the downstream architecture without pretending the
-generator and full product pipeline exist. GIR/header ingestion, general
-GObject identity/floating-reference rules, generated signal adapters, graphing
-compiler emission itself, enabling cacheability for the complete native
-toolchain, full application lifecycle, resources, CLI orchestration, and GTK
-packaging remain before the phase exit gate.
+generator and full product pipeline exist. GIR-to-SCABI generation,
+authoritative header/layout reconciliation, general GObject
+identity/floating-reference rules, generated signal adapters, graphing compiler
+emission itself, enabling cacheability for the complete native toolchain, full
+application lifecycle, resources, CLI orchestration, and GTK packaging remain
+before the phase exit gate.
 
 ### Acceptance application
 

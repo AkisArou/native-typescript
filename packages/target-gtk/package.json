@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@native-typescript/core": "workspace:*",
-    "@native-typescript/target-api": "workspace:*"
+    "@native-typescript/target-api": "workspace:*",
+    "saxes": "catalog:"
   }
 }

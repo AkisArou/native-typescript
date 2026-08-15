@@ -162,15 +162,18 @@ the fork's full `tests/harness/native-ir.test.ts` suite for both backends.
 The GTK owner-loop and native-application gates are:
 
 ```sh
+node --test tests/gir.test.ts
 node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```
 
-The first test compiles the GLib adapter in plain, ASan/UBSan, and TSan modes.
-The second builds the ScriptC compiler, translates the canonical GTK fixture
-manifest, emits C and LLVM programs, captures ScriptC's exact native driver
-request, materializes the adapter objects and final executable through one
-sandboxed graph, and runs both against a real GTK/Xvfb event loop. It skips only
-when Linux x64, GTK 4, or Xvfb is unavailable.
+The GIR test validates the compact selected-metadata contract and, when the
+system file exists, parses the real `Gtk-4.0.gir` `Gtk.Button` surface. The
+runtime test compiles the GLib adapter in plain, ASan/UBSan, and TSan modes.
+The application test builds the ScriptC compiler, translates the canonical GTK
+fixture manifest, emits C and LLVM programs, captures ScriptC's exact native
+driver request, materializes the adapter objects and final executable through
+one sandboxed graph, and runs both against a real GTK/Xvfb event loop. It skips
+only when Linux x64, GTK 4, or Xvfb is unavailable.
 
 Run the workspace checks:
 

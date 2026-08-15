@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<repository version="1.2"
+            xmlns="http://www.gtk.org/introspection/core/1.0"
+            xmlns:c="http://www.gtk.org/introspection/c/1.0"
+            xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
+  <include name="Gdk" version="4.0"/>
+  <include name="Gsk" version="4.0"/>
+  <package name="gtk4"/>
+  <c:include name="gtk/gtk.h"/>
+  <namespace name="Gtk"
+             version="4.0"
+             shared-library="libgtk-4.so.1"
+             c:identifier-prefixes="Gtk"
+             c:symbol-prefixes="gtk">
+    <class name="Button"
+           c:symbol-prefix="button"
+           c:type="GtkButton"
+           parent="Widget"
+           glib:type-name="GtkButton"
+           glib:get-type="gtk_button_get_type"
+           glib:type-struct="ButtonClass">
+      <implements name="ConstraintTarget"/>
+      <implements name="Buildable"/>
+      <implements name="Actionable"/>
+      <implements name="Accessible"/>
+      <constructor name="new_with_label" c:identifier="gtk_button_new_with_label">
+        <return-value transfer-ownership="none">
+          <type name="Widget" c:type="GtkWidget*"/>
+        </return-value>
+        <parameters>
+          <parameter name="label" transfer-ownership="none">
+            <type name="utf8" c:type="const char*"/>
+          </parameter>
+        </parameters>
+      </constructor>
+      <method name="get_label" c:identifier="gtk_button_get_label">
+        <return-value transfer-ownership="none" nullable="1">
+          <type name="utf8" c:type="const char*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="button" transfer-ownership="none">
+            <type name="Button" c:type="GtkButton*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="set_label" c:identifier="gtk_button_set_label">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="button" transfer-ownership="none">
+            <type name="Button" c:type="GtkButton*"/>
+          </instance-parameter>
+          <parameter name="label" transfer-ownership="none">
+            <type name="utf8" c:type="const char*"/>
+          </parameter>
+        </parameters>
+      </method>
+      <method name="unselected_callback" c:identifier="gtk_button_unselected_callback">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="button" transfer-ownership="none">
+            <type name="Button" c:type="GtkButton*"/>
+          </instance-parameter>
+          <parameter name="callback" transfer-ownership="none">
+            <callback name="UnsupportedInlineCallback" c:type="void*"/>
+          </parameter>
+        </parameters>
+      </method>
+      <glib:signal name="clicked" when="first" action="1">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>
+    </class>
+  </namespace>
+</repository>

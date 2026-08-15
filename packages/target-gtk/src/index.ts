@@ -11,6 +11,27 @@ import {
   defineProvider,
 } from "@native-typescript/target-api";
 
+export { ingestGir } from "./gir.ts";
+export { GirIngestionError } from "./gir-model.ts";
+export type {
+  GirAnnotation,
+  GirCallbackScope,
+  GirCallable,
+  GirClass,
+  GirClassSelection,
+  GirDiagnostic,
+  GirDiagnosticCode,
+  GirInclude,
+  GirIngestionOptions,
+  GirParameter,
+  GirParameterDirection,
+  GirReturnValue,
+  GirSignalWhen,
+  GirSnapshot,
+  GirTransferOwnership,
+  GirTypeReference,
+} from "./gir-model.ts";
+
 export const glibRuntimeNative = Object.freeze({
   header: "runtime/nts_glib_runtime.h",
   source: "runtime/nts_glib_runtime.c",

@@ -196,7 +196,13 @@ registers the emitted C/LLVM unit as a verified graph input and materializes its
 adapter objects, ScriptC runtime, and final executable in one graph. Compiler
 emission itself and implicit system toolchain/library trees are not graph
 actions yet, so the GTK native actions remain deliberately non-cacheable. Only
-reached bindings and native types enter emitted IR or the link. The first
+reached bindings and native types enter emitted IR or the link. The GTK target
+now also turns an explicit namespace/class/member selection from GIR into a
+content-addressed immutable snapshot. Real `Gtk.Button` ingestion preserves C
+and GType identity, ownership, nullability, receivers, and signals while
+rejecting malformed or unsupported reached metadata. This is intentionally a
+pre-SCABI semantic input: matching Clang header/layout verification and binding
+generation are still required before it replaces the hand-authored fixture. The first
 reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
