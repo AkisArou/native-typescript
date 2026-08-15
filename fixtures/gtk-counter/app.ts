@@ -38,7 +38,14 @@ function finishIfReady(): void {
   }
 }
 
+function selectedTitle(present: boolean): string | null {
+  return present ? "Native TypeScript GTK" : null;
+}
+
 const window = new Window();
+window.title = selectedTitle(false);
+window.title = selectedTitle(true);
+if (window.title !== "Native TypeScript GTK") failed = true;
 const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();

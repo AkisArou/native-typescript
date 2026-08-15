@@ -392,7 +392,6 @@ function cStringParameter(
     parameter.type.cType !== "const char*" ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
-    parameter.nullable ||
     parameter.optional ||
     parameter.callerAllocates ||
     parameter.skip ||
@@ -409,7 +408,7 @@ function cStringParameter(
     name: parameter.name,
     type: typeId,
     passMode: "pointer",
-    nullable: false,
+    nullable: parameter.nullable,
     ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
     marshal: Object.freeze({
       kind: "string",
@@ -1329,13 +1328,19 @@ export function generateGtkScabiPackage(
           parameter.type.kind === "named" &&
           parameter.type.name === "utf8"
         ) {
-          const abi = cStringParameter(parameter, "const_utf8", parameterPath, diagnostics);
+          const abi = cStringParameter(
+            parameter,
+            parameter.nullable ? "nullable_const_utf8" : "const_utf8",
+            parameterPath,
+            diagnostics,
+          );
           if (abi === null) {
             valid = false;
           } else {
             abiParameters.push(abi);
-            sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
-            sourceParameterTypes.push("string");
+            const sourceType = parameter.nullable ? "string | null" : "string";
+            sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
+            sourceParameterTypes.push(sourceType);
           }
         } else if (
           parameter.type.kind === "named" &&
@@ -1684,8 +1689,13 @@ export function generateGtkScabiPackage(
         let abi: AbiParameter | null;
         let sourceType: string;
         if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
-          abi = cStringParameter(parameter, "const_utf8", parameterPath, diagnostics);
-          sourceType = "string";
+          abi = cStringParameter(
+            parameter,
+            parameter.nullable ? "nullable_const_utf8" : "const_utf8",
+            parameterPath,
+            diagnostics,
+          );
+          sourceType = parameter.nullable ? "string | null" : "string";
         } else if (parameter.type.kind === "named" && parameter.type.name === "gboolean") {
           abi = requiredValueParameter(
             parameter,

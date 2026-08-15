@@ -155,7 +155,7 @@ The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
 GObject adapter agree. It currently maps selected GObject constructors,
 instance methods, `void`, exact `gboolean`, branded exact `gint` and `gdouble`,
-required borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
+required or nullable borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
 owned handles, coherent GIR-linked getter/setter properties, and non-detailed
 `void` signals with zero or exact `gint`/`gdouble` payloads into canonical
 declarations and a validated SCABI manifest. Equivalent unordered target inputs
@@ -633,6 +633,10 @@ Both C and LLVM pass the normal and rejection paths. Import bindings whose
 entry is an adapter symbol retain the exact adapter input in the translated
 build requirements while lowering the callable entry to the same C-symbol
 Native IR operation.
+Nullable inputs use a separate logical `string | null` source type while
+retaining the same physical const-pointer ABI. A string arm is checked for an
+embedded NUL before entry; the null arm becomes `NULL`. Direct literals and
+runtime unions pass the same C and LLVM conformance gate.
 Borrowed C-string results use the inverse but intentionally non-zero-copy
 contract. Their physical const pointer stays anchored to a borrowed handle
 receiver, while the logical result is `string` or `string | null`. ScriptC

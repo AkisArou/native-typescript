@@ -616,6 +616,40 @@ test("SCABI projects a checked NUL-terminated UTF-8 string into one C pointer", 
   ]);
 });
 
+test("SCABI preserves nullable checked UTF-8 inputs as string or null", () => {
+  const terminated = structuredClone(manifest);
+  const binding = terminated.bindings.hash_utf8;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const data = binding.signature.parameters[0];
+  assert.equal(data?.marshal?.kind, "string");
+  if (data?.marshal?.kind !== "string") return;
+  Object.assign(data.marshal, {
+    length: { kind: "nul" as const },
+    termination: "nul" as const,
+    embeddedNul: "reject" as const,
+  });
+  Object.assign(data, { nullable: true });
+  const pointer = terminated.types[data.type];
+  assert.equal(pointer?.kind, "pointer");
+  if (pointer?.kind !== "pointer") return;
+  Object.assign(pointer, { nullable: true });
+  Object.assign(binding.signature, {
+    parameters: binding.signature.parameters.slice(0, 1),
+  });
+
+  const result = translateScabiNativeProgram(terminated, selectImports(["hash_utf8"]));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.bindings[0]?.arguments, [
+    { name: "data", type: { kind: "nullableString" } },
+  ]);
+  assert.deepEqual(result.input.bindings[0]?.parameters[0]?.projection, {
+    kind: "utf8CString",
+    argument: 0,
+  });
+});
+
 test("SCABI projects receiver-borrowed C-string results with exact nullability", () => {
   const result = translateScabiNativeProgram(
     manifest,

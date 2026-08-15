@@ -271,7 +271,14 @@ test(
           {
             name: "Window",
             constructors: ["new"],
-            methods: ["destroy", "present", "set_child", "set_default_size"],
+            methods: [
+              "destroy",
+              "get_title",
+              "present",
+              "set_child",
+              "set_default_size",
+              "set_title",
+            ],
           },
         ],
         records: [{ name: "Requisition", fields: ["width", "height"] }],
@@ -492,6 +499,10 @@ test(
         generatedGtkDeclarations,
         /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Horizontal: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;[^}]*function combine\(first: EventControllerScrollFlags, \.\.\.rest: readonly EventControllerScrollFlags\[\]\): EventControllerScrollFlags;/su,
       );
+      assert.match(
+        generatedGtkDeclarations,
+        /class Window extends Widget \{[^}]*get title\(\): string \| null;[^}]*set title\(value: string \| null\);/su,
+      );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
       ) as GObjectAdapterSource;
@@ -547,10 +558,12 @@ test(
           "gtk_widget_set_opacity",
           "gtk_widget_set_visible",
           "gtk_window_destroy",
+          "gtk_window_get_title",
           "gtk_window_new",
           "gtk_window_present",
           "gtk_window_set_child",
           "gtk_window_set_default_size",
+          "gtk_window_set_title",
           "nts_gobject_value_gtk_widget_get_preferred_size",
         ],
         exports: [],

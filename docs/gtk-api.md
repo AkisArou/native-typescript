@@ -400,8 +400,11 @@ signals that all return one public `SignalConnection` capability with
 implemented non-detailed `void` subset then receives copied exact
 `gint`/`gdouble` payloads in GIR order. Routine GObject release bindings are now
 internal compiler dependencies rather than public `dispose()` methods. Authoritative
-GIR getter/setter links now project `Button.label` and `Widget.opacity` as
+GIR getter/setter links now project `Button.label`, `Window.title`, and `Widget.opacity` as
 native properties without retaining method-shaped aliases.
+`Window.title` is the first nullable input property: both its getter and setter
+are `string | null`, and the real application gate passes null and text through
+a runtime union without a GTK-specific marshalling path.
 Selected caller-allocated transparent-record outputs now become immutable
 nested value results; `Widget.getPreferredSize()` is the real executable gate.
 Selected GIR enumerations now preserve their member metadata, receive

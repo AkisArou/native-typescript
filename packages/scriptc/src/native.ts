@@ -129,6 +129,7 @@ export type ScriptCNativeArgumentType =
   | ScriptCNativeValueType
   | { readonly kind: "bool" }
   | { readonly kind: "string" }
+  | { readonly kind: "nullableString" }
   | { readonly kind: "bytes"; readonly elem: "u8" }
   | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
@@ -744,6 +745,7 @@ type BorrowedDataParameterPair = {
 } | {
   readonly kind: "utf8-c-string";
   readonly pointee: "i8" | "u8";
+  readonly nullable: boolean;
 };
 
 type BorrowedStringResult = {
@@ -1209,18 +1211,19 @@ function supportedBorrowedDataPair(
         ? manifest.types[pointer.pointee]
         : undefined;
       if (
-        data.passMode !== "pointer" || data.nullable ||
+        data.passMode !== "pointer" ||
         data.ownership.kind !== "borrowed" || data.ownership.scope !== "call" ||
         data.callback !== undefined ||
         pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
-        pointer.nullable || pointer.addressSpace !== 0 ||
+        pointer.nullable !== data.nullable || pointer.addressSpace !== 0 ||
         pointee?.kind !== "integer" || pointee.bits !== 8
       ) {
-        return "NUL-terminated UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero";
+        return "NUL-terminated UTF-8 data must be a borrowed const i8/u8 pointer in address space zero with matching nullability";
       }
       return {
         kind: "utf8-c-string",
         pointee: pointee.signed ? "i8" : "u8",
+        nullable: data.nullable,
       };
     }
     if (marshal.length.kind === "nul") {
@@ -1966,8 +1969,12 @@ export function translateScabiNativeProgram(
         sourceArguments.push(
           Object.freeze({
             name: parameter.name,
-            type: borrowed.kind === "utf8" || borrowed.kind === "utf8-c-string"
+            type: borrowed.kind === "utf8"
               ? Object.freeze({ kind: "string" } as const)
+              : borrowed.kind === "utf8-c-string"
+                ? borrowed.nullable
+                  ? Object.freeze({ kind: "nullableString" } as const)
+                  : Object.freeze({ kind: "string" } as const)
               : Object.freeze({ kind: "bytes", elem: "u8" } as const),
           }),
         );

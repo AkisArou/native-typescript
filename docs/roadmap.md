@@ -88,8 +88,8 @@ The fixture remains the cross-backend and sanitizer regression suite.
 ### Current implementation boundary
 
 The permanent fixture and Native IR path currently cover exact integers,
-direct-register, expanded, and indirect structs, borrowed UTF-8 spans, checked NUL-terminated C-string
-inputs, receiver-borrowed nullable C-string results, byte views, owned owner-confined
+direct-register, expanded, and indirect structs, borrowed UTF-8 spans, checked required and nullable
+NUL-terminated C-string inputs, receiver-borrowed nullable C-string results, byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. Exact integer `errno` sentinels now snapshot the calling
 thread's error before cleanup and become operation-qualified catchable errors.
@@ -320,20 +320,21 @@ GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The app now uses the generated GTK package for
 Window/Button/DrawingArea/Overlay construction, label access, Widget ancestry,
-presentation, activation, exact size/opacity input/output, the `clicked`
+presentation, activation, nullable title input/output, exact size/opacity input/output, the `clicked`
 connection, copied `resize` payloads, nested preferred-size output, and
 deterministic disposal. The remaining
 hand-authored fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
 widget or signal API. Remaining pointer/inout families, broader generated methods and
 non-scalar signal payloads/results, general GObject identity/weak-reference
-rules, graphing compiler emission itself, cacheability for the complete native toolchain, full
+rules, cacheability for the complete native toolchain, full
 application lifecycle, resources, CLI orchestration, and GTK packaging remain
 before the phase exit gate.
 
-The user-facing GTK build command remains sequenced after graphing compiler
-emission as a content-addressed tool action. Adding it sooner would duplicate
-the integration harness and leak workspace compiler paths into otherwise
+Graphing compiler emission is now implemented as a content-addressed tool
+action. The user-facing GTK build command is therefore unblocked; it must
+compose the existing binding, emission, native-object, and link actions rather
+than duplicate the integration harness or leak workspace compiler paths into
 portable build plans.
 
 ### Acceptance application

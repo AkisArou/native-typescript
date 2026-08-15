@@ -405,7 +405,11 @@ C-string boundary is distinct from the physical pointer result: ScriptC copies
 a checked receiver-anchored `const char *` into managed UTF-8 storage before
 releasing the receiver and preserves declared `string | null` nullability.
 Temporary-receiver lifetime and null behavior pass C, LLVM, and the sanitizer
-gate. Borrowed `Uint8Array`
+gate. Nullable checked C-string inputs are a distinct Native IR source contract:
+`string | null` becomes either the checked terminated string pointer or `NULL`,
+including values carried through a runtime union. The generated `Window.title`
+property exercises both branches through real GTK on C and LLVM.
+Borrowed `Uint8Array`
 input follows the same logical-to-physical
 projection path without copying. Exact view offsets and lengths, live
 backing-store mutation, single evaluation, and prompt post-call release pass
@@ -518,7 +522,7 @@ package generation as three declared analysis actions, promotes the verified
 package artifact into the compiler phase, composes it with the target-runtime
 package, and compiles
 both ScriptC backends, and executes constructor, nullable `Button.label`
-property reads and writes,
+property reads and writes, nullable `Window.title` reads and writes,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
 disposal against real GTK. It passes both boolean representations through
 generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
