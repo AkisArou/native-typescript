@@ -48,6 +48,8 @@ export type {
   GObjectAdapterSource,
   GObjectAdapterObjectPlan,
   GObjectConstructorAdapter,
+  GObjectSignalAdapter,
+  GObjectSignalConnectionAdapter,
 } from "./gobject-adapter.ts";
 export type {
   GtkScabiGenerationOptions,

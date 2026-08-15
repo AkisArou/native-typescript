@@ -243,11 +243,11 @@ test(
       assert.equal(generated.manifest.declarations.digest, generated.declarationsDigest);
       assert.deepEqual(Object.keys(generated.manifest.bindings), [
         "gtk_button_connect_clicked",
-        "gtk_button_disconnect_clicked",
         "gtk_button_get_label",
         "gtk_button_new_with_label",
         "gtk_button_release",
         "gtk_button_set_label",
+        "gtk_signal_connection_disconnect",
         "gtk_widget_activate",
         "gtk_widget_get_opacity",
         "gtk_widget_get_width",
@@ -275,7 +275,7 @@ test(
       assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
-        /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
+        /onClicked\(callback: \(\) => void\): SignalConnection;/u,
       );
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
       assert.match(
@@ -286,9 +286,9 @@ test(
         gdouble: { module: ".", name: "gdouble" },
         gint: { module: ".", name: "gint" },
         gtk_button: { module: ".", name: "Button" },
-        gtk_button_clicked_subscription: {
+        gtk_signal_connection: {
           module: ".",
-          name: "ButtonClickedSubscription",
+          name: "SignalConnection",
         },
         gtk_widget: { module: ".", name: "Widget" },
         gtk_window: { module: ".", name: "Window" },

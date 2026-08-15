@@ -181,12 +181,15 @@ and names its generated release binding as the owned-handle destructor. Repeated
 native identity, weak/invalidation policy, and broader method adapters remain
 separate work.
 
-For an accepted zero-payload signal, the same generated source owns an explicit
-subscription object. It strongly retains the GObject instance, records the
-handler ID and opaque callback token, and disconnects, unreferences, and frees
-in one deterministic destructor. SCABI exposes that object as a confined,
-non-identity handle whose owned-result lifecycle closes callback admission
-before native disconnection and drains admitted callbacks before final release.
+For accepted signals, the generated source embeds one namespace-local
+`SignalConnection` base in each signal-specific callback record. The base
+strongly retains the GObject instance and records the handler ID; one shared
+disconnect symbol disconnects, unreferences, and frees every such record.
+Signal-specific records retain distinct callback layouts so payload-bearing
+signals can be added without changing the connection ABI. SCABI exposes the
+base as one confined, non-identity handle whose owned-result lifecycle closes
+callback admission before native disconnection and drains admitted callbacks
+before final release.
 
 ## Native type algebra
 

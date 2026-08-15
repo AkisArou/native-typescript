@@ -257,16 +257,15 @@ No signal handle or GObject release call is required in the ordinary path.
 
 The implemented GTK slice now emits class declarations, canonical
 `new Class()` construction, named static constructors, and receiver-owned
-signals whose returned per-signal connection handles expose `disconnect()`.
-It still emits method-shaped accessors, per-signal connection types instead of
-one public `SignalConnection`, zero-argument signal callbacks, and public
-GObject `dispose()` methods. Those remaining declarations accurately describe
-the current runtime but are not the final public contract.
+signals that all return one public `SignalConnection` capability with
+`disconnect()`. It still emits method-shaped accessors, zero-argument signal
+callbacks, public GObject `dispose()` methods, and no `connected` observation
+yet. Those remaining declarations accurately describe the current runtime but
+are not the final public contract.
 
 The migration is intentionally one-way:
 
-1. unify per-signal connection types as the optional non-owning
-   `SignalConnection` capability and inject the typed sender parameter;
+1. inject the typed sender parameter and add a proven `connected` observation;
 2. remove routine object `dispose()` declarations;
 3. project proven GObject properties and broader signal payloads.
 

@@ -496,7 +496,7 @@ test(
         translatedConnect?.arguments[1]?.callback?.registrationOwner,
         { kind: "argument", argument: 0 },
       );
-      for (const declarationName of ["Button", "ButtonClickedSubscription"]) {
+      for (const declarationName of ["Button", "SignalConnection"]) {
         const definition: ScriptCNativeTypeDefinition | undefined =
           gtkTranslated.input.types.find(
           ({ declaration }) => declaration.name === declarationName,

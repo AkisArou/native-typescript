@@ -298,16 +298,16 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   const generated = generateGtkScabiPackage(options(snapshot(["clicked"])));
   assert.match(
     generated.declarations,
-    /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
+    /onClicked\(callback: \(\) => void\): SignalConnection;/u,
   );
   assert.match(
     generated.declarations,
-    /export interface ButtonClickedSubscription/u,
+    /export interface SignalConnection/u,
   );
   assert.match(generated.declarations, /disconnect\(\): void;/u);
-  assert.deepEqual(generated.manifest.types.gtk_button_clicked_subscription, {
+  assert.deepEqual(generated.manifest.types.gtk_signal_connection, {
     kind: "handle",
-    nativeName: "NtsGObjectButtonClickedSubscription",
+    nativeName: "NtsGtkSignalConnection",
     threadSafety: "confined",
     identity: "none",
     upcasts: [],
@@ -323,7 +323,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   assert.deepEqual(connect.signature.parameters[1]?.callback, {
     lifetime: "until-cancelled",
     registrationOwner: "button",
-    cancellationBinding: "gtk_button_disconnect_clicked",
+    cancellationBinding: "gtk_signal_connection_disconnect",
     contextParameter: "context",
     allowedInvocationExecutors: [{ kind: "same-as-caller" }],
     deliveryExecutor: { kind: "runtime-owner" },
@@ -335,9 +335,9 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   });
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_connect_clicked",
-    "gtk_button_disconnect_clicked",
     "gtk_button_new_with_label",
     "gtk_button_release",
+    "gtk_signal_connection_disconnect",
   ]);
   assertDeepFrozen(generated);
 });

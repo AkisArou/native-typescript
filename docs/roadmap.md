@@ -251,9 +251,11 @@ generated constructor binding now enters through the ownership adapter and uses
 its generated release symbol as the owned handle destructor. General identity-map
 reuse, weak handles, and native invalidation remain.
 
-The first generated signal policy is executable too. A selected zero-payload
-signal generates a C subscription object that strongly retains its instance,
-owns the handler ID, and disconnects deterministically. Its SCABI result handle
+The first generated signal policy is executable too. Selected zero-payload
+signals share a namespace-local C connection base and disconnect entry point;
+each signal-specific callback record embeds that base, strongly retains its
+instance, owns the handler ID, and disconnects deterministically. The shared
+SCABI `SignalConnection` result handle
 is owned by the emitter, owns the retained callback registration, closes
 admission before disconnect,
 delivers on the runtime owner without inline TypeScript reentrancy, drains
@@ -272,7 +274,7 @@ GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The app now uses the generated GTK package for Window/Button
 construction, label access, Widget ancestry, presentation, activation,
-exact size/opacity input/output, `clicked` subscription, and deterministic
+exact size/opacity input/output, the `clicked` connection, and deterministic
 disposal. The remaining hand-authored
 fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application

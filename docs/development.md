@@ -190,8 +190,9 @@ The application test builds the ScriptC compiler and the self-contained GTK
 host generator tool. Its analysis graph makes sandboxed Clang evidence feed a
 deterministic normalization action, then makes that canonical evidence feed the
 cacheable action that regenerates selected Widget, Button, and Window
-declarations, SCABI, GObject adapters, and a zero-payload signal subscription
-adapter as one package directory. A second build root proves that unchanged
+declarations, SCABI, GObject adapters, and a zero-payload signal adapter with a
+shared `SignalConnection` ABI as one package directory. A second build root
+proves that unchanged
 package generation is restored from the local cache. The next planning phase composes
 that verified package with the canonical GTK runtime fixture and plans C and
 LLVM programs. It snapshots ScriptC's built emitter

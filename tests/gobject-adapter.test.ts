@@ -106,7 +106,7 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 2);
+  assert.equal(generated.schemaVersion, 3);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -121,6 +121,7 @@ test("GObject constructors normalize borrowed floating results to one strong ref
       nullable: false,
     },
   ]);
+  assert.equal(generated.signalConnection, null);
   assert.deepEqual(generated.signals, []);
   assert.match(
     generated.source,
@@ -136,26 +137,33 @@ test("GObject constructors normalize borrowed floating results to one strong ref
   assert.deepEqual(adapter(), generated);
 });
 
-test("zero-payload GObject signals generate owned deterministic subscriptions", () => {
+test("zero-payload GObject signals share one deterministic connection ABI", () => {
   const generated = signalAdapter();
+  assert.deepEqual(generated.signalConnection, {
+    nativeType: "NtsGtkSignalConnection",
+    disconnectSymbol: "nts_gtk_signal_connection_disconnect",
+  });
   assert.deepEqual(generated.signals, [{
     id: "Button.signal.clicked",
     className: "Button",
     nativeType: "GtkButton",
     signalName: "clicked",
-    subscriptionNativeType: "NtsGObjectButtonClickedSubscription",
     connectSymbol: "nts_gobject_connect_button_clicked",
-    disconnectSymbol: "nts_gobject_disconnect_button_clicked",
     callbackType: "NtsGObjectButtonClickedCallback",
   }]);
   assert.match(
     generated.source,
-    /NtsGObjectButtonClickedSubscription \*nts_gobject_connect_button_clicked/u,
+    /NtsGtkSignalConnection \*nts_gobject_connect_button_clicked/u,
+  );
+  assert.match(generated.source, /typedef struct NtsGObjectButtonClickedConnection/u);
+  assert.match(
+    generated.source,
+    /void nts_gtk_signal_connection_disconnect\(NtsGtkSignalConnection \*connection\)/u,
   );
   assert.match(generated.source, /g_signal_connect\(instance, "clicked"/u);
   assert.match(generated.source, /g_object_ref\(instance\)/u);
   assert.match(generated.source, /g_signal_handler_disconnect/u);
-  assert.match(generated.source, /g_object_unref\(subscription->instance\)/u);
+  assert.match(generated.source, /g_object_unref\(connection->instance\)/u);
   assertDeepFrozen(generated);
   assert.deepEqual(signalAdapter(), generated);
 });

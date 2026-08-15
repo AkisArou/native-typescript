@@ -112,14 +112,6 @@ function handleBrand(className: string): string {
   return `nativeResource${upperCamel(className)}`;
 }
 
-function signalSubscriptionName(className: string, signalName: string): string {
-  return `${className}${upperCamel(signalName)}Subscription`;
-}
-
-function signalSubscriptionBrand(className: string, signalName: string): string {
-  return `nativeResource${signalSubscriptionName(className, signalName)}`;
-}
-
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -256,6 +248,8 @@ function validateInputs(
     options.gobjectAdapter.source !== expectedAdapter.source ||
     canonicalizeJson(options.gobjectAdapter.constructors) !==
       canonicalizeJson(expectedAdapter.constructors) ||
+    canonicalizeJson(options.gobjectAdapter.signalConnection) !==
+      canonicalizeJson(expectedAdapter.signalConnection) ||
     canonicalizeJson(options.gobjectAdapter.signals) !==
       canonicalizeJson(expectedAdapter.signals)
   ) {
@@ -593,6 +587,11 @@ export function generateGtkScabiPackage(
     class_.name,
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
+  const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
+  const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
+  const signalConnectionTypeId = `${namespacePrefix}_signal_connection`;
+  const signalDisconnectId = `${namespacePrefix}_signal_connection_disconnect`;
+  const signalDisconnectDeclaration = "SignalConnection.disconnect";
   const declarationLines = [
     ...(usedSourceScalars.length > 0
       ? ["declare const nativeScalar: unique symbol;"]
@@ -600,9 +599,7 @@ export function generateGtkScabiPackage(
     ...options.snapshot.classes.map((class_) =>
       `declare const ${handleBrand(class_.name)}: unique symbol;`
     ),
-    ...options.snapshot.classes.flatMap((class_) => class_.signals.map((signal) =>
-      `declare const ${signalSubscriptionBrand(class_.name, signal.name)}: unique symbol;`
-    )),
+    ...(hasSignals ? ["declare const nativeResourceSignalConnection: unique symbol;"] : []),
     "",
     ...(usedSourceScalars.length > 0
       ? [
@@ -625,6 +622,63 @@ export function generateGtkScabiPackage(
     options.gobjectAdapter.signals.map((signal) => [signal.id, signal]),
   );
   const declarations = new Set<string>();
+  let signalConnectionReady = !hasSignals;
+  if (hasSignals) {
+    const connection = options.gobjectAdapter.signalConnection;
+    const path = `${options.snapshot.namespace.name}/SignalConnection`;
+    if (connection === null) {
+      diagnostics.push(diagnostic(path, "GObject signal connection adapter is missing"));
+    } else if (
+      types[signalConnectionTypeId] !== undefined ||
+      declarationTypes[signalConnectionTypeId] !== undefined ||
+      bindings[signalDisconnectId] !== undefined ||
+      declarations.has(signalDisconnectDeclaration)
+    ) {
+      diagnostics.push(diagnostic(path, "Generated signal connection identity collides"));
+    } else {
+      types[signalConnectionTypeId] = Object.freeze({
+        kind: "handle",
+        nativeName: connection.nativeType,
+        threadSafety: "confined",
+        identity: "none",
+        upcasts: Object.freeze([]),
+      });
+      declarationTypes[signalConnectionTypeId] = Object.freeze({
+        module: ".",
+        name: "SignalConnection",
+      });
+      bindings[signalDisconnectId] = callableBase({
+        declaration: signalDisconnectDeclaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: connection.disconnectSymbol,
+        parameters: [Object.freeze({
+          name: "connection",
+          type: signalConnectionTypeId,
+          passMode: "pointer",
+          nullable: true,
+          ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
+        })],
+        result: Object.freeze({
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+      });
+      declarations.add(signalDisconnectDeclaration);
+      adapterBindings.push(signalDisconnectId);
+      declarationLines.push(
+        "export interface SignalConnection {",
+        "  readonly [nativeResourceSignalConnection]: true;",
+        "  disconnect(): void;",
+        "}",
+        "",
+      );
+      signalConnectionReady = true;
+    }
+  }
 
   for (const class_ of options.snapshot.classes) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
@@ -821,26 +875,19 @@ export function generateGtkScabiPackage(
     for (const callable of class_.signals) {
       const path = `${classPath}/signal/${callable.name}`;
       const adapter = adapterBySignal.get(`${class_.name}.signal.${callable.name}`);
-      const subscriptionName = signalSubscriptionName(class_.name, callable.name);
       const signalPart = callable.name.replaceAll("-", "_");
-      const callbackTypeId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_${signalPart}_callback`;
-      const subscriptionTypeId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_${signalPart}_subscription`;
-      const connectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_connect_${signalPart}`;
-      const disconnectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_disconnect_${signalPart}`;
+      const callbackTypeId = `${namespacePrefix}_${class_.cSymbolPrefix}_${signalPart}_callback`;
+      const connectId = `${namespacePrefix}_${class_.cSymbolPrefix}_connect_${signalPart}`;
       const declaration = `${class_.name}.on${upperCamel(callable.name)}`;
-      const disconnectDeclaration = `${subscriptionName}.disconnect`;
       if (adapter === undefined) {
         diagnostics.push(diagnostic(path, "GObject signal adapter is missing this signal"));
         continue;
       }
+      if (!signalConnectionReady) continue;
       if (
         types[callbackTypeId] !== undefined ||
-        types[subscriptionTypeId] !== undefined ||
-        declarationTypes[subscriptionTypeId] !== undefined ||
         bindings[connectId] !== undefined ||
-        bindings[disconnectId] !== undefined ||
-        declarations.has(declaration) ||
-        declarations.has(disconnectDeclaration)
+        declarations.has(declaration)
       ) {
         diagnostics.push(diagnostic(path, "Generated GObject signal identity collides"));
         continue;
@@ -869,37 +916,6 @@ export function generateGtkScabiPackage(
         }),
         context: Object.freeze({ placement: "last", type: "void_ptr" }),
       });
-      types[subscriptionTypeId] = Object.freeze({
-        kind: "handle",
-        nativeName: adapter.subscriptionNativeType,
-        threadSafety: "confined",
-        identity: "none",
-        upcasts: Object.freeze([]),
-      });
-      declarationTypes[subscriptionTypeId] = Object.freeze({
-        module: ".",
-        name: subscriptionName,
-      });
-      bindings[disconnectId] = callableBase({
-        declaration: disconnectDeclaration,
-        kind: "method",
-        entryKind: "adapter-symbol",
-        symbol: adapter.disconnectSymbol,
-        parameters: [Object.freeze({
-          name: "subscription",
-          type: subscriptionTypeId,
-          passMode: "pointer",
-          nullable: true,
-          ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
-        })],
-        result: Object.freeze({
-          type: "void",
-          passMode: "value",
-          nullable: false,
-          ownership: Object.freeze({ kind: "value" }),
-        }),
-        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
-      });
       bindings[connectId] = callableBase({
         declaration,
         kind: "method",
@@ -926,7 +942,7 @@ export function generateGtkScabiPackage(
             callback: Object.freeze({
               lifetime: "until-cancelled",
               registrationOwner: lowerCamel(class_.name),
-              cancellationBinding: disconnectId,
+              cancellationBinding: signalDisconnectId,
               contextParameter: "context",
               allowedInvocationExecutors: Object.freeze([
                 Object.freeze({ kind: "same-as-caller" as const }),
@@ -952,35 +968,27 @@ export function generateGtkScabiPackage(
           }),
         ],
         result: Object.freeze({
-          type: subscriptionTypeId,
+          type: signalConnectionTypeId,
           passMode: "pointer",
           nullable: true,
           ownership: Object.freeze({
             kind: "owned",
             transfer: "to-runtime",
-            destructor: disconnectId,
+            destructor: signalDisconnectId,
           }),
         }),
         error: Object.freeze({ kind: "nullable" }),
         dependencies: dependencies({
-          bindings: [disconnectId],
+          bindings: [signalDisconnectId],
           links: linkIds,
           adapter: options.adapterInput.id,
         }),
         availability: availability(class_, callable),
       });
       declarations.add(declaration);
-      declarations.add(disconnectDeclaration);
-      adapterBindings.push(connectId, disconnectId);
+      adapterBindings.push(connectId);
       classLines.push(
-        `  on${upperCamel(callable.name)}(callback: () => void): ${subscriptionName};`,
-      );
-      declarationLines.push(
-        `export interface ${subscriptionName} {`,
-        `  readonly [${signalSubscriptionBrand(class_.name, callable.name)}]: true;`,
-        "  disconnect(): void;",
-        "}",
-        "",
+        `  on${upperCamel(callable.name)}(callback: () => void): SignalConnection;`,
       );
     }
     let hasCanonicalConstructor = false;

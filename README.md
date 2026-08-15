@@ -245,8 +245,8 @@ The native application never contains that Node build tool. The generated
 surface covers managed Widget ancestry, class-based `new Window()` and
 `Button.withLabel(...)` construction, disposal, label access, borrowed handle
 parameters, exact `gboolean` methods, branded
-`gint`/`gdouble` parameters and results, and deterministic result-owned
-subscriptions for non-detailed zero-payload `void` signals. The adapter strongly
+`gint`/`gdouble` parameters and results, and one shared `SignalConnection`
+capability for non-detailed zero-payload `void` signals. The adapter strongly
 retains the signal instance, disconnects by its handler ID, and composes with
 ScriptC's retained callback lifecycle so no callback runs after disposal.
 Reached metadata outside the implemented
@@ -263,7 +263,7 @@ generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
 `gint` values, feeds `Widget.getWidth()` back into a native call, round-trips
 exact `gdouble` through `Widget.setOpacity()`/`getOpacity()`, then calls
 `Widget.activate()`, projects its native boolean result, and receives the
-resulting real `Button.clicked` through the generated retained subscription.
+resulting real `Button.clicked` through the generated receiver-owned connection.
 The remaining hand-authored fixture is
 limited to host-loop/completion control and an independent counter turn. Record
 layout, broader type and signal-payload lowering, and GObject identity and

@@ -38,18 +38,22 @@ export interface GObjectSignalAdapter {
   readonly className: string;
   readonly nativeType: string;
   readonly signalName: string;
-  readonly subscriptionNativeType: string;
   readonly connectSymbol: string;
-  readonly disconnectSymbol: string;
   readonly callbackType: string;
+}
+
+export interface GObjectSignalConnectionAdapter {
+  readonly nativeType: string;
+  readonly disconnectSymbol: string;
 }
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
+  readonly signalConnection: GObjectSignalConnectionAdapter | null;
   readonly signals: readonly GObjectSignalAdapter[];
 }
 
@@ -214,6 +218,7 @@ function generateConstructor(
 function generateSignal(
   class_: GirClass,
   callable: GirCallable,
+  signalConnection: GObjectSignalConnectionAdapter,
   diagnostics: CBindgenDiagnostic[],
 ): {
   readonly adapter: GObjectSignalAdapter;
@@ -250,52 +255,40 @@ function generateSignal(
   const classPart = class_.cSymbolPrefix;
   const typeStem = `NtsGObject${upperCamel(class_.name)}${upperCamel(callable.name)}`;
   const callbackType = `${typeStem}Callback`;
-  const subscriptionNativeType = `${typeStem}Subscription`;
+  const connectionType = `${typeStem}Connection`;
   const connectSymbol = `nts_gobject_connect_${classPart}_${signalPart}`;
-  const disconnectSymbol = `nts_gobject_disconnect_${classPart}_${signalPart}`;
   const dispatchSymbol = `nts_gobject_dispatch_${classPart}_${signalPart}`;
   const nativeClassPointer = `${renderCType(nativeClass)} *`;
   const lines = [
     `typedef void (*${callbackType})(void *context);`,
-    `typedef struct ${subscriptionNativeType} {`,
-    `  ${nativeClassPointer}instance;`,
-    "  gulong handler;",
+    `typedef struct ${connectionType} {`,
+    `  ${signalConnection.nativeType} base;`,
     `  ${callbackType} callback;`,
     "  void *context;",
-    `} ${subscriptionNativeType};`,
+    `} ${connectionType};`,
     "",
     `static void ${dispatchSymbol}(${nativeClassPointer}instance, void *opaque) {`,
     "  (void)instance;",
-    `  ${subscriptionNativeType} *subscription = opaque;`,
-    "  subscription->callback(subscription->context);",
+    `  ${connectionType} *connection = opaque;`,
+    "  connection->callback(connection->context);",
     "}",
     "",
-    `${subscriptionNativeType} *${connectSymbol}(`,
+    `${signalConnection.nativeType} *${connectSymbol}(`,
     `    ${nativeClassPointer}instance, ${callbackType} callback, void *context) {`,
     "  if (instance == NULL || callback == NULL) return NULL;",
-    `  ${subscriptionNativeType} *subscription = calloc(1, sizeof *subscription);`,
-    "  if (subscription == NULL) return NULL;",
-    "  subscription->instance = g_object_ref(instance);",
-    "  subscription->callback = callback;",
-    "  subscription->context = context;",
-    `  subscription->handler = g_signal_connect(instance, "${callable.name}",`,
-    `      G_CALLBACK(${dispatchSymbol}), subscription);`,
-    "  if (subscription->handler == 0) {",
-    "    g_object_unref(subscription->instance);",
-    "    free(subscription);",
+    `  ${connectionType} *connection = calloc(1, sizeof *connection);`,
+    "  if (connection == NULL) return NULL;",
+    "  connection->base.instance = G_OBJECT(g_object_ref(instance));",
+    "  connection->callback = callback;",
+    "  connection->context = context;",
+    `  connection->base.handler = g_signal_connect(instance, "${callable.name}",`,
+    `      G_CALLBACK(${dispatchSymbol}), connection);`,
+    "  if (connection->base.handler == 0) {",
+    "    g_object_unref(connection->base.instance);",
+    "    free(connection);",
     "    return NULL;",
     "  }",
-    "  return subscription;",
-    "}",
-    "",
-    `void ${disconnectSymbol}(${subscriptionNativeType} *subscription) {`,
-    "  if (subscription == NULL) return;",
-    "  if (subscription->handler != 0 &&",
-    "      g_signal_handler_is_connected(subscription->instance, subscription->handler)) {",
-    "    g_signal_handler_disconnect(subscription->instance, subscription->handler);",
-    "  }",
-    "  g_object_unref(subscription->instance);",
-    "  free(subscription);",
+    "  return &connection->base;",
     "}",
     "",
   ];
@@ -305,9 +298,7 @@ function generateSignal(
       className: class_.name,
       nativeType: class_.cType,
       signalName: callable.name,
-      subscriptionNativeType,
       connectSymbol,
-      disconnectSymbol,
       callbackType,
     }),
     lines,
@@ -320,11 +311,38 @@ export function generateGObjectAdapterSource(
   const diagnostics: CBindgenDiagnostic[] = [];
   const constructors: GObjectConstructorAdapter[] = [];
   const signals: GObjectSignalAdapter[] = [];
+  const hasSignals = snapshot.classes.some((class_) => class_.signals.length > 0);
+  const namespacePart = snapshot.namespace.name.toLowerCase();
+  const signalConnection = hasSignals
+    ? Object.freeze({
+        nativeType: `Nts${upperCamel(snapshot.namespace.name)}SignalConnection`,
+        disconnectSymbol: `nts_${namespacePart}_signal_connection_disconnect`,
+      })
+    : null;
   const lines = [
     "/* Generated by @native-typescript/target-gtk. */",
     ...snapshot.cIncludes.map((include) => `#include <${include}>`),
     "#include <stdlib.h>",
     "",
+    ...(signalConnection === null
+      ? []
+      : [
+          `typedef struct ${signalConnection.nativeType} {`,
+          "  GObject *instance;",
+          "  gulong handler;",
+          `} ${signalConnection.nativeType};`,
+          "",
+          `void ${signalConnection.disconnectSymbol}(${signalConnection.nativeType} *connection) {`,
+          "  if (connection == NULL) return;",
+          "  if (connection->handler != 0 &&",
+          "      g_signal_handler_is_connected(connection->instance, connection->handler)) {",
+          "    g_signal_handler_disconnect(connection->instance, connection->handler);",
+          "  }",
+          "  g_object_unref(connection->instance);",
+          "  free(connection);",
+          "}",
+          "",
+        ]),
   ];
   for (const class_ of snapshot.classes) {
     const classConstructors: GObjectConstructorAdapter[] = [];
@@ -345,7 +363,7 @@ export function generateGObjectAdapterSource(
       );
     }
     for (const callable of class_.signals) {
-      const generated = generateSignal(class_, callable, diagnostics);
+      const generated = generateSignal(class_, callable, signalConnection!, diagnostics);
       if (generated === null) continue;
       signals.push(generated.adapter);
       lines.push(...generated.lines);
@@ -368,10 +386,11 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 2,
+    schemaVersion: 3,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
+    signalConnection,
     signals: Object.freeze(signals),
   });
 }
