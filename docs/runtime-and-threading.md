@@ -378,6 +378,15 @@ The adapter owns or attaches the correct `GMainContext`, observes floating
 references, disconnects signals before releasing callback entries, and delivers
 UI mutations on the owning context.
 
+A generated `GApplication` lifecycle registers and activates the application
+and returns. It must not call `g_application_run()`, which owns a second
+`GMainLoop` and would suspend a compiled native frame around the UI loop for the
+process lifetime. The attached `GMainContext` remains the single host scheduler,
+and attached-loop liveness keeps the process running after top-level TypeScript
+returns. Requesting application quit ends that liveness through the ordinary
+stop path. The source projection is defined in
+[GTK TypeScript API](gtk-api.md).
+
 ### Terminal
 
 A terminal session is an owner-executor resource and event-source family. Its

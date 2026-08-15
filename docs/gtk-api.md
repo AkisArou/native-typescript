@@ -281,6 +281,88 @@ The generator does not add a public `dispose()` method to every GObject class
 merely because the internal handle has a release binding. Internal destructors
 remain compiler-visible SCABI dependencies.
 
+## Application lifecycle
+
+`Application` starts the platform application and returns. It never blocks.
+
+[Runtime and threading](runtime-and-threading.md) requires that top-level
+TypeScript initialization completes normally and that no compiled native call
+remains suspended around the UI loop. A blocking `run()` would violate that
+invariant directly: it would hold a native frame open for the process lifetime,
+nest every owner turn and microtask checkpoint inside that frame, and install a
+second main loop competing with the runtime's attached host scheduler.
+
+The GTK runtime provider already attaches the selected `GMainContext` as the
+executable's host scheduler. Its poll operation runs at most one
+`g_main_context_iteration` per turn and contributes ScriptC's next timer
+deadline to the wait. Attached-loop liveness, not a suspended call frame, is
+what keeps the process running after top-level TypeScript returns.
+
+`start()` therefore lowers to registration followed by activation:
+
+```text
+Application.start()
+    │
+    ├─ g_application_register()      acquire or detect the primary instance
+    │
+    ├─ remote instance?  ──yes──▶    activation forwarded; request runtime stop
+    │
+    └─ g_application_activate()      emits `activate` on the primary instance
+                                     returns immediately
+```
+
+It must not lower to `g_application_run()`, which owns its own `GMainLoop`.
+
+```ts
+export declare class Application {
+  constructor(applicationId: string);
+  onActivate(callback: (application: Application) => void): SignalConnection;
+  start(): void;
+  quit(): void;
+}
+```
+
+- `start()` registers and activates the application, then returns. Calling it
+  more than once on one instance is a contract violation.
+- `onActivate` registers before `start()`. It is an ordinary receiver-owned
+  signal with the same lifetime rules as every other GTK signal.
+- `quit()` ends attached-loop liveness and requests runtime shutdown. Already
+  admitted callbacks still drain before the owner observes quiescence.
+
+### Process lifetime is explicit
+
+Closing the last window does not end the process. The application runs until
+TypeScript calls `quit()`.
+
+GTK convention ties process exit to the window count, because
+`g_application_run()` returns when `GtkApplication`'s hold count reaches zero.
+This projection does not reproduce that implicitly. Process lifetime tied to
+widget state is exactly the kind of hidden control flow the architecture
+requires to be visible, and reproducing it without `run()` would mean observing
+an unexported hold count or inferring intent from `window-removed`.
+
+An application that wants the conventional behavior writes it:
+
+```ts
+window.onCloseRequest(() => {
+  app.quit();
+});
+```
+
+A declared, opt-in lifetime policy may be added later. It will be an explicit
+constructor option with its own gate, never a default.
+
+### Remote instances
+
+`g_application_register()` may determine that another process already owns the
+application ID. The local process is then a remote instance: its activation has
+been forwarded and it has no primary-instance work to do. `start()` requests
+runtime stop in that case rather than activating, so the process exits through
+the ordinary shutdown path instead of presenting a second set of windows.
+
+Applications that need non-default single-instance behavior select it through
+`GApplicationFlags` once that binding is generated.
+
 ## Representative declaration surface
 
 ```ts
@@ -288,7 +370,8 @@ remain compiler-visible SCABI dependencies.
 export declare class Application {
   constructor(applicationId: string);
   onActivate(callback: (application: Application) => void): SignalConnection;
-  run(args?: readonly string[]): number;
+  start(): void;
+  quit(): void;
 }
 
 export declare class Widget {
@@ -383,13 +466,19 @@ app.onActivate((application) => {
   content.append(button);
   window.title = "Native TypeScript";
   window.setChild(content);
+  window.onCloseRequest(() => {
+    app.quit();
+  });
   window.present();
 });
 
-app.run();
+app.start();
 ```
 
-No signal handle or GObject release call is required in the ordinary path.
+`start()` returns as soon as the application is activated. Top-level module
+evaluation then completes, and the attached GLib main context owns waiting from
+that point on. No signal handle or GObject release call is required in the
+ordinary path.
 
 ## Current migration boundary
 
@@ -424,9 +513,19 @@ to exact native-width OR, and observes `BothAxes`.
 non-consuming and idempotent, while `connected` reads the actual native handler
 state; the separate connection release operation remains internal.
 
+`Application` is specified above but not yet generated. The executable fixture
+still starts the GLib runtime and requests its stop through hand-authored C.
+Replacing that fixture entry point with the generated non-blocking
+`Application` lifecycle is the next GTK slice; the blocking `run()` projection
+that previously appeared in this document was withdrawn because it contradicts
+the attached-host-scheduler contract in
+[Runtime and threading](runtime-and-threading.md).
+
 The migration is intentionally one-way:
 
-1. broaden proven GObject property types, value-method input/output families,
+1. generate the non-blocking `Application` lifecycle and retire the fixture's
+   hand-authored runtime entry point;
+2. broaden proven GObject property types, value-method input/output families,
    and non-scalar signal payloads/results.
 
 No deprecated aliases or duplicate compatibility surface remains after each
