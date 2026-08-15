@@ -206,6 +206,12 @@ becomes `string | null`. The next GTK integration step is to make the generated
 package, rather than the hand-authored fixture, the application compilation
 input.
 
+Multi-package Native IR inputs now have a first-class canonical composition
+boundary. Generated toolkit bindings and target-runtime support can enter one
+compiler invocation without flattening their SCABI package identities or
+assembling arrays ad hoc; target and source-identity collisions fail before
+compilation. The GTK application migration can build directly on this boundary.
+
 The first GObject ownership policy is now executable rather than documentary.
 Selected constructors generate content-addressed C adapters that normalize GIR
 `none` and `full` results into one strong, non-floating reference, and their

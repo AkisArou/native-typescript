@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 export {
+  composeScriptCNativePrograms,
   translateScabiNativeProgram,
   type ScriptCNativeAbiType,
   type ScriptCNativeArgumentType,
@@ -23,6 +24,7 @@ export {
   type ScriptCNativeTypeDefinition,
   type ScriptCNativeTranslationDiagnostic,
   type ScriptCNativeTranslationResult,
+  type ScriptCNativeTranslationSuccess,
   type ScriptCNativeValueType,
 } from "./native.ts";
 export type {

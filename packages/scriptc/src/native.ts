@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   AbiParameter,
   AbiResult,
@@ -286,13 +287,15 @@ export interface ScriptCNativeTranslationDiagnostic {
   readonly message: string;
 }
 
+export interface ScriptCNativeTranslationSuccess {
+  readonly ok: true;
+  readonly input: ScriptCNativeFrontendInput;
+  readonly linkInputIds: readonly string[];
+  readonly adapterInputIds: readonly string[];
+}
+
 export type ScriptCNativeTranslationResult =
-  | {
-      readonly ok: true;
-      readonly input: ScriptCNativeFrontendInput;
-      readonly linkInputIds: readonly string[];
-      readonly adapterInputIds: readonly string[];
-    }
+  | ScriptCNativeTranslationSuccess
   | {
       readonly ok: false;
       readonly diagnostics: readonly ScriptCNativeTranslationDiagnostic[];
@@ -304,6 +307,127 @@ function diagnostic(
   message: string,
 ): ScriptCNativeTranslationDiagnostic {
   return Object.freeze({ code, severity: "error", path, message });
+}
+
+function declarationKey(declaration: ScriptCNativeDeclaration): string {
+  return `${declaration.module}\u0000${declaration.name}`;
+}
+
+/** Compose independently translated packages into one canonical compiler
+ * input. Package boundaries remain visible in every nominal id; only exact
+ * duplicates are coalesced. Conflicting source identities, native ids, or
+ * export roots fail here instead of depending on frontend map insertion
+ * order. Build requirements travel with the same composition operation. */
+export function composeScriptCNativePrograms(
+  programs: readonly [
+    ScriptCNativeTranslationSuccess,
+    ...ScriptCNativeTranslationSuccess[],
+  ],
+): ScriptCNativeTranslationResult {
+  const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
+  const target = Object.freeze({ ...programs[0].input.target });
+  const sourceTypes = new Map<string, ScriptCNativeSourceType>();
+  const types = new Map<string, ScriptCNativeTypeDefinition>();
+  const bindings = new Map<string, ScriptCNativeBinding>();
+  const bindingsByDeclaration = new Map<string, ScriptCNativeBinding>();
+  const exports = new Map<string, ScriptCNativeExport>();
+  const exportsBySource = new Map<string, ScriptCNativeExport>();
+  const linkInputIds = new Set<string>();
+  const adapterInputIds = new Set<string>();
+
+  const addExact = <Value>(
+    entries: Map<string, Value>,
+    key: string,
+    value: Value,
+    path: string,
+    identity: string,
+  ): void => {
+    const existing = entries.get(key);
+    if (existing === undefined) {
+      entries.set(key, value);
+    } else if (!isDeepStrictEqual(existing, value)) {
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        path,
+        `Native program ${identity} '${key.replaceAll("\u0000", "::")}' conflicts with another package`,
+      ));
+    }
+  };
+
+  programs.forEach((program, programIndex) => {
+    const prefix = `/programs/${programIndex}`;
+    if (
+      program.input.target.pointerBits !== target.pointerBits ||
+      program.input.target.abi !== target.abi
+    ) {
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        `${prefix}/input/target`,
+        `Native program target ${program.input.target.pointerBits}/${program.input.target.abi} ` +
+          `does not match ${target.pointerBits}/${target.abi}`,
+      ));
+    }
+    program.input.sourceTypes.forEach((sourceType, index) => {
+      addExact(
+        sourceTypes,
+        declarationKey(sourceType.declaration),
+        sourceType,
+        `${prefix}/input/sourceTypes/${index}`,
+        "source declaration",
+      );
+    });
+    program.input.types.forEach((type, index) => {
+      addExact(types, type.id, type, `${prefix}/input/types/${index}`, "type id");
+    });
+    program.input.bindings.forEach((binding, index) => {
+      const path = `${prefix}/input/bindings/${index}`;
+      addExact(bindings, binding.id, binding, path, "binding id");
+      addExact(
+        bindingsByDeclaration,
+        declarationKey(binding.declaration),
+        binding,
+        path,
+        "binding declaration",
+      );
+    });
+    program.input.exports.forEach((nativeExport, index) => {
+      const path = `${prefix}/input/exports/${index}`;
+      addExact(exports, nativeExport.id, nativeExport, path, "export id");
+      addExact(
+        exportsBySource,
+        nativeExport.sourceExport,
+        nativeExport,
+        path,
+        "source export",
+      );
+    });
+    for (const id of program.linkInputIds) linkInputIds.add(id);
+    for (const id of program.adapterInputIds) adapterInputIds.add(id);
+  });
+
+  if (diagnostics.length > 0) {
+    return Object.freeze({ ok: false, diagnostics: Object.freeze(diagnostics) });
+  }
+  const compareText = (left: string, right: string): number =>
+    left < right ? -1 : left > right ? 1 : 0;
+  const byDeclaration = <Value extends { readonly declaration: ScriptCNativeDeclaration }>(
+    left: Value,
+    right: Value,
+  ): number => compareText(declarationKey(left.declaration), declarationKey(right.declaration));
+  return Object.freeze({
+    ok: true,
+    input: Object.freeze({
+      target,
+      sourceTypes: Object.freeze([...sourceTypes.values()].sort(byDeclaration)),
+      types: Object.freeze([...types.values()].sort((left, right) => compareText(left.id, right.id))),
+      bindings: Object.freeze([...bindings.values()].sort((left, right) => compareText(left.id, right.id))),
+      exports: Object.freeze([...exports.values()].sort((left, right) =>
+        compareText(left.id, right.id) || compareText(left.sourceExport, right.sourceExport)
+      )),
+    }),
+    linkInputIds: Object.freeze([...linkInputIds].sort()),
+    adapterInputIds: Object.freeze([...adapterInputIds].sort()),
+  });
 }
 
 function normalizeDeclaration(

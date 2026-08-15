@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { parseScabiManifest } from "@native-typescript/scabi";
 import {
+  composeScriptCNativePrograms,
   translateScabiNativeProgram,
   type ScriptCNativeBinding,
   type ScriptCNativeValueType,
@@ -12,6 +13,9 @@ import {
 const fixtureRoot = resolve(import.meta.dirname, "../fixtures/scabi-c-v1");
 const manifest = parseScabiManifest(
   readFileSync(resolve(fixtureRoot, "package.scabi.json"), "utf8"),
+);
+const gtkCounterManifest = parseScabiManifest(
+  readFileSync(resolve(import.meta.dirname, "../fixtures/gtk-counter/package.scabi.json"), "utf8"),
 );
 
 function selectImports(imports: readonly string[]) {
@@ -32,6 +36,65 @@ function directSignature(parameters: readonly DirectNativeParameter[]) {
     })),
   };
 }
+
+test("translated native packages compose canonically with build requirements", () => {
+  const scalar = translateScabiNativeProgram(manifest, selectImports(["i32_identity"]));
+  const runtime = translateScabiNativeProgram(
+    gtkCounterManifest,
+    selectImports(["runtime_start"]),
+  );
+  assert.equal(scalar.ok, true);
+  assert.equal(runtime.ok, true);
+  if (!scalar.ok || !runtime.ok) return;
+
+  const left = composeScriptCNativePrograms([scalar, runtime]);
+  const right = composeScriptCNativePrograms([runtime, scalar]);
+  assert.deepEqual(left, right);
+  assert.equal(left.ok, true);
+  if (!left.ok) return;
+  assert.deepEqual(
+    left.input.bindings.map(({ id }) => id),
+    [
+      "native-typescript.fixture.c-v1@0.0.0#i32_identity",
+      "native-typescript.fixture.gtk-counter@0.0.0#runtime_start",
+    ],
+  );
+  assert.deepEqual(left.linkInputIds, runtime.linkInputIds);
+  assert.equal(Object.isFrozen(left.input), true);
+  assert.equal(Object.isFrozen(left.input.target), true);
+  assert.equal(Object.isFrozen(left.input.bindings), true);
+  const deduplicated = composeScriptCNativePrograms([scalar, scalar]);
+  assert.equal(deduplicated.ok, true);
+  if (deduplicated.ok) assert.equal(deduplicated.input.bindings.length, 1);
+});
+
+test("native package composition rejects target and source identity collisions", () => {
+  const translated = translateScabiNativeProgram(manifest, selectImports(["i32_identity"]));
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+
+  const conflictingTarget = structuredClone(translated);
+  Object.assign(conflictingTarget.input.target, { abi: "aarch64" });
+  const targetResult = composeScriptCNativePrograms([translated, conflictingTarget]);
+  assert.equal(targetResult.ok, false);
+  if (targetResult.ok) return;
+  assert.deepEqual(
+    targetResult.diagnostics.map(({ path }) => path),
+    ["/programs/1/input/target"],
+  );
+
+  const conflictingBinding = structuredClone(translated);
+  Object.assign(conflictingBinding.input.bindings[0]!, {
+    id: "other-package#same-declaration",
+  });
+  const bindingResult = composeScriptCNativePrograms([translated, conflictingBinding]);
+  assert.equal(bindingResult.ok, false);
+  if (bindingResult.ok) return;
+  assert.deepEqual(
+    bindingResult.diagnostics.map(({ path }) => path),
+    ["/programs/1/input/bindings/0"],
+  );
+});
 
 test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   const result = translateScabiNativeProgram(manifest, selectImports(["i32_identity"]));

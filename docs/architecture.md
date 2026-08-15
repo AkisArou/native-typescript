@@ -222,6 +222,13 @@ projection to logical `string` or `string | null`. Both backends copy the bytes
 before releasing logical arguments, so no foreign pointer becomes a TypeScript
 value.
 
+Applications compose independently translated SCABI packages before invoking
+the compiler. Composition requires one exact target, canonicalizes ordering,
+coalesces only structurally identical source/type/binding/export identities,
+and carries the union of link and adapter requirements beside the merged
+frontend input. Identity conflicts therefore fail before frontend map
+construction or artifact planning can become order-dependent.
+
 Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to
 interpret generic operations. For example, `isize` and `usize` remain distinct
