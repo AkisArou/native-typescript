@@ -53,6 +53,7 @@ function snapshot(
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
     classes: [
+      { name: "Widget" },
       {
         name: "Button",
         constructors: ["new_with_label"],
@@ -91,7 +92,7 @@ function scalarSignalSnapshot(): GirSnapshot {
   return ingestGir(source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{
+    classes: [{ name: "Widget" }, {
       name: "Button",
       constructors: ["new_with_label"],
       methods: ["get_label", "set_label"],
@@ -360,6 +361,7 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
     gint: { module: ".", name: "gint" },
     gtk_button: { module: ".", name: "Button" },
     gtk_requisition: { module: ".", name: "Requisition" },
+    gtk_widget: { module: ".", name: "Widget" },
   });
   assert.deepEqual(generated.manifest.types.gtk_requisition, {
     kind: "struct",
@@ -921,6 +923,7 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
     gint: { module: ".", name: "gint" },
     gtk_button: { module: ".", name: "Button" },
     gtk_signal_connection: { module: ".", name: "SignalConnection" },
+    gtk_widget: { module: ".", name: "Widget" },
   });
   assert.deepEqual(
     generated.manifest.types.gtk_button_resized_callback,

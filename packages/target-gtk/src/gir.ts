@@ -9,6 +9,7 @@ import type {
   GirCallable,
   GirClass,
   GirClassSelection,
+  GirDeclarationReference,
   GirDiagnostic,
   GirDiagnosticCode,
   GirEnumeration,
@@ -121,7 +122,7 @@ interface MutableClass {
   readonly name: string;
   readonly cType: string;
   readonly cSymbolPrefix: string;
-  readonly parent: string | null;
+  readonly parent: GirDeclarationReference | null;
   readonly abstract: boolean;
   readonly final: boolean;
   readonly fundamental: boolean;
@@ -137,7 +138,7 @@ interface MutableClass {
   readonly glibSetValueFunction: string | null;
   readonly glibGetValueFunction: string | null;
   readonly annotations: GirAnnotation[];
-  readonly interfaces: string[];
+  readonly interfaces: GirDeclarationReference[];
   readonly constructors: GirCallable[];
   readonly methods: GirCallable[];
   readonly signals: GirCallable[];
@@ -223,6 +224,59 @@ function diagnostic(
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Resolves a GIR declaration reference against the namespace being ingested.
+ *
+ * GIR qualifies a cross-namespace referent (`Gio.Application`) and leaves a
+ * same-namespace one bare (`Widget`). A reference qualified with the current
+ * namespace is normalized to `internal` so one referent has one spelling in
+ * the snapshot.
+ */
+function parseDeclarationReference(
+  raw: string,
+  currentNamespace: string,
+  path: string,
+  diagnostics: GirDiagnostic[],
+): GirDeclarationReference | null {
+  const separator = raw.indexOf(".");
+  if (separator < 0) {
+    if (!selectionNamePattern.test(raw)) {
+      diagnostics.push(
+        diagnostic("NTS4002", path, `Malformed GIR declaration reference '${raw}'`),
+      );
+      return null;
+    }
+    return Object.freeze({ kind: "internal", name: raw });
+  }
+  const namespace = raw.slice(0, separator);
+  const name = raw.slice(separator + 1);
+  if (
+    !selectionNamePattern.test(namespace) ||
+    !selectionNamePattern.test(name) ||
+    name.includes(".")
+  ) {
+    diagnostics.push(
+      diagnostic("NTS4002", path, `Malformed GIR declaration reference '${raw}'`),
+    );
+    return null;
+  }
+  if (namespace === currentNamespace) {
+    return Object.freeze({ kind: "internal", name });
+  }
+  return Object.freeze({ kind: "external", namespace, name });
+}
+
+function compareDeclarationReference(
+  left: GirDeclarationReference,
+  right: GirDeclarationReference,
+): number {
+  const leftNamespace = left.kind === "external" ? left.namespace : "";
+  const rightNamespace = right.kind === "external" ? right.namespace : "";
+  return (
+    compareText(leftNamespace, rightNamespace) || compareText(left.name, right.name)
+  );
 }
 
 function attribute(
@@ -858,7 +912,17 @@ export function ingestGir(
             path,
             diagnostics,
           ),
-          parent: attribute(tag, "parent") ?? null,
+          parent: ((): GirDeclarationReference | null => {
+            const raw = attribute(tag, "parent");
+            return raw === undefined
+              ? null
+              : parseDeclarationReference(
+                  raw,
+                  options.namespace.name,
+                  `${path}/@parent`,
+                  diagnostics,
+                );
+          })(),
           abstract: booleanAttribute(tag, "abstract", path, diagnostics, false),
           final: booleanAttribute(tag, "final", path, diagnostics, false),
           fundamental: booleanAttribute(
@@ -1137,9 +1201,14 @@ export function ingestGir(
       isCore &&
       tag.local === "implements"
     ) {
-      activeClass.interfaces.push(
-        requiredAttribute(tag, "name", "", `${activeClass.path}/implements`, diagnostics),
+      const implementsPath = `${activeClass.path}/implements`;
+      const implemented = parseDeclarationReference(
+        requiredAttribute(tag, "name", "", implementsPath, diagnostics),
+        options.namespace.name,
+        implementsPath,
+        diagnostics,
       );
+      if (implemented !== null) activeClass.interfaces.push(implemented);
     } else if (
       activeClass !== null &&
       activeCallable === null &&
@@ -1600,7 +1669,9 @@ export function ingestGir(
         glibSetValueFunction: activeClass.glibSetValueFunction,
         glibGetValueFunction: activeClass.glibGetValueFunction,
         annotations: freezeAnnotations(activeClass.annotations),
-        interfaces: Object.freeze([...activeClass.interfaces].sort(compareText)),
+        interfaces: Object.freeze(
+          [...activeClass.interfaces].sort(compareDeclarationReference),
+        ),
         constructors: Object.freeze([...activeClass.constructors].sort(byName)),
         methods: Object.freeze([...activeClass.methods].sort(byName)),
         signals: Object.freeze([...activeClass.signals].sort(byName)),
@@ -1723,11 +1794,30 @@ export function ingestGir(
       ));
     }
   }
+  // A same-namespace parent must be part of the selection. Without it the
+  // generator would silently drop the ancestry: no `extends`, no identity
+  // upcast, and no inherited surface, with nothing reporting the loss. A
+  // cross-namespace parent is a deliberate boundary and is preserved as an
+  // external reference instead.
+  const selectedClasses = new Set(classes.map(({ name }) => name));
+  for (const class_ of classes) {
+    if (class_.parent?.kind !== "internal") continue;
+    if (selectedClasses.has(class_.parent.name)) continue;
+    diagnostics.push(
+      diagnostic(
+        "NTS4006",
+        `namespace/${options.namespace.name}/class/${class_.name}/@parent`,
+        `GIR class '${class_.name}' extends '${class_.parent.name}' in the same ` +
+          `namespace, but '${class_.parent.name}' is not selected. Select it, or ` +
+          "the generated class would lose its ancestry silently.",
+      ),
+    );
+  }
   if (diagnostics.length > 0) throw new GirIngestionError(diagnostics);
 
   return Object.freeze({
     schema: "native-typescript.gir-snapshot",
-    schemaVersion: 2,
+    schemaVersion: 3,
     source: Object.freeze({
       logicalPath: options.logicalPath,
       digest: sourceDigest,

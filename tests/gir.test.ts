@@ -21,6 +21,9 @@ const fixturePath = resolve(
 const fixtureSource = readFileSync(fixturePath, "utf8");
 const fixtureDigest =
   "sha256:a490baa17455205ad75acab50456f549c5c60cfe1172daf32ed4e85654bd3d05";
+// Button extends Widget inside Gtk, so the selection must carry the parent.
+// Selecting no members still projects the ancestry without its surface.
+const widgetSelection: GirClassSelection = Object.freeze({ name: "Widget" });
 const buttonSelection: GirClassSelection = Object.freeze({
   name: "Button",
   constructors: Object.freeze(["new_with_label"]),
@@ -37,7 +40,7 @@ const orientationSelection: GirEnumerationSelection = Object.freeze({
 });
 
 function ingestFixture(
-  classes: readonly GirClassSelection[] = [buttonSelection],
+  classes: readonly GirClassSelection[] = [widgetSelection, buttonSelection],
   records: readonly GirRecordSelection[] = [requisitionSelection],
   enumerations: readonly GirEnumerationSelection[] = [],
 ): GirSnapshot {
@@ -74,7 +77,7 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
   const snapshot = ingestFixture();
 
   assert.equal(snapshot.schema, "native-typescript.gir-snapshot");
-  assert.equal(snapshot.schemaVersion, 2);
+  assert.equal(snapshot.schemaVersion, 3);
   assert.deepEqual(snapshot.source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     digest: fixtureDigest,
@@ -134,13 +137,13 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
   assert.ok(button);
   assert.equal(button.name, "Button");
   assert.equal(button.cType, "GtkButton");
-  assert.equal(button.parent, "Widget");
+  assert.deepEqual(button.parent, { kind: "internal", name: "Widget" });
   assert.equal(button.glibGetType, "gtk_button_get_type");
   assert.deepEqual(button.interfaces, [
-    "Accessible",
-    "Actionable",
-    "Buildable",
-    "ConstraintTarget",
+    { kind: "internal", name: "Accessible" },
+    { kind: "internal", name: "Actionable" },
+    { kind: "internal", name: "Buildable" },
+    { kind: "internal", name: "ConstraintTarget" },
   ]);
   assert.deepEqual(button.constructors.map(({ name }) => name), ["new_with_label"]);
   assert.deepEqual(button.methods.map(({ name }) => name), ["get_label", "set_label"]);
@@ -284,7 +287,7 @@ test("GIR preserves lifecycle, availability, relationships, and annotations", ()
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/annotated.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", methods: ["get_label"], signals: ["clicked"] }],
+    classes: [widgetSelection, { name: "Button", methods: ["get_label"], signals: ["clicked"] }],
   });
   const button = snapshot.classes[0];
   assert.ok(button);
@@ -321,7 +324,7 @@ test("GIR preserves lifecycle, availability, relationships, and annotations", ()
 
 test("GIR snapshots do not depend on selection order or unselected declarations", () => {
   const canonical = ingestFixture(
-    [buttonSelection],
+    [widgetSelection, buttonSelection],
     [requisitionSelection],
     [orientationSelection],
   );
@@ -332,6 +335,7 @@ test("GIR snapshots do not depend on selection order or unselected declarations"
       methods: ["get_label", "set_label"],
       signals: ["clicked"],
     },
+    widgetSelection,
   ], [requisitionSelection], [{
     name: "Orientation",
     members: ["vertical", "horizontal"],
@@ -372,7 +376,7 @@ ${insertionPoint}`,
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/complex-types.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", methods: ["complex_types"] }],
+    classes: [widgetSelection, { name: "Button", methods: ["complex_types"] }],
   });
   const method = snapshot.classes[0]?.methods[0];
   assert.ok(method);
@@ -415,14 +419,17 @@ ${insertionPoint}`,
 
 test("GIR ingestion rejects missing selections and unsupported reachable metadata", () => {
   const missing = ingestionDiagnostics(() =>
-    ingestFixture([{ name: "Button", methods: ["does_not_exist"] }])
+    ingestFixture([widgetSelection, { name: "Button", methods: ["does_not_exist"] }])
   );
   assert.deepEqual(missing.diagnostics.map(({ code }) => code), ["NTS4003"]);
   assert.equal(Object.isFrozen(missing.diagnostics), true);
   assert.equal(Object.isFrozen(missing.diagnostics[0]), true);
 
   const missingField = ingestionDiagnostics(() =>
-    ingestFixture([buttonSelection], [{ name: "Requisition", fields: ["depth"] }])
+    ingestFixture(
+      [widgetSelection, buttonSelection],
+      [{ name: "Requisition", fields: ["depth"] }],
+    )
   );
   assert.deepEqual(missingField.diagnostics.map(({ code }) => code), ["NTS4003"]);
 
@@ -442,7 +449,7 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
   assert.deepEqual(invalidValue.diagnostics.map(({ code }) => code), ["NTS4005"]);
 
   const unsupported = ingestionDiagnostics(() =>
-    ingestFixture([{ name: "Button", methods: ["unselected_callback"] }])
+    ingestFixture([widgetSelection, { name: "Button", methods: ["unselected_callback"] }])
   );
   assert.equal(
     unsupported.diagnostics.every(({ code }) => code === "NTS4004"),
@@ -458,7 +465,7 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
     ingestGir(variadicSource, {
       logicalPath: "fixtures/gir/variadic.gir",
       namespace: { name: "Gtk", version: "4.0" },
-      classes: [{ name: "Button", methods: ["unselected_callback"] }],
+      classes: [widgetSelection, { name: "Button", methods: ["unselected_callback"] }],
     })
   );
   assert.deepEqual(variadic.diagnostics.map(({ code }) => code), ["NTS4004"]);
@@ -472,13 +479,74 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
     ingestGir(nonIntrospectableSource, {
       logicalPath: "fixtures/gir/non-introspectable.gir",
       namespace: { name: "Gtk", version: "4.0" },
-      classes: [{ name: "Button", methods: ["get_label"] }],
+      classes: [widgetSelection, { name: "Button", methods: ["get_label"] }],
     })
   );
   assert.deepEqual(
     nonIntrospectable.diagnostics.map(({ code }) => code),
     ["NTS4004"],
   );
+});
+
+test("GIR class references resolve against the ingested namespace boundary", () => {
+  // A same-namespace parent must be selected. Dropping it would silently cost
+  // the generated class its `extends` clause and its identity upcast.
+  const unselectedParent = ingestionDiagnostics(() =>
+    ingestFixture([buttonSelection])
+  );
+  assert.deepEqual(
+    unselectedParent.diagnostics.map(({ code, path }) => ({ code, path })),
+    [{ code: "NTS4006", path: "namespace/Gtk/class/Button/@parent" }],
+  );
+  assert.match(unselectedParent.message, /is not selected/u);
+
+  // Selecting the parent with no members still carries the ancestry.
+  const withParent = ingestFixture([widgetSelection, buttonSelection]);
+  assert.deepEqual(withParent.classes.map(({ name }) => name), [
+    "Button",
+    "Widget",
+  ]);
+  assert.deepEqual(withParent.classes[0]?.parent, {
+    kind: "internal",
+    name: "Widget",
+  });
+
+  // A cross-namespace parent is the deliberate edge of the selected surface,
+  // and is preserved as an external reference rather than a bare string. Real
+  // GTK roots its hierarchy this way: Gtk.Widget extends GObject.InitiallyUnowned.
+  const external = ingestGir(
+    fixtureSource.replace(
+      '<class name="Widget"',
+      '<class name="Widget" parent="GObject.InitiallyUnowned"',
+    ),
+    {
+      logicalPath: "fixtures/gir/external-parent.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [widgetSelection, buttonSelection],
+      records: [requisitionSelection],
+    },
+  );
+  assert.deepEqual(external.classes[1]?.parent, {
+    kind: "external",
+    namespace: "GObject",
+    name: "InitiallyUnowned",
+  });
+
+  // A reference qualified with the namespace being ingested is the same
+  // referent as the bare spelling, so it normalizes to one form.
+  const qualified = ingestGir(
+    fixtureSource.replace('parent="Widget"', 'parent="Gtk.Widget"'),
+    {
+      logicalPath: "fixtures/gir/qualified-parent.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [widgetSelection, buttonSelection],
+      records: [requisitionSelection],
+    },
+  );
+  assert.deepEqual(qualified.classes[0]?.parent, {
+    kind: "internal",
+    name: "Widget",
+  });
 });
 
 test("GIR ingestion rejects provenance, syntax, and ownership ambiguity", () => {
@@ -531,7 +599,7 @@ test(
     const snapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
       namespace: { name: "Gtk", version: "4.0" },
-      classes: [buttonSelection],
+      classes: [widgetSelection, buttonSelection],
       records: [requisitionSelection],
       enumerations: [orientationSelection],
     });

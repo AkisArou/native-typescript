@@ -83,7 +83,7 @@ function adapter(transferOwnership: "none" | "full" = "none") {
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", constructors: ["new_with_label"] }],
+    classes: [{ name: "Widget" }, { name: "Button", constructors: ["new_with_label"] }],
   });
   return generateGObjectAdapterSource(snapshot);
 }
@@ -92,7 +92,7 @@ function signalAdapter() {
   const snapshot = ingestGir(girSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{
+    classes: [{ name: "Widget" }, {
       name: "Button",
       constructors: ["new_with_label"],
       signals: ["clicked"],
@@ -135,7 +135,7 @@ function scalarSignalAdapter() {
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", signals: ["resized"] }],
+    classes: [{ name: "Widget" }, { name: "Button", signals: ["resized"] }],
   });
   return generateGObjectAdapterSource(snapshot);
 }
@@ -144,7 +144,7 @@ function installedScalarSignalAdapter() {
   const snapshot = ingestGir(readFileSync(installedGtkGirPath, "utf8"), {
     logicalPath: "sdk/Gtk-4.0.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{
+    classes: [{ name: "Widget" }, {
       name: "DrawingArea",
       constructors: ["new"],
       signals: ["resize"],
@@ -300,7 +300,7 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
   const snapshot = ingestGir(detailedSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", signals: ["clicked"] }],
+    classes: [{ name: "Widget" }, { name: "Button", signals: ["clicked"] }],
   });
   assert.throws(
     () => generateGObjectAdapterSource(snapshot),
@@ -336,7 +336,7 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
-    classes: [{ name: "Button", signals: ["clicked"] }],
+    classes: [{ name: "Widget" }, { name: "Button", signals: ["clicked"] }],
   });
   assert.throws(
     () => generateGObjectAdapterSource(snapshot),

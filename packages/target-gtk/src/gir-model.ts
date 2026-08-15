@@ -3,7 +3,8 @@ export type GirDiagnosticCode =
   | "NTS4002"
   | "NTS4003"
   | "NTS4004"
-  | "NTS4005";
+  | "NTS4005"
+  | "NTS4006";
 
 export interface GirDiagnostic {
   readonly code: GirDiagnosticCode;
@@ -68,6 +69,27 @@ export interface GirInclude {
   readonly name: string;
   readonly version: string;
 }
+
+/**
+ * A reference from one declaration to another, with the namespace boundary
+ * made explicit.
+ *
+ * GIR spells a same-namespace reference as a bare name (`Widget`) and a
+ * cross-namespace reference as a qualified one (`Gio.Application`). Carrying
+ * that distinction as a raw string loses the only fact that matters to the
+ * generator: whether the referent can be resolved inside this snapshot, or
+ * belongs to another namespace and therefore another generated package.
+ *
+ * An `internal` referent must be part of the same selection. An `external`
+ * referent is a deliberate boundary: the selected surface stops there.
+ */
+export type GirDeclarationReference =
+  | { readonly kind: "internal"; readonly name: string }
+  | {
+      readonly kind: "external";
+      readonly namespace: string;
+      readonly name: string;
+    };
 
 export interface GirAnnotation {
   readonly name: string;
@@ -155,7 +177,7 @@ export interface GirClass {
   readonly name: string;
   readonly cType: string;
   readonly cSymbolPrefix: string;
-  readonly parent: string | null;
+  readonly parent: GirDeclarationReference | null;
   readonly abstract: boolean;
   readonly final: boolean;
   readonly fundamental: boolean;
@@ -171,7 +193,7 @@ export interface GirClass {
   readonly glibSetValueFunction: string | null;
   readonly glibGetValueFunction: string | null;
   readonly annotations: readonly GirAnnotation[];
-  readonly interfaces: readonly string[];
+  readonly interfaces: readonly GirDeclarationReference[];
   readonly constructors: readonly GirCallable[];
   readonly methods: readonly GirCallable[];
   readonly signals: readonly GirCallable[];
@@ -234,7 +256,7 @@ export interface GirEnumeration {
 
 export interface GirSnapshot {
   readonly schema: "native-typescript.gir-snapshot";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly source: {
     readonly logicalPath: string;
     readonly digest: string;

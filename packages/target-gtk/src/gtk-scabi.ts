@@ -1128,10 +1128,10 @@ export function generateGtkScabiPackage(
       threadSafety: "confined",
       identity: "platform",
       upcasts: Object.freeze(
-        class_.parent !== null && typeIdByClass.has(class_.parent)
+        class_.parent?.kind === "internal"
           ? [Object.freeze({
               kind: "identity" as const,
-              target: typeIdByClass.get(class_.parent)!,
+              target: typeIdByClass.get(class_.parent.name)!,
             })]
           : [],
       ),
@@ -1171,7 +1171,12 @@ export function generateGtkScabiPackage(
       adapterBindings.push(releaseId);
     }
 
-    const parent = class_.parent === null ? undefined : classByName.get(class_.parent);
+    // Ingestion guarantees an internal parent is selected; an external parent
+    // is the deliberate edge of this namespace's generated surface.
+    const parent =
+      class_.parent?.kind === "internal"
+        ? classByName.get(class_.parent.name)
+        : undefined;
     const classLines = [
       `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${parent === undefined ? "" : ` extends ${parent.name}`} {`,
       `  readonly [${handleBrand(class_.name)}]: true;`,

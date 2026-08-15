@@ -93,6 +93,33 @@ Constructor property bags are a later projection over authoritative writable
 GObject property metadata. They must not be guessed from setter names, and they
 must preserve construction-only and required-property rules.
 
+### Ancestry and the namespace boundary
+
+GIR spells a same-namespace parent as a bare name (`Button` extends `Widget`)
+and a cross-namespace parent as a qualified one (`Gtk.Application` extends
+`Gio.Application`). The selected snapshot preserves that distinction instead of
+carrying an unresolved string, because it decides whether the parent can be
+projected into this package at all.
+
+A same-namespace parent must be part of the selection. Selecting a class
+without it fails ingestion rather than emitting a class whose `extends` clause
+and identity upcast were silently dropped. Selecting the parent with no members
+is the way to carry ancestry without projecting its surface:
+
+```ts
+classes: [{ name: "Widget" }, { name: "Button", methods: ["set_label"] }]
+```
+
+A cross-namespace parent is the deliberate edge of the generated package. The
+snapshot records it as an external reference naming the other namespace, and
+generation stops there. `Gtk.Widget` therefore roots the projected hierarchy
+even though GIR declares it as extending `GObject.InitiallyUnowned`.
+
+Resolving an external reference into a second generated package is what
+namespace composition will add. Until then the boundary is explicit data rather
+than an inferred truncation, so a class whose parent lives in another namespace
+cannot be projected by accident.
+
 ## Methods and properties
 
 Ordinary instance operations become methods. A getter/setter pair becomes a
