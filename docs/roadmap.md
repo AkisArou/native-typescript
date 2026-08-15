@@ -127,7 +127,10 @@ inputs, tools, and strict declared-output validation. ScriptC now delegates its
 complete native-build request and exact compiler-driver invocation without
 duplicating runtime-source selection. The GTK application registers the emitted
 C/LLVM program as a verified graph input and materializes its GLib runtime,
-wrapper object, ScriptC runtime, and final executable through one graph. Phase 1
+wrapper object, ScriptC runtime, and final executable through one graph. Tool
+standard output can now be streamed into an ordinary verified/cacheable metadata
+artifact without shell redirection, which is the required path for Clang AST and
+other machine-readable compiler evidence. Phase 1
 still requires modeling compiler emission and export adapters as producer
 actions; making implicit toolchain/system-library inputs explicit so native
 actions can use the implemented local cache; adding cache eviction/export;

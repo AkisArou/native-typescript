@@ -32,6 +32,8 @@ The executor:
 - runs remaining actions in dependency order with bounded parallelism;
 - provides declared inputs and isolated output directories;
 - captures diagnostics, stdout/stderr, timing, and resource usage;
+- streams standard output directly into a declared artifact when the action
+  selects artifact capture instead of report capture;
 - verifies declared outputs and their digests;
 - never lets an action mutate source inputs or another action's outputs.
 
@@ -83,6 +85,8 @@ An action declares:
 - environment allowlist;
 - input artifacts;
 - output declarations;
+- whether standard output belongs in the action report or is itself one file
+  output artifact;
 - working-directory policy;
 - network policy;
 - target platform and execution platform;
@@ -92,6 +96,13 @@ An action declares:
 
 Ambient environment variables, user home paths, current time, random values,
 and undeclared SDK lookup cannot influence a cacheable action.
+
+An artifact-captured standard output is not also passed to the command as an
+output path. The executor creates it from the tool's byte stream, waits for the
+file to close, and then applies ordinary output type, digest, cache, and
+undeclared-output validation. This is the path for tools such as Clang whose
+machine-readable metadata is emitted on standard output; shell redirection is
+not part of an action contract.
 
 ## Toolchain and SDK identity
 

@@ -154,6 +154,7 @@ function nativeActions(
       environment: [],
       inputs: ["source/main", "headers/main"],
       outputs: ["object/main"],
+      standardOutput: { kind: "report" },
       workingDirectory: "isolated",
       network: "denied",
       executionPlatform,
@@ -173,6 +174,7 @@ function nativeActions(
       environment: [],
       inputs: ["object/main"],
       outputs: ["product/main"],
+      standardOutput: { kind: "report" },
       workingDirectory: "isolated",
       network: "denied",
       executionPlatform,
@@ -242,6 +244,50 @@ function cacheableGraph(shellPath: string, value = "cached output"): ArtifactGra
         environment: [],
         inputs: [],
         outputs: [outputId],
+        standardOutput: { kind: "report" },
+        workingDirectory: "isolated",
+        network: "denied",
+        executionPlatform,
+        target,
+        deterministic: true,
+        cacheable: true,
+      },
+    ],
+  });
+}
+
+function cacheableStandardOutputGraph(shellPath: string): ArtifactGraph {
+  const outputId = "metadata/standard-output";
+  return defineArtifactGraph({
+    artifacts: [
+      {
+        id: outputId,
+        kind: "metadata",
+        entryType: "file",
+        mediaType: "application/json",
+        target,
+        domain: "host",
+        cache: "local",
+        origin: {
+          kind: "action",
+          action: "capture/standard-output",
+          fileName: "metadata.json",
+        },
+      },
+    ],
+    actions: [
+      {
+        id: "capture/standard-output",
+        implementation: { id: "test/standard-output", version: "1" },
+        tool: { id: "tool/sh", version: "system", digest: digest(shellPath) },
+        arguments: [
+          { kind: "literal", value: "-c" },
+          { kind: "literal", value: 'printf \'{"value":42}\\n\'' },
+        ],
+        environment: [],
+        inputs: [],
+        outputs: [outputId],
+        standardOutput: { kind: "artifact", artifact: outputId },
         workingDirectory: "isolated",
         network: "denied",
         executionPlatform,
@@ -306,6 +352,7 @@ function cacheableInputGraph(shellPath: string, sourceDigest: string): ArtifactG
         environment: [],
         inputs: [inputId],
         outputs: [outputId],
+        standardOutput: { kind: "report" },
         workingDirectory: "isolated",
         network: "denied",
         executionPlatform,
@@ -349,6 +396,7 @@ function cacheableDirectoryGraph(mkdirPath: string): ArtifactGraph {
         environment: [],
         inputs: [],
         outputs: [outputId],
+        standardOutput: { kind: "report" },
         workingDirectory: "isolated",
         network: "denied",
         executionPlatform,
@@ -376,6 +424,7 @@ test("artifact graph plans canonically and is deeply immutable", () => {
   });
 
   assert.equal(JSON.stringify(forward), JSON.stringify(reverse));
+  assert.equal(forward.schemaVersion, 2);
   assert.equal(JSON.stringify(forward).includes(dirname(fixturePath)), false);
   assert.equal(Object.isFrozen(forward), true);
   assert.equal(Object.isFrozen(forward.artifacts), true);
@@ -483,6 +532,75 @@ test("local action cache materializes verified hits without a tool binding", asy
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
+});
+
+test("standard output is a streamed, verified, cacheable artifact", async () => {
+  const shellPath = executable("sh");
+  const sandboxPath = executable("bwrap");
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-stdout-"));
+  const cacheRoot = join(temporaryRoot, "cache");
+  try {
+    const graph = cacheableStandardOutputGraph(shellPath);
+    const first = await executeArtifactGraph(graph, {
+      buildRoot: join(temporaryRoot, "first"),
+      sourcePaths: {},
+      tools: { "tool/sh": { path: shellPath } },
+      sandbox: { kind: "bubblewrap", path: sandboxPath },
+      cache: { kind: "local", path: cacheRoot },
+    });
+    assert.equal(first.actions[0]?.status, "executed");
+    assert.equal(first.actions[0]?.stdout, "");
+    const firstOutput = first.artifacts.find(
+      ({ id }) => id === "metadata/standard-output",
+    );
+    assert.ok(firstOutput);
+    assert.equal(readFileSync(firstOutput.path, "utf8"), '{"value":42}\n');
+
+    const second = await executeArtifactGraph(graph, {
+      buildRoot: join(temporaryRoot, "second"),
+      sourcePaths: {},
+      tools: {},
+      sandbox: { kind: "bubblewrap", path: sandboxPath },
+      cache: { kind: "local", path: cacheRoot },
+    });
+    assert.equal(second.actions[0]?.status, "cached");
+    assert.equal(second.actions[0]?.cacheKey, first.actions[0]?.cacheKey);
+    assert.equal(second.actions[0]?.stdout, "");
+    const secondOutput = second.artifacts.find(
+      ({ id }) => id === "metadata/standard-output",
+    );
+    assert.ok(secondOutput);
+    assert.equal(readFileSync(secondOutput.path, "utf8"), '{"value":42}\n');
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("standard-output artifacts cannot also be command output paths", () => {
+  const shellPath = executable("sh");
+  const graph = cacheableStandardOutputGraph(shellPath);
+  const action = graph.actions[0];
+  assert.ok(action);
+
+  assert.throws(
+    () => defineArtifactGraph({
+      artifacts: graph.artifacts,
+      actions: [
+        {
+          ...action,
+          arguments: [
+            ...action.arguments,
+            { kind: "output-path", artifact: "metadata/standard-output" },
+          ],
+        },
+      ],
+    }),
+    (error) => {
+      assert.ok(error instanceof ArtifactGraphPlanningError);
+      assert.deepEqual(error.diagnostics.map(({ code }) => code), ["NTS2008"]);
+      return true;
+    },
+  );
 });
 
 test("local action cache rejects corrupted output content", async () => {
@@ -715,6 +833,7 @@ test("artifact planning rejects dependency cycles", () => {
     environment: [],
     inputs: [input],
     outputs: [output],
+    standardOutput: { kind: "report" },
     workingDirectory: "isolated",
     network: "denied",
     executionPlatform,
@@ -863,6 +982,7 @@ test("artifact executor rejects undeclared outputs", async () => {
         environment: [],
         inputs: [],
         outputs: [outputId],
+        standardOutput: { kind: "report" },
         workingDirectory: "isolated",
         network: "denied",
         executionPlatform,

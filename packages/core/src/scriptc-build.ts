@@ -73,6 +73,7 @@ export function planScriptCExecutable(input: {
       environment: Object.freeze([]),
       inputs: Object.freeze([...input.plan.inputs]),
       outputs: Object.freeze([input.plan.output]),
+      standardOutput: Object.freeze({ kind: "report" }),
       workingDirectory: "isolated",
       network: "denied",
       executionPlatform: input.executionPlatform,

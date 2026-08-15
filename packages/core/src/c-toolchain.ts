@@ -68,6 +68,7 @@ export function planCObjectCompilation(input: {
         ),
       ])]),
       outputs: Object.freeze([input.artifactId]),
+      standardOutput: Object.freeze({ kind: "report" }),
       workingDirectory: "isolated",
       network: "denied",
       executionPlatform: input.executionPlatform,

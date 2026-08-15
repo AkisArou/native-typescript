@@ -189,7 +189,10 @@ include trees resolve to logical SDK artifacts without host paths in the plan,
 and the real GTK fixture's GLib runtime and wrapper objects use that path. A
 schema-versioned local action cache now keys deterministic actions by their
 complete logical request and verified input content, verifies every hit, rejects
-corrupt entries, and publishes concurrent misses atomically.
+corrupt entries, and publishes concurrent misses atomically. Actions can stream
+tool standard output into a declared, verified, cacheable metadata artifact;
+machine-readable compiler output therefore needs no shell-redirection escape
+hatch.
 ScriptC now exposes its complete native-build request and exact compiler-driver
 invocation without duplicating its runtime-source selection. The GTK fixture
 registers the emitted C/LLVM unit as a verified graph input and materializes its

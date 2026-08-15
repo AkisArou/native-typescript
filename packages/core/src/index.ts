@@ -28,6 +28,7 @@ export type {
   ArtifactActionArgument,
   ArtifactActionDefinition,
   ArtifactActionEnvironment,
+  ArtifactActionStandardOutput,
   ArtifactActionReport,
   ArtifactCacheBinding,
   ArtifactDefinition,

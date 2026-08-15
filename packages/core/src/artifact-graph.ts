@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createWriteStream } from "node:fs";
 import {
   chmod,
   cp,
@@ -27,6 +28,7 @@ export type ArtifactKind =
   | "source"
   | "source-tree"
   | "sdk"
+  | "metadata"
   | "declaration"
   | "generated-source"
   | "native-object"
@@ -70,6 +72,10 @@ export interface ArtifactActionEnvironment {
   readonly value: string;
 }
 
+export type ArtifactActionStandardOutput =
+  | { readonly kind: "report" }
+  | { readonly kind: "artifact"; readonly artifact: string };
+
 export interface ArtifactActionDefinition {
   readonly id: string;
   readonly implementation: {
@@ -85,6 +91,7 @@ export interface ArtifactActionDefinition {
   readonly environment: readonly ArtifactActionEnvironment[];
   readonly inputs: readonly string[];
   readonly outputs: readonly string[];
+  readonly standardOutput: ArtifactActionStandardOutput;
   readonly workingDirectory: "isolated";
   readonly network: "denied";
   readonly executionPlatform: string;
@@ -95,7 +102,7 @@ export interface ArtifactActionDefinition {
 
 export interface ArtifactGraph {
   readonly schema: "native-typescript.artifact-graph";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly artifacts: readonly ArtifactDefinition[];
   readonly actions: readonly ArtifactActionDefinition[];
 }
@@ -143,6 +150,7 @@ const artifactKinds = new Set<string>([
   "source",
   "source-tree",
   "sdk",
+  "metadata",
   "declaration",
   "generated-source",
   "native-object",
@@ -274,6 +282,12 @@ function freezeAction(
     ),
     inputs: Object.freeze([...action.inputs].sort(compareText)),
     outputs: Object.freeze([...action.outputs].sort(compareText)),
+    standardOutput: action.standardOutput.kind === "report"
+      ? Object.freeze({ kind: "report" })
+      : Object.freeze({
+          kind: "artifact",
+          artifact: action.standardOutput.artifact,
+        }),
     workingDirectory: action.workingDirectory,
     network: action.network,
     executionPlatform: action.executionPlatform,
@@ -411,6 +425,21 @@ function validateArtifactGraph(
         diagnostic("NTS2002", `${path}.outputs`, `Duplicate output artifact: ${duplicate}`),
       );
     }
+    const capturedStandardOutput = action.standardOutput.kind === "artifact"
+      ? action.standardOutput.artifact
+      : null;
+    if (
+      capturedStandardOutput !== null &&
+      !action.outputs.includes(capturedStandardOutput)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2008",
+          `${path}.standardOutput.artifact`,
+          `${capturedStandardOutput} is not a declared output artifact`,
+        ),
+      );
+    }
     for (const [environmentIndex, entry] of action.environment.entries()) {
       if (
         !environmentPattern.test(entry.name) ||
@@ -516,11 +545,35 @@ function validateArtifactGraph(
           ),
         );
       }
-      if (!action.arguments.some(
+      const hasOutputPath = action.arguments.some(
         (argument) => argument.kind === "output-path" && argument.artifact === output,
-      )) {
+      );
+      if (capturedStandardOutput === output) {
+        if (artifact !== undefined && artifact.entryType !== "file") {
+          diagnostics.push(
+            diagnostic(
+              "NTS2008",
+              `${path}.standardOutput.artifact`,
+              "Captured standard output requires a file artifact",
+            ),
+          );
+        }
+        if (hasOutputPath) {
+          diagnostics.push(
+            diagnostic(
+              "NTS2008",
+              `${path}.standardOutput.artifact`,
+              `Captured standard output ${output} cannot also be a command output-path`,
+            ),
+          );
+        }
+      } else if (!hasOutputPath) {
         diagnostics.push(
-          diagnostic("NTS2008", `${path}.outputs`, `Output ${output} has no output-path argument`),
+          diagnostic(
+            "NTS2008",
+            `${path}.outputs`,
+            `Output ${output} has neither an output-path argument nor standard-output capture`,
+          ),
         );
       }
     }
@@ -595,7 +648,7 @@ export function defineArtifactGraph(input: {
   if (diagnostics.length > 0) throw new ArtifactGraphPlanningError(diagnostics);
   return Object.freeze({
     schema: "native-typescript.artifact-graph",
-    schemaVersion: 1,
+    schemaVersion: 2,
     artifacts: Object.freeze(artifacts),
     actions: Object.freeze(actions),
   });
@@ -695,6 +748,7 @@ async function runCommand(options: {
   readonly environment: Readonly<Record<string, string>>;
   readonly actionId: string;
   readonly sandbox: ArtifactSandboxBinding;
+  readonly standardOutputPath: string | null;
 }): Promise<{ stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     const sandboxArguments = [
@@ -733,16 +787,51 @@ async function runCommand(options: {
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8");
+    let processComplete = false;
+    let standardOutputComplete = options.standardOutputPath === null;
+    let settled = false;
+    const succeedIfComplete = (): void => {
+      if (!settled && processComplete && standardOutputComplete) {
+        settled = true;
+        resolve({ stdout, stderr });
+      }
+    };
+    const fail = (error: ArtifactExecutionError): void => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    if (options.standardOutputPath === null) {
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        stdout += chunk;
+      });
+    } else {
+      const standardOutput = createWriteStream(options.standardOutputPath, {
+        flags: "wx",
+      });
+      child.stdout.pipe(standardOutput);
+      standardOutput.on("close", () => {
+        standardOutputComplete = true;
+        succeedIfComplete();
+      });
+      standardOutput.on("error", (error) => {
+        child.kill();
+        fail(
+          new ArtifactExecutionError(
+            `Action ${options.actionId} could not capture standard output: ${error.message}`,
+            { actionId: options.actionId, stdout, stderr },
+          ),
+        );
+      });
+    }
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
     });
     child.on("error", (error) => {
-      reject(
+      fail(
         new ArtifactExecutionError(
           `Action ${options.actionId} could not start sandbox ${options.sandbox.path}: ${error.message}`,
           { actionId: options.actionId, stdout, stderr },
@@ -751,9 +840,10 @@ async function runCommand(options: {
     });
     child.on("close", (code, signal) => {
       if (code === 0 && signal === null) {
-        resolve({ stdout, stderr });
+        processComplete = true;
+        succeedIfComplete();
       } else {
-        reject(
+        fail(
           new ArtifactExecutionError(
             `Action ${options.actionId} failed with ${signal === null ? `exit code ${code}` : `signal ${signal}`}`,
             { actionId: options.actionId, stdout, stderr },
@@ -873,6 +963,18 @@ async function executeAction(options: {
   const environment = Object.fromEntries(
     action.environment.map(({ name, value }) => [name, value]),
   );
+  const standardOutputPath = action.standardOutput.kind === "artifact"
+    ? options.layout.outputPaths.get(action.standardOutput.artifact) ?? null
+    : null;
+  if (
+    action.standardOutput.kind === "artifact" &&
+    standardOutputPath === null
+  ) {
+    throw new ArtifactExecutionError(
+      `Action ${action.id} could not resolve standard-output artifact ${action.standardOutput.artifact}`,
+      { actionId: action.id },
+    );
+  }
   const started = process.hrtime.bigint();
   const command = await runCommand({
     executable: options.tool.path,
@@ -881,6 +983,7 @@ async function executeAction(options: {
     environment,
     actionId: action.id,
     sandbox: options.sandbox,
+    standardOutputPath,
   });
   const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
 

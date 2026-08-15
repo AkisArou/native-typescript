@@ -255,7 +255,7 @@ export function computeActionCacheKey(
   });
   const encoded = JSON.stringify({
     schema: "native-typescript.action-key",
-    schemaVersion: 1,
+    schemaVersion: 2,
     action: context.action,
     inputs,
     outputs,
