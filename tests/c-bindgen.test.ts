@@ -206,7 +206,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
     const plan = planClangFunctionProbe({
       probe,
       sourceArtifactId: "source/c-bindgen/probe",
-      evidenceArtifactId: "metadata/c-bindgen/evidence",
+      rawAstArtifactId: "metadata/c-bindgen/raw-ast",
       actionId: "inspect/c-bindgen/functions",
       logicalPath: "generated/c-bindgen/fixture-probe.c",
       arguments: [
@@ -218,7 +218,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
       target,
     });
     const graph = defineArtifactGraph({
-      artifacts: [plan.source, headerArtifact, plan.evidence],
+      artifacts: [plan.source, headerArtifact, plan.rawAst],
       actions: [plan.action],
     });
     const report = await executeArtifactGraph(graph, {
@@ -230,7 +230,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
       tools: { [tool.id]: { path: clangPath } },
       sandbox: { kind: "bubblewrap", path: sandboxPath },
     });
-    const ast = report.artifacts.find(({ id }) => id === plan.evidence.id);
+    const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
     assert.ok(ast);
     const evidence = parseClangFunctionEvidence(readFileSync(ast.path, "utf8"), {
       probe,
@@ -288,7 +288,7 @@ test("Clang rejects a candidate that disagrees with the header", async () => {
     const plan = planClangFunctionProbe({
       probe,
       sourceArtifactId: "source/c-bindgen/probe",
-      evidenceArtifactId: "metadata/c-bindgen/evidence",
+      rawAstArtifactId: "metadata/c-bindgen/raw-ast",
       actionId: "inspect/c-bindgen/functions",
       logicalPath: "generated/c-bindgen/mismatch-probe.c",
       arguments: [
@@ -300,7 +300,7 @@ test("Clang rejects a candidate that disagrees with the header", async () => {
       target,
     });
     const graph = defineArtifactGraph({
-      artifacts: [plan.source, headerArtifact, plan.evidence],
+      artifacts: [plan.source, headerArtifact, plan.rawAst],
       actions: [plan.action],
     });
     await assert.rejects(

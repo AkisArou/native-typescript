@@ -138,8 +138,13 @@ new target-neutral C binding
 package defines the first closed named/pointer candidate algebra, generates
 content-addressed function probes, makes Clang prove exact header compatibility,
 and normalizes only the selected AST evidence. Its permanent fixture rejects a
-deliberately wrong const-qualified result. Phase 1 still requires aggregate
-layout/calling-convention evidence and full SCABI/declaration generation;
+deliberately wrong const-qualified result. GTK binding generation is now a
+pair of deterministic producer actions: the first reduces raw Clang AST to
+canonical selected-function evidence, and the second consumes that evidence,
+selected GIR, an immutable request, and a content-addressed bundled host tool to
+emit one verified package directory. The package is reused across distinct
+build roots. Phase 1 still requires aggregate
+layout/calling-convention evidence and broader SCABI/declaration generation;
 modeling export adapters as producer actions; making implicit
 toolchain/system-library inputs explicit so native actions can use the
 implemented local cache; adding cache eviction/export; broadening callback
@@ -194,10 +199,14 @@ diagnostics, and unsupported unselected SDK declarations are ignored. A compact
 fixture and the installed real `Gtk-4.0.gir` `Gtk.Button` surface form the gate.
 The selected `Gtk.Button` constructor and label getter/setter now also become a
 structured C probe and pass exact compatibility assertions against the installed
-GTK headers inside the sandboxed artifact graph. The first GTK package generator
-accepts that normalized evidence only when it matches the selected GIR snapshot,
-target, SDK, and exact regenerated GObject adapter. It emits canonical
-TypeScript declarations and validated SCABI for the narrow managed-handle,
+GTK headers inside the sandboxed artifact graph. The GTK package generator is
+now the final dependent action in that analysis graph. A preceding action
+removes non-semantic Clang AST locations and emits canonical evidence; the
+generator accepts that evidence only when it matches the selected GIR snapshot,
+target, SDK, and exact regenerated GObject adapter, then emits a
+content-addressed package directory containing
+canonical TypeScript declarations, validated SCABI, adapter source/metadata,
+and provenance for the narrow managed-handle,
 `void`, exact `gboolean`, branded exact `gint`/`gdouble`, NUL-terminated UTF-8,
 and non-detailed zero-payload signal surface. Signals remain semantic GIR
 metadata rather than invented direct C functions: the generator emits

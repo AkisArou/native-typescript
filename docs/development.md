@@ -178,17 +178,23 @@ node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 The C binding tests compile a canonical selected-function probe, reject a
 deliberate header mismatch, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call
 surface against Clang. The SCABI test turns the verified selection and exact
-GObject adapter into canonical declarations and a validated manifest, while
-rejecting tampered provenance and unsupported reached metadata. The GIR test
+GObject adapter into canonical declarations and a validated manifest, and pins
+the immutable evidence-normalization and cacheable binding-package action
+contracts, while rejecting tampered provenance and unsupported reached
+metadata. The GIR test
 validates the compact selected-metadata
 contract and, when the system file exists, parses the real `Gtk-4.0.gir`
 `Gtk.Button` surface. The runtime test compiles the GLib adapter in plain,
 ASan/UBSan, and TSan modes.
-The application test builds the ScriptC compiler, regenerates selected Widget,
-Button, and Window declarations, SCABI, GObject adapters, and a deterministic
-zero-payload signal subscription adapter from installed GIR plus
-sandboxed Clang evidence, composes that package with the canonical GTK runtime
-fixture, and plans C and LLVM programs. It snapshots ScriptC's built emitter
+The application test builds the ScriptC compiler and the self-contained GTK
+host generator tool. Its analysis graph makes sandboxed Clang evidence feed a
+deterministic normalization action, then makes that canonical evidence feed the
+cacheable action that regenerates selected Widget, Button, and Window
+declarations, SCABI, GObject adapters, and a zero-payload signal subscription
+adapter as one package directory. A second build root proves that unchanged
+package generation is restored from the local cache. The next planning phase composes
+that verified package with the canonical GTK runtime fixture and plans C and
+LLVM programs. It snapshots ScriptC's built emitter
 and path-free compilation plan as host inputs, emits each program through a
 deterministic sandboxed graph action, captures ScriptC's exact native driver
 request through its side-effect-free external-build planner, resolves compile

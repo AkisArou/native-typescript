@@ -8,14 +8,14 @@ import type { ClangFunctionProbe } from "./model.ts";
 
 export interface ClangFunctionProbeArtifactPlan {
   readonly source: ArtifactDefinition;
-  readonly evidence: ArtifactDefinition;
+  readonly rawAst: ArtifactDefinition;
   readonly action: ArtifactActionDefinition;
 }
 
 export function planClangFunctionProbe(input: {
   readonly probe: ClangFunctionProbe;
   readonly sourceArtifactId: string;
-  readonly evidenceArtifactId: string;
+  readonly rawAstArtifactId: string;
   readonly actionId: string;
   readonly logicalPath: string;
   readonly arguments: readonly ArtifactActionInputArgument[];
@@ -38,8 +38,8 @@ export function planClangFunctionProbe(input: {
       logicalPath: input.logicalPath,
     }),
   });
-  const evidence: ArtifactDefinition = Object.freeze({
-    id: input.evidenceArtifactId,
+  const rawAst: ArtifactDefinition = Object.freeze({
+    id: input.rawAstArtifactId,
     kind: "metadata",
     entryType: "file",
     mediaType: "application/vnd.native-typescript.clang-ast+json",
@@ -49,7 +49,7 @@ export function planClangFunctionProbe(input: {
     origin: Object.freeze({
       kind: "action",
       action: input.actionId,
-      fileName: "clang-function-evidence.json",
+      fileName: "clang-function-ast.json",
     }),
   });
   const sdkInputs = input.arguments.flatMap((argument) =>
@@ -80,10 +80,10 @@ export function planClangFunctionProbe(input: {
     arguments: Object.freeze(arguments_.map((argument) => Object.freeze(argument))),
     environment: Object.freeze([]),
     inputs: Object.freeze([...new Set([input.sourceArtifactId, ...sdkInputs])]),
-    outputs: Object.freeze([input.evidenceArtifactId]),
+    outputs: Object.freeze([input.rawAstArtifactId]),
     standardOutput: Object.freeze({
       kind: "artifact",
-      artifact: input.evidenceArtifactId,
+      artifact: input.rawAstArtifactId,
     }),
     workingDirectory: "isolated",
     network: "denied",
@@ -92,5 +92,5 @@ export function planClangFunctionProbe(input: {
     deterministic: false,
     cacheable: false,
   });
-  return Object.freeze({ source, evidence, action });
+  return Object.freeze({ source, rawAst, action });
 }

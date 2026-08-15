@@ -27,23 +27,29 @@ import type {
   ArtifactActionDefinition,
   ArtifactDefinition,
 } from "@native-typescript/core";
+import { planClangFunctionProbe } from "@native-typescript/bindgen-c";
 import {
-  parseClangFunctionEvidence,
-  planClangFunctionProbe,
-} from "@native-typescript/bindgen-c";
-import { parseScabiManifest } from "@native-typescript/scabi";
+  canonicalizeJson,
+  parseScabiManifest,
+} from "@native-typescript/scabi";
 import {
   composeScriptCNativePrograms,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
 import {
-  generateGObjectAdapterSource,
+  defineGtkBindingPackageRequest,
   generateGirClangFunctionProbe,
-  generateGtkScabiPackage,
+  gtkBindingToolFile,
   glibRuntimeArtifactIds,
   ingestGir,
+  planGtkBindingPackage,
+  planGtkClangEvidenceNormalization,
   planGlibRuntimeObject,
   planGObjectAdapterObject,
+} from "@native-typescript/target-gtk";
+import type {
+  GObjectAdapterSource,
+  GtkBindingPackageDescriptor,
 } from "@native-typescript/target-gtk";
 
 const workspace = join(import.meta.dirname, "..");
@@ -205,6 +211,13 @@ test(
         version: clangVersion,
         digest: clangContent.digest,
       };
+      const nodePath = process.execPath;
+      const nodeContent = await digestArtifactPath(nodePath, "file");
+      const nodeTool: ArtifactActionDefinition["tool"] = {
+        id: "tool/node",
+        version: process.versions.node,
+        digest: nodeContent.digest,
+      };
       const gtkSdk = await resolvePkgConfigSdk({
         id: "gtk4",
         executable: pkgConfigPath,
@@ -238,7 +251,7 @@ test(
       const gtkProbePlan = planClangFunctionProbe({
         probe: gtkProbe,
         sourceArtifactId: "source/gtk4/clang-function-probe",
-        evidenceArtifactId: "metadata/gtk4/clang-function-evidence",
+        rawAstArtifactId: "metadata/gtk4/clang-function-ast",
         actionId: "inspect/gtk4/clang-functions",
         logicalPath: "generated/gtk4/clang-function-probe.c",
         arguments: gtkSdk.compileArguments,
@@ -248,84 +261,192 @@ test(
       });
       const gtkProbePath = join(scratch, "gtk4-function-probe.c");
       writeFileSync(gtkProbePath, gtkProbe.source);
-      const evidenceReport = await executeArtifactGraph(
-        defineArtifactGraph({
-          artifacts: [
-            gtkProbePlan.source,
-            ...gtkSdk.artifacts,
-            gtkProbePlan.evidence,
-          ],
-          actions: [gtkProbePlan.action],
-        }),
-        {
-          buildRoot: join(scratch, "gtk4-evidence"),
-          sourcePaths: {
-            ...gtkSdk.sourcePaths,
-            [gtkProbePlan.source.id]: gtkProbePath,
+      const gtkBindingRequest = defineGtkBindingPackageRequest({
+        clang: {
+          toolId: clangTool.id,
+          version: clangTool.version,
+          digest: clangTool.digest,
+          target: nativeTarget,
+        },
+        generation: {
+          package: {
+            name: "@native-typescript/gtk4",
+            version: "0.0.0",
+            namespace: "native-typescript.gtk4",
+            instance: "native-typescript.gtk4@0.0.0",
           },
-          tools: { [clangTool.id]: { path: clangPath } },
-          sandbox: { kind: "bubblewrap", path: sandboxPath },
-        },
-      );
-      const evidenceArtifact = evidenceReport.artifacts.find(
-        ({ id }) => id === gtkProbePlan.evidence.id,
-      );
-      assert.ok(evidenceArtifact);
-      const gtkEvidence = parseClangFunctionEvidence(
-        readFileSync(evidenceArtifact.path, "utf8"),
-        {
-          probe: gtkProbe,
-          clang: {
-            toolId: clangTool.id,
-            version: clangTool.version,
-            digest: clangTool.digest,
-            target: nativeTarget,
+          target: {
+            triple: nativeTarget,
+            architecture: "x86_64",
+            pointerWidth: 64,
+            endianness: "little",
+            objectFormat: "elf",
+            minimumPlatformVersion: "glibc-2.17",
+            abi: "sysv-amd64",
+            features: ["gtk4", "glib-main-context"],
           },
-        },
-      );
-      const gobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
-      const generatedGtk = generateGtkScabiPackage({
-        snapshot: gtkSnapshot,
-        evidence: gtkEvidence,
-        gobjectAdapter,
-        package: {
-          name: "@native-typescript/gtk4",
-          version: "0.0.0",
-          namespace: "native-typescript.gtk4",
-          instance: "native-typescript.gtk4@0.0.0",
-        },
-        target: {
-          triple: nativeTarget,
-          architecture: "x86_64",
-          pointerWidth: 64,
-          endianness: "little",
-          objectFormat: "elf",
-          minimumPlatformVersion: "glibc-2.17",
-          abi: "sysv-amd64",
-          features: ["gtk4", "glib-main-context"],
-        },
-        sdk: {
-          vendor: "GNOME",
-          name: "GTK",
-          version: gtkSnapshot.namespace.version,
-          deploymentTarget: nativeTarget,
-          modules: ["gtk4"],
-        },
-        linkInputs: gtkSdk.systemLibraries.map((name, order) => ({
-          id: name,
-          kind: "system-library" as const,
-          name,
-          order,
-        })),
-        adapterInput: {
-          id: "gtk4.gobject-adapters",
-          output: "gobject-adapters.o",
+          sdk: {
+            vendor: "GNOME",
+            name: "GTK",
+            version: gtkSnapshot.namespace.version,
+            deploymentTarget: nativeTarget,
+            modules: ["gtk4"],
+          },
+          linkInputs: gtkSdk.systemLibraries.map((name, order) => ({
+            id: name,
+            kind: "system-library" as const,
+            name,
+            order,
+          })),
+          adapterInput: {
+            id: "gtk4.gobject-adapters",
+            output: "gobject-adapters.o",
+          },
         },
       });
-      const generatedGtkDeclarationsPath = join(scratch, "gtk4.d.ts");
-      const generatedGtkAdapterPath = join(scratch, "gobject-adapters.c");
-      writeFileSync(generatedGtkDeclarationsPath, generatedGtk.declarations);
-      writeFileSync(generatedGtkAdapterPath, gobjectAdapter.source);
+      const gtkSnapshotPath = join(scratch, "gtk4-selected-gir.json");
+      const gtkBindingRequestPath = join(scratch, "gtk4-binding-request.json");
+      writeFileSync(gtkSnapshotPath, canonicalizeJson(gtkSnapshot));
+      writeFileSync(
+        gtkBindingRequestPath,
+        canonicalizeJson(gtkBindingRequest),
+      );
+      const gtkBindingToolPath = join(
+        targetRoot,
+        "node_modules/.runtime",
+        gtkBindingToolFile,
+      );
+      const gtkSnapshotArtifact = await sourceFileArtifact({
+        id: "metadata/gtk4/selected-gir",
+        path: gtkSnapshotPath,
+        fileName: "selected-gir.json",
+        logicalPath: "generated/gtk4/selected-gir.json",
+        kind: "metadata",
+        mediaType: "application/vnd.native-typescript.gir-snapshot+json",
+        domain: "host",
+        cache: "exportable",
+        target: executionPlatform,
+      });
+      const gtkBindingRequestArtifact = await sourceFileArtifact({
+        id: "metadata/gtk4/binding-package-request",
+        path: gtkBindingRequestPath,
+        fileName: "binding-package-request.json",
+        logicalPath: "generated/gtk4/binding-package-request.json",
+        kind: "metadata",
+        mediaType:
+          "application/vnd.native-typescript.gtk-binding-package-request+json",
+        domain: "host",
+        cache: "exportable",
+        target: executionPlatform,
+      });
+      const gtkBindingToolArtifact = await sourceFileArtifact({
+        id: "tool-input/target-gtk/binding-package-generator",
+        path: gtkBindingToolPath,
+        fileName: gtkBindingToolFile,
+        logicalPath: "packages/target-gtk/runtime/gtk-binding-tool-cli.mjs",
+        kind: "source",
+        mediaType: "text/javascript",
+        domain: "host",
+        cache: "exportable",
+        target: executionPlatform,
+      });
+      const gtkEvidencePlan = planGtkClangEvidenceNormalization({
+        request: gtkBindingRequest,
+        requestArtifact: gtkBindingRequestArtifact.id,
+        snapshotArtifact: gtkSnapshotArtifact.id,
+        rawAstArtifact: gtkProbePlan.rawAst.id,
+        generatorArtifact: gtkBindingToolArtifact.id,
+        artifactId: "metadata/gtk4/normalized-clang-function-evidence",
+        actionId: "normalize/gtk4/clang-function-evidence",
+        tool: nodeTool,
+        executionPlatform,
+        target: nativeTarget,
+      });
+      const gtkBindingPlan = planGtkBindingPackage({
+        request: gtkBindingRequest,
+        requestArtifact: gtkBindingRequestArtifact.id,
+        snapshotArtifact: gtkSnapshotArtifact.id,
+        normalizedEvidenceArtifact: gtkEvidencePlan.artifact.id,
+        generatorArtifact: gtkBindingToolArtifact.id,
+        artifactId: "package/gtk4/bindings",
+        actionId: "generate/gtk4/binding-package",
+        tool: nodeTool,
+        executionPlatform,
+        target: nativeTarget,
+      });
+      const analysisGraph = defineArtifactGraph({
+        artifacts: [
+          gtkProbePlan.source,
+          ...gtkSdk.artifacts,
+          gtkProbePlan.rawAst,
+          gtkSnapshotArtifact,
+          gtkBindingRequestArtifact,
+          gtkBindingToolArtifact,
+          gtkEvidencePlan.artifact,
+          gtkBindingPlan.artifact,
+        ],
+        actions: [
+          gtkProbePlan.action,
+          gtkEvidencePlan.action,
+          gtkBindingPlan.action,
+        ],
+      });
+      const analysisBindings = {
+        sourcePaths: {
+          ...gtkSdk.sourcePaths,
+          [gtkProbePlan.source.id]: gtkProbePath,
+          [gtkSnapshotArtifact.id]: gtkSnapshotPath,
+          [gtkBindingRequestArtifact.id]: gtkBindingRequestPath,
+          [gtkBindingToolArtifact.id]: gtkBindingToolPath,
+        },
+        tools: {
+          [clangTool.id]: { path: clangPath },
+          [nodeTool.id]: { path: nodePath },
+        },
+        sandbox: { kind: "bubblewrap" as const, path: sandboxPath },
+        cache: { kind: "local" as const, path: join(scratch, "gtk4-cache") },
+      };
+      const analysisReport = await executeArtifactGraph(analysisGraph, {
+        ...analysisBindings,
+        buildRoot: join(scratch, "gtk4-analysis"),
+      });
+      const cachedAnalysisReport = await executeArtifactGraph(analysisGraph, {
+        ...analysisBindings,
+        buildRoot: join(scratch, "gtk4-analysis-cached"),
+      });
+      assert.equal(
+        cachedAnalysisReport.actions.find(
+          ({ id }) => id === gtkBindingPlan.action.id,
+        )?.status,
+        "cached",
+      );
+      const generatedGtkArtifact = analysisReport.artifacts.find(
+        ({ id }) => id === gtkBindingPlan.artifact.id,
+      );
+      assert.ok(generatedGtkArtifact);
+      const generatedGtkPath = generatedGtkArtifact.path;
+      const generatedGtkDeclarationsPath = join(generatedGtkPath, "package.d.ts");
+      const generatedGtkAdapterPath = join(
+        generatedGtkPath,
+        "gobject-adapters.c",
+      );
+      const generatedGtkManifest = parseScabiManifest(
+        readFileSync(join(generatedGtkPath, "package.scabi.json"), "utf8"),
+      );
+      const gobjectAdapter = JSON.parse(
+        readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
+      ) as GObjectAdapterSource;
+      const generatedGtkDescriptor = JSON.parse(
+        readFileSync(join(generatedGtkPath, "binding-package.json"), "utf8"),
+      ) as GtkBindingPackageDescriptor;
+      assert.equal(
+        generatedGtkDescriptor.files.manifest.digest,
+        sha256(join(generatedGtkPath, "package.scabi.json")),
+      );
+      assert.equal(
+        generatedGtkDescriptor.files.adapterSource.digest,
+        sha256(generatedGtkAdapterPath),
+      );
       const gobjectAdapterObject = planGObjectAdapterObject({
         adapter: gobjectAdapter,
         sourceArtifactId: "source/gtk4/gobject-adapters",
@@ -338,7 +459,7 @@ test(
         executionPlatform,
         target: nativeTarget,
       });
-      const gtkTranslated = translateScabiNativeProgram(generatedGtk.manifest, {
+      const gtkTranslated = translateScabiNativeProgram(generatedGtkManifest, {
         imports: [
           "gtk_button_get_label",
           "gtk_button_connect_clicked",
@@ -492,20 +613,13 @@ test(
         target: executionPlatform,
         domain: "host",
       });
-      const nodePath = process.execPath;
-      const nodeContent = await digestArtifactPath(nodePath, "file");
-      const nodeTool: ArtifactActionDefinition["tool"] = {
-        id: "tool/node",
-        version: process.versions.node,
-        digest: nodeContent.digest,
-      };
       for (const backend of ["c", "llvm"] as const) {
         const planned = planExecutableCompilation(join(fixtureRoot, "app.ts"), {
           backend,
           sourceRoot: fixtureRoot,
           externalTypes: {
             [manifest.package.name]: join(fixtureRoot, "package.d.ts"),
-            [generatedGtk.manifest.package.name]: generatedGtkDeclarationsPath,
+            [generatedGtkManifest.package.name]: generatedGtkDeclarationsPath,
           },
           native: translated.input,
           nativeLinkInputs: [

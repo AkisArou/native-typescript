@@ -128,7 +128,7 @@ test(
     const plan = planClangFunctionProbe({
       probe,
       sourceArtifactId: "source/gtk4/clang-function-probe",
-      evidenceArtifactId: "metadata/gtk4/clang-function-evidence",
+      rawAstArtifactId: "metadata/gtk4/clang-function-ast",
       actionId: "inspect/gtk4/clang-functions",
       logicalPath: "generated/gtk4/clang-function-probe.c",
       arguments: sdk.compileArguments,
@@ -137,7 +137,7 @@ test(
       target,
     });
     const graph = defineArtifactGraph({
-      artifacts: [plan.source, ...sdk.artifacts, plan.evidence],
+      artifacts: [plan.source, ...sdk.artifacts, plan.rawAst],
       actions: [plan.action],
     });
     assert.equal(JSON.stringify(graph).includes("/usr/include"), false);
@@ -155,7 +155,7 @@ test(
         tools: { [clang.id]: { path: clangPath } },
         sandbox: { kind: "bubblewrap", path: bubblewrapPath },
       });
-      const ast = report.artifacts.find(({ id }) => id === plan.evidence.id);
+      const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
       assert.ok(ast);
       const evidence = parseClangFunctionEvidence(readFileSync(ast.path, "utf8"), {
         probe,

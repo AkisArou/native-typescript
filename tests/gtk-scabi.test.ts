@@ -19,7 +19,10 @@ import {
   generateGirClangFunctionProbe,
   generateGObjectAdapterSource,
   generateGtkScabiPackage,
+  defineGtkBindingPackageRequest,
   ingestGir,
+  planGtkBindingPackage,
+  planGtkClangEvidenceNormalization,
 } from "@native-typescript/target-gtk";
 import type {
   GirSnapshot,
@@ -170,6 +173,88 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   );
   assertDeepFrozen(generated);
   assert.deepEqual(generateGtkScabiPackage(options()), generated);
+});
+
+test("GTK evidence and binding generation are immutable cacheable actions", () => {
+  const generation = options();
+  const request = defineGtkBindingPackageRequest({
+    clang: generation.evidence.clang,
+    generation: {
+      package: generation.package,
+      target: generation.target,
+      sdk: generation.sdk,
+      linkInputs: generation.linkInputs,
+      adapterInput: generation.adapterInput,
+    },
+  });
+  const nodeTool = {
+    id: "tool/node",
+    version: "24.19.0",
+    digest: `sha256:${"b".repeat(64)}`,
+  };
+  const evidencePlan = planGtkClangEvidenceNormalization({
+    request,
+    requestArtifact: "metadata/gtk4/request",
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    rawAstArtifact: "metadata/gtk4/clang-ast",
+    generatorArtifact: "tool-input/target-gtk/generator",
+    artifactId: "metadata/gtk4/clang-evidence",
+    actionId: "normalize/gtk4/clang-evidence",
+    tool: nodeTool,
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+  const plan = planGtkBindingPackage({
+    request,
+    requestArtifact: "metadata/gtk4/request",
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    normalizedEvidenceArtifact: evidencePlan.artifact.id,
+    generatorArtifact: "tool-input/target-gtk/generator",
+    artifactId: "package/gtk4/bindings",
+    actionId: "generate/gtk4/bindings",
+    tool: nodeTool,
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+
+  assertDeepFrozen(request);
+  assertDeepFrozen(evidencePlan);
+  assertDeepFrozen(plan);
+  assert.deepEqual(evidencePlan.action.inputs, [
+    "tool-input/target-gtk/generator",
+    "metadata/gtk4/snapshot",
+    "metadata/gtk4/clang-ast",
+    "metadata/gtk4/request",
+  ]);
+  assert.equal(evidencePlan.artifact.entryType, "file");
+  assert.equal(evidencePlan.artifact.cache, "exportable");
+  assert.equal(evidencePlan.action.deterministic, true);
+  assert.equal(evidencePlan.action.cacheable, true);
+  assert.deepEqual(plan.action.inputs, [
+    "tool-input/target-gtk/generator",
+    "metadata/gtk4/snapshot",
+    "metadata/gtk4/clang-evidence",
+    "metadata/gtk4/request",
+  ]);
+  assert.equal(plan.artifact.entryType, "directory");
+  assert.equal(plan.artifact.cache, "exportable");
+  assert.equal(plan.action.deterministic, true);
+  assert.equal(plan.action.cacheable, true);
+  assert.throws(
+    () => planGtkBindingPackage({
+      request,
+      requestArtifact: "metadata/gtk4/request",
+      snapshotArtifact: "metadata/gtk4/snapshot",
+      normalizedEvidenceArtifact: "metadata/gtk4/clang-evidence",
+      generatorArtifact: "tool-input/target-gtk/generator",
+      artifactId: "package/gtk4/bindings",
+      actionId: "generate/gtk4/bindings",
+      tool: { ...nodeTool, id: "tool/tsx" },
+      executionPlatform: "x86_64-linux",
+      target: "x86_64-unknown-linux-gnu",
+    }),
+    /requires tool\/node/u,
+  );
 });
 
 test("GTK SCABI generation rejects unverified evidence and adapter drift", () => {

@@ -231,11 +231,18 @@ package now converts the selected direct-call signatures into a structured,
 content-addressed probe. Sandboxed Clang checks the candidate types against the
 real headers and emits selected AST evidence as a graph artifact; correct
 Button and Window constructor/method signatures pass and a deliberate const
-mismatch fails in Clang. The first generator consumes that evidence together
-with the exact selected GIR snapshot and GObject-adapter source, then emits
-canonical TypeScript declarations and a validated SCABI package for managed
-Widget ancestry, Button and Window construction/disposal, label access, and
-borrowed handle parameters. It also generates exact `gboolean` methods, branded
+mismatch fails in Clang. A deterministic normalization action reduces that raw,
+location-bearing AST to canonical selected-function evidence. A dependent
+binding-package action consumes the stable evidence together with the exact
+selected GIR snapshot and a canonical generation request. Their
+content-addressed host tool regenerates the GObject adapter and emits one
+immutable package directory containing TypeScript declarations, validated
+SCABI, adapter metadata/source, and package provenance. A second build root
+reuses that package from the local action cache.
+The native application never contains that Node build tool. The generated
+surface covers managed Widget ancestry, Button and Window
+construction/disposal, label access, borrowed handle parameters, exact
+`gboolean` methods, branded
 `gint`/`gdouble` parameters and results, and deterministic result-owned
 subscriptions for non-detailed zero-payload `void` signals. The adapter strongly
 retains the signal instance, disconnects by its handler ID, and composes with
@@ -243,8 +250,10 @@ ScriptC's retained callback lifecycle so no callback runs after disposal.
 Reached metadata outside the implemented
 handle/void/boolean/exact-scalar/NUL-terminated UTF-8/zero-payload-signal
 algebra fails generation.
-The application gate now regenerates that package from installed GIR plus
-sandboxed Clang evidence, composes it with the target-runtime package, compiles
+The application gate now chains Clang inspection, evidence normalization, and
+package generation as three declared analysis actions, promotes the verified
+package artifact into the compiler phase, composes it with the target-runtime
+package, and compiles
 both ScriptC backends, and executes constructor, nullable label getter, setter,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
 disposal against real GTK. It passes both boolean representations through

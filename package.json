@@ -9,7 +9,7 @@
     "pnpm": ">=11.21.0 <12"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm --filter @native-typescript/target-gtk build:tool",
     "build:watch": "tsc -b --watch --preserveWatchOutput",
     "clean": "tsc -b --clean",
     "dev": "node --watch packages/cli/src/main.ts",

@@ -186,6 +186,18 @@ Generated code is a first-class artifact with:
 Generated source is normally placed in the build tree and not committed. Golden
 fixtures may be committed for review and testing.
 
+The GTK analysis graph applies this rule directly. Sandboxed Clang writes its
+raw selected AST to a metadata artifact. Because Clang AST JSON contains
+process- and sandbox-specific locations, a dependent action reduces it to
+canonical selected-function evidence. The binding-package action consumes that
+stable evidence, the canonical selected-GIR snapshot, an immutable generation
+request, and a content-addressed self-contained host generator. Its single
+directory output contains declarations, SCABI, GObject adapter source/metadata,
+and package provenance. That directory is the explicit phase boundary consumed
+by later compiler planning and is cache-reused across distinct build roots. The
+bundled generator is a build input only and is never linked or packaged into the
+target application.
+
 Adapters should be narrow and mechanical. Application behavior belongs in
 TypeScript or a documented platform runtime component, not generated bespoke
 logic that cannot be tested independently.
