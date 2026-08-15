@@ -198,19 +198,24 @@ TypeScript declarations and validated SCABI for the narrow managed-handle,
 `void`, and NUL-terminated UTF-8 surface. Signals remain semantic GIR metadata
 rather than direct C function candidates. Aggregate layout evidence, broader
 type/result lowering, and GObject identity, weak-handle, and invalidation policy
-remain before all selected metadata can drive application compilation.
+remain before broader selected metadata can drive application compilation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and
-becomes `string | null`. The next GTK integration step is to make the generated
-package, rather than the hand-authored fixture, the application compilation
-input.
+becomes `string | null`. The generated Button package now enters the real
+application compilation too: TypeScript constructs, reads, updates, and disposes
+a real button through both backends, with its generated ownership adapter linked
+as an explicit artifact.
 
 Multi-package Native IR inputs now have a first-class canonical composition
 boundary. Generated toolkit bindings and target-runtime support can enter one
 compiler invocation without flattening their SCABI package identities or
 assembling arrays ad hoc; target and source-identity collisions fail before
-compilation. The GTK application migration can build directly on this boundary.
+compilation. Selected link and adapter definitions travel with each translation;
+composition rejects conflicting identities and topologically merges package-local
+link ordering constraints. The GTK application gate exercises this boundary with
+independently generated toolkit and target-runtime packages, using the composed
+link closure for the final driver request.
 
 The first GObject ownership policy is now executable rather than documentary.
 Selected constructors generate content-addressed C adapters that normalize GIR
@@ -228,9 +233,11 @@ signal, handle, callback service, attached loop, and window with exact
 destruction assertions. It contains no JavaScript engine. Its GLib runtime and
 GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
-enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
-and wrapper because its lifecycle and signal surface is broader than the
-implemented package generator. Expanding generated SCABI/declarations to that
+enter the graph. The same app now composes the generated `Gtk.Button` package
+for direct construction, label access, and disposal with the hand-authored
+Window/signal runtime package. The remaining wrapper exists because that
+lifecycle and signal surface is broader than the implemented package generator.
+Expanding generated SCABI/declarations to that
 surface, aggregate layout evidence, general GObject identity/weak-reference
 rules, generated signal adapters, graphing compiler emission itself, enabling
 cacheability for the complete native toolchain, full application lifecycle,

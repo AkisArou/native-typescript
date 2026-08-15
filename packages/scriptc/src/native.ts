@@ -1,9 +1,11 @@
 import { isDeepStrictEqual } from "node:util";
 import type {
+  AdapterInput,
   AbiParameter,
   AbiResult,
   CallableBinding,
   DeclarationReference,
+  LinkInput,
   NativeTypeId,
   NativeType,
   ScabiManifest,
@@ -287,11 +289,15 @@ export interface ScriptCNativeTranslationDiagnostic {
   readonly message: string;
 }
 
+export interface ScriptCNativeBuildRequirements {
+  readonly linkInputs: readonly LinkInput[];
+  readonly adapterInputs: readonly AdapterInput[];
+}
+
 export interface ScriptCNativeTranslationSuccess {
   readonly ok: true;
   readonly input: ScriptCNativeFrontendInput;
-  readonly linkInputIds: readonly string[];
-  readonly adapterInputIds: readonly string[];
+  readonly build: ScriptCNativeBuildRequirements;
 }
 
 export type ScriptCNativeTranslationResult =
@@ -313,6 +319,10 @@ function declarationKey(declaration: ScriptCNativeDeclaration): string {
   return `${declaration.module}\u0000${declaration.name}`;
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /** Compose independently translated packages into one canonical compiler
  * input. Package boundaries remain visible in every nominal id; only exact
  * duplicates are coalesced. Conflicting source identities, native ids, or
@@ -332,8 +342,9 @@ export function composeScriptCNativePrograms(
   const bindingsByDeclaration = new Map<string, ScriptCNativeBinding>();
   const exports = new Map<string, ScriptCNativeExport>();
   const exportsBySource = new Map<string, ScriptCNativeExport>();
-  const linkInputIds = new Set<string>();
-  const adapterInputIds = new Set<string>();
+  const linkInputs = new Map<string, LinkInput>();
+  const linkInputEdges = new Map<string, Set<string>>();
+  const adapterInputs = new Map<string, AdapterInput>();
 
   const addExact = <Value>(
     entries: Map<string, Value>,
@@ -401,15 +412,76 @@ export function composeScriptCNativePrograms(
         "source export",
       );
     });
-    for (const id of program.linkInputIds) linkInputIds.add(id);
-    for (const id of program.adapterInputIds) adapterInputIds.add(id);
+    program.build.linkInputs.forEach((input, index) => {
+      const existing = linkInputs.get(input.id);
+      if (existing === undefined) {
+        linkInputs.set(input.id, input);
+        linkInputEdges.set(input.id, new Set());
+      } else if (existing.kind !== input.kind || existing.name !== input.name) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${prefix}/build/linkInputs/${index}`,
+          `Native program link input id '${input.id}' conflicts with another package`,
+        ));
+      }
+    });
+    for (const before of program.build.linkInputs) {
+      for (const after of program.build.linkInputs) {
+        if (before.order < after.order && before.id !== after.id) {
+          linkInputEdges.get(before.id)?.add(after.id);
+        }
+      }
+    }
+    program.build.adapterInputs.forEach((input, index) => {
+      addExact(
+        adapterInputs,
+        input.id,
+        input,
+        `${prefix}/build/adapterInputs/${index}`,
+        "adapter input id",
+      );
+    });
   });
 
+  const indegree = new Map([...linkInputs.keys()].map((id) => [id, 0]));
+  for (const afterIds of linkInputEdges.values()) {
+    for (const id of afterIds) indegree.set(id, (indegree.get(id) ?? 0) + 1);
+  }
+  const ready = [...indegree]
+    .filter(([, count]) => count === 0)
+    .map(([id]) => id)
+    .sort(compareText);
+  const orderedLinkInputs: LinkInput[] = [];
+  while (ready.length > 0) {
+    const id = ready.shift()!;
+    const input = linkInputs.get(id)!;
+    orderedLinkInputs.push(Object.freeze({
+      ...input,
+      order: orderedLinkInputs.length,
+    }));
+    for (const afterId of linkInputEdges.get(id) ?? []) {
+      const remaining = (indegree.get(afterId) ?? 0) - 1;
+      indegree.set(afterId, remaining);
+      if (remaining === 0) {
+        ready.push(afterId);
+        ready.sort(compareText);
+      }
+    }
+  }
+  if (orderedLinkInputs.length !== linkInputs.size) {
+    const cyclic = [...indegree]
+      .filter(([, count]) => count > 0)
+      .map(([id]) => id)
+      .sort(compareText);
+    diagnostics.push(diagnostic(
+      "NTS3002",
+      "/build/linkInputs",
+      `Native program link input ordering constraints form a cycle: ${cyclic.join(", ")}`,
+    ));
+  }
   if (diagnostics.length > 0) {
     return Object.freeze({ ok: false, diagnostics: Object.freeze(diagnostics) });
   }
-  const compareText = (left: string, right: string): number =>
-    left < right ? -1 : left > right ? 1 : 0;
   const byDeclaration = <Value extends { readonly declaration: ScriptCNativeDeclaration }>(
     left: Value,
     right: Value,
@@ -425,8 +497,12 @@ export function composeScriptCNativePrograms(
         compareText(left.id, right.id) || compareText(left.sourceExport, right.sourceExport)
       )),
     }),
-    linkInputIds: Object.freeze([...linkInputIds].sort()),
-    adapterInputIds: Object.freeze([...adapterInputIds].sort()),
+    build: Object.freeze({
+      linkInputs: Object.freeze(orderedLinkInputs),
+      adapterInputs: Object.freeze([...adapterInputs.values()].sort((left, right) =>
+        compareText(left.id, right.id)
+      )),
+    }),
   });
 }
 
@@ -1730,8 +1806,8 @@ export function translateScabiNativeProgram(
   const orderedExports = selection.exports
     .map((selected, selectionIndex) => ({ selected, selectionIndex }))
     .sort((left, right) =>
-      left.selected.bindingId.localeCompare(right.selected.bindingId) ||
-      left.selected.sourceExport.localeCompare(right.selected.sourceExport)
+      compareText(left.selected.bindingId, right.selected.bindingId) ||
+      compareText(left.selected.sourceExport, right.selected.sourceExport)
     );
   for (const { selected, selectionIndex } of orderedExports) {
     const selectionPath = `/selection/exports/${selectionIndex}`;
@@ -1864,7 +1940,19 @@ export function translateScabiNativeProgram(
       bindings: Object.freeze(bindings),
       exports: Object.freeze(exports),
     }),
-    linkInputIds: Object.freeze([...linkInputIds].sort()),
-    adapterInputIds: Object.freeze([...adapterInputIds].sort()),
+    build: Object.freeze({
+      linkInputs: Object.freeze(manifest.linkInputs
+        .filter(({ id }) => linkInputIds.has(id))
+        .sort((left, right) => left.order - right.order || compareText(left.id, right.id))
+        .map((input, order) => Object.freeze({ ...input, order }))),
+      adapterInputs: Object.freeze(manifest.adapterInputs
+        .filter(({ id }) => adapterInputIds.has(id))
+        .map((input) => Object.freeze({
+          ...input,
+          bindings: Object.freeze([...input.bindings]),
+          outputs: Object.freeze([...input.outputs]),
+          options: Object.freeze({ ...input.options }),
+        }))),
+    }),
   });
 }

@@ -178,11 +178,15 @@ validates the compact selected-metadata
 contract and, when the system file exists, parses the real `Gtk-4.0.gir`
 `Gtk.Button` surface. The runtime test compiles the GLib adapter in plain,
 ASan/UBSan, and TSan modes.
-The application test builds the ScriptC compiler, translates the canonical GTK
-fixture manifest, emits C and LLVM programs, captures ScriptC's exact native
-driver request, materializes the adapter objects and final executable through
-one sandboxed graph, and runs both against a real GTK/Xvfb event loop. It skips
-only when Linux x64, GTK 4, or Xvfb is unavailable.
+The application test builds the ScriptC compiler, regenerates the selected
+`Gtk.Button` declarations, SCABI, and ownership adapter from installed GIR plus
+sandboxed Clang evidence, composes that package with the canonical GTK runtime
+fixture, and emits C and LLVM programs. It captures ScriptC's exact native
+driver request, resolves compile inputs and the system-library closure from
+`pkg-config`, materializes the runtime, wrapper, generated ownership adapter,
+and final executable through sandboxed graphs, then runs both against a real
+GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,
+Bubblewrap, GIR, or Xvfb inputs are unavailable.
 
 Run the workspace checks:
 

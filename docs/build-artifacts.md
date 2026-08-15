@@ -336,7 +336,9 @@ missing, wrong-kind, or undeclared entries before their content digests enter
 the report. A permanent fixture compiles and links a real C executable through
 this path. The pkg-config resolver converts discovered include directories into
 logical, content-addressed SDK tree inputs while keeping their host paths only
-in execution bindings.
+in execution bindings, and records the exact `-l` system-library closure. It
+rejects linker fragments whose semantics are not represented by the current
+build model.
 
 The executor also implements the schema-v1 local action cache described above.
 Action reports distinguish execution from cache materialization and expose the

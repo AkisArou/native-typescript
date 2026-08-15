@@ -59,13 +59,22 @@ test("translated native packages compose canonically with build requirements", (
       "native-typescript.fixture.gtk-counter@0.0.0#runtime_start",
     ],
   );
-  assert.deepEqual(left.linkInputIds, runtime.linkInputIds);
+  assert.deepEqual(left.build, runtime.build);
   assert.equal(Object.isFrozen(left.input), true);
   assert.equal(Object.isFrozen(left.input.target), true);
   assert.equal(Object.isFrozen(left.input.bindings), true);
+  assert.equal(Object.isFrozen(left.build), true);
+  assert.equal(Object.isFrozen(left.build.linkInputs), true);
   const deduplicated = composeScriptCNativePrograms([scalar, scalar]);
   assert.equal(deduplicated.ok, true);
   if (deduplicated.ok) assert.equal(deduplicated.input.bindings.length, 1);
+
+  const shiftedRuntime = structuredClone(runtime);
+  shiftedRuntime.build.linkInputs.forEach((input) => {
+    Object.assign(input, { order: input.order + 100 });
+  });
+  const shifted = composeScriptCNativePrograms([runtime, shiftedRuntime]);
+  assert.deepEqual(shifted, runtime);
 });
 
 test("native package composition rejects target and source identity collisions", () => {
@@ -93,6 +102,36 @@ test("native package composition rejects target and source identity collisions",
   assert.deepEqual(
     bindingResult.diagnostics.map(({ path }) => path),
     ["/programs/1/input/bindings/0"],
+  );
+
+  const runtime = translateScabiNativeProgram(
+    gtkCounterManifest,
+    selectImports(["runtime_start"]),
+  );
+  assert.equal(runtime.ok, true);
+  if (!runtime.ok) return;
+  const conflictingLinkInput = structuredClone(runtime);
+  Object.assign(conflictingLinkInput.build.linkInputs[0]!, { name: "other-runtime" });
+  const linkInputResult = composeScriptCNativePrograms([runtime, conflictingLinkInput]);
+  assert.equal(linkInputResult.ok, false);
+  if (linkInputResult.ok) return;
+  assert.equal(
+    linkInputResult.diagnostics.some(({ path }) =>
+      path === "/programs/1/build/linkInputs/0"
+    ),
+    true,
+  );
+
+  const reversedLinkInputs = structuredClone(runtime);
+  reversedLinkInputs.build.linkInputs.forEach((input) => {
+    Object.assign(input, { order: runtime.build.linkInputs.length - input.order });
+  });
+  const linkOrderResult = composeScriptCNativePrograms([runtime, reversedLinkInputs]);
+  assert.equal(linkOrderResult.ok, false);
+  if (linkOrderResult.ok) return;
+  assert.equal(
+    linkOrderResult.diagnostics.some(({ path }) => path === "/build/linkInputs"),
+    true,
   );
 });
 
@@ -143,8 +182,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
     ],
     exports: [],
   });
-  assert.deepEqual(result.linkInputIds, []);
-  assert.deepEqual(result.adapterInputIds, []);
+  assert.deepEqual(result.build, { linkInputs: [], adapterInputs: [] });
   assert.equal(Object.isFrozen(result.input), true);
   assert.equal(Object.isFrozen(result.input.bindings[0]), true);
 });
@@ -201,8 +239,11 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
       },
     }],
   });
-  assert.deepEqual(result.linkInputIds, []);
-  assert.deepEqual(result.adapterInputIds, ["ts_export_adapter"]);
+  assert.deepEqual(result.build.linkInputs, []);
+  assert.deepEqual(
+    result.build.adapterInputs.map(({ id }) => id),
+    ["ts_export_adapter"],
+  );
   assert.equal(Object.isFrozen(result.input.exports[0]), true);
   assert.equal(Object.isFrozen(result.input.exports[0]?.parameters), true);
 });
@@ -467,7 +508,10 @@ test("SCABI adapter-symbol imports retain their generated adapter dependency", (
   const result = translateScabiNativeProgram(adapted, selectImports(["hash_utf8"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.deepEqual(result.adapterInputIds, ["adapter/hash-utf8"]);
+  assert.deepEqual(
+    result.build.adapterInputs.map(({ id }) => id),
+    ["adapter/hash-utf8"],
+  );
   assert.deepEqual(result.input.bindings[0]?.entry, {
     kind: "c-symbol",
     symbol: "nts_hash_utf8",
@@ -726,7 +770,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
     result.input.bindings.map(({ id }) => id),
     [`${instance}#subscription_create`, `${instance}#subscription_destroy`],
   );
-  assert.deepEqual(result.linkInputIds, ["pthread"]);
+  assert.deepEqual(result.build.linkInputs.map(({ id }) => id), ["pthread"]);
 });
 
 test("SCABI refuses callback contracts outside the two executable slices", () => {
@@ -964,7 +1008,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       projection: { kind: "direct" },
     },
   });
-  assert.deepEqual(result.linkInputIds, []);
+  assert.deepEqual(result.build.linkInputs, []);
 });
 
 test("SCABI lowers nullable owned handles as errors rather than nullable source values", () => {

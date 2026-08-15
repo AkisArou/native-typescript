@@ -4,9 +4,11 @@ import { createHash } from "node:crypto";
 import {
   accessSync,
   constants,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -17,18 +19,30 @@ import {
   executeArtifactGraph,
   planCObjectCompilation,
   planScriptCExecutable,
-  resolvePkgConfigCompileSdk,
+  resolvePkgConfigSdk,
 } from "@native-typescript/core";
 import type {
   ArtifactActionArgument,
   ArtifactActionDefinition,
   ArtifactDefinition,
 } from "@native-typescript/core";
-import { parseScabiManifest } from "@native-typescript/scabi";
-import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 import {
+  parseClangFunctionEvidence,
+  planClangFunctionProbe,
+} from "@native-typescript/bindgen-c";
+import { parseScabiManifest } from "@native-typescript/scabi";
+import {
+  composeScriptCNativePrograms,
+  translateScabiNativeProgram,
+} from "@native-typescript/scriptc";
+import {
+  generateGObjectAdapterSource,
+  generateGirClangFunctionProbe,
+  generateGtkScabiPackage,
   glibRuntimeArtifactIds,
+  ingestGir,
   planGlibRuntimeObject,
+  planGObjectAdapterObject,
 } from "@native-typescript/target-gtk";
 
 const workspace = join(import.meta.dirname, "..");
@@ -38,10 +52,13 @@ const targetRoot = join(workspace, "packages/target-gtk");
 const scriptcRuntimeRoot = join(scriptcRoot, "packages/runtime");
 const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
 const nativeTarget = "x86_64-unknown-linux-gnu";
 const executionPlatform = "x86_64-linux";
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
 const hasXvfb = spawnSync("xvfb-run", ["--help"]).status === 0;
+const hasClang = spawnSync("clang", ["--version"]).status === 0;
+const hasBubblewrap = spawnSync("bwrap", ["--version"]).status === 0;
 
 function sha256(path: string): string {
   return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
@@ -115,13 +132,16 @@ function literalArguments(values: readonly string[]): readonly ArtifactActionArg
 }
 
 test(
-  "compiled TypeScript drives a real GTK window through the attached loop",
+  "compiled TypeScript composes generated Gtk.Button bindings with a real GTK window loop",
   {
     skip:
       process.platform !== "linux" ||
       process.arch !== "x64" ||
+      !existsSync(systemGtkGir) ||
       !hasGtk ||
-      !hasXvfb,
+      !hasXvfb ||
+      !hasClang ||
+      !hasBubblewrap,
   },
   async () => {
     const manifest = parseScabiManifest(
@@ -136,7 +156,7 @@ test(
       sha256(join(fixtureRoot, "include/nts_gtk_counter.h")),
     );
 
-    const translated = translateScabiNativeProgram(manifest, {
+    const runtimeTranslated = translateScabiNativeProgram(manifest, {
       imports: [
         "runtime_start",
         "counter_create",
@@ -148,19 +168,19 @@ test(
       exports: [],
     });
     assert.equal(
-      translated.ok,
+      runtimeTranslated.ok,
       true,
-      translated.ok
+      runtimeTranslated.ok
         ? undefined
-        : translated.diagnostics
+        : runtimeTranslated.diagnostics
             .map(({ code, path, message }) => `${code} ${path}: ${message}`)
             .join("\n"),
     );
-    if (!translated.ok) return;
+    if (!runtimeTranslated.ok) return;
 
     assert.deepEqual(
-      translated.linkInputIds,
-      manifest.linkInputs.map(({ id }) => id).sort(),
+      runtimeTranslated.build.linkInputs,
+      manifest.linkInputs,
     );
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-app-"));
@@ -178,13 +198,170 @@ test(
         version: clangVersion,
         digest: clangContent.digest,
       };
-      const gtkSdk = await resolvePkgConfigCompileSdk({
+      const gtkSdk = await resolvePkgConfigSdk({
         id: "gtk4",
         executable: pkgConfigPath,
         modules: ["gtk4"],
         target: nativeTarget,
       });
       assert.equal(gtkSdk.modules[0]?.name, "gtk4");
+
+      const gtkSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+        logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+        namespace: { name: "Gtk", version: "4.0" },
+        classes: [{
+          name: "Button",
+          constructors: ["new_with_label"],
+          methods: ["get_label", "set_label"],
+        }],
+      });
+      const gtkProbe = generateGirClangFunctionProbe(gtkSnapshot);
+      const gtkProbePlan = planClangFunctionProbe({
+        probe: gtkProbe,
+        sourceArtifactId: "source/gtk4/clang-function-probe",
+        evidenceArtifactId: "metadata/gtk4/clang-function-evidence",
+        actionId: "inspect/gtk4/clang-functions",
+        logicalPath: "generated/gtk4/clang-function-probe.c",
+        arguments: gtkSdk.compileArguments,
+        tool: clangTool,
+        executionPlatform,
+        target: nativeTarget,
+      });
+      const gtkProbePath = join(scratch, "gtk4-function-probe.c");
+      writeFileSync(gtkProbePath, gtkProbe.source);
+      const evidenceReport = await executeArtifactGraph(
+        defineArtifactGraph({
+          artifacts: [
+            gtkProbePlan.source,
+            ...gtkSdk.artifacts,
+            gtkProbePlan.evidence,
+          ],
+          actions: [gtkProbePlan.action],
+        }),
+        {
+          buildRoot: join(scratch, "gtk4-evidence"),
+          sourcePaths: {
+            ...gtkSdk.sourcePaths,
+            [gtkProbePlan.source.id]: gtkProbePath,
+          },
+          tools: { [clangTool.id]: { path: clangPath } },
+          sandbox: { kind: "bubblewrap", path: sandboxPath },
+        },
+      );
+      const evidenceArtifact = evidenceReport.artifacts.find(
+        ({ id }) => id === gtkProbePlan.evidence.id,
+      );
+      assert.ok(evidenceArtifact);
+      const gtkEvidence = parseClangFunctionEvidence(
+        readFileSync(evidenceArtifact.path, "utf8"),
+        {
+          probe: gtkProbe,
+          clang: {
+            toolId: clangTool.id,
+            version: clangTool.version,
+            digest: clangTool.digest,
+            target: nativeTarget,
+          },
+        },
+      );
+      const gobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
+      const generatedGtk = generateGtkScabiPackage({
+        snapshot: gtkSnapshot,
+        evidence: gtkEvidence,
+        gobjectAdapter,
+        package: {
+          name: "@native-typescript/gtk4",
+          version: "0.0.0",
+          namespace: "native-typescript.gtk4",
+          instance: "native-typescript.gtk4@0.0.0",
+        },
+        target: {
+          triple: nativeTarget,
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["gtk4", "glib-main-context"],
+        },
+        sdk: {
+          vendor: "GNOME",
+          name: "GTK",
+          version: gtkSnapshot.namespace.version,
+          deploymentTarget: nativeTarget,
+          modules: ["gtk4"],
+        },
+        linkInputs: gtkSdk.systemLibraries.map((name, order) => ({
+          id: name,
+          kind: "system-library" as const,
+          name,
+          order,
+        })),
+        adapterInput: {
+          id: "gtk4.gobject-constructors",
+          output: "gobject-adapters.o",
+        },
+      });
+      const generatedGtkDeclarationsPath = join(scratch, "gtk4.d.ts");
+      const generatedGtkAdapterPath = join(scratch, "gobject-adapters.c");
+      writeFileSync(generatedGtkDeclarationsPath, generatedGtk.declarations);
+      writeFileSync(generatedGtkAdapterPath, gobjectAdapter.source);
+      const gobjectAdapterObject = planGObjectAdapterObject({
+        adapter: gobjectAdapter,
+        sourceArtifactId: "source/gtk4/gobject-adapters",
+        objectArtifactId: "object/gtk4/gobject-adapters",
+        actionId: "compile/gtk4/gobject-adapters",
+        logicalPath: "generated/gtk4/gobject-adapters.c",
+        artifactFileName: "gobject-adapters.o",
+        arguments: gtkSdk.compileArguments,
+        tool: clangTool,
+        executionPlatform,
+        target: nativeTarget,
+      });
+      const gtkTranslated = translateScabiNativeProgram(generatedGtk.manifest, {
+        imports: [
+          "gtk_button_get_label",
+          "gtk_button_new_with_label",
+          "gtk_button_set_label",
+        ],
+        exports: [],
+      });
+      assert.equal(
+        gtkTranslated.ok,
+        true,
+        gtkTranslated.ok
+          ? undefined
+          : gtkTranslated.diagnostics
+              .map(({ code, path, message }) => `${code} ${path}: ${message}`)
+              .join("\n"),
+      );
+      if (!gtkTranslated.ok) return;
+      assert.deepEqual(
+        gtkTranslated.build.linkInputs.map(({ name }) => name),
+        gtkSdk.systemLibraries,
+      );
+      const translated = composeScriptCNativePrograms([
+        runtimeTranslated,
+        gtkTranslated,
+      ]);
+      assert.equal(
+        translated.ok,
+        true,
+        translated.ok
+          ? undefined
+          : translated.diagnostics
+              .map(({ code, path, message }) => `${code} ${path}: ${message}`)
+              .join("\n"),
+      );
+      if (!translated.ok) return;
+      assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
+        "gtk4.gobject-constructors",
+      ]);
+      assert.deepEqual(
+        translated.build.linkInputs.map(({ id }) => id),
+        runtimeTranslated.build.linkInputs.map(({ id }) => id),
+      );
 
       const runtimeHeadersPath = join(targetRoot, "runtime");
       const fixtureTreePath = fixtureRoot;
@@ -217,7 +394,7 @@ test(
           "-Werror",
           "-pedantic",
         ]),
-        ...gtkSdk.arguments,
+        ...gtkSdk.compileArguments,
       ];
       const runtimeTreeContent = await digestArtifactPath(
         runtimeHeadersPath,
@@ -262,7 +439,7 @@ test(
         deterministic: false,
         cacheable: false,
       });
-      const systemLibraries = manifest.linkInputs
+      const systemLibraries = translated.build.linkInputs
         .filter(({ kind }) => kind === "system-library")
         .sort((left, right) => left.order - right.order)
         .map(({ name }) => name);
@@ -282,9 +459,14 @@ test(
           emitIr: true,
           externalTypes: {
             [manifest.package.name]: join(fixtureRoot, "package.d.ts"),
+            [generatedGtk.manifest.package.name]: generatedGtkDeclarationsPath,
           },
           native: translated.input,
-          nativeLinkInputs: [runtimeObject.object.id, counterObject.artifact.id],
+          nativeLinkInputs: [
+            runtimeObject.object.id,
+            counterObject.artifact.id,
+            gobjectAdapterObject.object.id,
+          ],
           nativeSystemLibraries: systemLibraries,
           nativeBuildExecutor: async (request) => {
             const programId = `generated/scriptc/${backend}/program`;
@@ -303,7 +485,7 @@ test(
               ...request,
               commandExecutor: async (command) => {
                 const linkInputPaths = request.linkInputs ?? [];
-                assert.equal(linkInputPaths.length, 2);
+                assert.equal(linkInputPaths.length, 3);
                 const external = planExternalCCommand(command, {
                   program: { id: programId, path: request.cPath },
                   runtime: {
@@ -318,6 +500,10 @@ test(
                     {
                       id: counterObject.artifact.id,
                       path: linkInputPaths[1]!,
+                    },
+                    {
+                      id: gobjectAdapterObject.object.id,
+                      path: linkInputPaths[2]!,
                     },
                   ],
                   output: { id: outputId, path: request.outPath },
@@ -342,12 +528,15 @@ test(
                     runtimeObject.sourceTree,
                     runtimeObject.object,
                     counterObject.artifact,
+                    gobjectAdapterObject.source,
+                    gobjectAdapterObject.object,
                     generatedProgram,
                     executablePlan.artifact,
                   ],
                   actions: [
                     runtimeObject.action,
                     counterObject.action,
+                    gobjectAdapterObject.action,
                     executablePlan.action,
                   ],
                 });
@@ -358,6 +547,7 @@ test(
                   fixtureTreePath,
                   scriptcRuntimeRoot,
                   scriptcRuntimeInclude,
+                  generatedGtkAdapterPath,
                   request.cPath,
                 ]) {
                   assert.equal(serializedGraph.includes(physicalPath), false);
@@ -370,6 +560,7 @@ test(
                     "source/fixture/gtk-counter": fixtureTreePath,
                     "runtime/scriptc": scriptcRuntimeRoot,
                     "headers/scriptc/runtime": scriptcRuntimeInclude,
+                    [gobjectAdapterObject.source.id]: generatedGtkAdapterPath,
                     [programId]: request.cPath,
                   },
                   tools: { "tool/clang": { path: clangPath } },

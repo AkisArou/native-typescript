@@ -20,7 +20,7 @@ import {
 import {
   defineArtifactGraph,
   executeArtifactGraph,
-  resolvePkgConfigCompileSdk,
+  resolvePkgConfigSdk,
 } from "@native-typescript/core";
 import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
@@ -100,7 +100,7 @@ test(
     const pkgConfigPath = executable("pkg-config");
     const bubblewrapPath = executable("bwrap");
     const clang = toolIdentity(clangPath);
-    const sdk = await resolvePkgConfigCompileSdk({
+    const sdk = await resolvePkgConfigSdk({
       id: "gtk4-clang-evidence",
       executable: pkgConfigPath,
       modules: ["gtk4"],
@@ -112,7 +112,7 @@ test(
       evidenceArtifactId: "metadata/gtk4/clang-function-evidence",
       actionId: "inspect/gtk4/clang-functions",
       logicalPath: "generated/gtk4/clang-function-probe.c",
-      arguments: sdk.arguments,
+      arguments: sdk.compileArguments,
       tool: clang,
       executionPlatform,
       target,
@@ -229,7 +229,7 @@ test(
         exports: [],
       });
       assert.equal(translated.ok, true);
-      assert.deepEqual(translated.adapterInputIds, [
+      assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
         "gtk4.gobject-constructors",
       ]);
       assert.deepEqual(

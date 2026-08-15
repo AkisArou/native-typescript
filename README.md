@@ -222,11 +222,12 @@ with the exact selected GIR snapshot and ownership-adapter source, then emits
 canonical TypeScript declarations and a validated SCABI package for managed
 `Gtk.Button` construction, disposal, and label access. Reached metadata outside
 the implemented handle/void/NUL-terminated UTF-8 algebra fails generation.
-Record layout, broader type/result lowering, and GObject identity and
-weak-reference policy are still required before this replaces the hand-authored
-application fixture. The generated nullable label getter now translates into
-the executable borrowed C-string result projection; replacing the fixture still
-requires wiring the generated package into the GTK application build. Selected
+The application gate now regenerates that package from installed GIR plus
+sandboxed Clang evidence, composes it with the target-runtime package, compiles
+both ScriptC backends, and executes constructor, nullable label getter, setter,
+and disposal against real GTK. The hand-authored wrapper remains only for the
+broader Window/signal lifecycle not yet generated. Record layout, broader type
+lowering, and GObject identity and weak-reference policy remain. Selected
 constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one
 strong, non-floating reference, the object is compiled through the artifact

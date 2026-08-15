@@ -10,11 +10,11 @@ export type {
   ArtifactInputPath,
   CObjectCompilationPlan,
 } from "./c-toolchain.ts";
-export { resolvePkgConfigCompileSdk } from "./pkg-config.ts";
+export { resolvePkgConfigSdk } from "./pkg-config.ts";
 export type {
   PkgConfigModuleSnapshot,
   PkgConfigResolverSnapshot,
-  ResolvedPkgConfigCompileSdk,
+  ResolvedPkgConfigSdk,
 } from "./pkg-config.ts";
 export {
   ArtifactExecutionError,

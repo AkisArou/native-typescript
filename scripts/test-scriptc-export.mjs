@@ -24,8 +24,8 @@ if (!translated.ok) {
   );
 }
 if (
-  translated.adapterInputIds.length !== 1 ||
-  translated.adapterInputIds[0] !== "ts_export_adapter"
+  translated.build.adapterInputs.length !== 1 ||
+  translated.build.adapterInputs[0]?.id !== "ts_export_adapter"
 ) {
   throw new Error("SCABI export translation lost its C-export adapter provenance");
 }

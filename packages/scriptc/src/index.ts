@@ -6,6 +6,7 @@ export {
   type ScriptCNativeAbiType,
   type ScriptCNativeArgumentType,
   type ScriptCNativeBinding,
+  type ScriptCNativeBuildRequirements,
   type ScriptCNativeDeclaration,
   type ScriptCNativeErrorContract,
   type ScriptCNativeExport,

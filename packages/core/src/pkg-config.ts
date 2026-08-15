@@ -19,13 +19,14 @@ export interface PkgConfigResolverSnapshot {
   readonly version: string;
 }
 
-export interface ResolvedPkgConfigCompileSdk {
+export interface ResolvedPkgConfigSdk {
   readonly id: string;
   readonly resolver: PkgConfigResolverSnapshot;
   readonly modules: readonly PkgConfigModuleSnapshot[];
   readonly artifacts: readonly ArtifactDefinition[];
   readonly sourcePaths: Readonly<Record<string, string>>;
-  readonly arguments: readonly ArtifactActionInputArgument[];
+  readonly compileArguments: readonly ArtifactActionInputArgument[];
+  readonly systemLibraries: readonly string[];
 }
 
 interface ParsedFragment {
@@ -136,13 +137,13 @@ function takeIncludePath(
   return null;
 }
 
-export async function resolvePkgConfigCompileSdk(options: {
+export async function resolvePkgConfigSdk(options: {
   readonly id: string;
   readonly executable: string;
   readonly modules: readonly string[];
   readonly environment?: Readonly<Record<string, string>>;
   readonly target: string;
-}): Promise<ResolvedPkgConfigCompileSdk> {
+}): Promise<ResolvedPkgConfigSdk> {
   if (!isAbsolute(options.executable)) {
     throw new Error("pkg-config resolution requires an absolute executable path");
   }
@@ -150,7 +151,7 @@ export async function resolvePkgConfigCompileSdk(options: {
     throw new Error("pkg-config resolution requires at least one module");
   }
   const environment = options.environment ?? {};
-  const [resolverContent, resolverVersion, cflags, ...moduleVersions] =
+  const [resolverContent, resolverVersion, cflags, libraries, ...moduleVersions] =
     await Promise.all([
       digestArtifactPath(options.executable, "file"),
       runPkgConfig({
@@ -163,12 +164,31 @@ export async function resolvePkgConfigCompileSdk(options: {
         arguments: ["--cflags", ...options.modules],
         environment,
       }),
+      runPkgConfig({
+        executable: options.executable,
+        arguments: ["--libs", ...options.modules],
+        environment,
+      }),
       ...options.modules.map(async (module) => await runPkgConfig({
         executable: options.executable,
         arguments: ["--modversion", module],
         environment,
       })),
     ]);
+
+  const systemLibraries: string[] = [];
+  for (const fragment of parseFragments(libraries)) {
+    if (!fragment.value.startsWith("-l") || fragment.value.length === 2) {
+      throw new Error(
+        `pkg-config emitted an unsupported system-library fragment: ${fragment.value}`,
+      );
+    }
+    const name = fragment.value.slice(2);
+    if (!/^[A-Za-z0-9_+.-]+$/u.test(name)) {
+      throw new Error(`pkg-config emitted an invalid system-library name: ${name}`);
+    }
+    if (!systemLibraries.includes(name)) systemLibraries.push(name);
+  }
 
   const fragments = parseFragments(cflags);
   const parsed: Array<
@@ -253,6 +273,7 @@ export async function resolvePkgConfigCompileSdk(options: {
     sourcePaths: Object.freeze(Object.fromEntries(
       resolvedIncludes.map(({ artifact, path }) => [artifact.id, path]),
     )),
-    arguments: Object.freeze(arguments_),
+    compileArguments: Object.freeze(arguments_),
+    systemLibraries: Object.freeze(systemLibraries),
   });
 }

@@ -16,7 +16,7 @@ import test from "node:test";
 import {
   defineArtifactGraph,
   executeArtifactGraph,
-  resolvePkgConfigCompileSdk,
+  resolvePkgConfigSdk,
 } from "@native-typescript/core";
 import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
@@ -181,7 +181,7 @@ test(
       writeFileSync(generatedPath, generated.source);
       const clangPath = executable("clang");
       const pkgConfigPath = executable("pkg-config");
-      const sdk = await resolvePkgConfigCompileSdk({
+      const sdk = await resolvePkgConfigSdk({
         id: "gtk4-gobject-adapter",
         executable: pkgConfigPath,
         modules: ["gtk4"],
@@ -194,7 +194,7 @@ test(
         actionId: "compile/gtk/gobject-adapters",
         logicalPath: "generated/gtk/gobject-adapters.c",
         artifactFileName: "gobject-adapters.o",
-        arguments: sdk.arguments,
+        arguments: sdk.compileArguments,
         tool: toolIdentity(clangPath),
         executionPlatform: "x86_64-linux",
         target: "x86_64-unknown-linux-gnu",
