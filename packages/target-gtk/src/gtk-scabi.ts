@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   CBindgenError,
+  digestClangAbiEvidence,
   renderCFunctionPointerType,
   renderCType,
 } from "@native-typescript/bindgen-c";
@@ -220,7 +221,15 @@ function validateInputs(
   options: GtkScabiGenerationOptions,
   diagnostics: CBindgenDiagnostic[],
 ): void {
-  const probe = generateGirClangAbiProbe(options.snapshot);
+  const probe = generateGirClangAbiProbe(options.snapshot, options.gobjectAdapter);
+  if (
+    options.evidence.schema !== "native-typescript.clang-abi-evidence" ||
+    options.evidence.schemaVersion !== 2
+  ) {
+    diagnostics.push(
+      diagnostic("evidence/schemaVersion", "Unsupported Clang ABI evidence schema"),
+    );
+  }
   if (options.evidence.probeDigest !== probe.sourceDigest) {
     diagnostics.push(
       diagnostic(
@@ -237,41 +246,9 @@ function validateInputs(
       ),
     );
   }
-  const semanticValue = {
-    schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 1,
-    probeDigest: options.evidence.probeDigest,
-    clang: {
-      toolId: options.evidence.clang.toolId,
-      version: options.evidence.clang.version,
-      digest: options.evidence.clang.digest,
-      target: options.evidence.clang.target,
-    },
-    functions: options.evidence.functions.map((function_) => ({
-      id: function_.id,
-      symbol: function_.symbol,
-      expectedType: function_.expectedType,
-      clangType: function_.clangType,
-    })),
-    records: options.evidence.records.map((record) => ({
-      id: record.id,
-      typeName: record.typeName,
-      size: record.size,
-      alignment: record.alignment,
-      fields: record.fields.map((field) => ({
-        name: field.name,
-        expectedType: field.expectedType,
-        clangType: field.clangType,
-        offset: field.offset,
-        size: field.size,
-        alignment: field.alignment,
-      })),
-      callingConvention: record.callingConvention,
-    })),
-  };
   if (
     !digestPattern.test(options.evidence.semanticDigest) ||
-    sha256(JSON.stringify(semanticValue)) !== options.evidence.semanticDigest
+    digestClangAbiEvidence(options.evidence) !== options.evidence.semanticDigest
   ) {
     diagnostics.push(
       diagnostic("evidence/semanticDigest", "Clang semantic evidence digest is invalid"),
@@ -350,7 +327,9 @@ function validateInputs(
     canonicalizeJson(options.gobjectAdapter.signalConnection) !==
       canonicalizeJson(expectedAdapter.signalConnection) ||
     canonicalizeJson(options.gobjectAdapter.signals) !==
-      canonicalizeJson(expectedAdapter.signals)
+      canonicalizeJson(expectedAdapter.signals) ||
+    canonicalizeJson(options.gobjectAdapter.valueMethods) !==
+      canonicalizeJson(expectedAdapter.valueMethods)
   ) {
     diagnostics.push(
       diagnostic(
@@ -736,6 +715,10 @@ export function generateGtkScabiPackage(
   const adapterBySignal = new Map(
     options.gobjectAdapter.signals.map((signal) => [signal.id, signal]),
   );
+  const adapterByValueMethod = new Map(
+    options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
+  );
+  const typeIdByRecord = new Map<string, string>();
   const declarations = new Set<string>();
   for (const [recordIndex, record] of options.snapshot.records.entries()) {
     const path = `${options.snapshot.namespace.name}/${record.name}`;
@@ -785,12 +768,70 @@ export function generateGtkScabiPackage(
       fields: Object.freeze(fields.filter((field) => field !== null)),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: record.name });
+    typeIdByRecord.set(record.name, typeId);
     declarationLines.push(
       `export interface ${record.name} {`,
       ...record.fields.map((field) => {
         const scalar = sourceScalarType(field.type);
         return `  readonly ${lowerCamel(field.name)}: ${scalar?.girName ?? "never"};`;
       }),
+      "}",
+      "",
+    );
+  }
+  for (const method of options.gobjectAdapter.valueMethods) {
+    const path = `${options.snapshot.namespace.name}/${method.className}/method/${method.sourceSymbol}/result`;
+    const evidenceId = `${options.snapshot.namespace.name}.${method.id}.result`;
+    const evidence = options.evidence.records.find((record) => record.id === evidenceId);
+    const typeId = `${namespacePrefix}_${snakeCase(method.resultName)}`;
+    const fields = method.outputs.map((output, index) => {
+      const fieldEvidence = evidence?.fields[index];
+      const fieldType = typeIdByRecord.get(output.recordName);
+      if (fieldEvidence === undefined || fieldType === undefined) {
+        diagnostics.push(diagnostic(
+          `${path}/fields/${index}`,
+          "Value-return adapter output lacks selected record ABI evidence",
+        ));
+        return null;
+      }
+      return Object.freeze({
+        name: output.fieldName,
+        type: fieldType,
+        offset: fieldEvidence.offset,
+      });
+    });
+    if (
+      evidence === undefined ||
+      fields.some((field) => field === null) ||
+      types[typeId] !== undefined ||
+      declarationTypes[typeId] !== undefined
+    ) {
+      if (evidence !== undefined && fields.every((field) => field !== null)) {
+        diagnostics.push(diagnostic(path, "Generated value-return record identity collides"));
+      }
+      continue;
+    }
+    types[typeId] = Object.freeze({
+      kind: "struct",
+      size: evidence.size,
+      alignment: evidence.alignment,
+      packing: "default",
+      triviallyCopyable: true,
+      destruction: "trivial",
+      abiPassing: Object.freeze({
+        result: physicalAbiValue(evidence.callingConvention.result),
+        parameters: Object.freeze(
+          evidence.callingConvention.parameters.map(physicalAbiValue),
+        ),
+      }),
+      fields: Object.freeze(fields.filter((field) => field !== null)),
+    });
+    declarationTypes[typeId] = Object.freeze({ module: ".", name: method.resultName });
+    declarationLines.push(
+      `export interface ${method.resultName} {`,
+      ...method.outputs.map((output) =>
+        `  readonly ${output.fieldName}: ${output.recordName};`
+      ),
       "}",
       "",
     );
@@ -1050,6 +1091,54 @@ export function generateGtkScabiPackage(
       const receiver = callable.parameters[0];
       if (!isExactInstanceReceiver(receiver, class_)) {
         diagnostics.push(diagnostic(`${path}/receiver`, "Method receiver does not match its GObject class"));
+        continue;
+      }
+      const valueMethod = adapterByValueMethod.get(
+        `${class_.name}.method.${callable.name}`,
+      );
+      if (valueMethod !== undefined) {
+        const sourceMember = lowerCamel(callable.name);
+        const declaration = `${class_.name}.${sourceMember}`;
+        const bindingId = valueMethod.adapterSymbol;
+        const resultTypeId = `${namespacePrefix}_${snakeCase(valueMethod.resultName)}`;
+        if (
+          callable.parameters.length !== valueMethod.outputs.length + 1 ||
+          types[resultTypeId]?.kind !== "struct"
+        ) {
+          diagnostics.push(diagnostic(path, "Value-return adapter result is incomplete"));
+          continue;
+        }
+        if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
+          diagnostics.push(diagnostic(path, "Generated value method identity collides"));
+          continue;
+        }
+        declarations.add(declaration);
+        bindings[bindingId] = callableBase({
+          declaration,
+          kind: "method",
+          entryKind: "adapter-symbol",
+          symbol: valueMethod.adapterSymbol,
+          parameters: [Object.freeze({
+            name: receiver.name,
+            type: typeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+          })],
+          result: Object.freeze({
+            type: resultTypeId,
+            passMode: "value",
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" }),
+          }),
+          dependencies: dependencies({
+            links: linkIds,
+            adapter: options.adapterInput.id,
+          }),
+          availability: availability(class_, callable),
+        });
+        adapterBindings.push(bindingId);
+        classLines.push(`  ${sourceMember}(): ${valueMethod.resultName};`);
         continue;
       }
       const sourceParameters: string[] = [];

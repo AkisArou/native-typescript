@@ -48,6 +48,11 @@ drawingArea.setContentHeight(480 as gint);
 overlay.setChild(drawingArea);
 overlay.addOverlay(button);
 window.setChild(overlay);
+const preferredSize = button.getPreferredSize();
+window.setDefaultSize(
+  preferredSize.naturalSize.width,
+  preferredSize.naturalSize.height,
+);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);

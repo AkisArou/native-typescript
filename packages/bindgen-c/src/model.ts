@@ -63,12 +63,13 @@ export interface CRecordFieldCandidate {
 export interface CRecordCandidate {
   readonly id: string;
   readonly typeName: string;
+  readonly definition: "external" | "generated";
   readonly fields: readonly CRecordFieldCandidate[];
 }
 
 export interface ClangAbiProbe {
   readonly schema: "native-typescript.clang-abi-probe";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly source: string;
   readonly sourceDigest: string;
   readonly contractDigest: string;
@@ -137,7 +138,7 @@ export interface ClangRecordEvidence {
 
 export interface ClangAbiEvidenceSnapshot {
   readonly schema: "native-typescript.clang-abi-evidence";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly probeDigest: string;
   readonly semanticDigest: string;
   readonly clang: {

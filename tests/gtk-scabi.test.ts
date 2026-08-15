@@ -5,9 +5,12 @@ import { resolve } from "node:path";
 import test from "node:test";
 import {
   CBindgenError,
+  digestClangAbiEvidence,
   renderCFunctionPointerType,
+  renderCType,
 } from "@native-typescript/bindgen-c";
 import type {
+  ClangAbiValue,
   ClangAbiEvidenceSnapshot,
   ClangAbiProbe,
 } from "@native-typescript/bindgen-c";
@@ -90,6 +93,15 @@ function scalarSignalSnapshot(): GirSnapshot {
   });
 }
 
+function valueMethodSnapshot(): GirSnapshot {
+  return ingestGir(girSource, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Widget", methods: ["get_preferred_size"] }],
+    records: [{ name: "Requisition", fields: ["width", "height"] }],
+  });
+}
+
 function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   const clang = Object.freeze({
     toolId: "tool/clang",
@@ -106,43 +118,42 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
       clangType: type,
     });
   }));
-  const records = Object.freeze(probe.records.map((record) => Object.freeze({
-    id: record.id,
-    typeName: record.typeName,
-    size: 8,
-    alignment: 4,
-    fields: Object.freeze(record.fields.map((field, index) => Object.freeze({
-      name: field.name,
-      expectedType: "int",
-      clangType: "int",
-      offset: index * 4,
-      size: 4,
+  const physicalValue = (type: ClangAbiValue["type"]): ClangAbiValue => Object.freeze({
+    type: Object.freeze(type),
+    alignment: null,
+    stackAlignment: null,
+    extension: null,
+    inRegister: false,
+    byValue: null,
+    structureReturn: null,
+  });
+  const records = Object.freeze(probe.records.map((record) => {
+    const generated = record.definition === "generated";
+    const directWord = Object.freeze({ kind: "integer" as const, bits: 64 });
+    return Object.freeze({
+      id: record.id,
+      typeName: record.typeName,
+      size: generated ? 16 : 8,
       alignment: 4,
-    }))),
-    callingConvention: Object.freeze({
-      result: Object.freeze({
-        type: Object.freeze({ kind: "integer" as const, bits: 64 }),
-        alignment: null,
-        stackAlignment: null,
-        extension: null,
-        inRegister: false,
-        byValue: null,
-        structureReturn: null,
+      fields: Object.freeze(record.fields.map((field, index) => Object.freeze({
+        name: field.name,
+        expectedType: renderCType(field.type),
+        clangType: renderCType(field.type),
+        offset: index * (generated ? 8 : 4),
+        size: generated ? 8 : 4,
+        alignment: 4,
+      }))),
+      callingConvention: Object.freeze({
+        result: physicalValue(generated
+          ? { kind: "struct" as const, packed: false, fields: [directWord, directWord] }
+          : directWord),
+        parameters: Object.freeze(generated
+          ? [physicalValue(directWord), physicalValue(directWord)]
+          : [physicalValue(directWord)]),
       }),
-      parameters: Object.freeze([Object.freeze({
-        type: Object.freeze({ kind: "integer" as const, bits: 64 }),
-        alignment: null,
-        stackAlignment: null,
-        extension: null,
-        inRegister: false,
-        byValue: null,
-        structureReturn: null,
-      })]),
-    }),
-  })));
-  const semanticValue = {
-    schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 1,
+    });
+  }));
+  const semanticInput = {
     probeDigest: probe.sourceDigest,
     clang,
     functions,
@@ -150,9 +161,9 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   };
   return Object.freeze({
     schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 1,
+    schemaVersion: 2,
     probeDigest: probe.sourceDigest,
-    semanticDigest: sha256(JSON.stringify(semanticValue)),
+    semanticDigest: digestClangAbiEvidence(semanticInput),
     clang,
     functions,
     records,
@@ -160,10 +171,11 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
 }
 
 function options(selected = snapshot()): GtkScabiGenerationOptions {
+  const gobjectAdapter = generateGObjectAdapterSource(selected);
   return {
     snapshot: selected,
-    evidence: evidence(generateGirClangAbiProbe(selected)),
-    gobjectAdapter: generateGObjectAdapterSource(selected),
+    evidence: evidence(generateGirClangAbiProbe(selected, gobjectAdapter)),
+    gobjectAdapter,
     package: {
       name: "@native-typescript/gtk4",
       version: "0.0.0",
@@ -295,6 +307,44 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   assert.deepEqual(constructor.declaration, { module: ".", name: "Button.withLabel" });
   assertDeepFrozen(generated);
   assert.deepEqual(generateGtkScabiPackage(options()), generated);
+});
+
+test("GTK caller-allocated record outputs project as one nested value result", () => {
+  const generated = generateGtkScabiPackage(options(valueMethodSnapshot()));
+  assert.match(
+    generated.declarations,
+    /export interface WidgetPreferredSize \{\n  readonly minimumSize: Requisition;\n  readonly naturalSize: Requisition;\n\}/u,
+  );
+  assert.match(
+    generated.declarations,
+    /getPreferredSize\(\): WidgetPreferredSize;/u,
+  );
+  const resultType = generated.manifest.types.gtk_widget_preferred_size;
+  assert.ok(resultType?.kind === "struct");
+  assert.deepEqual(resultType.fields, [
+    { name: "minimumSize", type: "gtk_requisition", offset: 0 },
+    { name: "naturalSize", type: "gtk_requisition", offset: 8 },
+  ]);
+  const binding = generated.manifest.bindings.nts_gobject_value_gtk_widget_get_preferred_size;
+  assert.ok(binding && binding.kind !== "constant");
+  assert.equal(binding.entry.kind, "adapter-symbol");
+  assert.equal(binding.declaration.name, "Widget.getPreferredSize");
+  assert.equal(binding.signature.parameters.length, 1);
+  assert.equal(binding.signature.result.type, "gtk_widget_preferred_size");
+  assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
+    "nts_gobject_value_gtk_widget_get_preferred_size",
+  ]);
+  const translated = translateScabiNativeProgram(generated.manifest, {
+    imports: ["nts_gobject_value_gtk_widget_get_preferred_size"],
+    exports: [],
+  });
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+  assert.deepEqual(translated.input.types.map(({ kind }) => kind), [
+    "handle",
+    "struct",
+    "struct",
+  ]);
 });
 
 test("GTK evidence and binding generation are immutable cacheable actions", () => {

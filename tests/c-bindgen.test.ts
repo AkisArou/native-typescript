@@ -135,6 +135,7 @@ function fixtureRecords(): readonly CRecordCandidate[] {
   return [{
     id: "fixture.point",
     typeName: "NTSPoint",
+    definition: "external",
     fields: [
       { name: "x", type: named("int") },
       { name: "tag", type: named("NTSByte") },
@@ -155,7 +156,7 @@ test("C candidates produce a canonical immutable Clang probe", () => {
     records: [...fixtureRecords()].reverse(),
   });
 
-  assert.equal(forward.schemaVersion, 1);
+  assert.equal(forward.schemaVersion, 2);
   assert.equal(forward.source, reverse.source);
   assert.equal(forward.sourceDigest, reverse.sourceDigest);
   assert.equal(forward.contractDigest, reverse.contractDigest);
@@ -170,6 +171,40 @@ test("C candidates produce a canonical immutable Clang probe", () => {
   assert.equal(Object.isFrozen(forward), true);
   assert.equal(Object.isFrozen(forward.functions), true);
   assert.equal(Object.isFrozen(forward.functions[0]?.result), true);
+});
+
+test("generated record candidates become authoritative probe definitions", () => {
+  const records: readonly CRecordCandidate[] = [{
+    id: "adapter.point-pair",
+    typeName: "NTSPointPair",
+    definition: "generated",
+    fields: [
+      { name: "first", type: named("NTSPoint") },
+      { name: "second", type: named("NTSPoint") },
+    ],
+  }, {
+    id: "adapter.point-pair-wrapper",
+    typeName: "NTSPointPairWrapper",
+    definition: "generated",
+    fields: [{ name: "value", type: named("NTSPointPair") }],
+  }];
+  const probe = generateClangAbiProbe({
+    includes: ["fixture.h"],
+    functions: [],
+    records,
+  });
+  const reverse = generateClangAbiProbe({
+    includes: ["fixture.h"],
+    functions: [],
+    records: [...records].reverse(),
+  });
+
+  assert.equal(probe.source, reverse.source);
+  assert.match(
+    probe.source,
+    /typedef struct NTSPointPair NTSPointPair;\nstruct NTSPointPair \{\n  NTSPoint first;\n  NTSPoint second;\n\};/u,
+  );
+  assert.equal(probe.records.every(({ definition }) => definition === "generated"), true);
 });
 
 test("C candidate validation rejects unsafe source spellings and duplicates", () => {
@@ -468,6 +503,7 @@ test("Clang calling evidence preserves direct, expanded, and indirect target ABI
     records: [{
       id: "fixture.pair",
       typeName: "NTSPair",
+      definition: "external",
       fields: [
         { name: "x", type: named("double") },
         { name: "y", type: named("double") },
@@ -475,6 +511,7 @@ test("Clang calling evidence preserves direct, expanded, and indirect target ABI
     }, {
       id: "fixture.large",
       typeName: "NTSLarge",
+      definition: "external",
       fields: [
         { name: "x", type: named("NTSI64") },
         { name: "y", type: named("NTSI64") },

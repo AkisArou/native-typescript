@@ -1,4 +1,5 @@
 export {
+  digestClangAbiEvidence,
   generateClangAbiProbe,
   parseCTypeCandidate,
   parseClangAbiEvidence,

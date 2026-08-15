@@ -164,6 +164,15 @@ direct C functions. Exact scalar signal payloads are copied before owner
 delivery; any reached signal or parameter/result form outside that closed
 algebra is an error instead of a guessed projection.
 
+Selected non-throwing instance methods whose remaining parameters are
+caller-allocated transparent-record outputs use a value adapter. The adapter
+allocates every output locally, calls the native method once, and returns one
+generated nested record. That adapter-owned record is a structured generated
+Clang candidate: the probe emits its definition and records its exact layout
+and physical identity-call signature. SCABI and declarations use the same
+adapter field names, so idiomatic members such as `minimumSize` remain exact ABI
+identities rather than post-lowering aliases.
+
 Selected transparent GIR records also enter that probe. The permanent GTK gate
 selects `Gtk.Requisition` and preserves its field metadata, while target Clang
 proves its 8-byte size, 4-byte alignment, two exact `int` field layouts, and

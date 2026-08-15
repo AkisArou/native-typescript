@@ -17,6 +17,7 @@ import type {
 import type {
   GirCallable,
   GirClass,
+  GirRecord,
   GirSnapshot,
   GirTransferOwnership,
 } from "./gir-model.ts";
@@ -56,14 +57,33 @@ export interface GObjectSignalConnectionAdapter {
   readonly releaseSymbol: string;
 }
 
+export interface GObjectValueMethodOutputAdapter {
+  readonly parameterName: string;
+  readonly fieldName: string;
+  readonly recordName: string;
+  readonly nativeType: string;
+}
+
+export interface GObjectValueMethodAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly nativeType: string;
+  readonly sourceSymbol: string;
+  readonly adapterSymbol: string;
+  readonly resultName: string;
+  readonly resultNativeType: string;
+  readonly outputs: readonly GObjectValueMethodOutputAdapter[];
+}
+
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
   readonly signalConnection: GObjectSignalConnectionAdapter | null;
   readonly signals: readonly GObjectSignalAdapter[];
+  readonly valueMethods: readonly GObjectValueMethodAdapter[];
 }
 
 export interface GObjectAdapterObjectPlan {
@@ -116,6 +136,11 @@ function upperCamel(value: string): string {
     .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join("");
+}
+
+function lowerCamel(value: string): string {
+  const upper = upperCamel(value);
+  return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
 }
 
 function signalSymbolPart(value: string): string {
@@ -376,12 +401,133 @@ function generateSignal(
   };
 }
 
+function generateValueMethod(
+  namespace: string,
+  class_: GirClass,
+  callable: GirCallable,
+  recordsByName: ReadonlyMap<string, GirRecord>,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectValueMethodAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/method/${callable.name}`;
+  const outputParameters = callable.parameters.slice(1);
+  if (outputParameters.every((parameter) => parameter.direction === "in")) return null;
+  const receiver = callable.parameters[0];
+  const validReceiver = receiver?.kind === "instance" &&
+    receiver.type.kind === "named" &&
+    receiver.type.cType === `${class_.cType}*` &&
+    receiver.direction === "in" &&
+    receiver.transferOwnership === "none" &&
+    !receiver.nullable &&
+    !receiver.optional &&
+    !receiver.callerAllocates &&
+    !receiver.skip &&
+    receiver.scope === null &&
+    receiver.closureParameter === null &&
+    receiver.destroyParameter === null;
+  const validResult = callable.result.type.kind === "named" &&
+    callable.result.type.cType === "void" &&
+    callable.result.transferOwnership === "none" &&
+    !callable.result.nullable &&
+    !callable.result.skip &&
+    callable.result.scope === null &&
+    callable.result.closureParameter === null &&
+    callable.result.destroyParameter === null;
+  const outputs = outputParameters.map((parameter, index) => {
+    const recordName = parameter.type.kind === "named" ? parameter.type.name : null;
+    const record = recordName === null ? undefined : recordsByName.get(recordName);
+    if (
+      parameter.kind !== "parameter" ||
+      parameter.direction !== "out" ||
+      !parameter.callerAllocates ||
+      parameter.transferOwnership !== "none" ||
+      parameter.skip ||
+      parameter.scope !== null ||
+      parameter.closureParameter !== null ||
+      parameter.destroyParameter !== null ||
+      record === undefined ||
+      parameter.type.kind !== "named" ||
+      parameter.type.cType !== `${record.cType}*`
+    ) {
+      diagnostics.push({
+        code: "NTS5001",
+        severity: "error",
+        path: `${path}/parameters/${index + 1}`,
+        message: "Value-return adapters require caller-allocated record output parameters",
+      });
+      return null;
+    }
+    return Object.freeze({
+      parameterName: parameter.name,
+      fieldName: `${lowerCamel(parameter.name)}`,
+      recordName: record.name,
+      nativeType: record.cType,
+    });
+  });
+  if (
+    callable.cIdentifier === null ||
+    callable.throws ||
+    !validReceiver ||
+    !validResult ||
+    outputs.length === 0 ||
+    outputs.some((output) => output === null)
+  ) {
+    if (callable.cIdentifier === null || callable.throws || !validReceiver || !validResult) {
+      diagnostics.push({
+        code: "NTS5001",
+        severity: "error",
+        path,
+        message: "Value-return adapters require a direct non-throwing void instance method",
+      });
+    }
+    return null;
+  }
+  const resultStem = callable.name.startsWith("get_")
+    ? callable.name.slice(4)
+    : callable.name;
+  const resultName = `${class_.name}${upperCamel(resultStem)}`;
+  const resultNativeType = `Nts${upperCamel(namespace)}${resultName}`;
+  const adapterSymbol = `nts_gobject_value_${callable.cIdentifier}`;
+  const validOutputs = outputs.filter(
+    (output): output is GObjectValueMethodOutputAdapter => output !== null,
+  );
+  const lines = [
+    `typedef struct ${resultNativeType} {`,
+    ...validOutputs.map((output) => `  ${output.nativeType} ${output.fieldName};`),
+    `} ${resultNativeType};`,
+    "",
+    `${resultNativeType} ${adapterSymbol}(${class_.cType} *instance) {`,
+    `  ${resultNativeType} result;`,
+    "  memset(&result, 0, sizeof result);",
+    `  ${callable.cIdentifier}(instance, ${validOutputs.map((output) => `&result.${output.fieldName}`).join(", ")});`,
+    "  return result;",
+    "}",
+    "",
+  ];
+  return Object.freeze({
+    adapter: Object.freeze({
+      id: `${class_.name}.method.${callable.name}`,
+      className: class_.name,
+      nativeType: class_.cType,
+      sourceSymbol: callable.cIdentifier,
+      adapterSymbol,
+      resultName,
+      resultNativeType,
+      outputs: Object.freeze(validOutputs),
+    }),
+    lines: Object.freeze(lines),
+  });
+}
+
 export function generateGObjectAdapterSource(
   snapshot: GirSnapshot,
 ): GObjectAdapterSource {
   const diagnostics: CBindgenDiagnostic[] = [];
   const constructors: GObjectConstructorAdapter[] = [];
   const signals: GObjectSignalAdapter[] = [];
+  const valueMethods: GObjectValueMethodAdapter[] = [];
   const hasSignals = snapshot.classes.some((class_) => class_.signals.length > 0);
   const namespacePart = snapshot.namespace.name.toLowerCase();
   const signalConnection = hasSignals
@@ -396,6 +542,7 @@ export function generateGObjectAdapterSource(
     "/* Generated by @native-typescript/target-gtk. */",
     ...snapshot.cIncludes.map((include) => `#include <${include}>`),
     "#include <stdlib.h>",
+    "#include <string.h>",
     "",
     ...(signalConnection === null
       ? []
@@ -431,6 +578,7 @@ export function generateGObjectAdapterSource(
           "",
         ]),
   ];
+  const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
   for (const class_ of snapshot.classes) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {
@@ -455,17 +603,30 @@ export function generateGObjectAdapterSource(
       signals.push(generated.adapter);
       lines.push(...generated.lines);
     }
+    for (const callable of class_.methods) {
+      const generated = generateValueMethod(
+        snapshot.namespace.name,
+        class_,
+        callable,
+        recordsByName,
+        diagnostics,
+      );
+      if (generated === null) continue;
+      valueMethods.push(generated.adapter);
+      lines.push(...generated.lines);
+    }
   }
   if (
     constructors.length === 0 &&
     signals.length === 0 &&
+    valueMethods.length === 0 &&
     diagnostics.length === 0
   ) {
     diagnostics.push({
       code: "NTS5001",
       severity: "error",
       path: "adapters",
-      message: "GObject adapter generation requires a selected constructor or signal",
+      message: "GObject adapter generation requires a selected constructor, signal, or value method",
     });
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
@@ -473,12 +634,13 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 5,
+    schemaVersion: 6,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
     signalConnection,
     signals: Object.freeze(signals),
+    valueMethods: Object.freeze(valueMethods),
   });
 }
 

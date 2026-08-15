@@ -53,6 +53,8 @@ export type {
   GObjectConstructorAdapter,
   GObjectSignalAdapter,
   GObjectSignalConnectionAdapter,
+  GObjectValueMethodAdapter,
+  GObjectValueMethodOutputAdapter,
 } from "./gobject-adapter.ts";
 export type {
   GtkScabiGenerationOptions,

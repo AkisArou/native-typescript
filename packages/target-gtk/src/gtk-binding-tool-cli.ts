@@ -44,11 +44,12 @@ async function normalizeEvidence(
   outputPath: string,
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
+  const gobjectAdapter = generateGObjectAdapterSource(snapshot);
   const evidence = parseClangAbiEvidence(
     await readFile(rawAstPath, "utf8"),
     await readFile(rawLlvmPath, "utf8"),
     {
-      probe: generateGirClangAbiProbe(snapshot),
+      probe: generateGirClangAbiProbe(snapshot, gobjectAdapter),
       clang: request.clang,
     },
   );

@@ -15,6 +15,7 @@ import type {
   GirSnapshot,
   GirTypeReference,
 } from "./gir-model.ts";
+import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
 function physicalType(
   type: GirTypeReference,
@@ -75,6 +76,7 @@ function functionCandidate(
 
 export function generateGirClangAbiProbe(
   snapshot: GirSnapshot,
+  adapter: GObjectAdapterSource,
 ): ClangAbiProbe {
   const diagnostics: CBindgenDiagnostic[] = [];
   const functions: CFunctionCandidate[] = [];
@@ -103,10 +105,34 @@ export function generateGirClangAbiProbe(
       records.push({
         id: `${snapshot.namespace.name}.${record.name}.record`,
         typeName: record.cType,
+        definition: "external",
         fields: fields.map((field) => ({
           name: field.name,
           type: field.type!,
         })),
+      });
+    }
+  }
+  for (const method of adapter.valueMethods) {
+    const fields = method.outputs.map((output, index) => ({
+      name: output.fieldName,
+      type: physicalType(
+        {
+          kind: "named",
+          name: output.recordName,
+          cType: output.nativeType,
+          arguments: [],
+        },
+        `${snapshot.namespace.name}/${method.className}/method/${method.sourceSymbol}/result/${index}`,
+        diagnostics,
+      ),
+    }));
+    if (fields.every((field) => field.type !== null)) {
+      records.push({
+        id: `${snapshot.namespace.name}.${method.id}.result`,
+        typeName: method.resultNativeType,
+        definition: "generated",
+        fields: fields.map((field) => ({ name: field.name, type: field.type! })),
       });
     }
   }

@@ -58,6 +58,10 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
     },
+    "memberName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+    },
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
@@ -263,7 +267,7 @@
       "additionalProperties": false,
       "required": ["name", "type", "offset"],
       "properties": {
-        "name": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/memberName" },
         "type": { "$ref": "#/$defs/id" },
         "offset": { "type": "integer", "minimum": 0 },
         "bitField": { "$ref": "#/$defs/bitField" }

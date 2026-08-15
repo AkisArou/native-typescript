@@ -113,6 +113,31 @@ property. When a getter can fail, is asynchronous, has observable side effects,
 requires additional parameters, or disagrees with the setter type, methods are
 kept instead.
 
+Caller-allocated record outputs do not surface as mutable pointer parameters.
+For a non-throwing method whose outputs are selected transparent records, the
+generator emits one adapter-owned result record and returns it by value:
+
+```ts
+export interface Requisition {
+  readonly width: gint;
+  readonly height: gint;
+}
+
+export interface WidgetPreferredSize {
+  readonly minimumSize: Requisition;
+  readonly naturalSize: Requisition;
+}
+
+export declare class Widget {
+  getPreferredSize(): WidgetPreferredSize;
+}
+```
+
+The adapter calls `gtk_widget_get_preferred_size()` once. Its synthetic C
+record is an explicit Clang-probe input, so size, alignment, nested field
+offsets, and physical return convention are evidence rather than generator
+guesses.
+
 Exact C integers and flags remain exact in SCABI. The public GTK API uses
 ordinary `number`, `boolean`, or generated enum/flag types only where a checked
 projection proves the value is lossless and within the declared range. Values
@@ -267,13 +292,16 @@ implemented non-detailed `void` subset then receives copied exact
 internal compiler dependencies rather than public `dispose()` methods. Authoritative
 GIR getter/setter links now project `Button.label` and `Widget.opacity` as
 native properties without retaining method-shaped aliases.
+Selected caller-allocated transparent-record outputs now become immutable
+nested value results; `Widget.getPreferredSize()` is the real executable gate.
 `SignalConnection.disconnect()` is
 non-consuming and idempotent, while `connected` reads the actual native handler
 state; the separate connection release operation remains internal.
 
 The migration is intentionally one-way:
 
-1. broaden proven GObject property types and non-scalar signal payloads/results.
+1. broaden proven GObject property types, value-method input/output families,
+   and non-scalar signal payloads/results.
 
 No deprecated aliases or duplicate compatibility surface remains after each
 contract becomes implemented.

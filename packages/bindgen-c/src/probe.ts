@@ -8,6 +8,8 @@ import type {
   CFunctionCandidate,
   ClangFunctionEvidence,
   ClangAbiEvidenceSnapshot,
+  ClangAbiType,
+  ClangAbiValue,
   ClangAbiProbe,
   ClangRecordEvidence,
   ClangRecordFieldEvidence,
@@ -36,6 +38,91 @@ function diagnostic(
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function semanticAbiType(type: ClangAbiType): object {
+  switch (type.kind) {
+    case "void":
+      return { kind: type.kind };
+    case "integer":
+      return { kind: type.kind, bits: type.bits };
+    case "float":
+      return { kind: type.kind, format: type.format };
+    case "pointer":
+      return { kind: type.kind, addressSpace: type.addressSpace };
+    case "array":
+      return { kind: type.kind, count: type.count, element: semanticAbiType(type.element) };
+    case "vector":
+      return {
+        kind: type.kind,
+        count: type.count,
+        scalable: type.scalable,
+        element: semanticAbiType(type.element),
+      };
+    case "struct":
+      return {
+        kind: type.kind,
+        packed: type.packed,
+        fields: type.fields.map(semanticAbiType),
+      };
+    case "named":
+      return { kind: type.kind, name: type.name };
+  }
+}
+
+function semanticAbiValue(value: ClangAbiValue): object {
+  return {
+    type: semanticAbiType(value.type),
+    alignment: value.alignment,
+    stackAlignment: value.stackAlignment,
+    extension: value.extension,
+    inRegister: value.inRegister,
+    byValue: value.byValue === null ? null : semanticAbiType(value.byValue),
+    structureReturn: value.structureReturn === null
+      ? null
+      : semanticAbiType(value.structureReturn),
+  };
+}
+
+export function digestClangAbiEvidence(input: Pick<
+  ClangAbiEvidenceSnapshot,
+  "probeDigest" | "clang" | "functions" | "records"
+>): string {
+  return sha256(JSON.stringify({
+    schema: "native-typescript.clang-abi-evidence",
+    schemaVersion: 2,
+    probeDigest: input.probeDigest,
+    clang: {
+      toolId: input.clang.toolId,
+      version: input.clang.version,
+      digest: input.clang.digest,
+      target: input.clang.target,
+    },
+    functions: input.functions.map((function_) => ({
+      id: function_.id,
+      symbol: function_.symbol,
+      expectedType: function_.expectedType,
+      clangType: function_.clangType,
+    })),
+    records: input.records.map((record) => ({
+      id: record.id,
+      typeName: record.typeName,
+      size: record.size,
+      alignment: record.alignment,
+      fields: record.fields.map((field) => ({
+        name: field.name,
+        expectedType: field.expectedType,
+        clangType: field.clangType,
+        offset: field.offset,
+        size: field.size,
+        alignment: field.alignment,
+      })),
+      callingConvention: {
+        result: semanticAbiValue(record.callingConvention.result),
+        parameters: record.callingConvention.parameters.map(semanticAbiValue),
+      },
+    })),
+  }));
 }
 
 function normalizeQualifiers(
@@ -284,6 +371,15 @@ export function generateClangAbiProbe(input: {
         diagnostic("NTS5002", `${path}/typeName`, `Duplicate record type '${record.typeName}'`),
       );
     }
+    if (record.definition !== "external" && record.definition !== "generated") {
+      diagnostics.push(
+        diagnostic(
+          "NTS5001",
+          `${path}/definition`,
+          `Invalid record definition origin '${String(record.definition)}'`,
+        ),
+      );
+    }
     seenIds.add(record.id);
     seenRecordTypes.add(record.typeName);
     const seenFields = new Set<string>();
@@ -307,9 +403,41 @@ export function generateClangAbiProbe(input: {
     records.push(Object.freeze({
       id: record.id,
       typeName: record.typeName,
+      definition: record.definition,
       fields: Object.freeze(fields),
     }));
   }
+
+  const generatedRecordsByType = new Map(
+    records
+      .filter((record) => record.definition === "generated")
+      .map((record) => [record.typeName, record]),
+  );
+  const generatedDefinitionOrder: CRecordCandidate[] = [];
+  const generatedDefinitionState = new Map<string, "active" | "complete">();
+  const visitGeneratedRecord = (record: CRecordCandidate): void => {
+    const state = generatedDefinitionState.get(record.typeName);
+    if (state === "complete") return;
+    if (state === "active") {
+      diagnostics.push(diagnostic(
+        "NTS5001",
+        `records/${record.id}/definition`,
+        `Generated record '${record.typeName}' has a recursive by-value definition`,
+      ));
+      return;
+    }
+    generatedDefinitionState.set(record.typeName, "active");
+    for (const field of record.fields) {
+      if (field.type.kind !== "named") continue;
+      const dependency = generatedRecordsByType.get(field.type.name);
+      if (dependency !== undefined) visitGeneratedRecord(dependency);
+    }
+    generatedDefinitionState.set(record.typeName, "complete");
+    generatedDefinitionOrder.push(record);
+  };
+  for (const record of [...generatedRecordsByType.values()].sort((left, right) =>
+    compareText(left.typeName, right.typeName)
+  )) visitGeneratedRecord(record);
   if (functions.length === 0 && records.length === 0) {
     diagnostics.push(
       diagnostic("NTS5001", "selection", "A Clang ABI probe requires a function or record"),
@@ -322,7 +450,7 @@ export function generateClangAbiProbe(input: {
   records.sort((left, right) => compareText(left.id, right.id));
   const contractDigest = sha256(JSON.stringify({
     schema: "native-typescript.clang-abi-contract",
-    schemaVersion: 1,
+    schemaVersion: 2,
     includes,
     functions,
     records,
@@ -334,6 +462,17 @@ export function generateClangAbiProbe(input: {
     ...includes.map((include) => `#include <${include}>`),
     "",
   ];
+  for (const record of generatedDefinitionOrder) {
+    lines.push(
+      `typedef struct ${record.typeName} ${record.typeName};`,
+      `struct ${record.typeName} {`,
+      ...record.fields.map((field) =>
+        `  ${renderCType(field.type)} ${field.name};`
+      ),
+      "};",
+      "",
+    );
+  }
   for (const [index, function_] of functions.entries()) {
     const suffix = index.toString().padStart(4, "0");
     const typeName = `nts_abi_expected_${suffix}`;
@@ -394,7 +533,7 @@ export function generateClangAbiProbe(input: {
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.clang-abi-probe",
-    schemaVersion: 1,
+    schemaVersion: 2,
     source,
     sourceDigest: sha256(source),
     contractDigest,
@@ -610,9 +749,7 @@ export function parseClangAbiEvidence(
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
-  const semanticValue = {
-    schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 1,
+  const semanticInput = {
     probeDigest: input.probe.sourceDigest,
     clang,
     functions,
@@ -620,9 +757,9 @@ export function parseClangAbiEvidence(
   };
   return Object.freeze({
     schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 1,
+    schemaVersion: 2,
     probeDigest: input.probe.sourceDigest,
-    semanticDigest: sha256(JSON.stringify(semanticValue)),
+    semanticDigest: digestClangAbiEvidence(semanticInput),
     clang,
     functions: Object.freeze(functions),
     records: Object.freeze(records),

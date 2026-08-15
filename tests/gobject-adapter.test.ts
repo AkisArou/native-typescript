@@ -75,8 +75,10 @@ function adapter(transferOwnership: "none" | "full" = "none") {
   const source = transferOwnership === "none"
     ? girSource
     : girSource.replace(
-        '<return-value transfer-ownership="none">',
-        '<return-value transfer-ownership="full">',
+        `<constructor name="new_with_label" c:identifier="gtk_button_new_with_label">
+        <return-value transfer-ownership="none">`,
+        `<constructor name="new_with_label" c:identifier="gtk_button_new_with_label">
+        <return-value transfer-ownership="full">`,
       );
   const snapshot = ingestGir(source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
@@ -95,6 +97,16 @@ function signalAdapter() {
       constructors: ["new_with_label"],
       signals: ["clicked"],
     }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
+function valueMethodAdapter() {
+  const snapshot = ingestGir(girSource, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Widget", methods: ["get_preferred_size"] }],
+    records: [{ name: "Requisition", fields: ["width", "height"] }],
   });
   return generateGObjectAdapterSource(snapshot);
 }
@@ -153,7 +165,7 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 5);
+  assert.equal(generated.schemaVersion, 6);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -224,6 +236,34 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
   assert.match(generated.source, /g_object_unref\(connection->instance\)/u);
   assertDeepFrozen(generated);
   assert.deepEqual(signalAdapter(), generated);
+});
+
+test("caller-allocated record outputs become one value-returning adapter", () => {
+  const generated = valueMethodAdapter();
+  assert.deepEqual(generated.valueMethods, [{
+    id: "Widget.method.get_preferred_size",
+    className: "Widget",
+    nativeType: "GtkWidget",
+    sourceSymbol: "gtk_widget_get_preferred_size",
+    adapterSymbol: "nts_gobject_value_gtk_widget_get_preferred_size",
+    resultName: "WidgetPreferredSize",
+    resultNativeType: "NtsGtkWidgetPreferredSize",
+    outputs: [
+      { parameterName: "minimum_size", fieldName: "minimumSize", recordName: "Requisition", nativeType: "GtkRequisition" },
+      { parameterName: "natural_size", fieldName: "naturalSize", recordName: "Requisition", nativeType: "GtkRequisition" },
+    ],
+  }]);
+  assert.match(
+    generated.source,
+    /typedef struct NtsGtkWidgetPreferredSize \{\n  GtkRequisition minimumSize;\n  GtkRequisition naturalSize;\n\} NtsGtkWidgetPreferredSize;/u,
+  );
+  assert.match(
+    generated.source,
+    /gtk_widget_get_preferred_size\(instance, &result\.minimumSize, &result\.naturalSize\);/u,
+  );
+  assert.match(generated.source, /memset\(&result, 0, sizeof result\);/u);
+  assertDeepFrozen(generated);
+  assert.deepEqual(valueMethodAdapter(), generated);
 });
 
 test("GObject signal adapters forward exact scalar payloads", () => {

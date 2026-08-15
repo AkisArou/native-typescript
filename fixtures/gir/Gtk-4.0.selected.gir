@@ -24,6 +24,40 @@
         <type name="gint" c:type="int"/>
       </field>
     </record>
+    <class name="Widget"
+           c:symbol-prefix="widget"
+           c:type="GtkWidget"
+           abstract="1"
+           glib:type-name="GtkWidget"
+           glib:get-type="gtk_widget_get_type"
+           glib:type-struct="WidgetClass">
+      <method name="get_preferred_size" c:identifier="gtk_widget_get_preferred_size">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="widget" transfer-ownership="none">
+            <type name="Widget" c:type="GtkWidget*"/>
+          </instance-parameter>
+          <parameter name="minimum_size"
+                     direction="out"
+                     caller-allocates="1"
+                     transfer-ownership="none"
+                     optional="1"
+                     allow-none="1">
+            <type name="Requisition" c:type="GtkRequisition*"/>
+          </parameter>
+          <parameter name="natural_size"
+                     direction="out"
+                     caller-allocates="1"
+                     transfer-ownership="none"
+                     optional="1"
+                     allow-none="1">
+            <type name="Requisition" c:type="GtkRequisition*"/>
+          </parameter>
+        </parameters>
+      </method>
+    </class>
     <class name="Button"
            c:symbol-prefix="button"
            c:type="GtkButton"

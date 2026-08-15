@@ -19,7 +19,7 @@ const fixturePath = resolve(
 );
 const fixtureSource = readFileSync(fixturePath, "utf8");
 const fixtureDigest =
-  "sha256:5563c6d6056fc2d3a4b2eb48940f90c3dcdad36273c70df61128592e0abb2b99";
+  "sha256:d8951e145eb05e07462deb9ba16fba9153d841f3bd481d1166b3221b9507eced";
 const buttonSelection: GirClassSelection = Object.freeze({
   name: "Button",
   constructors: Object.freeze(["new_with_label"]),
@@ -428,8 +428,10 @@ test("GIR ingestion rejects provenance, syntax, and ownership ambiguity", () => 
   const ambiguousOwnership = ingestionDiagnostics(() =>
     ingestGir(
       fixtureSource.replace(
-        '<return-value transfer-ownership="none">',
-        "<return-value>",
+        `<constructor name="new_with_label" c:identifier="gtk_button_new_with_label">
+        <return-value transfer-ownership="none">`,
+        `<constructor name="new_with_label" c:identifier="gtk_button_new_with_label">
+        <return-value>`,
       ),
       {
         logicalPath: "fixtures/gir/missing-ownership.gir",

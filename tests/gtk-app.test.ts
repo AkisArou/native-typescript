@@ -39,6 +39,7 @@ import {
 import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
 import {
   defineGtkBindingPackageRequest,
+  generateGObjectAdapterSource,
   generateGirClangAbiProbe,
   gtkBindingToolFile,
   glibRuntimeArtifactIds,
@@ -250,7 +251,7 @@ test(
           },
           {
             name: "Widget",
-            methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
+            methods: ["activate", "get_opacity", "get_preferred_size", "get_width", "set_opacity", "set_visible"],
           },
           {
             name: "Window",
@@ -258,8 +259,10 @@ test(
             methods: ["destroy", "present", "set_child", "set_default_size"],
           },
         ],
+        records: [{ name: "Requisition", fields: ["width", "height"] }],
       });
-      const gtkProbe = generateGirClangAbiProbe(gtkSnapshot);
+      const plannedGobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
+      const gtkProbe = generateGirClangAbiProbe(gtkSnapshot, plannedGobjectAdapter);
       const gtkProbePlan = planClangAbiProbe({
         probe: gtkProbe,
         sourceArtifactId: "source/gtk4/clang-abi-probe",
@@ -500,6 +503,7 @@ test(
           "gtk_window_present",
           "gtk_window_set_child",
           "gtk_window_set_default_size",
+          "nts_gobject_value_gtk_widget_get_preferred_size",
         ],
         exports: [],
       });

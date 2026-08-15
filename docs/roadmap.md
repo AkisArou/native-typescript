@@ -235,7 +235,11 @@ fields and Clang proves its exact target layout and direct x86-64 SysV
 classification. The generated package now publishes `Requisition` as a nominal
 TypeScript declaration and SCABI struct, while ScriptC consumes direct,
 expanded, plain-indirect, `byval`, and `sret` classifications through C and
-LLVM. Broader
+LLVM. `Widget.getPreferredSize()` now proves the first caller-allocated record
+output projection: a generated adapter calls GTK once and returns an
+adapter-owned `WidgetPreferredSize` containing two nested `Requisition` values.
+Target Clang classifies that synthetic record before SCABI or ScriptC consumes
+it. Broader
 type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.
@@ -299,10 +303,11 @@ from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The app now uses the generated GTK package for
 Window/Button/DrawingArea/Overlay construction, label access, Widget ancestry,
 presentation, activation, exact size/opacity input/output, the `clicked`
-connection, copied `resize` payloads, and deterministic disposal. The remaining
+connection, copied `resize` payloads, nested preferred-size output, and
+deterministic disposal. The remaining
 hand-authored fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
-widget or signal API. Aggregate pointer/out-parameter projection, broader generated methods and
+widget or signal API. Remaining pointer/inout families, broader generated methods and
 non-scalar signal payloads/results, general GObject identity/weak-reference
 rules, graphing compiler emission itself, cacheability for the complete native toolchain, full
 application lifecycle, resources, CLI orchestration, and GTK packaging remain

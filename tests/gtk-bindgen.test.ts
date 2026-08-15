@@ -88,7 +88,7 @@ test(
         },
         {
           name: "Widget",
-          methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
+          methods: ["activate", "get_opacity", "get_preferred_size", "get_width", "set_opacity", "set_visible"],
         },
         {
           name: "Window",
@@ -98,13 +98,15 @@ test(
       ],
       records: [{ name: "Requisition", fields: ["width", "height"] }],
     });
-    const probe = generateGirClangAbiProbe(snapshot);
+    const gobjectAdapter = generateGObjectAdapterSource(snapshot);
+    const probe = generateGirClangAbiProbe(snapshot, gobjectAdapter);
     assert.deepEqual(probe.functions.map(({ symbol }) => symbol), [
       "gtk_button_new_with_label",
       "gtk_button_get_label",
       "gtk_button_set_label",
       "gtk_widget_activate",
       "gtk_widget_get_opacity",
+      "gtk_widget_get_preferred_size",
       "gtk_widget_get_width",
       "gtk_widget_set_opacity",
       "gtk_widget_set_visible",
@@ -115,7 +117,10 @@ test(
       "gtk_window_set_default_size",
     ]);
     assert.equal(probe.source.includes("clicked"), false);
-    assert.deepEqual(probe.records.map(({ typeName }) => typeName), ["GtkRequisition"]);
+    assert.deepEqual(probe.records.map(({ typeName }) => typeName), [
+      "GtkRequisition",
+      "NtsGtkWidgetPreferredSize",
+    ]);
 
     const clangPath = executable("clang");
     const pkgConfigPath = executable("pkg-config");
@@ -182,6 +187,7 @@ test(
         "gtk_button_set_label",
         "gtk_widget_activate",
         "gtk_widget_get_opacity",
+        "gtk_widget_get_preferred_size",
         "gtk_widget_get_width",
         "gtk_widget_set_opacity",
         "gtk_widget_set_visible",
@@ -191,7 +197,7 @@ test(
         "gtk_window_set_child",
         "gtk_window_set_default_size",
       ]);
-      assert.deepEqual(evidence.records, [{
+      assert.deepEqual(evidence.records[0], {
         id: "Gtk.Requisition.record",
         typeName: "GtkRequisition",
         size: 8,
@@ -234,7 +240,20 @@ test(
             structureReturn: null,
           }],
         },
-      }]);
+      });
+      assert.equal(evidence.records[1]?.id, "Gtk.Widget.method.get_preferred_size.result");
+      assert.equal(evidence.records[1]?.typeName, "NtsGtkWidgetPreferredSize");
+      assert.equal(evidence.records[1]?.size, 16);
+      assert.equal(evidence.records[1]?.alignment, 4);
+      assert.deepEqual(evidence.records[1]?.fields.map(({ name, offset, size, alignment }) => ({
+        name,
+        offset,
+        size,
+        alignment,
+      })), [
+        { name: "minimumSize", offset: 0, size: 8, alignment: 4 },
+        { name: "naturalSize", offset: 8, size: 8, alignment: 4 },
+      ]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 
       const bindingSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
@@ -249,7 +268,7 @@ test(
           },
           {
             name: "Widget",
-            methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
+            methods: ["activate", "get_opacity", "get_preferred_size", "get_width", "set_opacity", "set_visible"],
           },
           {
             name: "Window",
@@ -316,6 +335,7 @@ test(
         "gtk_window_release",
         "gtk_window_set_child",
         "gtk_window_set_default_size",
+        "nts_gobject_value_gtk_widget_get_preferred_size",
       ]);
       assert.match(
         generated.declarations,
@@ -332,6 +352,7 @@ test(
       );
       assert.match(generated.declarations, /activate\(\): boolean;/u);
       assert.match(generated.declarations, /get opacity\(\): gdouble;/u);
+      assert.match(generated.declarations, /getPreferredSize\(\): WidgetPreferredSize;/u);
       assert.match(generated.declarations, /getWidth\(\): gint;/u);
       assert.match(generated.declarations, /set opacity\(value: gdouble\);/u);
       assert.doesNotMatch(generated.declarations, /getOpacity|setOpacity/u);
@@ -357,6 +378,7 @@ test(
           name: "SignalConnection",
         },
         gtk_widget: { module: ".", name: "Widget" },
+        gtk_widget_preferred_size: { module: ".", name: "WidgetPreferredSize" },
         gtk_window: { module: ".", name: "Window" },
       });
       assert.match(
