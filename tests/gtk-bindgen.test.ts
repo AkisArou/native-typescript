@@ -277,6 +277,7 @@ test(
         generated.declarations,
         /onClicked\(callback: \(button: Button\) => void\): SignalConnection;/u,
       );
+      assert.doesNotMatch(generated.declarations, /dispose\(\): void;/u);
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
       assert.match(
         generated.declarations,

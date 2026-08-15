@@ -305,6 +305,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     /export interface SignalConnection/u,
   );
   assert.match(generated.declarations, /disconnect\(\): void;/u);
+  assert.doesNotMatch(generated.declarations, /dispose\(\): void;/u);
   assert.deepEqual(generated.manifest.types.gtk_signal_connection, {
     kind: "handle",
     nativeName: "NtsGtkSignalConnection",
@@ -334,6 +335,22 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     postDisposal: "not-invoked",
     shutdown: "drain",
   });
+  const release = generated.manifest.bindings.gtk_button_release;
+  assert.ok(release && release.kind !== "constant");
+  const constructor = generated.manifest.bindings.gtk_button_new_with_label;
+  assert.ok(constructor && constructor.kind !== "constant");
+  const constructorOwnership = constructor.signature.result.ownership;
+  assert.equal(constructorOwnership.kind, "owned");
+  assert.equal(
+    constructorOwnership.kind === "owned" ? constructorOwnership.transfer : undefined,
+    "to-runtime",
+  );
+  if (
+    constructorOwnership.kind === "owned" &&
+    constructorOwnership.transfer === "to-runtime"
+  ) {
+    assert.equal(constructorOwnership.destructor, "gtk_button_release");
+  }
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_connect_clicked",
     "gtk_button_new_with_label",

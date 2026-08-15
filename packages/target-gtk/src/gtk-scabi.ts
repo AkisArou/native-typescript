@@ -1087,7 +1087,6 @@ export function generateGtkScabiPackage(
       );
     }
     classLines.splice(2, 0, ...constructorLines);
-    if (class_.constructors.length > 0) classLines.push("  dispose(): void;");
     classLines.push("}", "");
     declarationLines.push(...classLines);
   }

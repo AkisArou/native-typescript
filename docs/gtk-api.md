@@ -261,16 +261,16 @@ The implemented GTK slice now emits class declarations, canonical
 `new Class()` construction, named static constructors, and receiver-owned
 signals that all return one public `SignalConnection` capability with
 `disconnect()`, and zero-payload signals receive their typed emitter as the
-first callback argument. It still emits method-shaped accessors, public
-GObject `dispose()` methods, and no `connected` observation yet. Those
-remaining declarations accurately describe the current runtime but are not
-the final public contract.
+first callback argument. Routine GObject release bindings are now internal
+compiler dependencies rather than public `dispose()` methods. It still emits
+method-shaped accessors and has no `connected` observation yet; those remaining
+declarations accurately describe the current runtime but are not the final
+public contract.
 
 The migration is intentionally one-way:
 
 1. add a proven `connected` observation;
-2. remove routine object `dispose()` declarations;
-3. project proven GObject properties and broader signal payloads.
+2. project proven GObject properties and broader signal payloads.
 
 No deprecated aliases or duplicate compatibility surface remains after each
 contract becomes implemented.
