@@ -69,8 +69,16 @@ export interface GtkScabiPackage {
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 const sourceScalarTypes = Object.freeze([
-  Object.freeze({ girName: "gdouble", cType: "double", abiType: "gdouble" }),
-  Object.freeze({ girName: "gint", cType: "int", abiType: "gint" }),
+  Object.freeze({
+    girName: "gdouble",
+    cTypes: Object.freeze(["double", "gdouble"]),
+    abiType: "gdouble",
+  }),
+  Object.freeze({
+    girName: "gint",
+    cTypes: Object.freeze(["gint", "int"]),
+    abiType: "gint",
+  }),
 ]);
 
 function sourceScalarType(
@@ -78,7 +86,9 @@ function sourceScalarType(
 ): (typeof sourceScalarTypes)[number] | undefined {
   return type.kind === "named"
     ? sourceScalarTypes.find(
-        (scalar) => scalar.girName === type.name && scalar.cType === type.cType,
+        (scalar) => scalar.girName === type.name &&
+          type.cType !== null &&
+          scalar.cTypes.includes(type.cType),
       )
     : undefined;
 }
@@ -313,7 +323,11 @@ function cStringParameter(
 
 function requiredValueParameter(
   parameter: GirParameter,
-  type: { readonly girName: string; readonly cType: string; readonly abiType: string },
+  type: {
+    readonly girName: string;
+    readonly cTypes: readonly string[];
+    readonly abiType: string;
+  },
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): AbiParameter | null {
@@ -321,7 +335,8 @@ function requiredValueParameter(
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
     parameter.type.name !== type.girName ||
-    parameter.type.cType !== type.cType ||
+    parameter.type.cType === null ||
+    !type.cTypes.includes(parameter.type.cType) ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
     parameter.nullable ||
@@ -573,6 +588,11 @@ export function generateGtkScabiPackage(
         method.parameters.some((parameter) =>
           sourceScalarType(parameter.type)?.abiType === scalar.abiType
         )
+      ) ||
+      class_.signals.some((signal) =>
+        signal.parameters.some((parameter) =>
+          sourceScalarType(parameter.type)?.abiType === scalar.abiType
+        )
       )
     )
   );
@@ -776,7 +796,7 @@ export function generateGtkScabiPackage(
         entryKind: "adapter-symbol",
         symbol: firstAdapter.releaseSymbol,
         parameters: [Object.freeze({
-          name: lowerCamel(class_.name),
+          name: class_.cSymbolPrefix,
           type: typeId,
           passMode: "pointer",
           nullable: true,
@@ -914,7 +934,7 @@ export function generateGtkScabiPackage(
         ) {
           const abi = requiredValueParameter(
             parameter,
-            { girName: "gboolean", cType: "gboolean", abiType: "gboolean" },
+            { girName: "gboolean", cTypes: ["gboolean"], abiType: "gboolean" },
             parameterPath,
             diagnostics,
           );
@@ -1036,6 +1056,40 @@ export function generateGtkScabiPackage(
         continue;
       }
       if (!signalConnectionReady) continue;
+      const signalParameters: AbiParameter[] = [];
+      const sourceSignalParameters: string[] = [];
+      let signalValid = true;
+      for (const [index, parameter] of callable.parameters.entries()) {
+        const parameterPath = `${path}/parameters/${index}`;
+        const scalar = sourceScalarType(parameter.type);
+        if (scalar === undefined) {
+          diagnostics.push(
+            diagnostic(parameterPath, "Only exact gint and gdouble signal payloads are implemented"),
+          );
+          signalValid = false;
+          continue;
+        }
+        const abi = requiredValueParameter(parameter, scalar, parameterPath, diagnostics);
+        const adapterParameter = adapter.parameters[index];
+        if (
+          abi === null ||
+          adapterParameter?.name !== parameter.name ||
+          adapterParameter.sourceType !== scalar.girName
+        ) {
+          if (abi !== null) {
+            diagnostics.push(
+              diagnostic(parameterPath, "GObject signal adapter payload does not match GIR"),
+            );
+          }
+          signalValid = false;
+          continue;
+        }
+        signalParameters.push(abi);
+        sourceSignalParameters.push(
+          `${lowerCamel(parameter.name)}: ${scalar.girName}`,
+        );
+      }
+      if (!signalValid || signalParameters.length !== adapter.parameters.length) continue;
       if (
         types[callbackTypeId] !== undefined ||
         bindings[connectId] !== undefined ||
@@ -1058,7 +1112,7 @@ export function generateGtkScabiPackage(
         signature: Object.freeze({
           callingConvention: "c",
           variadic: false,
-          parameters: Object.freeze([]),
+          parameters: Object.freeze(signalParameters),
           result: Object.freeze({
             type: "void",
             passMode: "value",
@@ -1075,7 +1129,7 @@ export function generateGtkScabiPackage(
         symbol: adapter.connectSymbol,
         parameters: [
           Object.freeze({
-            name: lowerCamel(class_.name),
+            name: class_.cSymbolPrefix,
             type: typeId,
             passMode: "pointer",
             nullable: false,
@@ -1089,11 +1143,11 @@ export function generateGtkScabiPackage(
             ownership: Object.freeze({
               kind: "borrowed",
               scope: "registration",
-              anchor: lowerCamel(class_.name),
+              anchor: class_.cSymbolPrefix,
             }),
             callback: Object.freeze({
               lifetime: "until-cancelled",
-              registrationOwner: lowerCamel(class_.name),
+              registrationOwner: class_.cSymbolPrefix,
               cancellationBinding: signalDisconnectId,
               contextParameter: "context",
               allowedInvocationExecutors: Object.freeze([
@@ -1101,9 +1155,20 @@ export function generateGtkScabiPackage(
               ]),
               deliveryExecutor: Object.freeze({ kind: "runtime-owner" }),
               synchronousReturn: false,
-              arguments: Object.freeze([]),
+              arguments: Object.freeze(signalParameters.map((parameter) =>
+                Object.freeze({
+                  parameter: parameter.name,
+                  transport: "copy" as const,
+                })
+              )),
               sourceArguments: Object.freeze([
                 Object.freeze({ kind: "registration-owner" as const }),
+                ...signalParameters.map((parameter) =>
+                  Object.freeze({
+                    kind: "callback-parameter" as const,
+                    parameter: parameter.name,
+                  })
+                ),
               ]),
               reentrancy: "allowed",
               postDisposal: "not-invoked",
@@ -1143,7 +1208,10 @@ export function generateGtkScabiPackage(
       declarations.add(declaration);
       adapterBindings.push(connectId);
       classLines.push(
-        `  on${upperCamel(callable.name)}(callback: (${lowerCamel(class_.name)}: ${class_.name}) => void): SignalConnection;`,
+        `  on${upperCamel(callable.name)}(callback: (${[
+          `${lowerCamel(class_.name)}: ${class_.name}`,
+          ...sourceSignalParameters,
+        ].join(", ")}) => void): SignalConnection;`,
       );
     }
     let hasCanonicalConstructor = false;

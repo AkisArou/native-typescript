@@ -261,9 +261,10 @@ No signal handle or GObject release call is required in the ordinary path.
 The implemented GTK slice now emits class declarations, canonical
 `new Class()` construction, named static constructors, and receiver-owned
 signals that all return one public `SignalConnection` capability with
-`disconnect()`, and zero-payload signals receive their typed emitter as the
-first callback argument. Routine GObject release bindings are now internal
-compiler dependencies rather than public `dispose()` methods. Authoritative
+`disconnect()`. Signal callbacks receive their typed emitter first; the
+implemented non-detailed `void` subset then receives copied exact
+`gint`/`gdouble` payloads in GIR order. Routine GObject release bindings are now
+internal compiler dependencies rather than public `dispose()` methods. Authoritative
 GIR getter/setter links now project `Button.label` and `Widget.opacity` as
 native properties without retaining method-shaped aliases.
 `SignalConnection.disconnect()` is
@@ -272,7 +273,7 @@ state; the separate connection release operation remains internal.
 
 The migration is intentionally one-way:
 
-1. broaden proven GObject property types and signal payloads.
+1. broaden proven GObject property types and non-scalar signal payloads/results.
 
 No deprecated aliases or duplicate compatibility surface remains after each
 contract becomes implemented.

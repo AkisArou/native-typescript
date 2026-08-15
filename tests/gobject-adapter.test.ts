@@ -35,6 +35,11 @@ const nativeFixturePath = resolve(
   repositoryRoot,
   "fixtures/gobject-adapter/fixture.c",
 );
+const nativeSignalPayloadFixturePath = resolve(
+  repositoryRoot,
+  "fixtures/gobject-adapter/signal-payload.c",
+);
+const installedGtkGirPath = "/usr/share/gir-1.0/Gtk-4.0.gir";
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
 const hasClang = spawnSync("clang", ["--version"]).status === 0;
 const hasXvfb = spawnSync("xvfb-run", ["--help"]).status === 0;
@@ -94,6 +99,48 @@ function signalAdapter() {
   return generateGObjectAdapterSource(snapshot);
 }
 
+function scalarSignalAdapter() {
+  const source = girSource.replace(
+    `<glib:signal name="clicked" when="first" action="1">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>`,
+    `<glib:signal name="resized" when="first">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <parameter name="width" transfer-ownership="none">
+            <type name="gint" c:type="gint"/>
+          </parameter>
+          <parameter name="scale" transfer-ownership="none">
+            <type name="gdouble" c:type="gdouble"/>
+          </parameter>
+        </parameters>
+      </glib:signal>`,
+  );
+  const snapshot = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Button", signals: ["resized"] }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
+function installedScalarSignalAdapter() {
+  const snapshot = ingestGir(readFileSync(installedGtkGirPath, "utf8"), {
+    logicalPath: "sdk/Gtk-4.0.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{
+      name: "DrawingArea",
+      constructors: ["new"],
+      signals: ["resize"],
+    }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
 function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
@@ -106,7 +153,7 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 4);
+  assert.equal(generated.schemaVersion, 5);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -152,6 +199,7 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
     signalName: "clicked",
     connectSymbol: "nts_gobject_connect_button_clicked",
     callbackType: "NtsGObjectButtonClickedCallback",
+    parameters: [],
   }]);
   assert.match(
     generated.source,
@@ -178,6 +226,32 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
   assert.deepEqual(signalAdapter(), generated);
 });
 
+test("GObject signal adapters forward exact scalar payloads", () => {
+  const generated = scalarSignalAdapter();
+  assert.deepEqual(generated.signals, [{
+    id: "Button.signal.resized",
+    className: "Button",
+    nativeType: "GtkButton",
+    signalName: "resized",
+    connectSymbol: "nts_gobject_connect_button_resized",
+    callbackType: "NtsGObjectButtonResizedCallback",
+    parameters: [
+      { name: "width", nativeType: "gint", sourceType: "gint" },
+      { name: "scale", nativeType: "gdouble", sourceType: "gdouble" },
+    ],
+  }]);
+  assert.match(
+    generated.source,
+    /typedef void \(\*NtsGObjectButtonResizedCallback\)\(gint parameter_0000, gdouble parameter_0001, void \*context\);/u,
+  );
+  assert.match(
+    generated.source,
+    /connection->callback\(parameter_0000, parameter_0001, connection->context\);/u,
+  );
+  assertDeepFrozen(generated);
+  assert.deepEqual(scalarSignalAdapter(), generated);
+});
+
 test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
   const detailedSource = girSource.replace(
     '<glib:signal name="clicked" when="first" action="1">',
@@ -196,7 +270,43 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
         code: "NTS5001",
         severity: "error",
         path: "Button/signal/clicked",
-        message: "Only non-detailed, zero-parameter void GObject signals are implemented",
+        message: "Only non-detailed void GObject signals with exact scalar payloads are implemented",
+      }]);
+      return true;
+    },
+  );
+});
+
+test("unsupported GObject signal payloads fail at the exact parameter", () => {
+  const source = girSource.replace(
+    `<return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>`,
+    `<return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <parameter name="text" transfer-ownership="none">
+            <type name="utf8" c:type="const char*"/>
+          </parameter>
+        </parameters>
+      </glib:signal>`,
+  );
+  const snapshot = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Button", signals: ["clicked"] }],
+  });
+  assert.throws(
+    () => generateGObjectAdapterSource(snapshot),
+    (error: unknown) => {
+      assert.ok(error instanceof CBindgenError);
+      assert.deepEqual(error.diagnostics, [{
+        code: "NTS5001",
+        severity: "error",
+        path: "Button/signal/clicked/parameters/0",
+        message: "Only exact gint and gdouble GObject signal payloads are implemented",
       }]);
       return true;
     },
@@ -313,6 +423,97 @@ test(
           "-Wextra",
           "-Werror",
           nativeFixturePath,
+          object.path,
+          ...flags,
+          "-o",
+          executablePath,
+        ],
+        { encoding: "utf8" },
+      );
+      assert.equal(compile.status, 0, compile.stderr);
+      const run = spawnSync("xvfb-run", ["-a", executablePath], {
+        encoding: "utf8",
+        env: { ...process.env, G_DEBUG: "fatal-warnings" },
+      });
+      assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a generated GTK signal adapter forwards real scalar payloads and disconnects",
+  {
+    skip:
+      process.platform !== "linux" ||
+      process.arch !== "x64" ||
+      !existsSync(nativeSignalPayloadFixturePath) ||
+      !existsSync(installedGtkGirPath) ||
+      !hasGtk ||
+      !hasClang ||
+      !hasXvfb ||
+      !hasBubblewrap,
+  },
+  async () => {
+    const temporaryRoot = mkdtempSync(
+      join(tmpdir(), "native-typescript-gobject-signal-payload-"),
+    );
+    try {
+      const generatedPath = join(temporaryRoot, "gobject-adapters.c");
+      const executablePath = join(temporaryRoot, "gobject-signal-payload-test");
+      const generated = installedScalarSignalAdapter();
+      writeFileSync(generatedPath, generated.source);
+      const clangPath = executable("clang");
+      const pkgConfigPath = executable("pkg-config");
+      const sdk = await resolvePkgConfigSdk({
+        id: "gtk4-gobject-signal-payload",
+        executable: pkgConfigPath,
+        modules: ["gtk4"],
+        target: "x86_64-unknown-linux-gnu",
+      });
+      const plan = planGObjectAdapterObject({
+        adapter: generated,
+        sourceArtifactId: "source/gtk/gobject-signal-payload-adapters",
+        objectArtifactId: "object/gtk/gobject-signal-payload-adapters",
+        actionId: "compile/gtk/gobject-signal-payload-adapters",
+        logicalPath: "generated/gtk/gobject-signal-payload-adapters.c",
+        artifactFileName: "gobject-signal-payload-adapters.o",
+        arguments: sdk.compileArguments,
+        tool: toolIdentity(clangPath),
+        executionPlatform: "x86_64-linux",
+        target: "x86_64-unknown-linux-gnu",
+      });
+      const graph = defineArtifactGraph({
+        artifacts: [plan.source, ...sdk.artifacts, plan.object],
+        actions: [plan.action],
+      });
+      const report = await executeArtifactGraph(graph, {
+        buildRoot: join(temporaryRoot, "build"),
+        sourcePaths: {
+          ...sdk.sourcePaths,
+          [plan.source.id]: generatedPath,
+        },
+        tools: { [plan.action.tool.id]: { path: clangPath } },
+        sandbox: { kind: "bubblewrap", path: executable("bwrap") },
+      });
+      const object = report.artifacts.find(({ id }) => id === plan.object.id);
+      assert.ok(object);
+      const pkgConfig = spawnSync(
+        "pkg-config",
+        ["--cflags", "--libs", "gtk4"],
+        { encoding: "utf8" },
+      );
+      assert.equal(pkgConfig.status, 0, pkgConfig.stderr);
+      const flags = pkgConfig.stdout.trim().split(/\s+/u).filter(Boolean);
+      const compile = spawnSync(
+        "clang",
+        [
+          "-std=gnu11",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          nativeSignalPayloadFixturePath,
           object.path,
           ...flags,
           "-o",

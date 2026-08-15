@@ -238,6 +238,17 @@ test(
             signals: ["clicked"],
           },
           {
+            name: "DrawingArea",
+            constructors: ["new"],
+            methods: ["set_content_height", "set_content_width"],
+            signals: ["resize"],
+          },
+          {
+            name: "Overlay",
+            constructors: ["new"],
+            methods: ["add_overlay", "set_child"],
+          },
+          {
             name: "Widget",
             methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
           },
@@ -466,6 +477,13 @@ test(
           "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_drawing_area_connect_resize",
+          "gtk_drawing_area_new",
+          "gtk_drawing_area_set_content_height",
+          "gtk_drawing_area_set_content_width",
+          "gtk_overlay_add_overlay",
+          "gtk_overlay_new",
+          "gtk_overlay_set_child",
           "gtk_signal_connection_connected",
           "gtk_widget_activate",
           "gtk_widget_get_opacity",
@@ -516,7 +534,32 @@ test(
           : undefined,
         [],
       );
-      for (const declarationName of ["Button", "SignalConnection"]) {
+      const translatedResize = gtkTranslated.input.bindings.find(
+        ({ declaration }) => declaration.name === "DrawingArea.onResize",
+      );
+      assert.deepEqual(
+        translatedResize?.arguments[1]?.callback?.sourceArguments,
+        [
+          { kind: "registration-owner" },
+          { kind: "callback-parameter", parameter: 0 },
+          { kind: "callback-parameter", parameter: 1 },
+        ],
+      );
+      assert.deepEqual(
+        translatedResize?.arguments[1]?.type.kind === "func"
+          ? translatedResize.arguments[1].type.params.slice(1)
+          : undefined,
+        [
+          { kind: "nativeScalar", scalar: "i32" },
+          { kind: "nativeScalar", scalar: "i32" },
+        ],
+      );
+      for (const declarationName of [
+        "Button",
+        "DrawingArea",
+        "Overlay",
+        "SignalConnection",
+      ]) {
         const definition: ScriptCNativeTypeDefinition | undefined =
           gtkTranslated.input.types.find(
           ({ declaration }) => declaration.name === declarationName,

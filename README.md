@@ -470,11 +470,12 @@ surface covers managed Widget ancestry, class-based `new Window()` and
 borrowed handle
 parameters, exact `gboolean` methods, branded
 `gint`/`gdouble` parameters and results, and one shared `SignalConnection`
-capability for non-detailed zero-payload `void` signals. The adapter strongly
-retains the signal instance, disconnects by its handler ID, and composes with
-ScriptC's retained callback lifecycle so no callback runs after disposal.
+capability for non-detailed `void` signals with zero or copied exact
+`gint`/`gdouble` payloads. The adapter strongly retains the signal instance,
+disconnects by its handler ID, and composes with ScriptC's retained callback
+lifecycle so no callback runs after disposal.
 Reached metadata outside the implemented
-handle/void/boolean/exact-scalar/NUL-terminated UTF-8/zero-payload-signal
+handle/void/boolean/exact-scalar/NUL-terminated UTF-8/exact-scalar-signal
 algebra fails generation.
 The application gate now chains Clang inspection, evidence normalization, and
 package generation as three declared analysis actions, promotes the verified
@@ -489,9 +490,12 @@ generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
 exact `gdouble` through the `Widget.opacity` property, then calls
 `Widget.activate()`, projects its native boolean result, and receives the
 resulting real `Button.clicked` through the generated receiver-owned connection.
+The same application builds a real `DrawingArea`/`Overlay`, receives
+`DrawingArea.resize(sender, width, height)`, and feeds both copied `gint`
+payloads back through generated native methods on both backends.
 The remaining hand-authored fixture is
 limited to host-loop/completion control and an independent counter turn. Record
-layout, broader type and signal-payload lowering, and GObject identity and
+layout, non-scalar signal-payload/result lowering, and GObject identity and
 weak-reference policy remain. Selected
 constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one

@@ -213,16 +213,17 @@ content-addressed package directory containing
 canonical TypeScript declarations, validated SCABI, adapter source/metadata,
 and provenance for the narrow managed-handle,
 `void`, exact `gboolean`, branded exact `gint`/`gdouble`, NUL-terminated UTF-8,
-and non-detailed zero-payload signal surface. GObject handles now project as
+and non-detailed `void` signals with zero or copied exact `gint`/`gdouble`
+payloads. GObject handles now project as
 named TypeScript classes: canonical GIR constructors use `new Class()` and
 additional constructors use static named factories, with exact declaration
 symbols lowered by ScriptC rather than runtime class objects. Signals remain
 semantic GIR metadata rather than invented direct C functions: the generator
 emits deterministic connect/disconnect adapters and
 result-owned retained-callback contracts. Aggregate layout evidence, broader
-type/result and signal-payload lowering, and GObject identity, weak-handle, and
-invalidation policy remain before broader selected metadata can drive
-application compilation.
+type/result and non-scalar signal-payload/result lowering, and GObject identity,
+weak-handle, and invalidation policy remain before broader selected metadata can
+drive application compilation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and
@@ -256,8 +257,9 @@ generated constructor binding now enters through the ownership adapter and uses
 its generated release symbol as the owned handle destructor. General identity-map
 reuse, weak handles, and native invalidation remain.
 
-The first generated signal policy is executable too. Selected zero-payload
-signals share a namespace-local C connection base and disconnect entry point;
+The first generated signal policy is executable too. Selected non-detailed
+`void` signals with zero or exact `gint`/`gdouble` payloads share a
+namespace-local C connection base and disconnect entry point;
 each signal-specific callback record embeds that base, strongly retains its
 instance, owns the handler ID, and disconnects deterministically. The shared
 SCABI `SignalConnection` result handle
@@ -265,10 +267,12 @@ is owned by the emitter, owns the retained callback registration, closes
 admission before disconnect,
 delivers on the runtime owner without inline TypeScript reentrancy, drains
 already admitted turns during explicit cancellation, discards them during cycle
-collection, and guarantees no invocation after disconnection. The returned
+collection, and guarantees no invocation after disconnection. Scalar payloads
+are copied before owner delivery and multiword class names use canonical GIR C
+symbol-prefix identities at the ABI boundary. The returned
 connection remains available for optional early cancellation, but ignoring it
-does not disconnect the signal. Detailed
-signals, payloads, return values, and other lifetime policies fail precisely.
+does not disconnect the signal. Detailed signals, non-scalar payloads, return
+values, and other lifetime policies fail precisely.
 
 A permanent narrow fixture now compiles through both C and LLVM into a native
 GTK executable, creates a real window and button, delivers the button signal to
@@ -277,15 +281,15 @@ signal, handle, callback service, attached loop, and window with exact
 destruction assertions. It contains no JavaScript engine. Its GLib runtime and
 GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
-enter the graph. The app now uses the generated GTK package for Window/Button
-construction, label access, Widget ancestry, presentation, activation,
-exact size/opacity input/output, the `clicked` connection, and deterministic
-disposal. The remaining hand-authored
-fixture provides host-loop control, completion observation, and the independent
+enter the graph. The app now uses the generated GTK package for
+Window/Button/DrawingArea/Overlay construction, label access, Widget ancestry,
+presentation, activation, exact size/opacity input/output, the `clicked`
+connection, copied `resize` payloads, and deterministic disposal. The remaining
+hand-authored fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
 widget or signal API. Aggregate layout evidence, broader generated methods and
-signal payloads, general GObject identity/weak-reference rules, graphing compiler
-emission itself, cacheability for the complete native toolchain, full
+non-scalar signal payloads/results, general GObject identity/weak-reference
+rules, graphing compiler emission itself, cacheability for the complete native toolchain, full
 application lifecycle, resources, CLI orchestration, and GTK packaging remain
 before the phase exit gate.
 

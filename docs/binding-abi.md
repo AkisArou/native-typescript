@@ -150,11 +150,12 @@ GObject adapter agree. It currently maps selected GObject constructors,
 instance methods, `void`, exact `gboolean`, branded exact `gint` and `gdouble`,
 required borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
 owned handles, coherent GIR-linked getter/setter properties, and non-detailed
-zero-payload `void` signals into canonical declarations and a validated SCABI
-manifest. Equivalent unordered target inputs produce identical output. Signals
-are adapter entries rather than invented direct C functions. Any reached signal
-or parameter/result form outside that closed algebra is an error instead of a
-guessed projection.
+`void` signals with zero or exact `gint`/`gdouble` payloads into canonical
+declarations and a validated SCABI manifest. Equivalent unordered target inputs
+produce identical output. Signals are adapter entries rather than invented
+direct C functions. Exact scalar signal payloads are copied before owner
+delivery; any reached signal or parameter/result form outside that closed
+algebra is an error instead of a guessed projection.
 
 The source projection is distinct from ABI identity. Selected GObject types
 are emitted as named TypeScript classes with their proven inheritance.

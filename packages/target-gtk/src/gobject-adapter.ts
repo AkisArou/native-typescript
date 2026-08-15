@@ -40,6 +40,13 @@ export interface GObjectSignalAdapter {
   readonly signalName: string;
   readonly connectSymbol: string;
   readonly callbackType: string;
+  readonly parameters: readonly GObjectSignalParameterAdapter[];
+}
+
+export interface GObjectSignalParameterAdapter {
+  readonly name: string;
+  readonly nativeType: string;
+  readonly sourceType: "gdouble" | "gint";
 }
 
 export interface GObjectSignalConnectionAdapter {
@@ -51,7 +58,7 @@ export interface GObjectSignalConnectionAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -113,6 +120,54 @@ function upperCamel(value: string): string {
 
 function signalSymbolPart(value: string): string {
   return value.replaceAll("-", "_");
+}
+
+function signalParameter(
+  parameter: GirCallable["parameters"][number],
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): GObjectSignalParameterAdapter | null {
+  const physical = physicalType(parameter.type.cType, `${path}/type`, diagnostics);
+  const sourceType = parameter.type.kind === "named" &&
+      parameter.type.name === "gint" &&
+      (parameter.type.cType === "int" || parameter.type.cType === "gint")
+    ? "gint"
+    : parameter.type.kind === "named" &&
+        parameter.type.name === "gdouble" &&
+        (parameter.type.cType === "double" || parameter.type.cType === "gdouble")
+      ? "gdouble"
+      : null;
+  if (
+    physical === null ||
+    sourceType === null ||
+    parameter.kind !== "parameter" ||
+    parameter.direction !== "in" ||
+    parameter.transferOwnership !== "none" ||
+    parameter.nullable ||
+    parameter.optional ||
+    parameter.callerAllocates ||
+    parameter.skip ||
+    parameter.scope !== null ||
+    parameter.closureParameter !== null ||
+    parameter.destroyParameter !== null
+  ) {
+    if (physical !== null) {
+      diagnostics.push({
+        code: "NTS5001",
+        severity: "error",
+        path,
+        message: sourceType === null
+          ? "Only exact gint and gdouble GObject signal payloads are implemented"
+          : "GObject signal payloads must be required non-null input values",
+      });
+    }
+    return null;
+  }
+  return Object.freeze({
+    name: parameter.name,
+    nativeType: renderCType(physical),
+    sourceType,
+  });
 }
 
 function generateConstructor(
@@ -230,13 +285,18 @@ function generateSignal(
   const signalPart = signalSymbolPart(callable.name);
   const nativeClass = physicalType(class_.cType, `${path}/class`, diagnostics);
   const result = physicalType(callable.result.type.cType, `${path}/result`, diagnostics);
+  const parameters = callable.parameters.map((parameter, index) =>
+    signalParameter(parameter, `${path}/parameters/${index}`, diagnostics)
+  );
+  const validParameters = parameters.filter(
+    (parameter): parameter is NonNullable<typeof parameter> => parameter !== null,
+  );
   if (
     nativeClass === null ||
     nativeClass.kind !== "named" ||
     result === null ||
     result.kind !== "named" ||
     result.name !== "void" ||
-    callable.parameters.length !== 0 ||
     callable.result.transferOwnership !== "none" ||
     callable.result.nullable ||
     callable.result.skip ||
@@ -249,10 +309,11 @@ function generateSignal(
       code: "NTS5001",
       severity: "error",
       path,
-      message: "Only non-detailed, zero-parameter void GObject signals are implemented",
+      message: "Only non-detailed void GObject signals with exact scalar payloads are implemented",
     });
     return null;
   }
+  if (validParameters.length !== parameters.length) return null;
 
   const classPart = class_.cSymbolPrefix;
   const typeStem = `NtsGObject${upperCamel(class_.name)}${upperCamel(callable.name)}`;
@@ -261,18 +322,25 @@ function generateSignal(
   const connectSymbol = `nts_gobject_connect_${classPart}_${signalPart}`;
   const dispatchSymbol = `nts_gobject_dispatch_${classPart}_${signalPart}`;
   const nativeClassPointer = `${renderCType(nativeClass)} *`;
+  const callbackParameters = validParameters.map(
+    (parameter, index) =>
+      `${parameter.nativeType} parameter_${index.toString().padStart(4, "0")}`,
+  );
+  const callbackArguments = validParameters.map(
+    (_, index) => `parameter_${index.toString().padStart(4, "0")}`,
+  );
   const lines = [
-    `typedef void (*${callbackType})(void *context);`,
+    `typedef void (*${callbackType})(${[...callbackParameters, "void *context"].join(", ")});`,
     `typedef struct ${connectionType} {`,
     `  ${signalConnection.nativeType} base;`,
     `  ${callbackType} callback;`,
     "  void *context;",
     `} ${connectionType};`,
     "",
-    `static void ${dispatchSymbol}(${nativeClassPointer}instance, void *opaque) {`,
+    `static void ${dispatchSymbol}(${[`${nativeClassPointer}instance`, ...callbackParameters, "void *opaque"].join(", ")}) {`,
     "  (void)instance;",
     `  ${connectionType} *connection = opaque;`,
-    "  connection->callback(connection->context);",
+    `  connection->callback(${[...callbackArguments, "connection->context"].join(", ")});`,
     "}",
     "",
     `${signalConnection.nativeType} *${connectSymbol}(`,
@@ -302,6 +370,7 @@ function generateSignal(
       signalName: callable.name,
       connectSymbol,
       callbackType,
+      parameters: Object.freeze(validParameters),
     }),
     lines,
   };
@@ -404,7 +473,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 4,
+    schemaVersion: 5,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),

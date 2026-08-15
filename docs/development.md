@@ -191,7 +191,9 @@ host generator tool. Its analysis graph makes sandboxed Clang evidence feed a
 deterministic normalization action, then makes that canonical evidence feed the
 cacheable action that regenerates selected Widget, Button, and Window
 declarations, SCABI, GObject adapters, and a zero-payload signal adapter with a
-shared `SignalConnection` ABI as one package directory. A second build root
+shared `SignalConnection` ABI as one package directory. The same generated
+surface now includes `DrawingArea.resize` with copied exact scalar payloads and
+canonical multiword-class ABI names. A second build root
 proves that unchanged
 package generation is restored from the local cache. The next planning phase composes
 that verified package with the canonical GTK runtime fixture and plans C and
@@ -208,6 +210,8 @@ both representations through `Widget.setVisible(boolean)`, lowers
 `Window.setDefaultSize()`, feeds `Widget.getWidth()` into another native call,
 round-trips branded `gdouble` through the `Widget.opacity` property, and
 delivers `Button.clicked` through a generated result-owned retained callback.
+It also compiles `DrawingArea.resize(sender, width, height)` through both
+backends and feeds the copied `gint` values back into generated GTK calls.
 It runs both backends against a real GTK/Xvfb event loop. It skips only when the
 required Linux x64, GTK 4, Clang, Bubblewrap, GIR, or Xvfb inputs are
 unavailable.

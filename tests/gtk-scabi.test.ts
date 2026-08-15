@@ -15,6 +15,7 @@ import {
   canonicalizeJson,
   digestScabiManifest,
 } from "@native-typescript/scabi";
+import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 import {
   generateGirClangFunctionProbe,
   generateGObjectAdapterSource,
@@ -52,6 +53,39 @@ function snapshot(signals: readonly string[] = []): GirSnapshot {
         signals,
       },
     ],
+  });
+}
+
+function scalarSignalSnapshot(): GirSnapshot {
+  const source = girSource.replace(
+    `<glib:signal name="clicked" when="first" action="1">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>`,
+    `<glib:signal name="resized" when="first">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <parameter name="width" transfer-ownership="none">
+            <type name="gint" c:type="gint"/>
+          </parameter>
+          <parameter name="scale" transfer-ownership="none">
+            <type name="gdouble" c:type="gdouble"/>
+          </parameter>
+        </parameters>
+      </glib:signal>`,
+  );
+  return ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{
+      name: "Button",
+      constructors: ["new_with_label"],
+      methods: ["get_label", "set_label"],
+      signals: ["resized"],
+    }],
   });
 }
 
@@ -385,6 +419,105 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     "gtk_signal_connection_disconnect",
     "gtk_signal_connection_release",
   ]);
+  assertDeepFrozen(generated);
+});
+
+test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
+  const generated = generateGtkScabiPackage(options(scalarSignalSnapshot()));
+  assert.match(
+    generated.declarations,
+    /onResized\(callback: \(button: Button, width: gint, scale: gdouble\) => void\): SignalConnection;/u,
+  );
+  assert.deepEqual(generated.manifest.declarations.types, {
+    gdouble: { module: ".", name: "gdouble" },
+    gint: { module: ".", name: "gint" },
+    gtk_button: { module: ".", name: "Button" },
+    gtk_signal_connection: { module: ".", name: "SignalConnection" },
+  });
+  assert.deepEqual(
+    generated.manifest.types.gtk_button_resized_callback,
+    {
+      kind: "callback",
+      signature: {
+        callingConvention: "c",
+        variadic: false,
+        parameters: [
+          {
+            name: "width",
+            type: "gint",
+            passMode: "value",
+            nullable: false,
+            ownership: { kind: "value" },
+          },
+          {
+            name: "scale",
+            type: "gdouble",
+            passMode: "value",
+            nullable: false,
+            ownership: { kind: "value" },
+          },
+        ],
+        result: {
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: { kind: "value" },
+        },
+      },
+      context: { placement: "last", type: "void_ptr" },
+    },
+  );
+  const connect = generated.manifest.bindings.gtk_button_connect_resized;
+  assert.ok(connect && connect.kind !== "constant");
+  assert.deepEqual(connect.signature.parameters[1]?.callback?.arguments, [
+    { parameter: "width", transport: "copy" },
+    { parameter: "scale", transport: "copy" },
+  ]);
+  assert.deepEqual(connect.signature.parameters[1]?.callback?.sourceArguments, [
+    { kind: "registration-owner" },
+    { kind: "callback-parameter", parameter: "width" },
+    { kind: "callback-parameter", parameter: "scale" },
+  ]);
+  const translated = translateScabiNativeProgram(generated.manifest, {
+    imports: ["gtk_button_connect_resized"],
+    exports: [],
+  });
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+  const nativeConnect = translated.input.bindings.find(
+    ({ id }) => id.endsWith("#gtk_button_connect_resized"),
+  );
+  assert.ok(nativeConnect);
+  assert.deepEqual(nativeConnect.arguments[1]?.type, {
+    kind: "func",
+    params: [
+      {
+        kind: "nativeHandle",
+        typeId: "native-typescript.gtk4@0.0.0#type:gtk_button",
+      },
+      { kind: "nativeScalar", scalar: "i32" },
+      { kind: "nativeScalar", scalar: "f64" },
+    ],
+    ret: { kind: "void" },
+  });
+  assert.deepEqual(nativeConnect.arguments[1]?.callback, {
+    lifetime: "until-cancelled",
+    registrationOwner: { kind: "argument", argument: 0 },
+    cancellationBinding:
+      "native-typescript.gtk4@0.0.0#gtk_signal_connection_disconnect",
+    allowedInvocationExecutors: ["same-as-caller"],
+    deliveryExecutor: "runtime-owner",
+    synchronousReturn: false,
+    transports: [{ kind: "copy" }, { kind: "copy" }],
+    sourceArguments: [
+      { kind: "registration-owner" },
+      { kind: "callback-parameter", parameter: 0 },
+      { kind: "callback-parameter", parameter: 1 },
+    ],
+    reentrancy: "allowed",
+    postDisposal: "not-invoked",
+    shutdown: "drain",
+  });
   assertDeepFrozen(generated);
 });
 
