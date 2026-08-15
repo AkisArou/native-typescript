@@ -39,6 +39,7 @@ NTS_SCABI_EXPORT double nts_f64_identity(double value);
 
 NTS_SCABI_EXPORT NtsPadded nts_padded_roundtrip(NtsPadded value);
 NTS_SCABI_EXPORT uint64_t nts_hash_utf8(const char *data, size_t length);
+NTS_SCABI_EXPORT void nts_c_string_observe(const char *data);
 NTS_SCABI_EXPORT uint64_t nts_hash_bytes(const uint8_t *data, size_t length);
 NTS_SCABI_EXPORT uint8_t *nts_bytes_allocate(size_t length);
 NTS_SCABI_EXPORT void nts_bytes_free(uint8_t *data);
@@ -65,6 +66,8 @@ NTS_SCABI_EXPORT int32_t nts_counter_add(
     NtsCounter *counter,
     int32_t delta);
 NTS_SCABI_EXPORT int32_t nts_counter_value(NtsCounter *counter);
+NTS_SCABI_EXPORT const char *nts_counter_label(NtsCounter *counter);
+NTS_SCABI_EXPORT const char *nts_counter_required_label(NtsCounter *counter);
 NTS_SCABI_EXPORT void nts_counter_destroy(NtsCounter *counter);
 NTS_SCABI_EXPORT int32_t nts_counter_destroyed_count(void);
 NTS_SCABI_EXPORT int32_t nts_counter_verify(

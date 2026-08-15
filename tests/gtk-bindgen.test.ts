@@ -221,7 +221,11 @@ test(
         symbol: "nts_gobject_adopt_gtk_button_new_with_label",
       });
       const translated = translateScabiNativeProgram(generated.manifest, {
-        imports: ["gtk_button_new_with_label", "gtk_button_set_label"],
+        imports: [
+          "gtk_button_get_label",
+          "gtk_button_new_with_label",
+          "gtk_button_set_label",
+        ],
         exports: [],
       });
       assert.equal(translated.ok, true);
@@ -236,6 +240,24 @@ test(
           ?.parameters[0]?.projection,
         { kind: "utf8CString", argument: 0 },
       );
+      const getter = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_button_get_label",
+      );
+      assert.deepEqual(getter?.result, {
+        type: {
+          kind: "nativePointer",
+          pointee: "i8",
+          const: true,
+          addressSpace: 0,
+        },
+        passMode: "pointer",
+        ownership: {
+          kind: "borrowed",
+          scope: "receiver",
+          anchor: "button",
+        },
+        projection: { kind: "utf8CString", nullable: true },
+      });
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }

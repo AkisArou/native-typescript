@@ -47,6 +47,8 @@ int main(void) {
   const char text[] = "native\0typescript";
   const uint8_t bytes[] = {0x6e, 0x61, 0x74, 0x69, 0x76, 0x65};
   assert(nts_hash_utf8(text, sizeof(text) - 1) != 0);
+  nts_c_string_observe("native");
+  nts_c_string_observe("done");
   assert(nts_hash_bytes(bytes, sizeof(bytes)) != 0);
 
   uint8_t *allocation = nts_bytes_allocate(16);
@@ -78,6 +80,17 @@ int main(void) {
   nts_subscription_destroy(subscription);
   pthread_cond_destroy(&state.changed);
   pthread_mutex_destroy(&state.mutex);
+
+  NtsCounter *labelled = nts_counter_create(42);
+  NtsCounter *unlabelled = nts_counter_create(0);
+  assert(labelled != NULL);
+  assert(unlabelled != NULL);
+  assert(strcmp(nts_counter_label(labelled), "native \xE2\x9C\x93") == 0);
+  assert(strcmp(nts_counter_required_label(labelled), "native \xE2\x9C\x93") == 0);
+  assert(nts_counter_label(unlabelled) == NULL);
+  nts_counter_destroy(labelled);
+  nts_counter_destroy(unlabelled);
+  assert(nts_counter_destroyed_count() == 2);
 
   errno = 0;
   assert(nts_fail_errno(EINVAL) == -1);

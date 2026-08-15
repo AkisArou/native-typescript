@@ -215,6 +215,13 @@ ordinary compiler-generated unwinding. Physical foreign-pointer, callback, and
 context types are ABI-only and are not members of the TypeScript/language-IR
 value model.
 
+Results make the logical/physical separation explicit too. Direct results
+preserve their exact native value type. A borrowed C-string result instead
+records a physical const pointer, a named receiver lifetime anchor, and a UTF-8
+projection to logical `string` or `string | null`. Both backends copy the bytes
+before releasing logical arguments, so no foreign pointer becomes a TypeScript
+value.
+
 Target independence does not mean target facts are implicit. A module that
 reaches target-dependent Native IR records the validated ABI facts needed to
 interpret generic operations. For example, `isize` and `usize` remain distinct

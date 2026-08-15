@@ -146,7 +146,12 @@ one source string evaluated once and projected without copying into const data
 and byte-length ABI slots; Unicode and embedded NUL behavior passes both
 backends. Conventional C strings use a separate one-pointer projection over
 the runtime's existing trailing NUL and throw before native entry on an
-embedded NUL; normal and rejection paths pass C and LLVM. Borrowed `Uint8Array`
+embedded NUL; normal and rejection paths pass C and LLVM. The reverse borrowed
+C-string boundary is distinct from the physical pointer result: ScriptC copies
+a checked receiver-anchored `const char *` into managed UTF-8 storage before
+releasing the receiver and preserves declared `string | null` nullability.
+Temporary-receiver lifetime and null behavior pass C, LLVM, and the sanitizer
+gate. Borrowed `Uint8Array`
 input follows the same logical-to-physical
 projection path without copying. Exact view offsets and lengths, live
 backing-store mutation, single evaluation, and prompt post-call release pass
@@ -219,7 +224,10 @@ canonical TypeScript declarations and a validated SCABI package for managed
 the implemented handle/void/NUL-terminated UTF-8 algebra fails generation.
 Record layout, broader type/result lowering, and GObject identity and
 weak-reference policy are still required before this replaces the hand-authored
-application fixture. Selected constructors now also generate a
+application fixture. The generated nullable label getter now translates into
+the executable borrowed C-string result projection; replacing the fixture still
+requires wiring the generated package into the GTK application build. Selected
+constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one
 strong, non-floating reference, the object is compiled through the artifact
 graph, and a real GTK weak-finalization gate proves exact release. The first

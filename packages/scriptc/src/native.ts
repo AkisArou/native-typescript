@@ -124,8 +124,17 @@ export type ScriptCNativeParameterProjection =
   | { readonly kind: "callbackFunction"; readonly argument: number }
   | { readonly kind: "callbackContext"; readonly argument: number };
 
+export type ScriptCNativeResultProjection =
+  | { readonly kind: "direct" }
+  | { readonly kind: "utf8CString"; readonly nullable: boolean };
+
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
+  | { readonly kind: "void" };
+
+export type ScriptCNativeResultAbiType =
+  | ScriptCNativeValueType
+  | ScriptCNativePointerType
   | { readonly kind: "void" };
 
 export type ScriptCNativeErrorContract =
@@ -205,15 +214,21 @@ export interface ScriptCNativeBinding {
     readonly projection: ScriptCNativeParameterProjection;
   }[];
   readonly result: {
-    readonly type: ScriptCNativeIrType;
+    readonly type: ScriptCNativeResultAbiType;
     readonly passMode: "value" | "pointer";
     readonly ownership:
       | { readonly kind: "value" }
+      | {
+          readonly kind: "borrowed";
+          readonly scope: "receiver";
+          readonly anchor: string;
+        }
       | {
           readonly kind: "owned";
           readonly transfer: "to-runtime";
           readonly destructor: string;
         };
+    readonly projection: ScriptCNativeResultProjection;
   };
 }
 
@@ -346,6 +361,71 @@ type BorrowedDataParameterPair = {
   readonly kind: "utf8-c-string";
   readonly pointee: "i8" | "u8";
 };
+
+type BorrowedStringResult = {
+  readonly pointee: "i8" | "u8";
+  readonly nullable: boolean;
+  readonly anchor: string;
+};
+
+function supportedBorrowedStringResult(
+  manifest: ScabiManifest,
+  binding: CallableBinding,
+): BorrowedStringResult | string {
+  const result = binding.signature.result;
+  const marshal = result.marshal;
+  const pointer = manifest.types[result.type];
+  const pointee = pointer?.kind === "pointer"
+    ? manifest.types[pointer.pointee]
+    : undefined;
+  if (
+    marshal?.kind !== "string" ||
+    marshal.encoding !== "utf-8" ||
+    marshal.length.kind !== "nul" ||
+    marshal.termination !== "nul" ||
+    marshal.embeddedNul !== "reject"
+  ) {
+    return "only borrowed NUL-terminated UTF-8 string results are supported";
+  }
+  if (
+    result.passMode !== "pointer" ||
+    result.ownership.kind !== "borrowed" ||
+    result.ownership.scope !== "receiver" ||
+    result.ownership.anchor === undefined ||
+    pointer?.kind !== "pointer" ||
+    pointer.mutability !== "const" ||
+    pointer.nullable !== result.nullable ||
+    pointer.addressSpace !== 0 ||
+    pointee?.kind !== "integer" ||
+    pointee.bits !== 8
+  ) {
+    return "UTF-8 results must be const i8/u8 pointers borrowed from a named receiver with matching nullability";
+  }
+  const anchorName = result.ownership.anchor;
+  const anchor = binding.signature.parameters.find(
+    (parameter) => parameter.name === anchorName,
+  );
+  if (
+    binding.kind !== "method" ||
+    binding.signature.parameters[0]?.name !== anchorName ||
+    anchor === undefined ||
+    manifest.types[anchor.type]?.kind !== "handle" ||
+    anchor.passMode !== "pointer" ||
+    anchor.nullable ||
+    anchor.ownership.kind !== "borrowed" ||
+    anchor.ownership.scope !== "call"
+  ) {
+    return `UTF-8 result anchor '${anchorName}' must name the borrowed handle receiver`;
+  }
+  if (binding.error.kind !== "no-fail") {
+    return "borrowed UTF-8 results require a no-fail contract; nullability is a source value";
+  }
+  return {
+    pointee: pointee.signed ? "i8" : "u8",
+    nullable: result.nullable,
+    anchor: anchorName,
+  };
+}
 
 type SupportedCallbackPair = {
   readonly functionIndex: number;
@@ -1372,21 +1452,61 @@ export function translateScabiNativeProgram(
     }
 
     const resultPath = `${path}/signature/result`;
-    const unsupportedResult = positionUnsupported(
-      binding.signature.result,
-      false,
-      manifest.types[binding.signature.result.type],
-      binding.error.kind === "nullable",
-    );
-    if (unsupportedResult !== null) {
-      diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
-      valid = false;
+    let resultType: ScriptCNativeBinding["result"]["type"] | null = null;
+    let resultOwnership: ScriptCNativeBinding["result"]["ownership"] | null = null;
+    let resultProjection: ScriptCNativeResultProjection | null = null;
+    if (binding.signature.result.marshal?.kind === "string") {
+      const borrowed = supportedBorrowedStringResult(manifest, binding);
+      if (typeof borrowed === "string") {
+        diagnostics.push(diagnostic("NTS3002", resultPath, borrowed));
+        valid = false;
+      } else {
+        resultType = Object.freeze({
+          kind: "nativePointer",
+          pointee: borrowed.pointee,
+          const: true,
+          addressSpace: 0,
+        });
+        resultOwnership = Object.freeze({
+          kind: "borrowed",
+          scope: "receiver",
+          anchor: borrowed.anchor,
+        });
+        resultProjection = Object.freeze({
+          kind: "utf8CString",
+          nullable: borrowed.nullable,
+        });
+      }
+    } else {
+      const unsupportedResult = positionUnsupported(
+        binding.signature.result,
+        false,
+        manifest.types[binding.signature.result.type],
+        binding.error.kind === "nullable",
+      );
+      if (unsupportedResult !== null) {
+        diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
+        valid = false;
+      }
+      resultType = lowerType(
+        binding.signature.result.type,
+        `${resultPath}/type`,
+      );
+      if (resultType === null) {
+        valid = false;
+      } else {
+        resultOwnership =
+          binding.signature.result.ownership.kind === "owned" &&
+            binding.signature.result.ownership.transfer === "to-runtime"
+          ? Object.freeze({
+              kind: "owned",
+              transfer: "to-runtime",
+              destructor: `${manifest.package.instance}#${binding.signature.result.ownership.destructor}`,
+            } as const)
+          : Object.freeze({ kind: "value" } as const);
+        resultProjection = Object.freeze({ kind: "direct" });
+      }
     }
-    const resultType = lowerType(
-      binding.signature.result.type,
-      `${resultPath}/type`,
-    );
-    if (resultType === null) valid = false;
     if (binding.error.kind === "errno") {
       const nativeResult = manifest.types[binding.signature.result.type];
       if (
@@ -1443,7 +1563,12 @@ export function translateScabiNativeProgram(
         valid = false;
       }
     }
-    if (!valid || resultType === null) continue;
+    if (
+      !valid ||
+      resultType === null ||
+      resultOwnership === null ||
+      resultProjection === null
+    ) continue;
 
     for (const id of binding.dependencies.linkInputs) linkInputIds.add(id);
     for (const id of binding.dependencies.adapterInputs) adapterInputIds.add(id);
@@ -1470,15 +1595,8 @@ export function translateScabiNativeProgram(
         result: Object.freeze({
           type: resultType,
           passMode: binding.signature.result.passMode as "value" | "pointer",
-          ownership:
-            binding.signature.result.ownership.kind === "owned" &&
-              binding.signature.result.ownership.transfer === "to-runtime"
-            ? Object.freeze({
-                kind: "owned",
-                transfer: "to-runtime",
-                destructor: `${manifest.package.instance}#${binding.signature.result.ownership.destructor}`,
-              } as const)
-            : Object.freeze({ kind: "value" } as const),
+          ownership: resultOwnership,
+          projection: resultProjection,
         }),
       }),
     );

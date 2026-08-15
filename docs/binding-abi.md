@@ -468,6 +468,13 @@ Both C and LLVM pass the normal and rejection paths. Import bindings whose
 entry is an adapter symbol retain the exact adapter input in the translated
 build requirements while lowering the callable entry to the same C-symbol
 Native IR operation.
+Borrowed C-string results use the inverse but intentionally non-zero-copy
+contract. Their physical const pointer stays anchored to a borrowed handle
+receiver, while the logical result is `string` or `string | null`. ScriptC
+copies the bytes into managed storage before releasing a temporary receiver;
+both backends verify the surviving string and null branch. The generated
+`Gtk.Button.getLabel()` binding is the first real package surface translated
+through this result projection.
 Its borrowed-byte binding proves the parallel `Uint8Array` contract: an exact
 offset view and its byte length reach native code without copying, mutation of
 the shared backing store is visible before the call, and temporary view/owner

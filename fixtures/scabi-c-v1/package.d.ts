@@ -38,6 +38,8 @@ export interface Subscription {
 export interface Counter {
   readonly [nativeResource]: "Counter";
   add(delta: i32): i32;
+  label(): string | null;
+  requiredLabel(): string;
   value(): i32;
   dispose(): void;
 }
@@ -55,6 +57,7 @@ export declare function f32Identity(value: f32): f32;
 export declare function f64Identity(value: f64): f64;
 export declare function paddedRoundtrip(value: Padded): Padded;
 export declare function hashUtf8(value: string): u64;
+export declare function cStringObserve(value: string): void;
 export declare function hashBytes(value: Uint8Array): u64;
 export declare function allocateBytes(length: usize): OwnedBytes;
 export declare function callScoped(

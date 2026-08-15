@@ -85,8 +85,8 @@ The fixture remains the cross-backend and sanitizer regression suite.
 ### Current implementation boundary
 
 The permanent fixture and Native IR path currently cover exact integers,
-indirect padded structs, borrowed UTF-8 spans and checked NUL-terminated C
-strings, byte views, owned owner-confined
+indirect padded structs, borrowed UTF-8 spans, checked NUL-terminated C-string
+inputs, receiver-borrowed nullable C-string results, byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. Exact integer `errno` sentinels now snapshot the calling
 thread's error before cleanup and become operation-qualified catchable errors.
@@ -199,6 +199,12 @@ TypeScript declarations and validated SCABI for the narrow managed-handle,
 rather than direct C function candidates. Aggregate layout evidence, broader
 type/result lowering, and GObject identity, weak-handle, and invalidation policy
 remain before all selected metadata can drive application compilation.
+
+The generated nullable label getter now reaches ScriptC's C and LLVM result
+projection: its receiver-borrowed pointer is copied before handle release and
+becomes `string | null`. The next GTK integration step is to make the generated
+package, rather than the hand-authored fixture, the application compilation
+input.
 
 The first GObject ownership policy is now executable rather than documentary.
 Selected constructors generate content-addressed C adapters that normalize GIR

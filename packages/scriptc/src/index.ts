@@ -15,6 +15,8 @@ export {
   type ScriptCNativeParameterProjection,
   type ScriptCNativePointerType,
   type ScriptCNativeProgramSelection,
+  type ScriptCNativeResultProjection,
+  type ScriptCNativeResultAbiType,
   type ScriptCNativeScalar,
   type ScriptCNativeSourceType,
   type ScriptCNativeStructDefinition,

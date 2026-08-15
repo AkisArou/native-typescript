@@ -74,6 +74,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
           type: { kind: "nativeScalar", scalar: "i32" },
           passMode: "value",
           ownership: { kind: "value" },
+          projection: { kind: "direct" },
         },
       },
     ],
@@ -278,6 +279,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
         type: { kind: "nativeScalar", scalar: "u64" },
         passMode: "value",
         ownership: { kind: "value" },
+        projection: { kind: "direct" },
       },
     },
   ]);
@@ -320,6 +322,61 @@ test("SCABI projects a checked NUL-terminated UTF-8 string into one C pointer", 
       projection: { kind: "utf8CString", argument: 0 },
     },
   ]);
+});
+
+test("SCABI projects receiver-borrowed C-string results with exact nullability", () => {
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["counter_label", "counter_required_label"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const projections = Object.fromEntries(
+    result.input.bindings.map((binding) => [binding.declaration.name, binding.result]),
+  );
+  const physical = {
+    kind: "nativePointer",
+    pointee: "i8",
+    const: true,
+    addressSpace: 0,
+  } as const;
+  const ownership = {
+    kind: "borrowed",
+    scope: "receiver",
+    anchor: "counter",
+  } as const;
+  assert.deepEqual(projections["Counter.label"], {
+    type: physical,
+    passMode: "pointer",
+    ownership,
+    projection: { kind: "utf8CString", nullable: true },
+  });
+  assert.deepEqual(projections["Counter.requiredLabel"], {
+    type: physical,
+    passMode: "pointer",
+    ownership,
+    projection: { kind: "utf8CString", nullable: false },
+  });
+});
+
+test("SCABI refuses a C-string result not anchored to its receiver", () => {
+  const invalid = structuredClone(manifest);
+  const binding = invalid.bindings.counter_label;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.signature.result.ownership, { anchor: "missing" });
+
+  const result = translateScabiNativeProgram(
+    invalid,
+    selectImports(["counter_label"]),
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(
+    result.diagnostics.map(({ code, path }) => ({ code, path })),
+    [{ code: "NTS3002", path: "/bindings/counter_label/signature/result" }],
+  );
 });
 
 test("SCABI adapter-symbol imports retain their generated adapter dependency", () => {
@@ -406,6 +463,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
         type: { kind: "nativeScalar", scalar: "u64" },
         passMode: "value",
         ownership: { kind: "value" },
+        projection: { kind: "direct" },
       },
     },
   ]);
@@ -510,6 +568,7 @@ test("SCABI projects one call-scoped callback into function and context slots", 
         type: i32,
         passMode: "value",
         ownership: { kind: "value" },
+        projection: { kind: "direct" },
       },
     },
   ]);
@@ -597,6 +656,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
         transfer: "to-runtime",
         destructor: `${instance}#subscription_destroy`,
       },
+      projection: { kind: "direct" },
     },
   });
   assert.deepEqual(
@@ -694,6 +754,7 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
         type: { kind: "nativeScalar", scalar: "i32" },
         passMode: "value",
         ownership: { kind: "value" },
+        projection: { kind: "direct" },
       },
     },
   ]);
@@ -751,7 +812,12 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     sourceCall: { kind: "function" },
     error: { kind: "no-fail" },
     ...directSignature([{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }]),
-    result: { type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } },
+    result: {
+      type: { kind: "nativeStruct", typeId },
+      passMode: "value",
+      ownership: { kind: "value" },
+      projection: { kind: "direct" },
+    },
   });
 });
 
@@ -806,6 +872,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
         transfer: "to-runtime",
         destructor: `${instance}#counter_destroy`,
       },
+      projection: { kind: "direct" },
     },
   });
   assert.deepEqual(result.input.bindings[1], {
@@ -831,6 +898,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       type: { kind: "void" },
       passMode: "value",
       ownership: { kind: "value" },
+      projection: { kind: "direct" },
     },
   });
   assert.deepEqual(result.linkInputIds, []);

@@ -195,6 +195,15 @@ foreign pointer exists only during lowering and is never a TypeScript-visible
 value. Mutable strings, transcoding, and retained pointers remain outside this
 slice.
 
+A borrowed NUL-terminated result uses a separate result projection because its
+physical ABI type is `const i8 *`/`const u8 *` while its logical TypeScript type
+is `string` or `string | null`. The implemented contract must be anchored to the
+method's non-null borrowed native-handle receiver and must use the `no-fail`
+error convention; declared pointer and source nullability must agree. Both
+backends copy the C bytes into managed UTF-8 storage before releasing the
+receiver. The foreign pointer therefore cannot escape, while the returned
+TypeScript string remains valid after a temporary receiver is destroyed.
+
 ## Borrowed byte views
 
 A reached SCABI byte-marshalling contract may borrow a `Uint8Array` for one

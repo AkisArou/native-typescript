@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct NtsSubscription {
   pthread_mutex_t mutex;
@@ -50,6 +51,12 @@ static uint64_t nts_hash(const uint8_t *data, size_t length) {
 
 uint64_t nts_hash_utf8(const char *data, size_t length) {
   return nts_hash((const uint8_t *)data, length);
+}
+
+void nts_c_string_observe(const char *data) {
+  if (strcmp(data, "native") != 0 && strcmp(data, "done") != 0) {
+    abort();
+  }
 }
 
 uint64_t nts_hash_bytes(const uint8_t *data, size_t length) {
@@ -221,6 +228,14 @@ int32_t nts_counter_add(NtsCounter *counter, int32_t delta) {
 }
 
 int32_t nts_counter_value(NtsCounter *counter) { return counter->value; }
+
+const char *nts_counter_label(NtsCounter *counter) {
+  return counter->value == 42 ? "native \xE2\x9C\x93" : NULL;
+}
+
+const char *nts_counter_required_label(NtsCounter *counter) {
+  return nts_counter_label(counter);
+}
 
 void nts_counter_destroy(NtsCounter *counter) {
   nts_counter_destroyed += 1;
