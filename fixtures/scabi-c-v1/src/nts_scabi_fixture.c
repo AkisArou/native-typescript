@@ -57,6 +57,19 @@ NtsPair32 nts_pair32_transform(NtsPair32 value) {
   return result;
 }
 
+NtsNestedPair32 nts_nested_pair32_transform(NtsNestedPair32 value) {
+  if (value.left.first != 40 || value.left.second != 2 ||
+      value.right.first != 3 || value.right.second != 4 || value.marker != 9) {
+    abort();
+  }
+  NtsNestedPair32 result = {
+    value.right,
+    {value.left.second, value.left.first + 2},
+    value.marker + 1,
+  };
+  return result;
+}
+
 static uint64_t nts_hash(const uint8_t *data, size_t length) {
   uint64_t hash = UINT64_C(14695981039346656037);
   for (size_t index = 0; index < length; index += 1) {

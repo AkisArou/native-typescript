@@ -1046,6 +1046,28 @@ test("SCABI preserves a target-Clang direct-register aggregate signature", () =>
   );
 });
 
+test("SCABI closes nested nominal aggregate definitions transitively", () => {
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["nested_pair32_transform"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const pairId = `${instance}#type:pair32`;
+  const nestedId = `${instance}#type:nested_pair32`;
+  assert.deepEqual(result.input.types.map(({ id }) => id), [pairId, nestedId]);
+  const nested = result.input.types[1];
+  assert.equal(nested?.kind, "struct");
+  if (nested?.kind !== "struct") return;
+  assert.deepEqual(nested.fields, [
+    { name: "left", type: { kind: "nativeStruct", typeId: pairId }, offset: 0 },
+    { name: "right", type: { kind: "nativeStruct", typeId: pairId }, offset: 8 },
+    { name: "marker", type: { kind: "nativeScalar", scalar: "i64" }, offset: 16 },
+  ]);
+});
+
 test("SCABI closes owned handle factories over their exact destructor", () => {
   const result = translateScabiNativeProgram(manifest, selectImports(["counter_create"]));
   assert.equal(result.ok, true);

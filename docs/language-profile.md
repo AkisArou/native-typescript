@@ -179,15 +179,16 @@ Explicit copy/conversion functions bridge native aggregates and ordinary
 records when useful.
 
 The implemented first slice supports nominal, default-packed, trivially
-copyable structs with exact scalar fields and authoritative target-Clang ABI
-signatures. Direct register coercion, expansion into multiple physical values,
+copyable structs with exact scalar or nested nominal struct fields and
+authoritative target-Clang ABI signatures. Direct register coercion, expansion into multiple physical values,
 plain indirect input, `byval`, and `sret` lower through the C and LLVM backends
 without compiler-side size heuristics. Its direct object-literal assertion is a
 compile-time representation constructor: every field must be present exactly
 once and already be an exact native value. It does not accept an arbitrary object or preserve object
 identity. Native field reads are statically typed and lower directly from the
-nominal value. Field writes, nested aggregates, unions, and non-trivial
-ownership remain outside this slice.
+nominal value. Nested definitions close transitively and lower in dependency
+order without flattening nominal field identity. Field writes, unions, and
+non-trivial ownership remain outside this slice.
 
 ## Borrowed UTF-8 strings
 

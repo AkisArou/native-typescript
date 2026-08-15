@@ -17,8 +17,8 @@ header provenance digests, compare aggregate layout with the C compiler, and
 compile/run the fixture with strict C11 diagnostics.
 
 The cross-repository ScriptC gate translates and executes the fixture through
-both C and LLVM. It covers exact scalars and native boolean results, direct and
-indirect aggregate ABI passing, borrowed strings and bytes, a three-level identity handle
+both C and LLVM. It covers exact scalars and native boolean results, direct,
+indirect, and nested nominal aggregate ABI passing, borrowed strings and bytes, a three-level identity handle
 hierarchy, synchronous callbacks, retained same/foreign-thread callbacks,
 native errors, and exact destruction under ordinary and sanitizer/reference-
 count lanes.

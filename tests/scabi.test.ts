@@ -84,7 +84,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:c6ca0249316ff439aef499c028a99390339072e5dcb147ac414ebb155f029e8a",
+    "sha256:d613f504247ba0b488d62896f59dbe93df6f4e83ed0a70178f9e433d780768ae",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -258,6 +258,49 @@ test("SCABI rejects a layout that omits required tail storage", () => {
   };
 
   assert.deepEqual(validationCodes(invalid), ["NTS2020"]);
+});
+
+test("SCABI enforces nested aggregate field alignment", () => {
+  const nested = manifest.types.nested_pair32;
+  assert.equal(nested?.kind, "struct");
+  if (nested?.kind !== "struct") return;
+  const invalid = {
+    ...manifest,
+    types: {
+      ...manifest.types,
+      nested_pair32: {
+        ...nested,
+        fields: [
+          { ...nested.fields[0]!, offset: 1 },
+          ...nested.fields.slice(1),
+        ],
+      },
+    },
+  };
+  assert.deepEqual(validationCodes(invalid), ["NTS2020", "NTS2020"]);
+});
+
+test("SCABI applies explicit packing to field alignment", () => {
+  const pair = manifest.types.pair32;
+  assert.equal(pair?.kind, "struct");
+  if (pair?.kind !== "struct") return;
+  const packed = {
+    ...manifest,
+    types: {
+      ...manifest.types,
+      packed_pair32: {
+        ...pair,
+        size: 9,
+        alignment: 1,
+        packing: 1,
+        fields: pair.fields.map((field, index) => ({
+          ...field,
+          offset: index === 0 ? 1 : 5,
+        })),
+      },
+    },
+  };
+  assert.equal(validateScabiManifest(packed).ok, true);
 });
 
 test("SCABI rejects a void aggregate result without leading structure-return storage", () => {

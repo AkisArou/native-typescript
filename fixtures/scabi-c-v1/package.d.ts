@@ -30,6 +30,12 @@ export interface Pair32 {
   readonly second: i32;
 }
 
+export interface NestedPair32 {
+  readonly left: Pair32;
+  readonly right: Pair32;
+  readonly marker: i64;
+}
+
 export interface OwnedBytes {
   readonly [nativeResource]: "OwnedBytes";
   dispose(): void;
@@ -76,6 +82,7 @@ export declare function nativeNot(value: boolean): boolean;
 export declare function nativeTrue(): boolean;
 export declare function paddedRoundtrip(value: Padded): Padded;
 export declare function pair32Transform(value: Pair32): Pair32;
+export declare function nestedPair32Transform(value: NestedPair32): NestedPair32;
 export declare function hashUtf8(value: string): u64;
 export declare function cStringObserve(value: string): void;
 export declare function hashBytes(value: Uint8Array): u64;

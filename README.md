@@ -359,14 +359,14 @@ already carrying that native type; pointer-sized ranges come from SCABI target
 metadata and are checked against the selected backend. This does not claim
 general JavaScript BigInt support. The same permanent path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
-and whose SCABI metadata carries target Clang's complete physical calling
-signature. Direct registers, expanded parameters, ordinary indirect pointers,
+or nested nominal native structs and whose SCABI metadata carries target
+Clang's complete physical calling signature. Direct registers, expanded parameters, ordinary indirect pointers,
 `byval`, and `sret` lower without platform size heuristics. A direct
 object-literal assertion constructs aggregate storage without reinterpreting a
 JavaScript object; C verifies size, alignment, and offsets at compile time, while
 LLVM emits the target's recorded physical signature. Direct-`i64`, expanded
-two-`double`, and padded indirect fixtures pass through both backends, including
-statically typed field reads from returned values. GTK generation now exposes
+two-`double`, padded indirect, and nested nominal fixtures pass through both
+backends, including statically typed field reads from returned values. GTK generation now exposes
 the Clang-proven `Requisition` layout and direct classification as a public
 nominal declaration and SCABI type. Owned, owner-confined opaque handles now use
 a runtime-private managed

@@ -360,6 +360,50 @@ function typeSize(
   }
 }
 
+function typeAlignment(
+  manifest: ScabiManifest,
+  typeId: NativeTypeId,
+  active = new Set<NativeTypeId>(),
+): number | undefined {
+  if (active.has(typeId)) return undefined;
+  const type = manifest.types[typeId];
+  if (type === undefined) return undefined;
+  active.add(typeId);
+  try {
+    switch (type.kind) {
+      case "void":
+        return undefined;
+      case "integer":
+        return type.bits === "pointer" ? manifest.target.pointerWidth / 8 : type.bits / 8;
+      case "float":
+        return type.bits / 8;
+      case "boolean":
+        return typeAlignment(manifest, type.storage, active);
+      case "enum":
+      case "flags":
+        return typeAlignment(manifest, type.underlying, active);
+      case "pointer":
+      case "callback":
+      case "handle":
+      case "platform-object":
+        return manifest.target.pointerWidth / 8;
+      case "array":
+        return typeAlignment(manifest, type.element, active);
+      case "slice":
+        return Math.max(
+          typeAlignment(manifest, type.pointerType, active) ?? 0,
+          typeAlignment(manifest, type.lengthType, active) ?? 0,
+        ) || undefined;
+      case "struct":
+      case "union":
+      case "opaque-value":
+        return type.alignment;
+    }
+  } finally {
+    active.delete(typeId);
+  }
+}
+
 function validateLayout(
   id: string,
   layout: NativeLayout,
@@ -588,11 +632,19 @@ function validateTypes(
           }
           fieldNames.add(field.name);
           const fieldSize = typeSize(manifest, field.type);
+          const fieldAlignment = typeAlignment(manifest, field.type);
+          const effectiveFieldAlignment = fieldAlignment === undefined
+            ? undefined
+            : type.packing === "default"
+              ? fieldAlignment
+              : Math.min(fieldAlignment, type.packing);
           if (
             !Number.isSafeInteger(field.offset) ||
             fieldSize === undefined ||
+            effectiveFieldAlignment === undefined ||
             type.size === 0 ||
-            field.offset + fieldSize > type.size
+            field.offset + fieldSize > type.size ||
+            field.offset % effectiveFieldAlignment !== 0
           ) {
             diagnostics.push(
               diagnostic(

@@ -54,6 +54,16 @@ int main(void) {
   assert(transformed.first == 2);
   assert(transformed.second == 42);
 
+  NtsNestedPair32 nested = {
+    .left = {.first = 40, .second = 2},
+    .right = {.first = 3, .second = 4},
+    .marker = 9,
+  };
+  NtsNestedPair32 nested_output = nts_nested_pair32_transform(nested);
+  assert(nested_output.left.first == 3);
+  assert(nested_output.right.second == 42);
+  assert(nested_output.marker == 10);
+
   const char text[] = "native\0typescript";
   const uint8_t bytes[] = {0x6e, 0x61, 0x74, 0x69, 0x76, 0x65};
   assert(nts_hash_utf8(text, sizeof(text) - 1) != 0);

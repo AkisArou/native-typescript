@@ -278,6 +278,11 @@ A by-value aggregate records:
 - whether the value is trivially copyable;
 - destruction requirements.
 
+Struct fields may name exact scalar types or other nominal structs. Reached
+definitions close transitively, every nested field is validated against the
+referenced type's authoritative alignment, and backends retain the nested
+nominal identity rather than flattening it into a compiler-invented layout.
+
 The generator computes layout using the authoritative platform compiler or
 metadata system. The Native TypeScript compiler verifies internal consistency
 but does not recreate target ABI layout heuristics from declarations.
@@ -295,7 +300,7 @@ apply that contract. The LLVM backend explicitly reinterprets logical aggregate
 storage into the recorded direct or expanded values, supplies copied indirect
 storage where required, and reconstructs logical results from direct values or
 hidden result storage. Direct `i64`, expanded two-`double`, and indirect
-`byval`/`sret` fixtures run through both backends.
+`byval`/`sret` and nested nominal fixtures run through both backends.
 
 For C and Objective-C headers, the authoritative generator uses Clang AST and
 target layout information. Text parsing is not an accepted ABI source.

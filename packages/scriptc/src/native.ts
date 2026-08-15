@@ -235,7 +235,9 @@ export interface ScriptCNativeStructDefinition {
   };
   readonly fields: readonly {
     readonly name: string;
-    readonly type: { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar };
+    readonly type:
+      | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
+      | { readonly kind: "nativeStruct"; readonly typeId: string };
     readonly offset: number;
   }[];
 }
@@ -1490,10 +1492,15 @@ export function translateScabiNativeProgram(
         continue;
       }
       const fieldType = lowerType(field.type, `${path}/fields/${index}/type`);
-      if (fieldType === null || fieldType.kind !== "nativeScalar") {
-        if (fieldType !== null) {
-          diagnostics.push(diagnostic("NTS3002", `${path}/fields/${index}/type`, "Nested native aggregates are not supported yet"));
-        }
+      if (
+        fieldType === null ||
+        (fieldType.kind !== "nativeScalar" && fieldType.kind !== "nativeStruct")
+      ) {
+        if (fieldType !== null) diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/fields/${index}/type`,
+          "Native struct fields must be exact scalars or nested native structs",
+        ));
         valid = false;
         continue;
       }
