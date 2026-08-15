@@ -145,6 +145,15 @@ selected evidence participates in binding identity. This verifies function
 signatures, not aggregate layout, calling-convention classification, or SCABI
 generation.
 
+Selected GObject constructors also produce a generated ownership adapter after
+their direct C signature has been accepted. GIR supplies the explicit `none` or
+`full` result-transfer fact; the adapter queries actual floating state when
+required and presents exactly one strong, non-floating reference to the future
+managed-handle projection. Its C source and object are declared artifact-graph
+nodes. This is constructor ownership normalization only: it does not yet emit
+the SCABI binding, unify repeated native identity, or generate method and signal
+adapters.
+
 ## Native type algebra
 
 Every type is a tagged value. Core SCABI v1 supports:

@@ -192,8 +192,17 @@ The selected `Gtk.Button` constructor and label getter/setter now also become a
 structured C probe and pass exact compatibility assertions against the installed
 GTK headers inside the sandboxed artifact graph. Signals remain semantic GIR
 metadata rather than direct C function candidates. Aggregate layout evidence,
-GIR-to-SCABI/declaration generation, and GObject policy remain required before
-the metadata can drive application compilation.
+GIR-to-SCABI/declaration generation, and broader GObject identity, weak-handle,
+and invalidation policy remain before the metadata can drive application
+compilation.
+
+The first GObject ownership policy is now executable rather than documentary.
+Selected constructors generate content-addressed C adapters that normalize GIR
+`none` and `full` results into one strong, non-floating reference, and their
+objects are planned through the artifact graph. A real GTK gate observes a
+non-floating button and exact weak finalization after the generated release.
+General identity-map reuse, weak handles, native invalidation, and connecting
+these adapters to generated SCABI declarations remain.
 
 A permanent narrow fixture now compiles through both C and LLVM into a native
 GTK executable, creates a real window and button, delivers the button signal to
@@ -205,7 +214,7 @@ from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
 and wrapper so it proves the downstream architecture without pretending the
 generator and full product pipeline exist. GIR-to-SCABI/declaration generation,
-aggregate layout evidence, general GObject identity/floating-reference rules,
+aggregate layout evidence, general GObject identity/weak-reference rules,
 generated signal adapters, graphing compiler emission itself, enabling
 cacheability for the complete native toolchain, full application lifecycle,
 resources, CLI orchestration, and GTK packaging remain before the phase exit

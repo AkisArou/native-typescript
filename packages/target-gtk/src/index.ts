@@ -13,6 +13,10 @@ import {
 
 export { ingestGir } from "./gir.ts";
 export { generateGirClangFunctionProbe } from "./gir-clang.ts";
+export {
+  generateGObjectAdapterSource,
+  planGObjectAdapterObject,
+} from "./gobject-adapter.ts";
 export { GirIngestionError } from "./gir-model.ts";
 export type {
   GirAnnotation,
@@ -32,6 +36,11 @@ export type {
   GirTransferOwnership,
   GirTypeReference,
 } from "./gir-model.ts";
+export type {
+  GObjectAdapterSource,
+  GObjectAdapterObjectPlan,
+  GObjectConstructorAdapter,
+} from "./gobject-adapter.ts";
 
 export const glibRuntimeNative = Object.freeze({
   header: "runtime/nts_glib_runtime.h",

@@ -1,7 +1,7 @@
 # Ownership and Lifetime
 
 Status: normative  
-Last revised: 2026-08-14
+Last revised: 2026-08-15
 
 This document defines how Native TypeScript represents native resources safely
 without pretending that TypeScript has linear types.
@@ -334,6 +334,23 @@ record apartment agility or affinity. Release occurs in an allowed apartment.
 Entries handle owned, borrowed, weak, and floating references explicitly.
 Signal connection IDs are cancellation obligations associated with callback
 entries.
+
+A generated constructor adapter normalizes every non-null result crossing into
+the managed-handle boundary to exactly one strong, non-floating reference. For
+a GIR `transfer-ownership="none"` result, it calls `g_object_ref_sink`: this
+consumes a floating reference without incrementing it, or retains a borrowed
+non-floating reference. For `transfer-ownership="full"`, it sinks the result
+only when `g_object_is_floating` reports true and otherwise preserves the
+already-transferred reference. `NULL` stays `NULL`. Container-only transfer is
+not a valid object-constructor result.
+
+The resulting handle obligation is released exactly once with
+`g_object_unref` on the declared owner executor. This normalization is emitted
+as a content-addressed generated C artifact; it is not inferred in compiler
+lowering from a function name. The initial implemented slice proves floating
+normalization and weak finalization for real GTK constructors. Identity-map
+reuse, weak managed handles, native invalidation, and wiring the generated
+adapter into emitted SCABI declarations remain separate gates.
 
 ## Conformance tests
 

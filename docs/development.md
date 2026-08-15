@@ -162,7 +162,7 @@ the fork's full `tests/harness/native-ir.test.ts` suite for both backends.
 The GTK owner-loop and native-application gates are:
 
 ```sh
-node --test tests/c-bindgen.test.ts tests/gtk-bindgen.test.ts
+node --test tests/c-bindgen.test.ts tests/gtk-bindgen.test.ts tests/gobject-adapter.test.ts
 node --test tests/gir.test.ts
 node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```

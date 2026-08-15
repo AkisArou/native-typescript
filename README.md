@@ -210,8 +210,12 @@ content-addressed probe. Sandboxed Clang checks the candidate types against the
 real headers and emits selected AST evidence as a graph artifact; correct
 `Gtk.Button` constructor/getter/setter signatures pass and a deliberate const
 mismatch fails in Clang. Record layout, GIR-to-SCABI/declaration generation, and
-GObject policy are still required before this replaces the hand-authored
-fixture. The first reverse boundary is now implemented too: a SCABI
+GObject identity and weak-reference policy are still required before this
+replaces the hand-authored fixture. Selected constructors now also generate a
+content-addressed ownership adapter: GIR `none` and `full` results become one
+strong, non-floating reference, the object is compiled through the artifact
+graph, and a real GTK weak-finalization gate proves exact release. The first
+reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
 and LLVM, link into a static library, and execute from an independent C host;
