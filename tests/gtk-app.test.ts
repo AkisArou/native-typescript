@@ -216,11 +216,11 @@ test(
             methods: ["get_label", "set_label"],
             signals: ["clicked"],
           },
-          { name: "Widget", methods: ["activate", "set_visible"] },
+          { name: "Widget", methods: ["activate", "get_width", "set_visible"] },
           {
             name: "Window",
             constructors: ["new"],
-            methods: ["destroy", "present", "set_child"],
+            methods: ["destroy", "present", "set_child", "set_default_size"],
           },
         ],
       });
@@ -335,11 +335,13 @@ test(
           "gtk_button_new_with_label",
           "gtk_button_set_label",
           "gtk_widget_activate",
+          "gtk_widget_get_width",
           "gtk_widget_set_visible",
           "gtk_window_destroy",
           "gtk_window_new",
           "gtk_window_present",
           "gtk_window_set_child",
+          "gtk_window_set_default_size",
         ],
         exports: [],
       });

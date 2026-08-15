@@ -194,7 +194,9 @@ driver request, resolves compile inputs and the system-library closure from
 and final executable through sandboxed graphs, then proves
 `Window.setChild(button)` through generated handle ancestry, projects
 both representations through `Widget.setVisible(boolean)`, lowers
-`Widget.activate()` from exact `gboolean`, delivers `Button.clicked` through a
+`Widget.activate()` from exact `gboolean`, passes branded `gint` dimensions to
+`Window.setDefaultSize()`, feeds `Widget.getWidth()` into another native call,
+and delivers `Button.clicked` through a
 generated result-owned retained callback, and runs both
 backends against a real GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,
 Bubblewrap, GIR, or Xvfb inputs are unavailable.

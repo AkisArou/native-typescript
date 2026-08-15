@@ -195,7 +195,8 @@ GTK headers inside the sandboxed artifact graph. The first GTK package generator
 accepts that normalized evidence only when it matches the selected GIR snapshot,
 target, SDK, and exact regenerated GObject adapter. It emits canonical
 TypeScript declarations and validated SCABI for the narrow managed-handle,
-`void`, exact `gboolean`, NUL-terminated UTF-8, and non-detailed zero-payload
+`void`, exact `gboolean`, branded exact `gint`, NUL-terminated UTF-8, and
+non-detailed zero-payload
 signal surface. Signals remain semantic GIR metadata rather than invented direct
 C functions: the generator emits deterministic connect/disconnect adapters and
 result-owned retained-callback contracts. Aggregate layout evidence, broader
@@ -211,8 +212,9 @@ while a physical result must equal one of those representations or throw
 catchably through transitive may-throw analysis. The generated GTK package now
 enters the real application compilation: TypeScript constructs, reads, updates,
 changes visibility, activates, and disposes a real Widget/Button/Window
-hierarchy through both backends, with generated adapters linked as explicit
-artifacts.
+hierarchy through both backends. It also passes branded exact dimensions to
+`Window.setDefaultSize()` and feeds `Widget.getWidth()` into a second native
+call, with generated adapters linked as explicit artifacts.
 
 Multi-package Native IR inputs now have a first-class canonical composition
 boundary. Generated toolkit bindings and target-runtime support can enter one
@@ -250,7 +252,8 @@ GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The app now uses the generated GTK package for Window/Button
 construction, label access, Widget ancestry, presentation, activation,
-`clicked` subscription, and deterministic disposal. The remaining hand-authored
+exact size input/output, `clicked` subscription, and deterministic disposal. The
+remaining hand-authored
 fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
 widget or signal API. Aggregate layout evidence, broader generated methods and

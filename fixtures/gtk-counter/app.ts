@@ -8,6 +8,7 @@ import {
 import {
   createButtonWithLabel,
   createWindow,
+  type gint,
 } from "@native-typescript/gtk4";
 
 runtimeStart();
@@ -34,7 +35,9 @@ button.setLabel("Generated: updated");
 button.setVisible(false);
 button.setVisible(true);
 window.setChild(button);
+window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
+window.setDefaultSize(button.getWidth(), 480 as gint);
 const subscription = button.onClicked((): void => {
   const updated = button.getLabel();
   if (initial === "Generated: initial" && updated === "Generated: updated") {

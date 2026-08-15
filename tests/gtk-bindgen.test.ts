@@ -86,11 +86,11 @@ test(
           methods: ["get_label", "set_label"],
           signals: ["clicked"],
         },
-        { name: "Widget", methods: ["activate", "set_visible"] },
+        { name: "Widget", methods: ["activate", "get_width", "set_visible"] },
         {
           name: "Window",
           constructors: ["new"],
-          methods: ["destroy", "present", "set_child"],
+          methods: ["destroy", "present", "set_child", "set_default_size"],
         },
       ],
     });
@@ -100,11 +100,13 @@ test(
       "gtk_button_get_label",
       "gtk_button_set_label",
       "gtk_widget_activate",
+      "gtk_widget_get_width",
       "gtk_widget_set_visible",
       "gtk_window_new",
       "gtk_window_destroy",
       "gtk_window_present",
       "gtk_window_set_child",
+      "gtk_window_set_default_size",
     ]);
     assert.equal(probe.source.includes("clicked"), false);
 
@@ -164,11 +166,13 @@ test(
         "gtk_button_get_label",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_get_width",
         "gtk_widget_set_visible",
         "gtk_window_new",
         "gtk_window_destroy",
         "gtk_window_present",
         "gtk_window_set_child",
+        "gtk_window_set_default_size",
       ]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 
@@ -182,11 +186,11 @@ test(
             methods: ["get_label", "set_label"],
             signals: ["clicked"],
           },
-          { name: "Widget", methods: ["activate", "set_visible"] },
+          { name: "Widget", methods: ["activate", "get_width", "set_visible"] },
           {
             name: "Window",
             constructors: ["new"],
-            methods: ["destroy", "present", "set_child"],
+            methods: ["destroy", "present", "set_child", "set_default_size"],
           },
         ],
       });
@@ -235,12 +239,14 @@ test(
         "gtk_button_release",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_get_width",
         "gtk_widget_set_visible",
         "gtk_window_destroy",
         "gtk_window_new",
         "gtk_window_present",
         "gtk_window_release",
         "gtk_window_set_child",
+        "gtk_window_set_default_size",
       ]);
       assert.match(
         generated.declarations,
@@ -251,12 +257,21 @@ test(
       assert.match(generated.declarations, /interface Button extends Widget/u);
       assert.match(generated.declarations, /interface Window extends Widget/u);
       assert.match(generated.declarations, /activate\(\): boolean;/u);
+      assert.match(generated.declarations, /getWidth\(\): gint;/u);
       assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
         /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
       );
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
+      assert.match(
+        generated.declarations,
+        /setDefaultSize\(width: gint, height: gint\): void;/u,
+      );
+      assert.deepEqual(generated.manifest.declarations.types.gint, {
+        module: ".",
+        name: "gint",
+      });
       assert.match(
         generated.declarations,
         /export declare function createWindow\(\): Window;/u,
@@ -288,16 +303,27 @@ test(
           "gtk_button_new_with_label",
           "gtk_button_set_label",
           "gtk_widget_activate",
+          "gtk_widget_get_width",
           "gtk_widget_set_visible",
           "gtk_window_destroy",
           "gtk_window_new",
           "gtk_window_present",
           "gtk_window_set_child",
+          "gtk_window_set_default_size",
         ],
         exports: [],
       });
       assert.equal(translated.ok, true);
       if (!translated.ok) return;
+      assert.deepEqual(
+        translated.input.sourceTypes.find(
+          ({ declaration }) => declaration.name === "gint",
+        ),
+        {
+          declaration: { module: "@native-typescript/gtk4", name: "gint" },
+          type: { kind: "nativeScalar", scalar: "i32" },
+        },
+      );
       const buttonType = translated.input.types.find(
         ({ id }) => id.endsWith("#type:gtk_button"),
       );
@@ -338,6 +364,29 @@ test(
           trueValue: "1",
         },
       });
+      const getWidth = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_widget_get_width",
+      );
+      assert.deepEqual(getWidth?.result, {
+        type: { kind: "nativeScalar", scalar: "i32" },
+        passMode: "value",
+        ownership: { kind: "value" },
+        projection: { kind: "direct" },
+      });
+      const setDefaultSize = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_window_set_default_size",
+      );
+      assert.deepEqual(setDefaultSize?.arguments.slice(1), [
+        { name: "width", type: { kind: "nativeScalar", scalar: "i32" } },
+        { name: "height", type: { kind: "nativeScalar", scalar: "i32" } },
+      ]);
+      assert.deepEqual(
+        setDefaultSize?.parameters.slice(1).map(({ projection }) => projection),
+        [
+          { kind: "argument", argument: 1 },
+          { kind: "argument", argument: 2 },
+        ],
+      );
       const connect = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "nts_gobject_connect_button_clicked",
       );

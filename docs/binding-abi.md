@@ -147,8 +147,9 @@ signatures, not aggregate layout or calling-convention classification.
 The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
 GObject adapter agree. It currently maps selected GObject constructors,
-instance methods, `void`, exact `gboolean`, required borrowed NUL-terminated
-UTF-8 inputs, borrowed UTF-8 results, confined owned handles, and non-detailed
+instance methods, `void`, exact `gboolean`, branded exact `gint`, required
+borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined owned
+handles, and non-detailed
 zero-payload `void` signals into canonical declarations and a validated SCABI
 manifest. Equivalent unordered target inputs produce identical output. Signals
 are adapter entries rather than invented direct C functions. Any reached signal

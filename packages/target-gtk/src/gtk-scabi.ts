@@ -290,16 +290,17 @@ function cStringParameter(
   });
 }
 
-function booleanParameter(
+function requiredValueParameter(
   parameter: GirParameter,
+  type: { readonly girName: string; readonly cType: string; readonly abiType: string },
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): AbiParameter | null {
   if (
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
-    parameter.type.name !== "gboolean" ||
-    parameter.type.cType !== "gboolean" ||
+    parameter.type.name !== type.girName ||
+    parameter.type.cType !== type.cType ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
     parameter.nullable ||
@@ -311,13 +312,13 @@ function booleanParameter(
     parameter.destroyParameter !== null
   ) {
     diagnostics.push(
-      diagnostic(path, "Only required non-null gboolean input is implemented"),
+      diagnostic(path, `Only required non-null ${type.girName} input is implemented`),
     );
     return null;
   }
   return Object.freeze({
     name: parameter.name,
-    type: "gboolean",
+    type: type.abiType,
     passMode: "value",
     nullable: false,
     ownership: Object.freeze({ kind: "value" }),
@@ -413,6 +414,23 @@ function methodResult(
   }
   if (
     result.type.kind === "named" &&
+    result.type.name === "gint" &&
+    result.type.cType === "int" &&
+    result.transferOwnership === "none" &&
+    !result.nullable &&
+    result.scope === null &&
+    result.closureParameter === null &&
+    result.destroyParameter === null
+  ) {
+    return Object.freeze({
+      type: "gint",
+      passMode: "value",
+      nullable: false,
+      ownership: Object.freeze({ kind: "value" }),
+    });
+  }
+  if (
+    result.type.kind === "named" &&
     result.type.name === "utf8" &&
     result.type.cType === "const char*" &&
     result.transferOwnership === "none" &&
@@ -440,7 +458,7 @@ function methodResult(
   }
   diagnostics.push(diagnostic(
     path,
-    "Method result is outside the void/boolean/borrowed-UTF-8 slice",
+    "Method result is outside the void/boolean/gint/borrowed-UTF-8 slice",
   ));
   return null;
 }
@@ -527,12 +545,24 @@ export function generateGtkScabiPackage(
   };
   const bindings: Record<string, NativeBinding> = {};
   const declarationTypes: Record<string, { readonly module: "."; readonly name: string }> = {};
+  const usesGint = options.snapshot.classes.some((class_) =>
+    class_.methods.some((method) =>
+      (method.result.type.kind === "named" && method.result.type.name === "gint") ||
+      method.parameters.some((parameter) =>
+        parameter.type.kind === "named" && parameter.type.name === "gint"
+      )
+    )
+  );
+  if (usesGint) {
+    declarationTypes.gint = Object.freeze({ module: ".", name: "gint" });
+  }
   const classByName = new Map(options.snapshot.classes.map((class_) => [class_.name, class_]));
   const typeIdByClass = new Map(options.snapshot.classes.map((class_) => [
     class_.name,
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
   const declarationLines = [
+    ...(usesGint ? ["declare const nativeScalar: unique symbol;"] : []),
     ...options.snapshot.classes.map((class_) =>
       `declare const ${handleBrand(class_.name)}: unique symbol;`
     ),
@@ -540,6 +570,9 @@ export function generateGtkScabiPackage(
       `declare const ${signalSubscriptionBrand(class_.name, signal.name)}: unique symbol;`
     )),
     "",
+    ...(usesGint
+      ? ["export type gint = number & { readonly [nativeScalar]: \"gint\" };", ""]
+      : []),
   ];
   const adapterBindings: string[] = [];
   const orderedLinkInputs = [...options.linkInputs].sort(
@@ -659,12 +692,33 @@ export function generateGtkScabiPackage(
           parameter.type.kind === "named" &&
           parameter.type.name === "gboolean"
         ) {
-          const abi = booleanParameter(parameter, parameterPath, diagnostics);
+          const abi = requiredValueParameter(
+            parameter,
+            { girName: "gboolean", cType: "gboolean", abiType: "gboolean" },
+            parameterPath,
+            diagnostics,
+          );
           if (abi === null) {
             valid = false;
           } else {
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
+          }
+        } else if (
+          parameter.type.kind === "named" &&
+          parameter.type.name === "gint"
+        ) {
+          const abi = requiredValueParameter(
+            parameter,
+            { girName: "gint", cType: "int", abiType: "gint" },
+            parameterPath,
+            diagnostics,
+          );
+          if (abi === null) {
+            valid = false;
+          } else {
+            abiParameters.push(abi);
+            sourceParameters.push(`${lowerCamel(parameter.name)}: gint`);
           }
         } else {
           const handle = handleParameter(
@@ -714,9 +768,12 @@ export function generateGtkScabiPackage(
         : callable.result.type.kind === "named" &&
             callable.result.type.name === "gboolean"
           ? "boolean"
-          : callable.result.nullable
-            ? "string | null"
-            : "string";
+          : callable.result.type.kind === "named" &&
+              callable.result.type.name === "gint"
+            ? "gint"
+            : callable.result.nullable
+              ? "string | null"
+              : "string";
       interfaceLines.push(
         `  ${lowerCamel(callable.name)}(${sourceParameters.join(", ")}): ${sourceResult};`,
       );
