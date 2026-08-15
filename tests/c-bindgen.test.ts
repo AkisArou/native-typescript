@@ -1,0 +1,323 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  accessSync,
+  constants,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { delimiter, join } from "node:path";
+import { tmpdir } from "node:os";
+import test from "node:test";
+import {
+  CBindgenError,
+  generateClangFunctionProbe,
+  parseCTypeCandidate,
+  parseClangFunctionEvidence,
+  planClangFunctionProbe,
+} from "@native-typescript/bindgen-c";
+import type {
+  CFunctionCandidate,
+  CQualifier,
+  CTypeCandidate,
+} from "@native-typescript/bindgen-c";
+import {
+  ArtifactExecutionError,
+  defineArtifactGraph,
+  digestArtifactPath,
+  executeArtifactGraph,
+} from "@native-typescript/core";
+import type {
+  ArtifactActionDefinition,
+  ArtifactDefinition,
+} from "@native-typescript/core";
+
+const fixtureHeaders = join(
+  import.meta.dirname,
+  "..",
+  "fixtures/c-bindgen/include",
+);
+const target = "x86_64-unknown-linux-gnu";
+const executionPlatform = "x86_64-linux";
+
+function executable(name: string): string {
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (directory.length === 0) continue;
+    const candidate = join(directory, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue searching explicit PATH entries.
+    }
+  }
+  throw new Error(`Required executable is unavailable: ${name}`);
+}
+
+function digest(path: string): string {
+  return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
+}
+
+function clangIdentity(path: string): ArtifactActionDefinition["tool"] {
+  const probe = spawnSync(path, ["--version"], { encoding: "utf8" });
+  assert.equal(probe.status, 0, probe.stderr);
+  const version = /clang version ([^\s]+)/u.exec(probe.stdout)?.[1];
+  assert.ok(version);
+  return { id: "tool/clang", version, digest: digest(path) };
+}
+
+function named(
+  name: string,
+  qualifiers: readonly CQualifier[] = [],
+): CTypeCandidate {
+  return { kind: "named", name, qualifiers };
+}
+
+function pointer(
+  pointee: CTypeCandidate,
+  qualifiers: readonly CQualifier[] = [],
+): CTypeCandidate {
+  return { kind: "pointer", qualifiers, pointee };
+}
+
+function fixtureFunctions(
+  mutableGetLabel = false,
+): readonly CFunctionCandidate[] {
+  const widgetPointer = pointer(named("NTSWidget"));
+  const constCharPointer = pointer(named("char", ["const"]));
+  return [
+    {
+      id: "fixture.widget.new",
+      symbol: "nts_widget_new",
+      result: widgetPointer,
+      parameters: [constCharPointer],
+    },
+    {
+      id: "fixture.widget.get-label",
+      symbol: "nts_widget_get_label",
+      result: mutableGetLabel ? pointer(named("char")) : constCharPointer,
+      parameters: [widgetPointer],
+    },
+    {
+      id: "fixture.widget.set-label",
+      symbol: "nts_widget_set_label",
+      result: named("void"),
+      parameters: [widgetPointer, constCharPointer],
+    },
+  ];
+}
+
+test("C candidates produce a canonical immutable Clang probe", () => {
+  const forward = generateClangFunctionProbe({
+    includes: ["fixture.h"],
+    functions: fixtureFunctions(),
+  });
+  const reverse = generateClangFunctionProbe({
+    includes: ["fixture.h"],
+    functions: [...fixtureFunctions()].reverse(),
+  });
+
+  assert.equal(forward.schemaVersion, 1);
+  assert.equal(forward.source, reverse.source);
+  assert.equal(forward.sourceDigest, reverse.sourceDigest);
+  assert.equal(forward.contractDigest, reverse.contractDigest);
+  assert.match(forward.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
+  assert.match(
+    forward.source,
+    /typedef const char \* \(\*nts_abi_expected_0000\)\(NTSWidget \*\);/u,
+  );
+  assert.match(forward.source, /__builtin_types_compatible_p/u);
+  assert.match(forward.source, /struct nts_abi_probe_snapshot_[0-9a-f]{16}/u);
+  assert.equal(Object.isFrozen(forward), true);
+  assert.equal(Object.isFrozen(forward.functions), true);
+  assert.equal(Object.isFrozen(forward.functions[0]?.result), true);
+});
+
+test("C candidate validation rejects unsafe source spellings and duplicates", () => {
+  assert.throws(
+    () => generateClangFunctionProbe({
+      includes: ["../fixture.h", "../fixture.h"],
+      functions: [
+        ...fixtureFunctions(),
+        {
+          ...fixtureFunctions()[0]!,
+          symbol: "not-a-c-symbol",
+        },
+      ],
+    }),
+    (error) => {
+      assert.ok(error instanceof CBindgenError);
+      assert.equal(error.diagnostics.every(({ code }) => code.startsWith("NTS5")), true);
+      assert.equal(Object.isFrozen(error.diagnostics), true);
+      return true;
+    },
+  );
+});
+
+test("the candidate type parser is narrow, structured, and non-authoritative", () => {
+  assert.deepEqual(parseCTypeCandidate("const char **"), {
+    kind: "pointer",
+    qualifiers: [],
+    pointee: {
+      kind: "pointer",
+      qualifiers: [],
+      pointee: {
+        kind: "named",
+        name: "char",
+        qualifiers: ["const"],
+      },
+    },
+  });
+  assert.throws(() => parseCTypeCandidate("unsigned int"), CBindgenError);
+  assert.throws(() => parseCTypeCandidate("char (*)(int)"), CBindgenError);
+});
+
+test("Clang verifies selected function ABI and emits structured evidence", async () => {
+  const clangPath = executable("clang");
+  const sandboxPath = executable("bwrap");
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-c-"));
+  try {
+    const probe = generateClangFunctionProbe({
+      includes: ["fixture.h"],
+      functions: fixtureFunctions(),
+    });
+    const sourcePath = join(temporaryRoot, "probe.c");
+    writeFileSync(sourcePath, probe.source);
+    const headerDigest = (await digestArtifactPath(fixtureHeaders, "directory")).digest;
+    const headerArtifact: ArtifactDefinition = {
+      id: "sdk/fixture-headers",
+      kind: "sdk",
+      entryType: "directory",
+      mediaType: "inode/directory",
+      target,
+      domain: "target",
+      cache: "none",
+      origin: {
+        kind: "source",
+        digest: headerDigest,
+        fileName: "fixture-headers",
+        logicalPath: "fixtures/c-bindgen/include",
+      },
+    };
+    const tool = clangIdentity(clangPath);
+    const plan = planClangFunctionProbe({
+      probe,
+      sourceArtifactId: "source/c-bindgen/probe",
+      evidenceArtifactId: "metadata/c-bindgen/evidence",
+      actionId: "inspect/c-bindgen/functions",
+      logicalPath: "generated/c-bindgen/fixture-probe.c",
+      arguments: [
+        { kind: "literal", value: "-I" },
+        { kind: "input-path", artifact: headerArtifact.id },
+      ],
+      tool,
+      executionPlatform,
+      target,
+    });
+    const graph = defineArtifactGraph({
+      artifacts: [plan.source, headerArtifact, plan.evidence],
+      actions: [plan.action],
+    });
+    const report = await executeArtifactGraph(graph, {
+      buildRoot: join(temporaryRoot, "build"),
+      sourcePaths: {
+        [plan.source.id]: sourcePath,
+        [headerArtifact.id]: fixtureHeaders,
+      },
+      tools: { [tool.id]: { path: clangPath } },
+      sandbox: { kind: "bubblewrap", path: sandboxPath },
+    });
+    const ast = report.artifacts.find(({ id }) => id === plan.evidence.id);
+    assert.ok(ast);
+    const evidence = parseClangFunctionEvidence(readFileSync(ast.path, "utf8"), {
+      probe,
+      clang: {
+        toolId: tool.id,
+        version: tool.version,
+        digest: tool.digest,
+        target,
+      },
+    });
+    assert.deepEqual(evidence.functions.map(({ symbol }) => symbol), [
+      "nts_widget_get_label",
+      "nts_widget_new",
+      "nts_widget_set_label",
+    ]);
+    assert.equal(
+      evidence.functions.every(({ clangType }) => clangType.includes("(*)")),
+      true,
+    );
+    assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(Object.isFrozen(evidence), true);
+    assert.equal(Object.isFrozen(evidence.functions[0]), true);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("Clang rejects a candidate that disagrees with the header", async () => {
+  const clangPath = executable("clang");
+  const sandboxPath = executable("bwrap");
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-mismatch-"));
+  try {
+    const probe = generateClangFunctionProbe({
+      includes: ["fixture.h"],
+      functions: fixtureFunctions(true),
+    });
+    const sourcePath = join(temporaryRoot, "probe.c");
+    writeFileSync(sourcePath, probe.source);
+    const headerArtifact: ArtifactDefinition = {
+      id: "sdk/fixture-headers",
+      kind: "sdk",
+      entryType: "directory",
+      mediaType: "inode/directory",
+      target,
+      domain: "target",
+      cache: "none",
+      origin: {
+        kind: "source",
+        digest: (await digestArtifactPath(fixtureHeaders, "directory")).digest,
+        fileName: "fixture-headers",
+        logicalPath: "fixtures/c-bindgen/include",
+      },
+    };
+    const tool = clangIdentity(clangPath);
+    const plan = planClangFunctionProbe({
+      probe,
+      sourceArtifactId: "source/c-bindgen/probe",
+      evidenceArtifactId: "metadata/c-bindgen/evidence",
+      actionId: "inspect/c-bindgen/functions",
+      logicalPath: "generated/c-bindgen/mismatch-probe.c",
+      arguments: [
+        { kind: "literal", value: "-I" },
+        { kind: "input-path", artifact: headerArtifact.id },
+      ],
+      tool,
+      executionPlatform,
+      target,
+    });
+    const graph = defineArtifactGraph({
+      artifacts: [plan.source, headerArtifact, plan.evidence],
+      actions: [plan.action],
+    });
+    await assert.rejects(
+      executeArtifactGraph(graph, {
+        buildRoot: join(temporaryRoot, "build"),
+        sourcePaths: {
+          [plan.source.id]: sourcePath,
+          [headerArtifact.id]: fixtureHeaders,
+        },
+        tools: { [tool.id]: { path: clangPath } },
+        sandbox: { kind: "bubblewrap", path: sandboxPath },
+      }),
+      (error) =>
+        error instanceof ArtifactExecutionError &&
+        /NTS5004 C ABI mismatch for fixture\.widget\.get-label/u.test(error.stderr),
+    );
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});

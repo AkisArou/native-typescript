@@ -3,6 +3,9 @@
   "files": [],
   "references": [
     {
+      "path": "./packages/bindgen-c"
+    },
+    {
       "path": "./packages/target-api"
     },
     {

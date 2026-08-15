@@ -23,6 +23,9 @@ importers:
 
   .:
     devDependencies:
+      '@native-typescript/bindgen-c':
+        specifier: workspace:*
+        version: link:packages/bindgen-c
       '@native-typescript/cli':
         specifier: workspace:*
         version: link:packages/cli
@@ -47,6 +50,12 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+
+  packages/bindgen-c:
+    dependencies:
+      '@native-typescript/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/cli:
     dependencies:
@@ -79,6 +88,9 @@ importers:
 
   packages/target-gtk:
     dependencies:
+      '@native-typescript/bindgen-c':
+        specifier: workspace:*
+        version: link:../bindgen-c
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core

@@ -130,13 +130,17 @@ C/LLVM program as a verified graph input and materializes its GLib runtime,
 wrapper object, ScriptC runtime, and final executable through one graph. Tool
 standard output can now be streamed into an ordinary verified/cacheable metadata
 artifact without shell redirection, which is the required path for Clang AST and
-other machine-readable compiler evidence. Phase 1
-still requires modeling compiler emission and export adapters as producer
-actions; making implicit toolchain/system-library inputs explicit so native
-actions can use the implemented local cache; adding cache eviction/export;
-broadening callback payload/lifetime and error/export families; provider hooks;
-and the remaining workspace-side generator/product/reporting work before its
-exit gate can pass.
+other machine-readable compiler evidence. The new target-neutral C binding
+package defines the first closed named/pointer candidate algebra, generates
+content-addressed function probes, makes Clang prove exact header compatibility,
+and normalizes only the selected AST evidence. Its permanent fixture rejects a
+deliberately wrong const-qualified result. Phase 1 still requires aggregate
+layout/calling-convention evidence and full SCABI/declaration generation;
+modeling compiler emission and export adapters as producer actions; making
+implicit toolchain/system-library inputs explicit so native actions can use the
+implemented local cache; adding cache eviction/export; broadening callback
+payload/lifetime and error/export families; provider hooks; and the remaining
+workspace-side product/reporting work before its exit gate can pass.
 
 ### Exit gate
 
@@ -184,8 +188,11 @@ nullability, callback metadata, arrays, and nested type references. Output order
 is canonical, malformed or ambiguous reachable metadata fails with stable
 diagnostics, and unsupported unselected SDK declarations are ignored. A compact
 fixture and the installed real `Gtk-4.0.gir` `Gtk.Button` surface form the gate.
-This snapshot is deliberately pre-SCABI: Clang-backed header/layout
-reconciliation and GIR-to-SCABI/declaration generation remain required before
+The selected `Gtk.Button` constructor and label getter/setter now also become a
+structured C probe and pass exact compatibility assertions against the installed
+GTK headers inside the sandboxed artifact graph. Signals remain semantic GIR
+metadata rather than direct C function candidates. Aggregate layout evidence,
+GIR-to-SCABI/declaration generation, and GObject policy remain required before
 the metadata can drive application compilation.
 
 A permanent narrow fixture now compiles through both C and LLVM into a native
@@ -197,12 +204,12 @@ GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
 enter the graph. The fixture still uses a hand-authored canonical SCABI manifest
 and wrapper so it proves the downstream architecture without pretending the
-generator and full product pipeline exist. GIR-to-SCABI generation,
-authoritative header/layout reconciliation, general GObject
-identity/floating-reference rules, generated signal adapters, graphing compiler
-emission itself, enabling cacheability for the complete native toolchain, full
-application lifecycle, resources, CLI orchestration, and GTK packaging remain
-before the phase exit gate.
+generator and full product pipeline exist. GIR-to-SCABI/declaration generation,
+aggregate layout evidence, general GObject identity/floating-reference rules,
+generated signal adapters, graphing compiler emission itself, enabling
+cacheability for the complete native toolchain, full application lifecycle,
+resources, CLI orchestration, and GTK packaging remain before the phase exit
+gate.
 
 ### Acceptance application
 

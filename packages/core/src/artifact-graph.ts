@@ -58,13 +58,16 @@ export interface ArtifactDefinition {
   readonly origin: SourceArtifactOrigin | ActionArtifactOrigin;
 }
 
-export type ArtifactActionArgument =
+export type ArtifactActionInputArgument =
   | { readonly kind: "literal"; readonly value: string }
   | {
       readonly kind: "input-path";
       readonly artifact: string;
       readonly path?: string;
-    }
+    };
+
+export type ArtifactActionArgument =
+  | ArtifactActionInputArgument
   | { readonly kind: "output-path"; readonly artifact: string };
 
 export interface ArtifactActionEnvironment {

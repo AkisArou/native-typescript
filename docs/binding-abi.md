@@ -134,6 +134,17 @@ with the matching headers and target compiler's Clang AST/layout results before
 emitting SCABI. Missing ownership or a disagreement between GIR and the
 authoritative C view is an error; the generator does not guess.
 
+The implemented first C evidence slice accepts only named types and pointer
+composition. It treats a GIR C spelling as an untrusted candidate, converts it
+to that closed structure, and generates a content-addressed probe containing
+Clang `typeof` compatibility assertions. Clang must accept every selected
+function against the real headers before a filtered AST record becomes
+canonical evidence. Raw AST output remains a non-cacheable intermediate because
+Clang includes unstable IDs and physical source locations; only the normalized
+selected evidence participates in binding identity. This verifies function
+signatures, not aggregate layout, calling-convention classification, or SCABI
+generation.
+
 ## Native type algebra
 
 Every type is a tagged value. Core SCABI v1 supports:

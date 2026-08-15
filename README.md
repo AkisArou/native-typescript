@@ -88,6 +88,7 @@ must be resolved in the documents before implementation proceeds.
 
 ```text
 packages/
+├── bindgen-c/    target-neutral Clang C ABI evidence and probe generation
 ├── cli/          command-line entry point
 ├── core/         build planning and orchestration
 ├── scabi/        native binding schema, canonicalization, and validation
@@ -203,10 +204,14 @@ reached bindings and native types enter emitted IR or the link. The GTK target
 now also turns an explicit namespace/class/member selection from GIR into a
 content-addressed immutable snapshot. Real `Gtk.Button` ingestion preserves C
 and GType identity, ownership, nullability, receivers, and signals while
-rejecting malformed or unsupported reached metadata. This is intentionally a
-pre-SCABI semantic input: matching Clang header/layout verification and binding
-generation are still required before it replaces the hand-authored fixture. The first
-reverse boundary is now implemented too: a SCABI
+rejecting malformed or unsupported reached metadata. A target-neutral C binding
+package now converts the selected direct-call signatures into a structured,
+content-addressed probe. Sandboxed Clang checks the candidate types against the
+real headers and emits selected AST evidence as a graph artifact; correct
+`Gtk.Button` constructor/getter/setter signatures pass and a deliberate const
+mismatch fails in Clang. Record layout, GIR-to-SCABI/declaration generation, and
+GObject policy are still required before this replaces the hand-authored
+fixture. The first reverse boundary is now implemented too: a SCABI
 `export` root explicitly maps an entry-module TypeScript function to an exact
 C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
 and LLVM, link into a static library, and execute from an independent C host;

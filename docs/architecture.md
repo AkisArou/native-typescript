@@ -268,6 +268,8 @@ This repository owns platform composition:
 
 The initial workspace roles are:
 
+- `@native-typescript/bindgen-c`: target-neutral structured C candidates,
+  Clang probe generation, and canonical selected ABI evidence;
 - `@native-typescript/scriptc`: typed integration with the pinned compiler fork;
 - `@native-typescript/target-api`: provider contracts and immutable target
   descriptions;
@@ -280,7 +282,7 @@ The initial workspace roles are:
 
 Future packages should be created around stable ownership boundaries, not one
 package per small type. Likely additional boundaries include the runtime ABI,
-binding generators, and individual targets.
+other binding families, and individual targets.
 
 ## Target composition
 

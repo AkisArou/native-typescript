@@ -5,7 +5,7 @@ import {
   digestArtifactPath,
 } from "./artifact-graph.ts";
 import type {
-  ArtifactActionArgument,
+  ArtifactActionInputArgument,
   ArtifactDefinition,
 } from "./artifact-graph.ts";
 
@@ -25,7 +25,7 @@ export interface ResolvedPkgConfigCompileSdk {
   readonly modules: readonly PkgConfigModuleSnapshot[];
   readonly artifacts: readonly ArtifactDefinition[];
   readonly sourcePaths: Readonly<Record<string, string>>;
-  readonly arguments: readonly ArtifactActionArgument[];
+  readonly arguments: readonly ArtifactActionInputArgument[];
 }
 
 interface ParsedFragment {
@@ -221,7 +221,7 @@ export async function resolvePkgConfigCompileSdk(options: {
   const artifactIdByPath = new Map(
     resolvedIncludes.map(({ artifact, path }) => [path, artifact.id]),
   );
-  const arguments_: ArtifactActionArgument[] = [];
+  const arguments_: ArtifactActionInputArgument[] = [];
   for (const fragment of parsed) {
     if (fragment.kind === "literal") {
       arguments_.push(Object.freeze({ kind: "literal", value: fragment.value }));

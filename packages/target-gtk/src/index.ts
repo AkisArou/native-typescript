@@ -12,6 +12,7 @@ import {
 } from "@native-typescript/target-api";
 
 export { ingestGir } from "./gir.ts";
+export { generateGirClangFunctionProbe } from "./gir-clang.ts";
 export { GirIngestionError } from "./gir-model.ts";
 export type {
   GirAnnotation,

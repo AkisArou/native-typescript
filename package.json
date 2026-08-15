@@ -26,6 +26,7 @@
     "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
   },
   "devDependencies": {
+    "@native-typescript/bindgen-c": "workspace:*",
     "@native-typescript/cli": "workspace:*",
     "@native-typescript/core": "workspace:*",
     "@native-typescript/scabi": "workspace:*",
