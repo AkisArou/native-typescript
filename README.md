@@ -215,13 +215,14 @@ ScriptC now exposes a schema-versioned, path-free executable-compilation plan
 containing validated IR, exact backend/target facts, and its complete native
 build request. Native TypeScript runs the corresponding deterministic C/LLVM
 emitter as a cacheable graph action, then uses ScriptC's exact compiler-driver
-invocation without duplicating runtime-source selection. The GTK fixture
-materializes that generated unit, its adapter objects, ScriptC runtime, and the
-final executable in one graph. Implicit system toolchain/library trees are not
-declared graph inputs yet, so the GTK native actions remain deliberately
-non-cacheable. Only reached bindings and native types enter emitted IR or the
-link. The GTK target
-now also turns an explicit namespace/class/member selection from GIR into a
+plan without calling a materializer or inventing caller-visible paths. This
+preserves ScriptC's runtime-source selection as the single source of truth. The
+GTK fixture materializes that generated unit, its adapter objects, ScriptC
+runtime, and the final executable in one graph. Implicit system
+toolchain/library trees are not declared graph inputs yet, so the GTK native
+actions remain deliberately non-cacheable. Only reached bindings and native
+types enter emitted IR or the link. The GTK target now also turns an explicit
+namespace/class/member selection from GIR into a
 content-addressed immutable snapshot. Real `Gtk.Widget`, `Gtk.Button`, and
 `Gtk.Window` ingestion preserves C and GType identity, class ancestry,
 ownership, nullability, receivers, and signals while

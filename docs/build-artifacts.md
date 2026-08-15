@@ -354,16 +354,18 @@ then runs emission as a deterministic cacheable Node action whose generated C
 or LLVM file is an ordinary target artifact.
 
 ScriptC also permits an external materializer to receive its exact
-compiler-driver command. Native TypeScript rewrites every declared program,
-runtime, object, and output path in that command to a logical artifact
-reference; an unknown ambient path is rejected. This keeps ScriptC's feature
-analysis and runtime-source selection as the single source of truth. The GTK
-fixture materializes compiler emission, hand-authored native objects, reached
-ScriptC runtime sources, and the final executable through one graph.
+compiler-driver command. A dedicated planning API derives that command from
+the executable plan without emitting, compiling, or creating vendor/output
+artifacts. Native TypeScript supplies logical IDs for every program, runtime,
+object, and output position; an unknown ambient path is rejected. This keeps
+ScriptC's feature analysis and runtime-source selection as the single source
+of truth. The GTK fixture materializes compiler emission, hand-authored native
+objects, reached ScriptC runtime sources, and the final executable through one
+graph.
 
-The graph does not yet model the compiler driver's implicit system image, library-search
-trees, or every toolchain-provided system library as declared inputs. Current
-native actions therefore remain deliberately non-cacheable. ScriptC features
+The graph does not yet model the compiler driver's implicit system image,
+library-search trees, or every toolchain-provided system library as declared
+inputs. Current native actions therefore remain deliberately non-cacheable. ScriptC features
 whose driver command introduces an undeclared vendor path are rejected until
 that producer is represented in the graph. Cache eviction, export/import and
 remote transport, generated adapter planning, diagnostic parsers, resource

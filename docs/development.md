@@ -191,9 +191,10 @@ sandboxed Clang evidence, composes that package with the canonical GTK runtime
 fixture, and plans C and LLVM programs. It snapshots ScriptC's built emitter
 and path-free compilation plan as host inputs, emits each program through a
 deterministic sandboxed graph action, captures ScriptC's exact native driver
-request, resolves compile inputs and the system-library closure from
-`pkg-config`, and materializes the runtime, wrapper, generated GObject adapter,
-and final executable through the same graph. It then proves
+request through its side-effect-free external-build planner, resolves compile
+inputs and the system-library closure from `pkg-config`, and materializes the
+runtime, wrapper, generated GObject adapter, and final executable through the
+same graph. It then proves
 `Window.setChild(button)` through generated handle ancestry, projects
 both representations through `Widget.setVisible(boolean)`, lowers
 `Widget.activate()` from exact `gboolean`, passes branded `gint` dimensions to

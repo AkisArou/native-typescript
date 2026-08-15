@@ -128,11 +128,13 @@ inputs, tools, and strict declared-output validation. ScriptC now delegates a
 schema-versioned, path-free executable-compilation plan with validated IR,
 exact backend/target facts, and the complete native-build request. The GTK
 application runs ScriptC's C/LLVM emitter as a deterministic cacheable graph
-action, then materializes its GLib runtime, wrapper object, ScriptC runtime,
-and final executable through the same graph. Tool
-standard output can now be streamed into an ordinary verified/cacheable metadata
-artifact without shell redirection, which is the required path for Clang AST and
-other machine-readable compiler evidence. The new target-neutral C binding
+action. ScriptC derives the exact native driver action without emission,
+vendor production, fake paths, or output materialization; the graph then
+materializes its GLib runtime, wrapper object, ScriptC runtime, and final
+executable. Tool standard output can now be streamed into an ordinary
+verified/cacheable metadata artifact without shell redirection, which is the
+required path for Clang AST and other machine-readable compiler evidence. The
+new target-neutral C binding
 package defines the first closed named/pointer candidate algebra, generates
 content-addressed function probes, makes Clang prove exact header compatibility,
 and normalizes only the selected AST evidence. Its permanent fixture rejects a

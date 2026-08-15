@@ -478,9 +478,8 @@ test(
         ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"],
       );
       const {
-        compileC,
         planExecutableCompilation,
-        planExternalCCommand,
+        planExecutableExternalCBuild,
       } = await import(
         "../third_party/scriptc/packages/compiler/dist/index.js"
       );
@@ -555,44 +554,26 @@ test(
           targetPlatform: "linux",
           target: nativeTarget,
         });
-        const plannedProgramPath = join(
-          scratch,
-          `planned-program.${backend === "llvm" ? "ll" : "c"}`,
-        );
-        const plannedOutputPath = join(scratch, `planned-output-${backend}`);
-        const externalResult: {
-          value: ReturnType<typeof planExternalCCommand> | null;
-        } = { value: null };
-        await compileC({
-          ...planned.plan.nativeBuild,
-          cPath: plannedProgramPath,
-          outPath: plannedOutputPath,
-          commandExecutor: async (command) => {
-            const linkInputs = planned.plan.nativeBuild.linkInputs ?? [];
-            assert.equal(linkInputs.length, 3);
-            externalResult.value = planExternalCCommand(command, {
-              program: { id: programId, path: plannedProgramPath },
-              runtime: {
-                id: "runtime/scriptc",
-                path: scriptcRuntimeRoot,
-              },
-              linkInputs: [
-                { id: runtimeObject.object.id, path: linkInputs[0]! },
-                { id: counterObject.artifact.id, path: linkInputs[1]! },
-                { id: gobjectAdapterObject.object.id, path: linkInputs[2]! },
-              ],
-              output: { id: outputId, path: plannedOutputPath },
-            });
+        const externalResult = await planExecutableExternalCBuild(
+          planned.plan,
+          {
+            program: programId,
+            runtime: "runtime/scriptc",
+            linkInputs: [
+              runtimeObject.object.id,
+              counterObject.artifact.id,
+              gobjectAdapterObject.object.id,
+            ],
+            output: outputId,
           },
-        });
-        assert.ok(externalResult.value);
+        );
         assert.equal(
-          externalResult.value.bindings.runtimeDirectory,
+          externalResult.bindings.runtimeDirectory,
           scriptcRuntimeRoot,
         );
         const executablePlan = planScriptCExecutable({
           actionId: `link/scriptc-executable/${backend}`,
-          plan: externalResult.value.plan,
+          plan: externalResult.plan,
           artifactFileName: "gtk-counter",
           tool: clangTool,
           driverPlatform: "linux",
@@ -630,8 +611,6 @@ test(
           scriptcRuntimeInclude,
           compilerEmitterPath,
           generatedGtkAdapterPath,
-          plannedProgramPath,
-          plannedOutputPath,
           planPath,
         ]) {
           assert.equal(serializedGraph.includes(physicalPath), false);
