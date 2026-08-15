@@ -20,20 +20,20 @@ import {
 } from "@native-typescript/scabi";
 import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 import {
-  generateGirClangAbiProbe,
+  defineGirBindingPackageRequest,
   generateGObjectAdapterSource,
-  generateGtkScabiPackage,
-  defineGtkBindingPackageRequest,
+  generateGObjectScabiPackage,
+  generateGirClangAbiProbe,
   ingestGir,
-  planGtkBindingPackage,
-  planGtkBindingAnalysis,
-  planGtkClangEvidenceNormalization,
-} from "@native-typescript/target-gtk";
+  planGirBindingAnalysis,
+  planGirBindingPackage,
+  planGirClangEvidenceNormalization,
+} from "@native-typescript/bindgen-gir";
 import type {
+  GObjectScabiGenerationOptions,
+  GObjectScabiPackage,
   GirSnapshot,
-  GtkScabiGenerationOptions,
-  GtkScabiPackage,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const girSource = readFileSync(
@@ -287,7 +287,7 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   });
 }
 
-function options(selected = snapshot()): GtkScabiGenerationOptions {
+function options(selected = snapshot()): GObjectScabiGenerationOptions {
   const gobjectAdapter = generateGObjectAdapterSource(selected);
   return {
     snapshot: selected,
@@ -346,8 +346,8 @@ function generationError(action: () => unknown): CBindgenError {
 }
 
 test("verified Gtk.Button metadata becomes canonical declarations and SCABI", () => {
-  const generated = generateGtkScabiPackage(options());
-  assert.equal(generated.schema, "native-typescript.gtk-scabi-package");
+  const generated = generateGObjectScabiPackage(options());
+  assert.equal(generated.schema, "native-typescript.gobject-scabi-package");
   assert.equal(generated.schemaVersion, 1);
   assert.equal(generated.manifestSource, canonicalizeJson(generated.manifest));
   assert.equal(generated.manifestDigest, digestScabiManifest(generated.manifest));
@@ -424,11 +424,11 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   assert.equal(constructor.kind, "factory");
   assert.deepEqual(constructor.declaration, { module: ".", name: "Button.withLabel" });
   assertDeepFrozen(generated);
-  assert.deepEqual(generateGtkScabiPackage(options()), generated);
+  assert.deepEqual(generateGObjectScabiPackage(options()), generated);
 });
 
 test("Clang-proven GTK enums become idiomatic exact constants", () => {
-  const generated = generateGtkScabiPackage(options(snapshot([], true)));
+  const generated = generateGObjectScabiPackage(options(snapshot([], true)));
 
   assert.match(
     generated.declarations,
@@ -485,7 +485,7 @@ test("Clang-proven GTK enums become idiomatic exact constants", () => {
 });
 
 test("Clang-proven GTK flags project through constructors and properties", () => {
-  const generated = generateGtkScabiPackage(options(flagsPropertySnapshot()));
+  const generated = generateGObjectScabiPackage(options(flagsPropertySnapshot()));
 
   assert.match(
     generated.declarations,
@@ -575,7 +575,7 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
 });
 
 test("GTK caller-allocated record outputs project as one nested value result", () => {
-  const generated = generateGtkScabiPackage(options(valueMethodSnapshot()));
+  const generated = generateGObjectScabiPackage(options(valueMethodSnapshot()));
   assert.match(
     generated.declarations,
     /export interface WidgetPreferredSize \{\n  readonly minimumSize: Requisition;\n  readonly naturalSize: Requisition;\n\}/u,
@@ -614,7 +614,7 @@ test("GTK caller-allocated record outputs project as one nested value result", (
 
 test("GTK evidence and binding generation are immutable cacheable actions", () => {
   const generation = options();
-  const request = defineGtkBindingPackageRequest({
+  const request = defineGirBindingPackageRequest({
     namespace: { name: "Gtk", version: "4.0" },
     clang: generation.evidence.clang,
     generation: {
@@ -630,7 +630,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
     version: "24.19.0",
     digest: `sha256:${"b".repeat(64)}`,
   };
-  const evidencePlan = planGtkClangEvidenceNormalization({
+  const evidencePlan = planGirClangEvidenceNormalization({
     request,
     requestArtifact: "metadata/gtk4/request",
     snapshotArtifact: "metadata/gtk4/snapshot",
@@ -643,7 +643,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
     executionPlatform: "x86_64-linux",
     target: "x86_64-unknown-linux-gnu",
   });
-  const plan = planGtkBindingPackage({
+  const plan = planGirBindingPackage({
     request,
     requestArtifact: "metadata/gtk4/request",
     snapshotArtifact: "metadata/gtk4/snapshot",
@@ -681,7 +681,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
   assert.equal(plan.action.deterministic, true);
   assert.equal(plan.action.cacheable, true);
   assert.throws(
-    () => planGtkBindingPackage({
+    () => planGirBindingPackage({
       request,
       requestArtifact: "metadata/gtk4/request",
       snapshotArtifact: "metadata/gtk4/snapshot",
@@ -700,7 +700,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
 test("GTK binding analysis composes one immutable target plan", () => {
   const selected = snapshot(["clicked"]);
   const generation = options(selected);
-  const request = defineGtkBindingPackageRequest({
+  const request = defineGirBindingPackageRequest({
     namespace: { name: "Gtk", version: "4.0" },
     clang: generation.evidence.clang,
     generation: {
@@ -721,7 +721,7 @@ test("GTK binding analysis composes one immutable target plan", () => {
     version: "24.19.0",
     digest: `sha256:${"b".repeat(64)}`,
   };
-  const plan = planGtkBindingAnalysis({
+  const plan = planGirBindingAnalysis({
     snapshot: selected,
     request,
     snapshotArtifact: "metadata/gtk4/snapshot",
@@ -757,7 +757,7 @@ test("GTK binding analysis composes one immutable target plan", () => {
   ]);
   assert.equal(plan.bindings.action.inputs.includes(plan.evidence.artifact.id), true);
   assert.throws(
-    () => planGtkBindingAnalysis({
+    () => planGirBindingAnalysis({
       snapshot: selected,
       request,
       snapshotArtifact: "metadata/gtk4/snapshot",
@@ -781,7 +781,7 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
       probeDigest: `sha256:${"0".repeat(64)}`,
     }),
   });
-  const evidenceError = generationError(() => generateGtkScabiPackage(invalidEvidence));
+  const evidenceError = generationError(() => generateGObjectScabiPackage(invalidEvidence));
   assert.equal(
     evidenceError.diagnostics.some(({ path }) => path === "evidence/probeDigest"),
     true,
@@ -802,7 +802,7 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
       })]),
     }),
   });
-  const recordError = generationError(() => generateGtkScabiPackage(invalidRecord));
+  const recordError = generationError(() => generateGObjectScabiPackage(invalidRecord));
   assert.equal(
     recordError.diagnostics.some(
       ({ path }) => path === "evidence/records/0/fields/0",
@@ -822,7 +822,7 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
       constructors: Object.freeze(constructors),
     }),
   });
-  const adapterError = generationError(() => generateGtkScabiPackage(invalidAdapter));
+  const adapterError = generationError(() => generateGObjectScabiPackage(invalidAdapter));
   assert.equal(
     adapterError.diagnostics.some(({ path }) => path === "gobjectAdapter"),
     true,
@@ -830,7 +830,7 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
 });
 
 test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", () => {
-  const generated = generateGtkScabiPackage(options(snapshot(["clicked"])));
+  const generated = generateGObjectScabiPackage(options(snapshot(["clicked"])));
   assert.match(
     generated.declarations,
     /onClicked\(callback: \(button: Button\) => void\): SignalConnection;/u,
@@ -915,7 +915,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
 });
 
 test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
-  const generated = generateGtkScabiPackage(options(scalarSignalSnapshot()));
+  const generated = generateGObjectScabiPackage(options(scalarSignalSnapshot()));
   assert.match(
     generated.declarations,
     /onResized\(callback: \(button: Button, width: gint, scale: gdouble\) => void\): SignalConnection;/u,
@@ -1029,7 +1029,7 @@ test("GTK SCABI generation canonicalizes unordered target inputs", () => {
       { id: "gtk4", kind: "system-library", name: "gtk4", order: 1 },
       { id: "gobject", kind: "system-library", name: "gobject-2.0", order: 0 },
     ],
-  } satisfies Partial<GtkScabiGenerationOptions>);
+  } satisfies Partial<GObjectScabiGenerationOptions>);
   const right = options();
   Object.assign(right, {
     target: {
@@ -1041,15 +1041,15 @@ test("GTK SCABI generation canonicalizes unordered target inputs", () => {
       modules: [...left.sdk.modules].reverse(),
     },
     linkInputs: [...left.linkInputs].reverse(),
-  } satisfies Partial<GtkScabiGenerationOptions>);
+  } satisfies Partial<GObjectScabiGenerationOptions>);
 
   assert.deepEqual(
-    generateGtkScabiPackage(left),
-    generateGtkScabiPackage(right),
+    generateGObjectScabiPackage(left),
+    generateGObjectScabiPackage(right),
   );
 });
 
 test("GTK SCABI generation result is structurally typed", () => {
-  const generated: GtkScabiPackage = generateGtkScabiPackage(options());
+  const generated: GObjectScabiPackage = generateGObjectScabiPackage(options());
   assert.match(generated.manifestDigest, /^sha256:[0-9a-f]{64}$/u);
 });

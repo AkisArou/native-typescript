@@ -6,21 +6,21 @@ import {
 } from "@native-typescript/bindgen-c";
 import { canonicalizeJson } from "@native-typescript/scabi";
 import {
-  type GtkBindingPackageDescriptor,
-  type GtkBindingPackageRequest,
-  validateGtkBindingPackageRequest,
-} from "./gtk-binding-package.ts";
+  type GirBindingPackageDescriptor,
+  type GirBindingPackageRequest,
+  validateGirBindingPackageRequest,
+} from "./gir-binding-package.ts";
 import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type { GirSnapshot } from "./gir-model.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
-import { generateGtkScabiPackage } from "./gtk-scabi.ts";
+import { generateGObjectScabiPackage } from "./gobject-scabi.ts";
 
 async function readInputs(
   snapshotPath: string,
   requestPath: string,
 ): Promise<{
   readonly snapshot: GirSnapshot;
-  readonly request: GtkBindingPackageRequest;
+  readonly request: GirBindingPackageRequest;
 }> {
   const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as GirSnapshot;
   if (
@@ -31,8 +31,8 @@ async function readInputs(
   }
   const request = JSON.parse(
     await readFile(requestPath, "utf8"),
-  ) as GtkBindingPackageRequest;
-  validateGtkBindingPackageRequest(request);
+  ) as GirBindingPackageRequest;
+  validateGirBindingPackageRequest(request);
   return { snapshot, request };
 }
 
@@ -67,14 +67,14 @@ async function generatePackage(
     await readFile(evidencePath, "utf8"),
   ) as ClangAbiEvidenceSnapshot;
   const gobjectAdapter = generateGObjectAdapterSource(snapshot);
-  const generated = generateGtkScabiPackage({
+  const generated = generateGObjectScabiPackage({
     snapshot,
     evidence,
     gobjectAdapter,
     ...request.generation,
   });
-  const descriptor: GtkBindingPackageDescriptor = {
-    schema: "native-typescript.gtk-binding-package",
+  const descriptor: GirBindingPackageDescriptor = {
+    schema: "native-typescript.gir-binding-package",
     schemaVersion: 1,
     package: request.generation.package,
     target: request.generation.target,

@@ -202,7 +202,7 @@ one writes LLVM calling-classification IR to raw metadata artifacts. Because
 those formats contain non-semantic compiler detail, a dependent action reduces
 them to canonical selected ABI evidence. Function types, selected record layout,
 and physical calling classifications share one probe contract.
-`planGtkBindingAnalysis()` owns this composition and returns the complete
+`planGirBindingAnalysis()` owns this composition and returns the complete
 immutable target subgraph; callers supply source and tool bindings but do not
 reconstruct its dependency edges. The binding-package action consumes that stable
 evidence, the canonical selected-GIR snapshot, an immutable generation request,

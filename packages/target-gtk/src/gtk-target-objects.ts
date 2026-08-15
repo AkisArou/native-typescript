@@ -4,16 +4,16 @@ import type {
   ArtifactDefinition,
   ArtifactInputPath,
 } from "@native-typescript/core";
+import { planGObjectAdapterObject } from "@native-typescript/bindgen-gir";
+import type {
+  GObjectAdapterObjectPlan,
+  GObjectAdapterSource,
+} from "@native-typescript/bindgen-gir";
 import {
   glibRuntimeArtifactIds,
   planGlibRuntimeObject,
 } from "./glib-runtime-object.ts";
 import type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
-import { planGObjectAdapterObject } from "./gobject-adapter.ts";
-import type {
-  GObjectAdapterObjectPlan,
-  GObjectAdapterSource,
-} from "./gobject-adapter.ts";
 
 export const gtkTargetObjectArtifactIds = Object.freeze({
   glibRuntimeSourceTree: glibRuntimeArtifactIds.sourceTree,

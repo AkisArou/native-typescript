@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  girBindingAnalysisArtifactIds,
   girPackageSlug,
-  gtkBindingAnalysisArtifactIds,
   ingestGir,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 
 const systemGioGir = "/usr/share/gir-1.0/Gio-2.0.gir";
 
@@ -15,8 +15,8 @@ test("GIR package slugs and analysis identities are derived per namespace", () =
   assert.equal(girPackageSlug({ name: "GObject", version: "2.0" }), "gobject2");
 
   // Two namespaces analysed in one build must not collide on artifact IDs.
-  const gtk = gtkBindingAnalysisArtifactIds({ name: "Gtk", version: "4.0" });
-  const gio = gtkBindingAnalysisArtifactIds({ name: "Gio", version: "2.0" });
+  const gtk = girBindingAnalysisArtifactIds({ name: "Gtk", version: "4.0" });
+  const gio = girBindingAnalysisArtifactIds({ name: "Gio", version: "2.0" });
   assert.deepEqual(gtk, {
     probeSource: "source/gtk4/clang-abi-probe",
     rawAst: "metadata/gtk4/clang-abi-ast",

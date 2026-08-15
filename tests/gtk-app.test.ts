@@ -38,22 +38,25 @@ import {
 } from "@native-typescript/scriptc";
 import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
 import {
-  defineGtkBindingPackageRequest,
-  gtkBindingToolFile,
-  glibRuntimeArtifactIds,
+  defineGirBindingPackageRequest,
+  girBindingToolFile,
   ingestGir,
-  planGtkBindingAnalysis,
+  planGirBindingAnalysis,
+} from "@native-typescript/bindgen-gir";
+import {
+  glibRuntimeArtifactIds,
   planGtkTargetObjects,
 } from "@native-typescript/target-gtk";
 import type {
   GObjectAdapterSource,
-  GtkBindingPackageDescriptor,
-} from "@native-typescript/target-gtk";
+  GirBindingPackageDescriptor,
+} from "@native-typescript/bindgen-gir";
 
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-counter");
 const targetRoot = join(workspace, "packages/target-gtk");
+const bindgenGirRoot = join(workspace, "packages/bindgen-gir");
 const scriptcRuntimeRoot = join(scriptcRoot, "packages/runtime");
 const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -280,7 +283,7 @@ test(
           { name: "Orientation", members: ["horizontal", "vertical"] },
         ],
       });
-      const gtkBindingRequest = defineGtkBindingPackageRequest({
+      const gtkBindingRequest = defineGirBindingPackageRequest({
         namespace: { name: "Gtk", version: "4.0" },
         clang: {
           toolId: clangTool.id,
@@ -332,9 +335,9 @@ test(
         canonicalizeJson(gtkBindingRequest),
       );
       const gtkBindingToolPath = join(
-        targetRoot,
+        bindgenGirRoot,
         "node_modules/.runtime",
-        gtkBindingToolFile,
+        girBindingToolFile,
       );
       const gtkSnapshotArtifact = await sourceFileArtifact({
         id: "metadata/gtk4/selected-gir",
@@ -362,7 +365,7 @@ test(
       const gtkBindingToolArtifact = await sourceFileArtifact({
         id: "tool-input/target-gtk/binding-package-generator",
         path: gtkBindingToolPath,
-        fileName: gtkBindingToolFile,
+        fileName: girBindingToolFile,
         logicalPath: "packages/target-gtk/runtime/gtk-binding-tool-cli.mjs",
         kind: "source",
         mediaType: "text/javascript",
@@ -370,7 +373,7 @@ test(
         cache: "exportable",
         target: executionPlatform,
       });
-      const gtkAnalysisPlan = planGtkBindingAnalysis({
+      const gtkAnalysisPlan = planGirBindingAnalysis({
         snapshot: gtkSnapshot,
         request: gtkBindingRequest,
         requestArtifact: gtkBindingRequestArtifact.id,
@@ -462,7 +465,7 @@ test(
       ) as GObjectAdapterSource;
       const generatedGtkDescriptor = JSON.parse(
         readFileSync(join(generatedGtkPath, "binding-package.json"), "utf8"),
-      ) as GtkBindingPackageDescriptor;
+      ) as GirBindingPackageDescriptor;
       assert.equal(
         generatedGtkDescriptor.files.manifest.digest,
         sha256(join(generatedGtkPath, "package.scabi.json")),

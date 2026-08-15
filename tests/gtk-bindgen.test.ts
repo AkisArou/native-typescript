@@ -25,10 +25,10 @@ import {
 import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
   generateGObjectAdapterSource,
+  generateGObjectScabiPackage,
   generateGirClangAbiProbe,
-  generateGtkScabiPackage,
   ingestGir,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
@@ -301,7 +301,7 @@ test(
         enumerations: [{ name: "Orientation", members: ["horizontal", "vertical"] }],
       });
       const gobjectAdapter = generateGObjectAdapterSource(bindingSnapshot);
-      const generated = generateGtkScabiPackage({
+      const generated = generateGObjectScabiPackage({
         snapshot: bindingSnapshot,
         evidence,
         gobjectAdapter,

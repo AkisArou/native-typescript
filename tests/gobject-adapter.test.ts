@@ -26,7 +26,7 @@ import {
   generateGObjectAdapterSource,
   ingestGir,
   planGObjectAdapterObject,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const girPath = resolve(repositoryRoot, "fixtures/gir/Gtk-4.0.selected.gir");

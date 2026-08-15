@@ -5,13 +5,13 @@ import test from "node:test";
 import {
   GirIngestionError,
   ingestGir,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 import type {
   GirClassSelection,
   GirEnumerationSelection,
   GirRecordSelection,
   GirSnapshot,
-} from "@native-typescript/target-gtk";
+} from "@native-typescript/bindgen-gir";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const fixturePath = resolve(

@@ -6,6 +6,9 @@
       "path": "./packages/bindgen-c"
     },
     {
+      "path": "./packages/bindgen-gir"
+    },
+    {
       "path": "./packages/target-api"
     },
     {

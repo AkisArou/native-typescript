@@ -42,7 +42,7 @@ import type {
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
-export interface GtkScabiGenerationOptions {
+export interface GObjectScabiGenerationOptions {
   readonly snapshot: GirSnapshot;
   readonly evidence: ClangAbiEvidenceSnapshot;
   readonly gobjectAdapter: GObjectAdapterSource;
@@ -62,8 +62,8 @@ export interface GtkScabiGenerationOptions {
   };
 }
 
-export interface GtkScabiPackage {
-  readonly schema: "native-typescript.gtk-scabi-package";
+export interface GObjectScabiPackage {
+  readonly schema: "native-typescript.gobject-scabi-package";
   readonly schemaVersion: 1;
   readonly declarations: string;
   readonly declarationsDigest: Sha256Digest;
@@ -218,7 +218,7 @@ function dependencies(input: {
 }
 
 function validateInputs(
-  options: GtkScabiGenerationOptions,
+  options: GObjectScabiGenerationOptions,
   diagnostics: CBindgenDiagnostic[],
 ): void {
   const probe = generateGirClangAbiProbe(options.snapshot, options.gobjectAdapter);
@@ -670,9 +670,9 @@ function callableBase(input: {
   });
 }
 
-export function generateGtkScabiPackage(
-  options: GtkScabiGenerationOptions,
-): GtkScabiPackage {
+export function generateGObjectScabiPackage(
+  options: GObjectScabiGenerationOptions,
+): GObjectScabiPackage {
   const diagnostics: CBindgenDiagnostic[] = [];
   validateInputs(options, diagnostics);
   const types: Record<string, NativeType> = {
@@ -1824,9 +1824,9 @@ export function generateGtkScabiPackage(
       toolchainAbi: options.target.abi,
     },
     generator: {
-      name: "native-typescript.gtk-gir",
+      name: "native-typescript.gobject-gir",
       version: "1",
-      revision: "gtk-scabi-v3",
+      revision: "gobject-scabi-v4",
       arguments: [
         ...options.snapshot.classes.flatMap((class_) => [
           `--class=${class_.name}`,
@@ -1873,7 +1873,7 @@ export function generateGtkScabiPackage(
   const manifestSource = canonicalizeJson(manifestValue);
   const manifest = parseScabiManifest(manifestSource);
   return Object.freeze({
-    schema: "native-typescript.gtk-scabi-package",
+    schema: "native-typescript.gobject-scabi-package",
     schemaVersion: 1,
     declarations: declarationSource,
     declarationsDigest,

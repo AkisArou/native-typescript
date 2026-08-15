@@ -12,18 +12,18 @@ import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type { GirSnapshot } from "./gir-model.ts";
 import {
   girPackageSlug,
-  planGtkBindingPackage,
-  planGtkClangEvidenceNormalization,
-} from "./gtk-binding-package.ts";
+  planGirBindingPackage,
+  planGirClangEvidenceNormalization,
+} from "./gir-binding-package.ts";
 import type {
-  GtkBindingPackageArtifactPlan,
-  GtkBindingPackageRequest,
-  GtkClangEvidenceArtifactPlan,
-} from "./gtk-binding-package.ts";
+  GirBindingPackageArtifactPlan,
+  GirBindingPackageRequest,
+  GirClangEvidenceArtifactPlan,
+} from "./gir-binding-package.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
-export interface GtkBindingAnalysisArtifactIds {
+export interface GirBindingAnalysisArtifactIds {
   readonly probeSource: string;
   readonly rawAst: string;
   readonly rawLlvm: string;
@@ -36,10 +36,10 @@ export interface GtkBindingAnalysisArtifactIds {
  * from the namespace so a build that analyses Gtk-4.0 and Gio-2.0 together
  * produces two disjoint subgraphs rather than colliding on one set of IDs.
  */
-export function gtkBindingAnalysisArtifactIds(namespace: {
+export function girBindingAnalysisArtifactIds(namespace: {
   readonly name: string;
   readonly version: string;
-}): GtkBindingAnalysisArtifactIds {
+}): GirBindingAnalysisArtifactIds {
   const slug = girPackageSlug(namespace);
   return Object.freeze({
     probeSource: `source/${slug}/clang-abi-probe`,
@@ -50,19 +50,19 @@ export function gtkBindingAnalysisArtifactIds(namespace: {
   });
 }
 
-export interface GtkBindingAnalysisPlan {
+export interface GirBindingAnalysisPlan {
   readonly adapter: GObjectAdapterSource;
   readonly probe: ClangAbiProbe;
   readonly clang: ClangAbiProbeArtifactPlan;
-  readonly evidence: GtkClangEvidenceArtifactPlan;
-  readonly bindings: GtkBindingPackageArtifactPlan;
+  readonly evidence: GirClangEvidenceArtifactPlan;
+  readonly bindings: GirBindingPackageArtifactPlan;
   readonly artifacts: readonly ArtifactDefinition[];
   readonly actions: readonly ArtifactActionDefinition[];
 }
 
-export function planGtkBindingAnalysis(input: {
+export function planGirBindingAnalysis(input: {
   readonly snapshot: GirSnapshot;
-  readonly request: GtkBindingPackageRequest;
+  readonly request: GirBindingPackageRequest;
   readonly snapshotArtifact: string;
   readonly requestArtifact: string;
   readonly generatorArtifact: string;
@@ -71,10 +71,10 @@ export function planGtkBindingAnalysis(input: {
   readonly nodeTool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
-}): GtkBindingAnalysisPlan {
+}): GirBindingAnalysisPlan {
   if (input.request.generation.target.triple !== input.target) {
     throw new Error(
-      `GTK binding request targets ${input.request.generation.target.triple}, ` +
+      `GIR binding request targets ${input.request.generation.target.triple}, ` +
         `but analysis targets ${input.target}`,
     );
   }
@@ -83,11 +83,11 @@ export function planGtkBindingAnalysis(input: {
     input.clangTool.version !== input.request.clang.version ||
     input.clangTool.digest !== input.request.clang.digest
   ) {
-    throw new Error("GTK binding analysis Clang tool does not match its request snapshot");
+    throw new Error("GIR binding analysis Clang tool does not match its request snapshot");
   }
   if (input.request.clang.target !== input.target) {
     throw new Error(
-      `GTK binding request snapshots Clang for ${input.request.clang.target}, ` +
+      `GIR binding request snapshots Clang for ${input.request.clang.target}, ` +
         `but analysis targets ${input.target}`,
     );
   }
@@ -104,7 +104,7 @@ export function planGtkBindingAnalysis(input: {
         `${input.snapshot.namespace.name}-${input.snapshot.namespace.version}`,
     );
   }
-  const artifactIds = gtkBindingAnalysisArtifactIds(input.snapshot.namespace);
+  const artifactIds = girBindingAnalysisArtifactIds(input.snapshot.namespace);
   const slug = girPackageSlug(input.snapshot.namespace);
 
   const adapter = generateGObjectAdapterSource(input.snapshot);
@@ -122,7 +122,7 @@ export function planGtkBindingAnalysis(input: {
     executionPlatform: input.executionPlatform,
     target: input.target,
   });
-  const evidence = planGtkClangEvidenceNormalization({
+  const evidence = planGirClangEvidenceNormalization({
     request: input.request,
     requestArtifact: input.requestArtifact,
     snapshotArtifact: input.snapshotArtifact,
@@ -135,7 +135,7 @@ export function planGtkBindingAnalysis(input: {
     executionPlatform: input.executionPlatform,
     target: input.target,
   });
-  const bindings = planGtkBindingPackage({
+  const bindings = planGirBindingPackage({
     request: input.request,
     requestArtifact: input.requestArtifact,
     snapshotArtifact: input.snapshotArtifact,

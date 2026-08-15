@@ -4,9 +4,9 @@ import type {
   ArtifactDefinition,
 } from "@native-typescript/core";
 import { canonicalizeJson } from "@native-typescript/scabi";
-import type { GtkScabiGenerationOptions } from "./gtk-scabi.ts";
+import type { GObjectScabiGenerationOptions } from "./gobject-scabi.ts";
 
-export const gtkBindingToolFile = "gtk-binding-tool-cli.mjs";
+export const girBindingToolFile = "gir-binding-tool-cli.mjs";
 
 const girNamespaceNamePattern = /^[A-Z][A-Za-z0-9]*$/u;
 const girNamespaceVersionPattern = /^[0-9]+(?:\.[0-9]+)*$/u;
@@ -31,8 +31,8 @@ export function girPackageSlug(namespace: {
   return `${namespace.name.toLowerCase()}${namespace.version.split(".")[0]}`;
 }
 
-export interface GtkBindingPackageRequest {
-  readonly schema: "native-typescript.gtk-binding-package-request";
+export interface GirBindingPackageRequest {
+  readonly schema: "native-typescript.gir-binding-package-request";
   readonly schemaVersion: 2;
   /**
    * The GIR namespace this package projects. It is declared here rather than
@@ -47,16 +47,16 @@ export interface GtkBindingPackageRequest {
   };
   readonly clang: ClangAbiEvidenceSnapshot["clang"];
   readonly generation: Omit<
-    GtkScabiGenerationOptions,
+    GObjectScabiGenerationOptions,
     "snapshot" | "evidence" | "gobjectAdapter"
   >;
 }
 
-export interface GtkBindingPackageDescriptor {
-  readonly schema: "native-typescript.gtk-binding-package";
+export interface GirBindingPackageDescriptor {
+  readonly schema: "native-typescript.gir-binding-package";
   readonly schemaVersion: 1;
-  readonly package: GtkBindingPackageRequest["generation"]["package"];
-  readonly target: GtkBindingPackageRequest["generation"]["target"];
+  readonly package: GirBindingPackageRequest["generation"]["package"];
+  readonly target: GirBindingPackageRequest["generation"]["target"];
   readonly files: {
     readonly declarations: {
       readonly path: "package.d.ts";
@@ -76,12 +76,12 @@ export interface GtkBindingPackageDescriptor {
   };
 }
 
-export interface GtkBindingPackageArtifactPlan {
+export interface GirBindingPackageArtifactPlan {
   readonly artifact: ArtifactDefinition;
   readonly action: ArtifactActionDefinition;
 }
 
-export interface GtkClangEvidenceArtifactPlan {
+export interface GirClangEvidenceArtifactPlan {
   readonly artifact: ArtifactDefinition;
   readonly action: ArtifactActionDefinition;
 }
@@ -94,14 +94,14 @@ function deepFreeze(value: unknown): void {
   Object.freeze(value);
 }
 
-export function validateGtkBindingPackageRequest(
-  request: GtkBindingPackageRequest,
+export function validateGirBindingPackageRequest(
+  request: GirBindingPackageRequest,
 ): void {
   if (
-    request.schema !== "native-typescript.gtk-binding-package-request" ||
+    request.schema !== "native-typescript.gir-binding-package-request" ||
     request.schemaVersion !== 2
   ) {
-    throw new Error("Unsupported GTK binding-package request schema");
+    throw new Error("Unsupported GIR binding-package request schema");
   }
   if (
     typeof request.clang !== "object" ||
@@ -113,50 +113,50 @@ export function validateGtkBindingPackageRequest(
     !girNamespaceNamePattern.test(request.namespace.name) ||
     !girNamespaceVersionPattern.test(request.namespace.version)
   ) {
-    throw new Error("GTK binding-package request is incomplete");
+    throw new Error("GIR binding-package request is incomplete");
   }
   if (request.clang.target !== request.generation.target.triple) {
     throw new Error(
-      `GTK Clang evidence targets ${request.clang.target}, but package generation targets ` +
+      `GIR Clang evidence targets ${request.clang.target}, but package generation targets ` +
         request.generation.target.triple,
     );
   }
 }
 
-export function defineGtkBindingPackageRequest(
-  input: Omit<GtkBindingPackageRequest, "schema" | "schemaVersion">,
-): GtkBindingPackageRequest {
+export function defineGirBindingPackageRequest(
+  input: Omit<GirBindingPackageRequest, "schema" | "schemaVersion">,
+): GirBindingPackageRequest {
   const request = JSON.parse(canonicalizeJson({
-    schema: "native-typescript.gtk-binding-package-request",
+    schema: "native-typescript.gir-binding-package-request",
     schemaVersion: 2,
     ...input,
-  })) as GtkBindingPackageRequest;
-  validateGtkBindingPackageRequest(request);
+  })) as GirBindingPackageRequest;
+  validateGirBindingPackageRequest(request);
   deepFreeze(request);
   return request;
 }
 
 function validatePlannerInput(input: {
-  readonly request: GtkBindingPackageRequest;
+  readonly request: GirBindingPackageRequest;
   readonly tool: ArtifactActionDefinition["tool"];
   readonly target: string;
 }): void {
-  validateGtkBindingPackageRequest(input.request);
+  validateGirBindingPackageRequest(input.request);
   if (input.tool.id !== "tool/node") {
     throw new Error(
-      `GTK binding generation requires tool/node, but received ${input.tool.id}`,
+      `GIR binding generation requires tool/node, but received ${input.tool.id}`,
     );
   }
   if (input.request.generation.target.triple !== input.target) {
     throw new Error(
-      `GTK binding request targets ${input.request.generation.target.triple}, ` +
+      `GIR binding request targets ${input.request.generation.target.triple}, ` +
         `but the artifact targets ${input.target}`,
     );
   }
 }
 
-export function planGtkClangEvidenceNormalization(input: {
-  readonly request: GtkBindingPackageRequest;
+export function planGirClangEvidenceNormalization(input: {
+  readonly request: GirBindingPackageRequest;
   readonly requestArtifact: string;
   readonly snapshotArtifact: string;
   readonly rawAstArtifact: string;
@@ -167,7 +167,7 @@ export function planGtkClangEvidenceNormalization(input: {
   readonly tool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
-}): GtkClangEvidenceArtifactPlan {
+}): GirClangEvidenceArtifactPlan {
   validatePlannerInput(input);
   return Object.freeze({
     artifact: Object.freeze({
@@ -188,7 +188,7 @@ export function planGtkClangEvidenceNormalization(input: {
     action: Object.freeze({
       id: input.actionId,
       implementation: Object.freeze({
-        id: "native-typescript/gtk-clang-abi-evidence",
+        id: "native-typescript/gir-clang-abi-evidence",
         version: String(input.request.schemaVersion),
       }),
       tool: Object.freeze({ ...input.tool }),
@@ -239,8 +239,8 @@ export function planGtkClangEvidenceNormalization(input: {
   });
 }
 
-export function planGtkBindingPackage(input: {
-  readonly request: GtkBindingPackageRequest;
+export function planGirBindingPackage(input: {
+  readonly request: GirBindingPackageRequest;
   readonly requestArtifact: string;
   readonly snapshotArtifact: string;
   readonly normalizedEvidenceArtifact: string;
@@ -250,7 +250,7 @@ export function planGtkBindingPackage(input: {
   readonly tool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
-}): GtkBindingPackageArtifactPlan {
+}): GirBindingPackageArtifactPlan {
   validatePlannerInput(input);
   return Object.freeze({
     artifact: Object.freeze({
@@ -270,7 +270,7 @@ export function planGtkBindingPackage(input: {
     action: Object.freeze({
       id: input.actionId,
       implementation: Object.freeze({
-        id: "native-typescript/gtk-binding-package",
+        id: "native-typescript/gir-binding-package",
         version: String(input.request.schemaVersion),
       }),
       tool: Object.freeze({ ...input.tool }),

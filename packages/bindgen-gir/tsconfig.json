@@ -5,8 +5,8 @@
     "types": ["node"]
   },
   "references": [
-    { "path": "../bindgen-gir" },
-    { "path": "../target-api" },
+    { "path": "../bindgen-c" },
+    { "path": "../scabi" },
     { "path": "../core" }
   ]
 }

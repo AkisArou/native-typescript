@@ -29,6 +29,9 @@ importers:
       '@native-typescript/bindgen-c':
         specifier: workspace:*
         version: link:packages/bindgen-c
+      '@native-typescript/bindgen-gir':
+        specifier: workspace:*
+        version: link:packages/bindgen-gir
       '@native-typescript/cli':
         specifier: workspace:*
         version: link:packages/cli
@@ -59,6 +62,25 @@ importers:
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/bindgen-gir:
+    dependencies:
+      '@native-typescript/bindgen-c':
+        specifier: workspace:*
+        version: link:../bindgen-c
+      '@native-typescript/core':
+        specifier: workspace:*
+        version: link:../core
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
+      saxes:
+        specifier: 'catalog:'
+        version: 6.0.0
+    devDependencies:
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.25.9
 
   packages/cli:
     dependencies:
@@ -91,25 +113,15 @@ importers:
 
   packages/target-gtk:
     dependencies:
-      '@native-typescript/bindgen-c':
+      '@native-typescript/bindgen-gir':
         specifier: workspace:*
-        version: link:../bindgen-c
+        version: link:../bindgen-gir
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core
-      '@native-typescript/scabi':
-        specifier: workspace:*
-        version: link:../scabi
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:../target-api
-      saxes:
-        specifier: 'catalog:'
-        version: 6.0.0
-    devDependencies:
-      esbuild:
-        specifier: 'catalog:'
-        version: 0.25.9
 
 packages:
 

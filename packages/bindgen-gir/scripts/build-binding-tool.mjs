@@ -6,12 +6,12 @@ import { build } from "esbuild";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = resolve(
   packageRoot,
-  "node_modules/.runtime/gtk-binding-tool-cli.mjs",
+  "node_modules/.runtime/gir-binding-tool-cli.mjs",
 );
 
 await mkdir(dirname(output), { recursive: true });
 await build({
-  entryPoints: [resolve(packageRoot, "src/gtk-binding-tool-cli.ts")],
+  entryPoints: [resolve(packageRoot, "src/gir-binding-tool-cli.ts")],
   outfile: output,
   bundle: true,
   platform: "node",

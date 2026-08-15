@@ -1,0 +1,21 @@
+{
+  "name": "@native-typescript/bindgen-gir",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build:tool": "node scripts/build-binding-tool.mjs"
+  },
+  "dependencies": {
+    "@native-typescript/bindgen-c": "workspace:*",
+    "@native-typescript/core": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
+    "saxes": "catalog:"
+  },
+  "devDependencies": {
+    "esbuild": "catalog:"
+  }
+}

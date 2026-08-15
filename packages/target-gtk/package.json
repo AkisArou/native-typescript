@@ -6,17 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "build:tool": "node scripts/build-binding-tool.mjs"
-  },
   "dependencies": {
-    "@native-typescript/bindgen-c": "workspace:*",
+    "@native-typescript/bindgen-gir": "workspace:*",
     "@native-typescript/core": "workspace:*",
-    "@native-typescript/scabi": "workspace:*",
-    "@native-typescript/target-api": "workspace:*",
-    "saxes": "catalog:"
-  },
-  "devDependencies": {
-    "esbuild": "catalog:"
+    "@native-typescript/target-api": "workspace:*"
   }
 }

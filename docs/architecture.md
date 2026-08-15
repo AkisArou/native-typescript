@@ -298,8 +298,14 @@ The initial workspace roles are:
   schema validation, and semantic validation;
 - `@native-typescript/core`: build planning, validation, and orchestration;
 - `@native-typescript/cli`: user-facing commands and reports;
-- `@native-typescript/target-gtk`: GTK target metadata and the GLib
-  main-context runtime adapter.
+- `@native-typescript/bindgen-gir`: the GObject-introspection binding family —
+  GIR ingestion, GObject adapter generation, and the GObject SCABI/declaration
+  projection. It is a binding family rather than a toolkit: GIR describes Gio,
+  GLib, GObject, GStreamer, and every other introspected library, so nothing in
+  it may depend on GTK;
+- `@native-typescript/target-gtk`: the GTK target itself — the GLib
+  main-context runtime adapter, the target's native object fragment, and its
+  provider and packaging metadata.
 
 Future packages should be created around stable ownership boundaries, not one
 package per small type. Likely additional boundaries include the runtime ABI,

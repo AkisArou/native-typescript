@@ -314,12 +314,15 @@ must be resolved in the documents before implementation proceeds.
 ```text
 packages/
 ├── bindgen-c/    target-neutral Clang C ABI evidence and probe generation
+├── bindgen-gir/  GObject-introspection binding family: GIR ingestion, GObject
+│                 adapters, and the GObject SCABI/declaration projection
 ├── cli/          command-line entry point
 ├── core/         build planning and orchestration
 ├── scabi/        native binding schema, canonicalization, and validation
 ├── scriptc/      integration with the pinned scriptc fork
 ├── target-api/   target-provider contracts
-└── target-gtk/   GTK target metadata and GLib owner-runtime adapter
+└── target-gtk/   GTK target: GLib owner-runtime adapter, native object
+                  fragment, provider and packaging metadata
 
 third_party/
 └── scriptc/      pinned fork as a Git submodule
