@@ -13,6 +13,10 @@ import {
 
 export { ingestGir } from "./gir.ts";
 export { generateGirClangAbiProbe } from "./gir-clang.ts";
+export {
+  gtkBindingAnalysisArtifactIds,
+  planGtkBindingAnalysis,
+} from "./gtk-binding-analysis.ts";
 export { generateGtkScabiPackage } from "./gtk-scabi.ts";
 export {
   defineGtkBindingPackageRequest,
@@ -63,6 +67,9 @@ export type {
   GtkScabiGenerationOptions,
   GtkScabiPackage,
 } from "./gtk-scabi.ts";
+export type {
+  GtkBindingAnalysisPlan,
+} from "./gtk-binding-analysis.ts";
 export type {
   GtkBindingPackageArtifactPlan,
   GtkBindingPackageDescriptor,

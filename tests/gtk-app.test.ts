@@ -28,7 +28,6 @@ import type {
   ArtifactActionDefinition,
   ArtifactDefinition,
 } from "@native-typescript/core";
-import { planClangAbiProbe } from "@native-typescript/bindgen-c";
 import {
   canonicalizeJson,
   parseScabiManifest,
@@ -40,13 +39,10 @@ import {
 import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
 import {
   defineGtkBindingPackageRequest,
-  generateGObjectAdapterSource,
-  generateGirClangAbiProbe,
   gtkBindingToolFile,
   glibRuntimeArtifactIds,
   ingestGir,
-  planGtkBindingPackage,
-  planGtkClangEvidenceNormalization,
+  planGtkBindingAnalysis,
   planGlibRuntimeObject,
   planGObjectAdapterObject,
 } from "@native-typescript/target-gtk";
@@ -285,23 +281,6 @@ test(
           { name: "Orientation", members: ["horizontal", "vertical"] },
         ],
       });
-      const plannedGobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
-      const gtkProbe = generateGirClangAbiProbe(gtkSnapshot, plannedGobjectAdapter);
-      const gtkProbePlan = planClangAbiProbe({
-        probe: gtkProbe,
-        sourceArtifactId: "source/gtk4/clang-abi-probe",
-        rawAstArtifactId: "metadata/gtk4/clang-abi-ast",
-        rawLlvmArtifactId: "metadata/gtk4/clang-abi-llvm",
-        astActionId: "inspect/gtk4/clang-abi",
-        llvmActionId: "inspect/gtk4/clang-calling-convention",
-        logicalPath: "generated/gtk4/clang-abi-probe.c",
-        arguments: gtkSdk.compileArguments,
-        tool: clangTool,
-        executionPlatform,
-        target: nativeTarget,
-      });
-      const gtkProbePath = join(scratch, "gtk4-function-probe.c");
-      writeFileSync(gtkProbePath, gtkProbe.source);
       const gtkBindingRequest = defineGtkBindingPackageRequest({
         clang: {
           toolId: clangTool.id,
@@ -391,54 +370,34 @@ test(
         cache: "exportable",
         target: executionPlatform,
       });
-      const gtkEvidencePlan = planGtkClangEvidenceNormalization({
+      const gtkAnalysisPlan = planGtkBindingAnalysis({
+        snapshot: gtkSnapshot,
         request: gtkBindingRequest,
         requestArtifact: gtkBindingRequestArtifact.id,
         snapshotArtifact: gtkSnapshotArtifact.id,
-        rawAstArtifact: gtkProbePlan.rawAst.id,
-        rawLlvmArtifact: gtkProbePlan.rawLlvm.id,
         generatorArtifact: gtkBindingToolArtifact.id,
-        artifactId: "metadata/gtk4/normalized-clang-abi-evidence",
-        actionId: "normalize/gtk4/clang-abi-evidence",
-        tool: nodeTool,
+        clangArguments: gtkSdk.compileArguments,
+        clangTool,
+        nodeTool,
         executionPlatform,
         target: nativeTarget,
       });
-      const gtkBindingPlan = planGtkBindingPackage({
-        request: gtkBindingRequest,
-        requestArtifact: gtkBindingRequestArtifact.id,
-        snapshotArtifact: gtkSnapshotArtifact.id,
-        normalizedEvidenceArtifact: gtkEvidencePlan.artifact.id,
-        generatorArtifact: gtkBindingToolArtifact.id,
-        artifactId: "package/gtk4/bindings",
-        actionId: "generate/gtk4/binding-package",
-        tool: nodeTool,
-        executionPlatform,
-        target: nativeTarget,
-      });
+      const gtkProbePath = join(scratch, "gtk4-function-probe.c");
+      writeFileSync(gtkProbePath, gtkAnalysisPlan.probe.source);
       const analysisGraph = defineArtifactGraph({
         artifacts: [
-          gtkProbePlan.source,
           ...gtkSdk.artifacts,
-          gtkProbePlan.rawAst,
-          gtkProbePlan.rawLlvm,
           gtkSnapshotArtifact,
           gtkBindingRequestArtifact,
           gtkBindingToolArtifact,
-          gtkEvidencePlan.artifact,
-          gtkBindingPlan.artifact,
+          ...gtkAnalysisPlan.artifacts,
         ],
-        actions: [
-          gtkProbePlan.astAction,
-          gtkProbePlan.llvmAction,
-          gtkEvidencePlan.action,
-          gtkBindingPlan.action,
-        ],
+        actions: gtkAnalysisPlan.actions,
       });
       const analysisBindings = {
         sourcePaths: {
           ...gtkSdk.sourcePaths,
-          [gtkProbePlan.source.id]: gtkProbePath,
+          [gtkAnalysisPlan.clang.source.id]: gtkProbePath,
           [gtkSnapshotArtifact.id]: gtkSnapshotPath,
           [gtkBindingRequestArtifact.id]: gtkBindingRequestPath,
           [gtkBindingToolArtifact.id]: gtkBindingToolPath,
@@ -460,12 +419,12 @@ test(
       });
       assert.equal(
         cachedAnalysisReport.actions.find(
-          ({ id }) => id === gtkBindingPlan.action.id,
+          ({ id }) => id === gtkAnalysisPlan.bindings.action.id,
         )?.status,
         "cached",
       );
       const generatedGtkArtifact = analysisReport.artifacts.find(
-        ({ id }) => id === gtkBindingPlan.artifact.id,
+        ({ id }) => id === gtkAnalysisPlan.bindings.artifact.id,
       );
       assert.ok(generatedGtkArtifact);
       const generatedGtkPath = generatedGtkArtifact.path;

@@ -26,6 +26,7 @@ import {
   defineGtkBindingPackageRequest,
   ingestGir,
   planGtkBindingPackage,
+  planGtkBindingAnalysis,
   planGtkClangEvidenceNormalization,
 } from "@native-typescript/target-gtk";
 import type {
@@ -690,6 +691,81 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
       target: "x86_64-unknown-linux-gnu",
     }),
     /requires tool\/node/u,
+  );
+});
+
+test("GTK binding analysis composes one immutable target plan", () => {
+  const selected = snapshot(["clicked"]);
+  const generation = options(selected);
+  const request = defineGtkBindingPackageRequest({
+    clang: generation.evidence.clang,
+    generation: {
+      package: generation.package,
+      target: generation.target,
+      sdk: generation.sdk,
+      linkInputs: generation.linkInputs,
+      adapterInput: generation.adapterInput,
+    },
+  });
+  const clangTool = {
+    id: generation.evidence.clang.toolId,
+    version: generation.evidence.clang.version,
+    digest: generation.evidence.clang.digest,
+  };
+  const nodeTool = {
+    id: "tool/node",
+    version: "24.19.0",
+    digest: `sha256:${"b".repeat(64)}`,
+  };
+  const plan = planGtkBindingAnalysis({
+    snapshot: selected,
+    request,
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    requestArtifact: "metadata/gtk4/request",
+    generatorArtifact: "tool-input/target-gtk/generator",
+    clangArguments: [{ kind: "input-path", artifact: "sdk/gtk4/include" }],
+    clangTool,
+    nodeTool,
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+
+  assertDeepFrozen(plan);
+  assert.equal(plan.probe.sourceDigest, plan.clang.source.origin.kind === "source"
+    ? plan.clang.source.origin.digest
+    : undefined);
+  assert.deepEqual(plan.artifacts.map(({ id }) => id), [
+    "source/gtk4/clang-abi-probe",
+    "metadata/gtk4/clang-abi-ast",
+    "metadata/gtk4/clang-abi-llvm",
+    "metadata/gtk4/normalized-clang-abi-evidence",
+    "package/gtk4/bindings",
+  ]);
+  assert.deepEqual(plan.actions.map(({ id }) => id), [
+    "inspect/gtk4/clang-abi",
+    "inspect/gtk4/clang-calling-convention",
+    "normalize/gtk4/clang-abi-evidence",
+    "generate/gtk4/binding-package",
+  ]);
+  assert.deepEqual(plan.evidence.action.inputs.slice(2, 4), [
+    plan.clang.rawAst.id,
+    plan.clang.rawLlvm.id,
+  ]);
+  assert.equal(plan.bindings.action.inputs.includes(plan.evidence.artifact.id), true);
+  assert.throws(
+    () => planGtkBindingAnalysis({
+      snapshot: selected,
+      request,
+      snapshotArtifact: "metadata/gtk4/snapshot",
+      requestArtifact: "metadata/gtk4/request",
+      generatorArtifact: "tool-input/target-gtk/generator",
+      clangArguments: [],
+      clangTool: { ...clangTool, version: "different" },
+      nodeTool,
+      executionPlatform: "x86_64-linux",
+      target: "x86_64-unknown-linux-gnu",
+    }),
+    /Clang tool does not match/u,
   );
 });
 

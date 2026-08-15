@@ -201,9 +201,12 @@ actions compile the same content-addressed probe: one writes selected AST and
 one writes LLVM calling-classification IR to raw metadata artifacts. Because
 those formats contain non-semantic compiler detail, a dependent action reduces
 them to canonical selected ABI evidence. Function types, selected record layout,
-and physical calling classifications share one probe contract. The binding-package action consumes that
-stable evidence, the canonical selected-GIR snapshot, an immutable generation
-request, and a content-addressed self-contained host generator. Its single
+and physical calling classifications share one probe contract.
+`planGtkBindingAnalysis()` owns this composition and returns the complete
+immutable target subgraph; callers supply source and tool bindings but do not
+reconstruct its dependency edges. The binding-package action consumes that stable
+evidence, the canonical selected-GIR snapshot, an immutable generation request,
+and a content-addressed self-contained host generator. Its single
 directory output contains declarations, SCABI, GObject adapter source/metadata,
 and package provenance. That directory is the explicit phase boundary consumed
 by later compiler planning and is cache-reused across distinct build roots. The
