@@ -29,6 +29,8 @@ export {
   type ScriptCNativeValueType,
 } from "./native.ts";
 export type {
+  ScriptCExecutableCompilationPlan,
+  ScriptCExecutableNativeBuildPlan,
   ScriptCExternalCcArgument,
   ScriptCExternalCcPlan,
   ScriptCExternalCcPlanResolution,

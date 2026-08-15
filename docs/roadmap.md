@@ -124,11 +124,12 @@ verifies ordinary and overflow calls.
 
 The first host-C artifact graph and Linux sandboxed executor now compile and
 link a permanent native fixture with content-verified sources, directory/SDK
-inputs, tools, and strict declared-output validation. ScriptC now delegates its
-complete native-build request and exact compiler-driver invocation without
-duplicating runtime-source selection. The GTK application registers the emitted
-C/LLVM program as a verified graph input and materializes its GLib runtime,
-wrapper object, ScriptC runtime, and final executable through one graph. Tool
+inputs, tools, and strict declared-output validation. ScriptC now delegates a
+schema-versioned, path-free executable-compilation plan with validated IR,
+exact backend/target facts, and the complete native-build request. The GTK
+application runs ScriptC's C/LLVM emitter as a deterministic cacheable graph
+action, then materializes its GLib runtime, wrapper object, ScriptC runtime,
+and final executable through the same graph. Tool
 standard output can now be streamed into an ordinary verified/cacheable metadata
 artifact without shell redirection, which is the required path for Clang AST and
 other machine-readable compiler evidence. The new target-neutral C binding
@@ -137,8 +138,8 @@ content-addressed function probes, makes Clang prove exact header compatibility,
 and normalizes only the selected AST evidence. Its permanent fixture rejects a
 deliberately wrong const-qualified result. Phase 1 still requires aggregate
 layout/calling-convention evidence and full SCABI/declaration generation;
-modeling compiler emission and export adapters as producer actions; making
-implicit toolchain/system-library inputs explicit so native actions can use the
+modeling export adapters as producer actions; making implicit
+toolchain/system-library inputs explicit so native actions can use the
 implemented local cache; adding cache eviction/export; broadening callback
 payload/lifetime and error/export families; provider hooks; and the remaining
 workspace-side product/reporting work before its exit gate can pass.

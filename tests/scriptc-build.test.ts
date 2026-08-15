@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planScriptCExecutable } from "@native-typescript/core";
-import type { ScriptCExternalCcPlan } from "@native-typescript/scriptc";
+import {
+  planScriptCExecutable,
+  planScriptCProgramEmission,
+} from "@native-typescript/core";
+import type {
+  ScriptCExecutableCompilationPlan,
+  ScriptCExternalCcPlan,
+} from "@native-typescript/scriptc";
 
 const externalPlan: ScriptCExternalCcPlan = {
   schema: "scriptc.external-cc-plan",
@@ -28,6 +34,90 @@ const tool = {
   version: "20.1.8",
   digest: `sha256:${"0".repeat(64)}`,
 };
+
+const compilationPlan: ScriptCExecutableCompilationPlan = {
+  schema: "scriptc.executable-compilation-plan",
+  schemaVersion: 1,
+  backend: "llvm",
+  target: { platform: "linux", pointerBits: 64, wasi: false },
+  ir: "{}",
+  entrySource: "console.log(42);\n",
+  nativeBuild: {
+    cacheIdentity: "scriptc-generated-v1",
+    nativeHandle: true,
+    linkInputs: ["object/platform"],
+  },
+};
+
+const nodeTool = {
+  id: "tool/node",
+  version: "24.19.0",
+  digest: `sha256:${"1".repeat(64)}`,
+};
+
+test("ScriptC compiler plans become cacheable program-emission actions", () => {
+  const result = planScriptCProgramEmission({
+    actionId: "emit/scriptc/llvm",
+    plan: compilationPlan,
+    planArtifact: "metadata/scriptc/llvm-plan",
+    compilerArtifact: "tool-input/scriptc/emitter",
+    artifactId: "generated/scriptc/llvm/program",
+    artifactFileName: "program.ll",
+    tool: nodeTool,
+    executionPlatform: "x86_64-linux",
+    targetPlatform: "linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+
+  assert.deepEqual(result.action.inputs, [
+    "tool-input/scriptc/emitter",
+    "metadata/scriptc/llvm-plan",
+  ]);
+  assert.deepEqual(result.action.arguments, [
+    {
+      kind: "input-path",
+      artifact: "tool-input/scriptc/emitter",
+      path: "executable-emitter-cli.js",
+    },
+    { kind: "input-path", artifact: "metadata/scriptc/llvm-plan" },
+    { kind: "output-path", artifact: "generated/scriptc/llvm/program" },
+  ]);
+  assert.equal(result.artifact.mediaType, "text/x-llvm");
+  assert.equal(result.artifact.cache, "exportable");
+  assert.equal(result.action.deterministic, true);
+  assert.equal(result.action.cacheable, true);
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.action.arguments), true);
+});
+
+test("ScriptC emission planning requires Node and the exact target platform", () => {
+  const base = {
+    actionId: "emit/scriptc/llvm",
+    plan: compilationPlan,
+    planArtifact: "metadata/scriptc/llvm-plan",
+    compilerArtifact: "tool-input/scriptc/emitter",
+    artifactId: "generated/scriptc/llvm/program",
+    artifactFileName: "program.ll",
+    tool: nodeTool,
+    executionPlatform: "x86_64-linux",
+    targetPlatform: "linux",
+    target: "x86_64-unknown-linux-gnu",
+  } as const;
+  assert.throws(
+    () => planScriptCProgramEmission({
+      ...base,
+      tool,
+    }),
+    /requires tool\/node/u,
+  );
+  assert.throws(
+    () => planScriptCProgramEmission({
+      ...base,
+      targetPlatform: "darwin",
+    }),
+    /planned linux, but emission targets darwin/u,
+  );
+});
 
 test("ScriptC external commands become immutable artifact actions", () => {
   const result = planScriptCExecutable({

@@ -346,17 +346,22 @@ canonical cache key. Tests cover tool-free hits, input invalidation, file and
 directory outputs, dependent executable restoration, content and schema
 corruption, and concurrent publication.
 
-ScriptC exposes an immutable native-build request and permits an external
-materializer to receive its exact compiler-driver command. Native TypeScript
-rewrites every declared program, runtime, object, and output path in that
-command to a logical artifact reference; an unknown ambient path is rejected.
-This keeps ScriptC's own feature analysis and runtime-source selection as the
-single source of truth. The GTK fixture registers the emitted C or LLVM unit as
-a content-verified input and materializes both hand-authored native objects,
-the reached ScriptC runtime sources, and the final executable through one graph.
+ScriptC exposes an immutable, schema-versioned executable-compilation plan. It
+contains validated serialized IR, canonical source identities, one exact
+backend/target, and the native-build feature plan, but no workspace paths.
+Native TypeScript content-addresses that plan and the built ScriptC emitter,
+then runs emission as a deterministic cacheable Node action whose generated C
+or LLVM file is an ordinary target artifact.
 
-Compiler emission itself is still performed before graph execution. The graph
-also does not yet model the compiler's implicit system image, library-search
+ScriptC also permits an external materializer to receive its exact
+compiler-driver command. Native TypeScript rewrites every declared program,
+runtime, object, and output path in that command to a logical artifact
+reference; an unknown ambient path is rejected. This keeps ScriptC's feature
+analysis and runtime-source selection as the single source of truth. The GTK
+fixture materializes compiler emission, hand-authored native objects, reached
+ScriptC runtime sources, and the final executable through one graph.
+
+The graph does not yet model the compiler driver's implicit system image, library-search
 trees, or every toolchain-provided system library as declared inputs. Current
 native actions therefore remain deliberately non-cacheable. ScriptC features
 whose driver command introduces an undeclared vendor path are rejected until

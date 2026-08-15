@@ -1,4 +1,7 @@
-import type { ScriptCExternalCcPlan } from "@native-typescript/scriptc";
+import type {
+  ScriptCExecutableCompilationPlan,
+  ScriptCExternalCcPlan,
+} from "@native-typescript/scriptc";
 import type {
   ArtifactActionArgument,
   ArtifactActionDefinition,
@@ -8,6 +11,96 @@ import type {
 export interface ScriptCExecutableArtifactPlan {
   readonly artifact: ArtifactDefinition;
   readonly action: ArtifactActionDefinition;
+}
+
+export interface ScriptCProgramEmissionArtifactPlan {
+  readonly artifact: ArtifactDefinition;
+  readonly action: ArtifactActionDefinition;
+}
+
+export function planScriptCProgramEmission(input: {
+  readonly actionId: string;
+  readonly plan: ScriptCExecutableCompilationPlan;
+  readonly planArtifact: string;
+  readonly compilerArtifact: string;
+  readonly artifactId: string;
+  readonly artifactFileName: string;
+  readonly tool: ArtifactActionDefinition["tool"];
+  readonly executionPlatform: string;
+  readonly targetPlatform: string;
+  readonly target: string;
+}): ScriptCProgramEmissionArtifactPlan {
+  if (
+    input.plan.schema !== "scriptc.executable-compilation-plan" ||
+    input.plan.schemaVersion !== 1
+  ) {
+    throw new Error("Unsupported ScriptC executable compilation plan schema");
+  }
+  if (input.tool.id !== "tool/node") {
+    throw new Error(
+      `ScriptC program emission requires tool/node, but received ${input.tool.id}`,
+    );
+  }
+  if (input.plan.target.platform !== input.targetPlatform) {
+    throw new Error(
+      `ScriptC planned ${input.plan.target.platform}, but emission targets ${input.targetPlatform}`,
+    );
+  }
+  const extension = input.plan.backend === "llvm" ? ".ll" : ".c";
+  if (!input.artifactFileName.endsWith(extension)) {
+    throw new Error(
+      `ScriptC ${input.plan.backend} emission requires a ${extension} artifact`,
+    );
+  }
+  return Object.freeze({
+    artifact: Object.freeze({
+      id: input.artifactId,
+      kind: "generated-source",
+      entryType: "file",
+      mediaType: input.plan.backend === "llvm" ? "text/x-llvm" : "text/x-c",
+      target: input.target,
+      domain: "target",
+      cache: "exportable",
+      origin: Object.freeze({
+        kind: "action",
+        action: input.actionId,
+        fileName: input.artifactFileName,
+      }),
+    }),
+    action: Object.freeze({
+      id: input.actionId,
+      implementation: Object.freeze({
+        id: "native-typescript/scriptc-program-emission",
+        version: String(input.plan.schemaVersion),
+      }),
+      tool: Object.freeze({ ...input.tool }),
+      arguments: Object.freeze([
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: input.compilerArtifact,
+          path: "executable-emitter-cli.js",
+        }),
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: input.planArtifact,
+        }),
+        Object.freeze({
+          kind: "output-path" as const,
+          artifact: input.artifactId,
+        }),
+      ]),
+      environment: Object.freeze([]),
+      inputs: Object.freeze([input.compilerArtifact, input.planArtifact]),
+      outputs: Object.freeze([input.artifactId]),
+      standardOutput: Object.freeze({ kind: "report" as const }),
+      workingDirectory: "isolated",
+      network: "denied",
+      executionPlatform: input.executionPlatform,
+      target: input.target,
+      deterministic: true,
+      cacheable: true,
+    }),
+  });
 }
 
 export function planScriptCExecutable(input: {

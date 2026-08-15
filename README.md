@@ -211,13 +211,16 @@ corrupt entries, and publishes concurrent misses atomically. Actions can stream
 tool standard output into a declared, verified, cacheable metadata artifact;
 machine-readable compiler output therefore needs no shell-redirection escape
 hatch.
-ScriptC now exposes its complete native-build request and exact compiler-driver
-invocation without duplicating its runtime-source selection. The GTK fixture
-registers the emitted C/LLVM unit as a verified graph input and materializes its
-adapter objects, ScriptC runtime, and final executable in one graph. Compiler
-emission itself and implicit system toolchain/library trees are not graph
-actions yet, so the GTK native actions remain deliberately non-cacheable. Only
-reached bindings and native types enter emitted IR or the link. The GTK target
+ScriptC now exposes a schema-versioned, path-free executable-compilation plan
+containing validated IR, exact backend/target facts, and its complete native
+build request. Native TypeScript runs the corresponding deterministic C/LLVM
+emitter as a cacheable graph action, then uses ScriptC's exact compiler-driver
+invocation without duplicating runtime-source selection. The GTK fixture
+materializes that generated unit, its adapter objects, ScriptC runtime, and the
+final executable in one graph. Implicit system toolchain/library trees are not
+declared graph inputs yet, so the GTK native actions remain deliberately
+non-cacheable. Only reached bindings and native types enter emitted IR or the
+link. The GTK target
 now also turns an explicit namespace/class/member selection from GIR into a
 content-addressed immutable snapshot. Real `Gtk.Widget`, `Gtk.Button`, and
 `Gtk.Window` ingestion preserves C and GType identity, class ancestry,
