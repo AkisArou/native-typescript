@@ -11,6 +11,9 @@ import type {
   GirClassSelection,
   GirDiagnostic,
   GirDiagnosticCode,
+  GirEnumeration,
+  GirEnumerationMember,
+  GirEnumerationSelection,
   GirInclude,
   GirIngestionOptions,
   GirParameter,
@@ -41,6 +44,11 @@ interface NormalizedClassSelection {
 interface NormalizedRecordSelection {
   readonly name: string;
   readonly fields: ReadonlySet<string>;
+}
+
+interface NormalizedEnumerationSelection {
+  readonly name: string;
+  readonly members: ReadonlySet<string>;
 }
 
 interface MutableTypeReference {
@@ -172,6 +180,39 @@ interface MutableRecord {
   readonly foundFields: Set<string>;
 }
 
+interface MutableEnumeration {
+  readonly depth: number;
+  readonly path: string;
+  readonly selection: NormalizedEnumerationSelection;
+  readonly kind: GirEnumeration["kind"];
+  readonly name: string;
+  readonly cType: string;
+  readonly glibTypeName: string | null;
+  readonly glibGetType: string | null;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly annotations: GirAnnotation[];
+  readonly members: GirEnumerationMember[];
+  readonly foundMembers: Set<string>;
+}
+
+interface MutableEnumerationMember {
+  readonly depth: number;
+  readonly path: string;
+  readonly name: string;
+  readonly value: string;
+  readonly cIdentifier: string;
+  readonly glibNick: string | null;
+  readonly glibName: string | null;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly annotations: GirAnnotation[];
+}
+
 function diagnostic(
   code: GirDiagnosticCode,
   path: string,
@@ -291,6 +332,22 @@ function integerAttribute(
     ),
   );
   return null;
+}
+
+function signedIntegerAttribute(
+  tag: SaxesTagNS,
+  local: string,
+  path: string,
+  diagnostics: GirDiagnostic[],
+): string {
+  const value = requiredAttribute(tag, local, "", path, diagnostics);
+  if (/^-?(?:0|[1-9][0-9]*)$/u.test(value) && value !== "-0") return value;
+  diagnostics.push(diagnostic(
+    "NTS4005",
+    `${path}/@${local}`,
+    `Expected a canonical signed integer, received '${value}'`,
+  ));
+  return "0";
 }
 
 function transferAttribute(
@@ -449,6 +506,51 @@ function normalizeRecordSelections(
   return result;
 }
 
+function normalizeEnumerationSelections(
+  selections: readonly GirEnumerationSelection[],
+  diagnostics: GirDiagnostic[],
+): ReadonlyMap<string, NormalizedEnumerationSelection> {
+  const result = new Map<string, NormalizedEnumerationSelection>();
+  for (const [index, selection] of selections.entries()) {
+    const path = `enumerations/${index}`;
+    if (!selectionNamePattern.test(selection.name)) {
+      diagnostics.push(diagnostic(
+        "NTS4001",
+        `${path}/name`,
+        `Invalid GIR enumeration selection '${selection.name}'`,
+      ));
+      continue;
+    }
+    if (result.has(selection.name)) {
+      diagnostics.push(diagnostic(
+        "NTS4001",
+        `${path}/name`,
+        `Duplicate GIR enumeration selection '${selection.name}'`,
+      ));
+      continue;
+    }
+    const members = new Set<string>();
+    for (const [memberIndex, name] of selection.members.entries()) {
+      if (!selectionNamePattern.test(name)) {
+        diagnostics.push(diagnostic(
+          "NTS4001",
+          `${path}/members/${memberIndex}`,
+          `Invalid GIR enumeration member selection '${name}'`,
+        ));
+      } else if (members.has(name)) {
+        diagnostics.push(diagnostic(
+          "NTS4001",
+          `${path}/members/${memberIndex}`,
+          `Duplicate GIR enumeration member selection '${name}'`,
+        ));
+      }
+      members.add(name);
+    }
+    result.set(selection.name, { name: selection.name, members });
+  }
+  return result;
+}
+
 function freezeAnnotations(
   annotations: readonly GirAnnotation[],
 ): readonly GirAnnotation[] {
@@ -591,6 +693,10 @@ export function ingestGir(
   }
   const selections = normalizeSelections(options.classes, diagnostics);
   const recordSelections = normalizeRecordSelections(options.records ?? [], diagnostics);
+  const enumerationSelections = normalizeEnumerationSelections(
+    options.enumerations ?? [],
+    diagnostics,
+  );
   if (diagnostics.length > 0) throw new GirIngestionError(diagnostics);
 
   const includes: GirInclude[] = [];
@@ -598,8 +704,10 @@ export function ingestGir(
   const cIncludes: string[] = [];
   const classes: GirClass[] = [];
   const records: GirRecord[] = [];
+  const enumerations: GirEnumeration[] = [];
   const foundClasses = new Set<string>();
   const foundRecords = new Set<string>();
+  const foundEnumerations = new Set<string>();
   const stack: SaxesTagNS[] = [];
   const typeStack: MutableTypeReference[] = [];
   let repositoryVersion: string | null = null;
@@ -608,6 +716,8 @@ export function ingestGir(
   let activeClass: MutableClass | null = null;
   let activeRecord: MutableRecord | null = null;
   let activeRecordField: MutableRecordField | null = null;
+  let activeEnumeration: MutableEnumeration | null = null;
+  let activeEnumerationMember: MutableEnumerationMember | null = null;
   let activeCallable: MutableCallable | null = null;
   let activeValue: MutableValue | null = null;
   let syntaxError: string | null = null;
@@ -817,6 +927,99 @@ export function ingestGir(
           annotations: [],
           fields: [],
           foundFields: new Set(),
+        };
+      }
+    } else if (
+      namespaceDepth !== null &&
+      depth === namespaceDepth + 1 &&
+      isCore &&
+      (tag.local === "enumeration" || tag.local === "bitfield")
+    ) {
+      const name = attribute(tag, "name") ?? "<missing>";
+      const selection = enumerationSelections.get(name);
+      if (selection !== undefined) {
+        const kind = tag.local as GirEnumeration["kind"];
+        const path = `namespace/${options.namespace.name}/${kind}/${name}`;
+        if (foundEnumerations.has(name)) {
+          diagnostics.push(diagnostic(
+            "NTS4002",
+            path,
+            `Selected GIR ${kind} '${name}' is duplicated`,
+          ));
+        }
+        foundEnumerations.add(name);
+        requireIntrospectable(tag, path, diagnostics, `Selected GIR ${kind} '${name}'`);
+        activeEnumeration = {
+          depth,
+          path,
+          selection,
+          kind,
+          name,
+          cType: requiredAttribute(tag, "type", cNamespace, path, diagnostics),
+          glibTypeName: attribute(tag, "type-name", glibNamespace) ?? null,
+          glibGetType: attribute(tag, "get-type", glibNamespace) ?? null,
+          version: attribute(tag, "version") ?? null,
+          deprecated: booleanAttribute(tag, "deprecated", path, diagnostics, false),
+          deprecatedVersion: attribute(tag, "deprecated-version") ?? null,
+          stability: attribute(tag, "stability") ?? null,
+          annotations: [],
+          members: [],
+          foundMembers: new Set(),
+        };
+      }
+    } else if (
+      activeEnumerationMember !== null &&
+      depth === activeEnumerationMember.depth + 1 &&
+      isCore &&
+      tag.local === "attribute"
+    ) {
+      activeEnumerationMember.annotations.push(readAnnotation(
+        tag,
+        `${activeEnumerationMember.path}/annotations/${activeEnumerationMember.annotations.length}`,
+        diagnostics,
+      ));
+    } else if (
+      activeEnumeration !== null &&
+      depth === activeEnumeration.depth + 1 &&
+      isCore &&
+      tag.local === "attribute"
+    ) {
+      activeEnumeration.annotations.push(readAnnotation(
+        tag,
+        `${activeEnumeration.path}/annotations/${activeEnumeration.annotations.length}`,
+        diagnostics,
+      ));
+    } else if (
+      activeEnumeration !== null &&
+      depth === activeEnumeration.depth + 1 &&
+      isCore &&
+      tag.local === "member"
+    ) {
+      const name = attribute(tag, "name") ?? "<missing>";
+      if (activeEnumeration.selection.members.has(name)) {
+        const path = `${activeEnumeration.path}/member/${name}`;
+        if (activeEnumeration.foundMembers.has(name)) {
+          diagnostics.push(diagnostic(
+            "NTS4002",
+            path,
+            `Selected GIR enumeration member '${name}' is duplicated`,
+          ));
+        }
+        activeEnumeration.foundMembers.add(name);
+        requireIntrospectable(tag, path, diagnostics, `Selected GIR enumeration member '${name}'`);
+        activeEnumerationMember = {
+          depth,
+          path,
+          name,
+          value: signedIntegerAttribute(tag, "value", path, diagnostics),
+          cIdentifier: requiredAttribute(tag, "identifier", cNamespace, path, diagnostics),
+          glibNick: attribute(tag, "nick", glibNamespace) ?? null,
+          glibName: attribute(tag, "name", glibNamespace) ?? null,
+          version: attribute(tag, "version") ?? null,
+          deprecated: booleanAttribute(tag, "deprecated", path, diagnostics, false),
+          deprecatedVersion: attribute(tag, "deprecated-version") ?? null,
+          stability: attribute(tag, "stability") ?? null,
+          annotations: [],
         };
       }
     } else if (
@@ -1311,6 +1514,48 @@ export function ingestGir(
       }
       activeCallable = null;
     }
+    if (activeEnumerationMember !== null && activeEnumerationMember.depth === depth) {
+      activeEnumeration!.members.push(Object.freeze({
+        name: activeEnumerationMember.name,
+        value: activeEnumerationMember.value,
+        cIdentifier: activeEnumerationMember.cIdentifier,
+        glibNick: activeEnumerationMember.glibNick,
+        glibName: activeEnumerationMember.glibName,
+        version: activeEnumerationMember.version,
+        deprecated: activeEnumerationMember.deprecated,
+        deprecatedVersion: activeEnumerationMember.deprecatedVersion,
+        stability: activeEnumerationMember.stability,
+        annotations: freezeAnnotations(activeEnumerationMember.annotations),
+      }));
+      activeEnumerationMember = null;
+    }
+    if (activeEnumeration !== null && activeEnumeration.depth === depth) {
+      for (const name of activeEnumeration.selection.members) {
+        if (!activeEnumeration.foundMembers.has(name)) {
+          diagnostics.push(diagnostic(
+            "NTS4003",
+            `${activeEnumeration.path}/member/${name}`,
+            `Selected GIR enumeration member '${name}' does not exist`,
+          ));
+        }
+      }
+      enumerations.push(Object.freeze({
+        kind: activeEnumeration.kind,
+        name: activeEnumeration.name,
+        cType: activeEnumeration.cType,
+        glibTypeName: activeEnumeration.glibTypeName,
+        glibGetType: activeEnumeration.glibGetType,
+        version: activeEnumeration.version,
+        deprecated: activeEnumeration.deprecated,
+        deprecatedVersion: activeEnumeration.deprecatedVersion,
+        stability: activeEnumeration.stability,
+        annotations: freezeAnnotations(activeEnumeration.annotations),
+        members: Object.freeze([...activeEnumeration.members].sort((left, right) =>
+          compareText(left.name, right.name)
+        )),
+      }));
+      activeEnumeration = null;
+    }
     if (activeClass !== null && activeClass.depth === depth) {
       const missing = (
         kind: "constructor" | "method" | "signal",
@@ -1469,11 +1714,20 @@ export function ingestGir(
       );
     }
   }
+  for (const name of enumerationSelections.keys()) {
+    if (!foundEnumerations.has(name)) {
+      diagnostics.push(diagnostic(
+        "NTS4003",
+        `namespace/${options.namespace.name}/enumeration/${name}`,
+        `Selected GIR enumeration '${name}' does not exist`,
+      ));
+    }
+  }
   if (diagnostics.length > 0) throw new GirIngestionError(diagnostics);
 
   return Object.freeze({
     schema: "native-typescript.gir-snapshot",
-    schemaVersion: 1,
+    schemaVersion: 2,
     source: Object.freeze({
       logicalPath: options.logicalPath,
       digest: sourceDigest,
@@ -1491,5 +1745,6 @@ export function ingestGir(
     namespace: namespaceMetadata!,
     classes: Object.freeze(classes.sort((left, right) => compareText(left.name, right.name))),
     records: Object.freeze(records.sort((left, right) => compareText(left.name, right.name))),
+    enumerations: Object.freeze(enumerations.sort((left, right) => compareText(left.name, right.name))),
   });
 }

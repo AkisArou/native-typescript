@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { CBindgenError } from "./model.ts";
 import { parseClangRecordCallingConventions } from "./llvm-abi.ts";
 import type {
+  CEnumCandidate,
   CRecordCandidate,
   CBindgenDiagnostic,
   CBindgenDiagnosticCode,
   CFunctionCandidate,
   ClangFunctionEvidence,
+  ClangEnumEvidence,
   ClangAbiEvidenceSnapshot,
   ClangAbiType,
   ClangAbiValue,
@@ -86,11 +88,11 @@ function semanticAbiValue(value: ClangAbiValue): object {
 
 export function digestClangAbiEvidence(input: Pick<
   ClangAbiEvidenceSnapshot,
-  "probeDigest" | "clang" | "functions" | "records"
+  "probeDigest" | "clang" | "functions" | "records" | "enums"
 >): string {
   return sha256(JSON.stringify({
     schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 2,
+    schemaVersion: 3,
     probeDigest: input.probeDigest,
     clang: {
       toolId: input.clang.toolId,
@@ -121,6 +123,19 @@ export function digestClangAbiEvidence(input: Pick<
         result: semanticAbiValue(record.callingConvention.result),
         parameters: record.callingConvention.parameters.map(semanticAbiValue),
       },
+    })),
+    enums: input.enums.map((enum_) => ({
+      id: enum_.id,
+      typeName: enum_.typeName,
+      clangType: enum_.clangType,
+      size: enum_.size,
+      alignment: enum_.alignment,
+      signed: enum_.signed,
+      members: enum_.members.map((member) => ({
+        name: member.name,
+        cIdentifier: member.cIdentifier,
+        value: member.value,
+      })),
     })),
   }));
 }
@@ -281,6 +296,7 @@ export function generateClangAbiProbe(input: {
   readonly includes: readonly string[];
   readonly functions: readonly CFunctionCandidate[];
   readonly records: readonly CRecordCandidate[];
+  readonly enums?: readonly CEnumCandidate[];
 }): ClangAbiProbe {
   const diagnostics: CBindgenDiagnostic[] = [];
   const includes = [...input.includes];
@@ -408,6 +424,93 @@ export function generateClangAbiProbe(input: {
     }));
   }
 
+  const enums: CEnumCandidate[] = [];
+  const seenEnumTypes = new Set(seenRecordTypes);
+  for (const [index, enum_] of (input.enums ?? []).entries()) {
+    const path = `enums/${index}`;
+    if (!identityPattern.test(enum_.id)) {
+      diagnostics.push(diagnostic(
+        "NTS5001",
+        `${path}/id`,
+        `Invalid enum identity '${enum_.id}'`,
+      ));
+    } else if (seenIds.has(enum_.id)) {
+      diagnostics.push(diagnostic(
+        "NTS5002",
+        `${path}/id`,
+        `Duplicate ABI identity '${enum_.id}'`,
+      ));
+    }
+    if (!cIdentifierPattern.test(enum_.typeName)) {
+      diagnostics.push(diagnostic(
+        "NTS5001",
+        `${path}/typeName`,
+        `Invalid C enum type identifier '${enum_.typeName}'`,
+      ));
+    } else if (seenEnumTypes.has(enum_.typeName)) {
+      diagnostics.push(diagnostic(
+        "NTS5002",
+        `${path}/typeName`,
+        `Duplicate ABI type '${enum_.typeName}'`,
+      ));
+    }
+    if (enum_.members.length === 0) {
+      diagnostics.push(diagnostic(
+        "NTS5001",
+        `${path}/members`,
+        "An enum ABI candidate requires at least one selected member",
+      ));
+    }
+    seenIds.add(enum_.id);
+    seenEnumTypes.add(enum_.typeName);
+    const seenMemberNames = new Set<string>();
+    const seenMemberIdentifiers = new Set<string>();
+    const members = enum_.members.map((member, memberIndex) => {
+      const memberPath = `${path}/members/${memberIndex}`;
+      if (!cIdentifierPattern.test(member.name)) {
+        diagnostics.push(diagnostic(
+          "NTS5001",
+          `${memberPath}/name`,
+          `Invalid enum member identity '${member.name}'`,
+        ));
+      } else if (seenMemberNames.has(member.name)) {
+        diagnostics.push(diagnostic(
+          "NTS5002",
+          `${memberPath}/name`,
+          `Duplicate enum member identity '${member.name}'`,
+        ));
+      }
+      if (!cIdentifierPattern.test(member.cIdentifier)) {
+        diagnostics.push(diagnostic(
+          "NTS5001",
+          `${memberPath}/cIdentifier`,
+          `Invalid C enum member identifier '${member.cIdentifier}'`,
+        ));
+      } else if (seenMemberIdentifiers.has(member.cIdentifier)) {
+        diagnostics.push(diagnostic(
+          "NTS5002",
+          `${memberPath}/cIdentifier`,
+          `Duplicate C enum member identifier '${member.cIdentifier}'`,
+        ));
+      }
+      if (!/^-?(?:0|[1-9][0-9]*)$/u.test(member.value) || member.value === "-0") {
+        diagnostics.push(diagnostic(
+          "NTS5001",
+          `${memberPath}/value`,
+          `Enum member value '${member.value}' is not a canonical integer`,
+        ));
+      }
+      seenMemberNames.add(member.name);
+      seenMemberIdentifiers.add(member.cIdentifier);
+      return Object.freeze({ ...member });
+    });
+    enums.push(Object.freeze({
+      id: enum_.id,
+      typeName: enum_.typeName,
+      members: Object.freeze(members.sort((left, right) => compareText(left.name, right.name))),
+    }));
+  }
+
   const generatedRecordsByType = new Map(
     records
       .filter((record) => record.definition === "generated")
@@ -438,9 +541,9 @@ export function generateClangAbiProbe(input: {
   for (const record of [...generatedRecordsByType.values()].sort((left, right) =>
     compareText(left.typeName, right.typeName)
   )) visitGeneratedRecord(record);
-  if (functions.length === 0 && records.length === 0) {
+  if (functions.length === 0 && records.length === 0 && enums.length === 0) {
     diagnostics.push(
-      diagnostic("NTS5001", "selection", "A Clang ABI probe requires a function or record"),
+      diagnostic("NTS5001", "selection", "A Clang ABI probe requires a function, record, or enum"),
     );
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
@@ -448,12 +551,14 @@ export function generateClangAbiProbe(input: {
   includes.sort(compareText);
   functions.sort((left, right) => compareText(left.id, right.id));
   records.sort((left, right) => compareText(left.id, right.id));
+  enums.sort((left, right) => compareText(left.id, right.id));
   const contractDigest = sha256(JSON.stringify({
     schema: "native-typescript.clang-abi-contract",
-    schemaVersion: 2,
+    schemaVersion: 3,
     includes,
     functions,
     records,
+    enums,
   }));
   const recordName = `nts_abi_probe_snapshot_${contractDigest
     .slice("sha256:".length, "sha256:".length + 16)}`;
@@ -507,6 +612,25 @@ export function generateClangAbiProbe(input: {
       "",
     );
   }
+  for (const [enumIndex, enum_] of enums.entries()) {
+    const enumSuffix = enumIndex.toString().padStart(4, "0");
+    for (const member of enum_.members) {
+      lines.push(
+        "_Static_assert(",
+        `  ${member.cIdentifier} == (${enum_.typeName})(${member.value}),`,
+        `  "NTS5004 C enum member mismatch for ${enum_.id}.${member.name}"`,
+        ");",
+        "",
+      );
+    }
+    lines.push(
+      `__attribute__((noinline, used)) ${enum_.typeName} ` +
+        `nts_abi_classify_enum_${enumSuffix}(${enum_.typeName} value) {`,
+      "  return value;",
+      "}",
+      "",
+    );
+  }
   lines.push(`struct ${recordName} {`);
   for (const [index, function_] of functions.entries()) {
     const suffix = index.toString().padStart(4, "0");
@@ -529,17 +653,28 @@ export function generateClangAbiProbe(input: {
       );
     }
   }
+  for (const [enumIndex, enum_] of enums.entries()) {
+    const enumSuffix = enumIndex.toString().padStart(4, "0");
+    lines.push(
+      `  ${enum_.typeName} enum_${enumSuffix}_type;`,
+      `  unsigned char enum_${enumSuffix}_size[sizeof(${enum_.typeName})];`,
+      `  unsigned char enum_${enumSuffix}_alignment[_Alignof(${enum_.typeName})];`,
+      `  unsigned char enum_${enumSuffix}_signed[(((${enum_.typeName})-1) < ` +
+        `((${enum_.typeName})0)) ? 2 : 1];`,
+    );
+  }
   lines.push("};", "");
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.clang-abi-probe",
-    schemaVersion: 2,
+    schemaVersion: 3,
     source,
     sourceDigest: sha256(source),
     contractDigest,
     includes: Object.freeze(includes),
     functions: Object.freeze(functions),
     records: Object.freeze(records),
+    enums: Object.freeze(enums),
   });
 }
 
@@ -623,7 +758,7 @@ export function parseClangAbiEvidence(
   const expectedFieldCount = input.probe.functions.length + input.probe.records.reduce(
     (count, record) => count + 2 + record.fields.length * 4,
     0,
-  );
+  ) + input.probe.enums.length * 4;
   if (fields.length !== expectedFieldCount) {
     diagnostics.push(
       diagnostic(
@@ -747,6 +882,56 @@ export function parseClangAbiEvidence(
       }));
     }
   }
+  const enums: ClangEnumEvidence[] = [];
+  for (const [enumIndex, enum_] of input.probe.enums.entries()) {
+    const enumSuffix = enumIndex.toString().padStart(4, "0");
+    const typeField = fieldsByName.get(`enum_${enumSuffix}_type`);
+    const type = isRecord(typeField) && isRecord(typeField.type) ? typeField.type : null;
+    const clangType = typeof type?.desugaredQualType === "string"
+      ? type.desugaredQualType
+      : typeof type?.qualType === "string"
+        ? type.qualType
+        : null;
+    const size = arrayExtent(`enum_${enumSuffix}_size`, `ast/enums/${enumIndex}/size`);
+    const alignment = arrayExtent(
+      `enum_${enumSuffix}_alignment`,
+      `ast/enums/${enumIndex}/alignment`,
+    );
+    const signedExtent = arrayExtent(
+      `enum_${enumSuffix}_signed`,
+      `ast/enums/${enumIndex}/signed`,
+    );
+    if (clangType === null) {
+      diagnostics.push(diagnostic(
+        "NTS5004",
+        `ast/enums/${enumIndex}/type`,
+        `Clang AST field 'enum_${enumSuffix}_type' is missing or malformed`,
+      ));
+    }
+    if (signedExtent !== null && signedExtent !== 1 && signedExtent !== 2) {
+      diagnostics.push(diagnostic(
+        "NTS5004",
+        `ast/enums/${enumIndex}/signed`,
+        `Clang enum signedness extent must be 1 or 2, received ${signedExtent}`,
+      ));
+    }
+    if (
+      clangType !== null &&
+      size !== null &&
+      alignment !== null &&
+      (signedExtent === 1 || signedExtent === 2)
+    ) {
+      enums.push(Object.freeze({
+        id: enum_.id,
+        typeName: enum_.typeName,
+        clangType,
+        size,
+        alignment,
+        signed: signedExtent === 2,
+        members: Object.freeze(enum_.members.map((member) => Object.freeze({ ...member }))),
+      }));
+    }
+  }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
   const semanticInput = {
@@ -754,14 +939,16 @@ export function parseClangAbiEvidence(
     clang,
     functions,
     records,
+    enums,
   };
   return Object.freeze({
     schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 2,
+    schemaVersion: 3,
     probeDigest: input.probe.sourceDigest,
     semanticDigest: digestClangAbiEvidence(semanticInput),
     clang,
     functions: Object.freeze(functions),
     records: Object.freeze(records),
+    enums: Object.freeze(enums),
   });
 }

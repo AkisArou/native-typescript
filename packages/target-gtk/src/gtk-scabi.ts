@@ -224,7 +224,7 @@ function validateInputs(
   const probe = generateGirClangAbiProbe(options.snapshot, options.gobjectAdapter);
   if (
     options.evidence.schema !== "native-typescript.clang-abi-evidence" ||
-    options.evidence.schemaVersion !== 2
+    options.evidence.schemaVersion !== 3
   ) {
     diagnostics.push(
       diagnostic("evidence/schemaVersion", "Unsupported Clang ABI evidence schema"),
@@ -263,6 +263,38 @@ function validateInputs(
     diagnostics.push(
       diagnostic("evidence/records", "Clang evidence has the wrong selected record count"),
     );
+  }
+  if (options.evidence.enums.length !== probe.enums.length) {
+    diagnostics.push(
+      diagnostic("evidence/enums", "Clang evidence has the wrong selected enum count"),
+    );
+  }
+  for (const [enumIndex, enum_] of probe.enums.entries()) {
+    const enumEvidence = options.evidence.enums[enumIndex];
+    if (
+      enumEvidence?.id !== enum_.id ||
+      enumEvidence.typeName !== enum_.typeName ||
+      enumEvidence.members.length !== enum_.members.length
+    ) {
+      diagnostics.push(diagnostic(
+        `evidence/enums/${enumIndex}`,
+        `Clang evidence does not match selected enum '${enum_.id}'`,
+      ));
+      continue;
+    }
+    for (const [memberIndex, member] of enum_.members.entries()) {
+      const memberEvidence = enumEvidence.members[memberIndex];
+      if (
+        memberEvidence?.name !== member.name ||
+        memberEvidence.cIdentifier !== member.cIdentifier ||
+        memberEvidence.value !== member.value
+      ) {
+        diagnostics.push(diagnostic(
+          `evidence/enums/${enumIndex}/members/${memberIndex}`,
+          `Clang evidence does not match selected enum member '${enum_.id}.${member.name}'`,
+        ));
+      }
+    }
   }
   for (const [recordIndex, record] of probe.records.entries()) {
     const recordEvidence = options.evidence.records[recordIndex];
@@ -651,7 +683,11 @@ export function generateGtkScabiPackage(
   const declarationTypes: Record<string, { readonly module: "."; readonly name: string }> = {};
   const usedSourceScalars = sourceScalarTypes.filter((scalar) =>
     options.snapshot.classes.some((class_) =>
-      class_.methods.some((method) =>
+      class_.constructors.some((constructor) =>
+        constructor.parameters.some((parameter) =>
+          sourceScalarType(parameter.type)?.abiType === scalar.abiType
+        )
+      ) || class_.methods.some((method) =>
         sourceScalarType(method.result.type)?.abiType === scalar.abiType ||
         method.parameters.some((parameter) =>
           sourceScalarType(parameter.type)?.abiType === scalar.abiType
@@ -677,6 +713,15 @@ export function generateGtkScabiPackage(
     class_.name,
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
+  const enumerationByName = new Map(
+    options.snapshot.enumerations.map((enum_) => [enum_.name, enum_]),
+  );
+  const typeIdByEnumeration = new Map(
+    options.snapshot.enumerations.map((enum_) => [
+      enum_.name,
+      `${options.snapshot.namespace.name.toLowerCase()}_${snakeCase(enum_.name)}`,
+    ]),
+  );
   const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
   const signalConnectionTypeId = `${namespacePrefix}_signal_connection`;
@@ -686,8 +731,11 @@ export function generateGtkScabiPackage(
   const signalDisconnectDeclaration = "SignalConnection.disconnect";
   const signalConnectedDeclaration = "SignalConnection.connected";
   const signalReleaseDeclaration = "SignalConnection.__release";
+  const declarations = new Set<string>();
+  const hasExactSourceTypes = usedSourceScalars.length > 0 ||
+    options.snapshot.enumerations.length > 0;
   const declarationLines = [
-    ...(usedSourceScalars.length > 0
+    ...(hasExactSourceTypes
       ? ["declare const nativeScalar: unique symbol;"]
       : []),
     ...options.snapshot.classes.map((class_) =>
@@ -719,7 +767,92 @@ export function generateGtkScabiPackage(
     options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
   );
   const typeIdByRecord = new Map<string, string>();
-  const declarations = new Set<string>();
+  for (const [enumIndex, enum_] of options.snapshot.enumerations.entries()) {
+    const path = `${options.snapshot.namespace.name}/${enum_.kind}/${enum_.name}`;
+    const evidence = options.evidence.enums[enumIndex];
+    const typeId = `${namespacePrefix}_${snakeCase(enum_.name)}`;
+    const storageId = `${typeId}_storage`;
+    const bits = evidence === undefined ? 0 : evidence.size * 8;
+    if (
+      evidence === undefined ||
+      (bits !== 8 && bits !== 16 && bits !== 32 && bits !== 64)
+    ) {
+      diagnostics.push(diagnostic(
+        path,
+        evidence === undefined
+          ? "Selected enumeration lacks Clang ABI evidence"
+          : `Selected enumeration has unsupported ${bits}-bit C storage`,
+      ));
+      continue;
+    }
+    if (
+      types[typeId] !== undefined ||
+      types[storageId] !== undefined ||
+      declarationTypes[typeId] !== undefined
+    ) {
+      diagnostics.push(diagnostic(path, "Generated enumeration identity collides"));
+      continue;
+    }
+    const members: Record<string, string> = {};
+    const memberLines: string[] = [];
+    let valid = true;
+    for (const member of enum_.members) {
+      const memberName = upperCamel(member.name);
+      const declaration = `${enum_.name}.${memberName}`;
+      const bindingId = `${namespacePrefix}_${snakeCase(enum_.name)}_${snakeCase(member.name)}`;
+      if (
+        !identifierPattern.test(memberName) ||
+        declarations.has(declaration) ||
+        bindings[bindingId] !== undefined ||
+        members[memberName] !== undefined
+      ) {
+        diagnostics.push(diagnostic(
+          `${path}/member/${member.name}`,
+          "Generated enumeration member identity collides",
+        ));
+        valid = false;
+        continue;
+      }
+      members[memberName] = member.value;
+      declarations.add(declaration);
+      const version = member.version ?? enum_.version;
+      bindings[bindingId] = Object.freeze({
+        kind: "constant",
+        declaration: Object.freeze({ module: ".", name: declaration }),
+        type: typeId,
+        value: member.value,
+        dependencies: dependencies({ links: [] }),
+        ...(version === null
+          ? {}
+          : {
+              availability: Object.freeze({
+                minimumPlatformVersion: version,
+                unavailableFeatures: Object.freeze([]),
+              }),
+            }),
+      });
+      memberLines.push(`  const ${memberName}: ${enum_.name};`);
+    }
+    if (!valid) continue;
+    types[storageId] = Object.freeze({
+      kind: "integer",
+      signed: evidence.signed,
+      bits,
+    });
+    types[typeId] = Object.freeze({
+      kind: enum_.kind === "bitfield" ? "flags" : "enum",
+      underlying: storageId,
+      members: Object.freeze(members),
+    });
+    declarationTypes[typeId] = Object.freeze({ module: ".", name: enum_.name });
+    declarationLines.push(
+      `export type ${enum_.name} = number & { readonly [nativeScalar]: "${enum_.name}" };`,
+      `export declare namespace ${enum_.name} {`,
+      ...memberLines,
+      "}",
+      "",
+    );
+  }
   for (const [recordIndex, record] of options.snapshot.records.entries()) {
     const path = `${options.snapshot.namespace.name}/${record.name}`;
     const evidence = options.evidence.records[recordIndex];
@@ -1154,6 +1287,9 @@ export function generateGtkScabiPackage(
       for (const [index, parameter] of callable.parameters.slice(1).entries()) {
         const parameterPath = `${path}/parameters/${index + 1}`;
         const scalar = sourceScalarType(parameter.type);
+        const enumeration = parameter.type.kind === "named"
+          ? enumerationByName.get(parameter.type.name)
+          : undefined;
         if (
           parameter.type.kind === "named" &&
           parameter.type.name === "utf8"
@@ -1182,6 +1318,27 @@ export function generateGtkScabiPackage(
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
             sourceParameterTypes.push("boolean");
+          }
+        } else if (enumeration !== undefined) {
+          const enumerationTypeId = typeIdByEnumeration.get(enumeration.name)!;
+          const abi = requiredValueParameter(
+            parameter,
+            {
+              girName: enumeration.name,
+              cTypes: [enumeration.cType],
+              abiType: enumerationTypeId,
+            },
+            parameterPath,
+            diagnostics,
+          );
+          if (abi === null) {
+            valid = false;
+          } else {
+            abiParameters.push(abi);
+            sourceParameters.push(
+              `${lowerCamel(parameter.name)}: ${enumeration.name}`,
+            );
+            sourceParameterTypes.push(enumeration.name);
           }
         } else if (scalar !== undefined) {
           const abi = requiredValueParameter(
@@ -1478,17 +1635,55 @@ export function generateGtkScabiPackage(
       const sourceParameters: string[] = [];
       let valid = true;
       for (const [index, parameter] of callable.parameters.entries()) {
-        const abi = cStringParameter(
-          parameter,
-          "const_utf8",
-          `${path}/parameters/${index}`,
-          diagnostics,
-        );
+        const parameterPath = `${path}/parameters/${index}`;
+        const scalar = sourceScalarType(parameter.type);
+        const enumeration = parameter.type.kind === "named"
+          ? enumerationByName.get(parameter.type.name)
+          : undefined;
+        let abi: AbiParameter | null;
+        let sourceType: string;
+        if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
+          abi = cStringParameter(parameter, "const_utf8", parameterPath, diagnostics);
+          sourceType = "string";
+        } else if (parameter.type.kind === "named" && parameter.type.name === "gboolean") {
+          abi = requiredValueParameter(
+            parameter,
+            { girName: "gboolean", cTypes: ["gboolean"], abiType: "gboolean" },
+            parameterPath,
+            diagnostics,
+          );
+          sourceType = "boolean";
+        } else if (enumeration !== undefined) {
+          abi = requiredValueParameter(
+            parameter,
+            {
+              girName: enumeration.name,
+              cTypes: [enumeration.cType],
+              abiType: typeIdByEnumeration.get(enumeration.name)!,
+            },
+            parameterPath,
+            diagnostics,
+          );
+          sourceType = enumeration.name;
+        } else if (scalar !== undefined) {
+          abi = requiredValueParameter(parameter, scalar, parameterPath, diagnostics);
+          sourceType = scalar.girName;
+        } else {
+          const handle = handleParameter(
+            parameter,
+            classByName,
+            typeIdByClass,
+            parameterPath,
+            diagnostics,
+          );
+          abi = handle?.abi ?? null;
+          sourceType = handle?.sourceType ?? "never";
+        }
         if (abi === null) {
           valid = false;
         } else {
           parameters.push(abi);
-          sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
+          sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
         }
       }
       const projection = constructorProjection(class_.name, callable.name);
@@ -1575,13 +1770,19 @@ export function generateGtkScabiPackage(
     generator: {
       name: "native-typescript.gtk-gir",
       version: "1",
-      revision: "gtk-scabi-v1",
-      arguments: options.snapshot.classes.flatMap((class_) => [
-        `--class=${class_.name}`,
-        ...class_.constructors.map(({ name }) => `--constructor=${class_.name}.${name}`),
-        ...class_.methods.map(({ name }) => `--method=${class_.name}.${name}`),
-        ...class_.signals.map(({ name }) => `--signal=${class_.name}.${name}`),
-      ]),
+      revision: "gtk-scabi-v2",
+      arguments: [
+        ...options.snapshot.classes.flatMap((class_) => [
+          `--class=${class_.name}`,
+          ...class_.constructors.map(({ name }) => `--constructor=${class_.name}.${name}`),
+          ...class_.methods.map(({ name }) => `--method=${class_.name}.${name}`),
+          ...class_.signals.map(({ name }) => `--signal=${class_.name}.${name}`),
+        ]),
+        ...options.snapshot.enumerations.flatMap((enum_) => [
+          `--${enum_.kind}=${enum_.name}`,
+          ...enum_.members.map(({ name }) => `--member=${enum_.name}.${name}`),
+        ]),
+      ],
       inputDigests: [
         options.snapshot.source.digest as Sha256Digest,
         options.evidence.semanticDigest as Sha256Digest,

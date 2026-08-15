@@ -44,7 +44,10 @@ function sha256(value: string): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
-function snapshot(signals: readonly string[] = []): GirSnapshot {
+function snapshot(
+  signals: readonly string[] = [],
+  withOrientation = false,
+): GirSnapshot {
   return ingestGir(girSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     namespace: { name: "Gtk", version: "4.0" },
@@ -57,6 +60,9 @@ function snapshot(signals: readonly string[] = []): GirSnapshot {
       },
     ],
     records: [{ name: "Requisition", fields: ["width", "height"] }],
+    enumerations: withOrientation
+      ? [{ name: "Orientation", members: ["horizontal", "vertical"] }]
+      : [],
   });
 }
 
@@ -153,20 +159,31 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
       }),
     });
   }));
+  const enums = Object.freeze(probe.enums.map((enum_) => Object.freeze({
+    id: enum_.id,
+    typeName: enum_.typeName,
+    clangType: enum_.typeName,
+    size: 4,
+    alignment: 4,
+    signed: false,
+    members: Object.freeze(enum_.members.map((member) => Object.freeze({ ...member }))),
+  })));
   const semanticInput = {
     probeDigest: probe.sourceDigest,
     clang,
     functions,
     records,
+    enums,
   };
   return Object.freeze({
     schema: "native-typescript.clang-abi-evidence",
-    schemaVersion: 2,
+    schemaVersion: 3,
     probeDigest: probe.sourceDigest,
     semanticDigest: digestClangAbiEvidence(semanticInput),
     clang,
     functions,
     records,
+    enums,
   });
 }
 
@@ -307,6 +324,63 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   assert.deepEqual(constructor.declaration, { module: ".", name: "Button.withLabel" });
   assertDeepFrozen(generated);
   assert.deepEqual(generateGtkScabiPackage(options()), generated);
+});
+
+test("Clang-proven GTK enums become idiomatic exact constants", () => {
+  const generated = generateGtkScabiPackage(options(snapshot([], true)));
+
+  assert.match(
+    generated.declarations,
+    /export type Orientation = number & \{ readonly \[nativeScalar\]: "Orientation" \};/u,
+  );
+  assert.match(
+    generated.declarations,
+    /export declare namespace Orientation \{\n  const Horizontal: Orientation;\n  const Vertical: Orientation;\n\}/u,
+  );
+  assert.deepEqual(generated.manifest.types.gtk_orientation_storage, {
+    kind: "integer",
+    signed: false,
+    bits: 32,
+  });
+  assert.deepEqual(generated.manifest.types.gtk_orientation, {
+    kind: "enum",
+    underlying: "gtk_orientation_storage",
+    members: { Horizontal: "0", Vertical: "1" },
+  });
+  assert.deepEqual(generated.manifest.declarations.types.gtk_orientation, {
+    module: ".",
+    name: "Orientation",
+  });
+  assert.deepEqual(generated.manifest.bindings.gtk_orientation_vertical, {
+    kind: "constant",
+    declaration: { module: ".", name: "Orientation.Vertical" },
+    type: "gtk_orientation",
+    value: "1",
+    dependencies: {
+      bindings: [],
+      linkInputs: [],
+      adapterInputs: [],
+      permissions: [],
+    },
+  });
+
+  const translated = translateScabiNativeProgram(generated.manifest, {
+    imports: ["gtk_orientation_vertical"],
+    exports: [],
+  });
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+  assert.deepEqual(translated.input.sourceTypes, [{
+    declaration: { module: "@native-typescript/gtk4", name: "Orientation" },
+    type: { kind: "nativeScalar", scalar: "u32" },
+  }]);
+  assert.deepEqual(translated.input.constants, [{
+    id: "native-typescript.gtk4@0.0.0#gtk_orientation_vertical",
+    declaration: { module: "@native-typescript/gtk4", name: "Orientation.Vertical" },
+    type: { kind: "nativeScalar", scalar: "u32" },
+    value: "1",
+  }]);
+  assert.deepEqual(translated.build, { linkInputs: [], adapterInputs: [] });
 });
 
 test("GTK caller-allocated record outputs project as one nested value result", () => {

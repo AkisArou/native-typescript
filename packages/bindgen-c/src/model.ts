@@ -67,15 +67,28 @@ export interface CRecordCandidate {
   readonly fields: readonly CRecordFieldCandidate[];
 }
 
+export interface CEnumMemberCandidate {
+  readonly name: string;
+  readonly cIdentifier: string;
+  readonly value: string;
+}
+
+export interface CEnumCandidate {
+  readonly id: string;
+  readonly typeName: string;
+  readonly members: readonly CEnumMemberCandidate[];
+}
+
 export interface ClangAbiProbe {
   readonly schema: "native-typescript.clang-abi-probe";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly source: string;
   readonly sourceDigest: string;
   readonly contractDigest: string;
   readonly includes: readonly string[];
   readonly functions: readonly CFunctionCandidate[];
   readonly records: readonly CRecordCandidate[];
+  readonly enums: readonly CEnumCandidate[];
 }
 
 export interface ClangFunctionEvidence {
@@ -136,9 +149,25 @@ export interface ClangRecordEvidence {
   readonly callingConvention: ClangRecordCallingConventionEvidence;
 }
 
+export interface ClangEnumMemberEvidence {
+  readonly name: string;
+  readonly cIdentifier: string;
+  readonly value: string;
+}
+
+export interface ClangEnumEvidence {
+  readonly id: string;
+  readonly typeName: string;
+  readonly clangType: string;
+  readonly size: number;
+  readonly alignment: number;
+  readonly signed: boolean;
+  readonly members: readonly ClangEnumMemberEvidence[];
+}
+
 export interface ClangAbiEvidenceSnapshot {
   readonly schema: "native-typescript.clang-abi-evidence";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly probeDigest: string;
   readonly semanticDigest: string;
   readonly clang: {
@@ -149,4 +178,5 @@ export interface ClangAbiEvidenceSnapshot {
   };
   readonly functions: readonly ClangFunctionEvidence[];
   readonly records: readonly ClangRecordEvidence[];
+  readonly enums: readonly ClangEnumEvidence[];
 }

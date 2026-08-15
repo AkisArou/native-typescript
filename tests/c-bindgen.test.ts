@@ -21,6 +21,7 @@ import {
   planClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import type {
+  CEnumCandidate,
   CFunctionCandidate,
   ClangAbiType,
   CRecordCandidate,
@@ -144,19 +145,33 @@ function fixtureRecords(): readonly CRecordCandidate[] {
   }];
 }
 
+function fixtureEnums(): readonly CEnumCandidate[] {
+  return [{
+    id: "fixture.orientation",
+    typeName: "NTSOrientation",
+    members: [
+      { name: "horizontal", cIdentifier: "NTS_ORIENTATION_HORIZONTAL", value: "0" },
+      { name: "unknown", cIdentifier: "NTS_ORIENTATION_UNKNOWN", value: "-1" },
+      { name: "vertical", cIdentifier: "NTS_ORIENTATION_VERTICAL", value: "1" },
+    ],
+  }];
+}
+
 test("C candidates produce a canonical immutable Clang probe", () => {
   const forward = generateClangAbiProbe({
     includes: ["fixture.h"],
     functions: fixtureFunctions(),
     records: fixtureRecords(),
+    enums: fixtureEnums(),
   });
   const reverse = generateClangAbiProbe({
     includes: ["fixture.h"],
     functions: [...fixtureFunctions()].reverse(),
     records: [...fixtureRecords()].reverse(),
+    enums: [...fixtureEnums()].reverse(),
   });
 
-  assert.equal(forward.schemaVersion, 2);
+  assert.equal(forward.schemaVersion, 3);
   assert.equal(forward.source, reverse.source);
   assert.equal(forward.sourceDigest, reverse.sourceDigest);
   assert.equal(forward.contractDigest, reverse.contractDigest);
@@ -166,6 +181,7 @@ test("C candidates produce a canonical immutable Clang probe", () => {
     /typedef const char \* \(\*nts_abi_expected_0001\)\(NTSWidget \*\);/u,
   );
   assert.match(forward.source, /record_0000_field_0002_offset/u);
+  assert.match(forward.source, /enum_0000_signed/u);
   assert.match(forward.source, /__builtin_types_compatible_p/u);
   assert.match(forward.source, /struct nts_abi_probe_snapshot_[0-9a-f]{16}/u);
   assert.equal(Object.isFrozen(forward), true);
@@ -250,7 +266,7 @@ test("the candidate type parser is narrow, structured, and non-authoritative", (
   assert.throws(() => parseCTypeCandidate("char (*)(int)"), CBindgenError);
 });
 
-test("Clang verifies selected function and record ABI and emits structured evidence", async () => {
+test("Clang verifies selected function, record, and enum ABI and emits structured evidence", async () => {
   const clangPath = executable("clang");
   const sandboxPath = executable("bwrap");
   const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-c-"));
@@ -259,6 +275,7 @@ test("Clang verifies selected function and record ABI and emits structured evide
       includes: ["fixture.h"],
       functions: fixtureFunctions(),
       records: fixtureRecords(),
+      enums: fixtureEnums(),
     });
     const sourcePath = join(temporaryRoot, "probe.c");
     writeFileSync(sourcePath, probe.source);
@@ -391,6 +408,19 @@ test("Clang verifies selected function and record ABI and emits structured evide
         ],
       },
     }]);
+    assert.deepEqual(evidence.enums, [{
+      id: "fixture.orientation",
+      typeName: "NTSOrientation",
+      clangType: "enum NTSOrientation",
+      size: 4,
+      alignment: 4,
+      signed: true,
+      members: [
+        { name: "horizontal", cIdentifier: "NTS_ORIENTATION_HORIZONTAL", value: "0" },
+        { name: "unknown", cIdentifier: "NTS_ORIENTATION_UNKNOWN", value: "-1" },
+        { name: "vertical", cIdentifier: "NTS_ORIENTATION_VERTICAL", value: "1" },
+      ],
+    }]);
     assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.equal(Object.isFrozen(evidence), true);
     assert.equal(Object.isFrozen(evidence.functions[0]), true);
@@ -490,6 +520,36 @@ test("Clang rejects a selected record field that disagrees with the header", () 
     );
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /NTS5004 C record field mismatch for fixture\.point\.tag/u);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("Clang rejects an enum member value that disagrees with the header", () => {
+  const clangPath = executable("clang");
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-enum-mismatch-"));
+  try {
+    const orientation = fixtureEnums()[0]!;
+    const probe = generateClangAbiProbe({
+      includes: ["fixture.h"],
+      functions: [],
+      records: [],
+      enums: [{
+        ...orientation,
+        members: orientation.members.map((member) =>
+          member.name === "vertical" ? { ...member, value: "2" } : member
+        ),
+      }],
+    });
+    const sourcePath = join(temporaryRoot, "probe.c");
+    writeFileSync(sourcePath, probe.source);
+    const result = spawnSync(
+      clangPath,
+      ["-std=gnu11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only", "-I", fixtureHeaders, sourcePath],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /NTS5004 C enum member mismatch for fixture\.orientation\.vertical/u);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }

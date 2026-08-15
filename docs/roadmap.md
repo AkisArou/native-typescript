@@ -244,14 +244,17 @@ type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.
 
-The generic constant boundary is now executable before GTK enum ingestion.
+The generic constant boundary and its first GTK consumer are now executable.
 SCABI integer, enum, and flags constants translate to manifest-neutral exact
 scalar declarations; package composition rejects conflicting IDs or declaration
 identities; and ScriptC substitutes reached ambient values as range-validated
 Native IR literals without materializing a JavaScript namespace or native
-symbol. The cross-repository gate runs this path through both backends. The next
-GTK slice must add GIR enum metadata and target-Clang proof of the C enum's
-storage before publishing values such as `Orientation.Vertical`.
+symbol. GTK GIR ingestion now preserves selected enum members and C identities,
+while target Clang proves their storage, signedness, and values before package
+generation. The generated nominal `Orientation` type and its compile-time
+members drive the real `Box(Orientation.Vertical, spacing)` application path
+through both backends. Bitfield projection and broader enum-bearing APIs remain
+to broaden over this same evidence path.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and

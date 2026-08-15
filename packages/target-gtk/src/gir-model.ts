@@ -47,6 +47,11 @@ export interface GirRecordSelection {
   readonly fields: readonly string[];
 }
 
+export interface GirEnumerationSelection {
+  readonly name: string;
+  readonly members: readonly string[];
+}
+
 export interface GirIngestionOptions {
   readonly logicalPath: string;
   readonly expectedDigest?: string;
@@ -56,6 +61,7 @@ export interface GirIngestionOptions {
   };
   readonly classes: readonly GirClassSelection[];
   readonly records?: readonly GirRecordSelection[];
+  readonly enumerations?: readonly GirEnumerationSelection[];
 }
 
 export interface GirInclude {
@@ -199,9 +205,36 @@ export interface GirRecord {
   readonly fields: readonly GirRecordField[];
 }
 
+export interface GirEnumerationMember {
+  readonly name: string;
+  readonly value: string;
+  readonly cIdentifier: string;
+  readonly glibNick: string | null;
+  readonly glibName: string | null;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly annotations: readonly GirAnnotation[];
+}
+
+export interface GirEnumeration {
+  readonly kind: "enumeration" | "bitfield";
+  readonly name: string;
+  readonly cType: string;
+  readonly glibTypeName: string | null;
+  readonly glibGetType: string | null;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly annotations: readonly GirAnnotation[];
+  readonly members: readonly GirEnumerationMember[];
+}
+
 export interface GirSnapshot {
   readonly schema: "native-typescript.gir-snapshot";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly source: {
     readonly logicalPath: string;
     readonly digest: string;
@@ -219,4 +252,5 @@ export interface GirSnapshot {
   };
   readonly classes: readonly GirClass[];
   readonly records: readonly GirRecord[];
+  readonly enumerations: readonly GirEnumeration[];
 }

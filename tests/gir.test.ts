@@ -8,6 +8,7 @@ import {
 } from "@native-typescript/target-gtk";
 import type {
   GirClassSelection,
+  GirEnumerationSelection,
   GirRecordSelection,
   GirSnapshot,
 } from "@native-typescript/target-gtk";
@@ -19,7 +20,7 @@ const fixturePath = resolve(
 );
 const fixtureSource = readFileSync(fixturePath, "utf8");
 const fixtureDigest =
-  "sha256:d8951e145eb05e07462deb9ba16fba9153d841f3bd481d1166b3221b9507eced";
+  "sha256:a490baa17455205ad75acab50456f549c5c60cfe1172daf32ed4e85654bd3d05";
 const buttonSelection: GirClassSelection = Object.freeze({
   name: "Button",
   constructors: Object.freeze(["new_with_label"]),
@@ -30,10 +31,15 @@ const requisitionSelection: GirRecordSelection = Object.freeze({
   name: "Requisition",
   fields: Object.freeze(["width", "height"]),
 });
+const orientationSelection: GirEnumerationSelection = Object.freeze({
+  name: "Orientation",
+  members: Object.freeze(["horizontal", "vertical"]),
+});
 
 function ingestFixture(
   classes: readonly GirClassSelection[] = [buttonSelection],
   records: readonly GirRecordSelection[] = [requisitionSelection],
+  enumerations: readonly GirEnumerationSelection[] = [],
 ): GirSnapshot {
   return ingestGir(fixtureSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
@@ -41,6 +47,7 @@ function ingestFixture(
     namespace: { name: "Gtk", version: "4.0" },
     classes,
     records,
+    enumerations,
   });
 }
 
@@ -67,7 +74,7 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
   const snapshot = ingestFixture();
 
   assert.equal(snapshot.schema, "native-typescript.gir-snapshot");
-  assert.equal(snapshot.schemaVersion, 1);
+  assert.equal(snapshot.schemaVersion, 2);
   assert.deepEqual(snapshot.source, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     digest: fixtureDigest,
@@ -78,6 +85,7 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
   ]);
   assert.deepEqual(snapshot.packages, ["gtk4"]);
   assert.deepEqual(snapshot.cIncludes, ["gtk/gtk.h"]);
+  assert.deepEqual(snapshot.enumerations, []);
   assert.deepEqual(snapshot.namespace, {
     name: "Gtk",
     version: "4.0",
@@ -137,6 +145,52 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
   assert.deepEqual(button.constructors.map(({ name }) => name), ["new_with_label"]);
   assert.deepEqual(button.methods.map(({ name }) => name), ["get_label", "set_label"]);
   assert.deepEqual(button.signals.map(({ name }) => name), ["clicked"]);
+  assertDeepFrozen(snapshot);
+});
+
+test("selected GIR enumerations preserve exact members and native identities", () => {
+  const snapshot = ingestFixture([], [], [orientationSelection]);
+
+  assert.deepEqual(snapshot.classes, []);
+  assert.deepEqual(snapshot.records, []);
+  assert.deepEqual(snapshot.enumerations, [{
+    kind: "enumeration",
+    name: "Orientation",
+    cType: "GtkOrientation",
+    glibTypeName: "GtkOrientation",
+    glibGetType: "gtk_orientation_get_type",
+    version: null,
+    deprecated: false,
+    deprecatedVersion: null,
+    stability: null,
+    annotations: [],
+    members: [
+      {
+        name: "horizontal",
+        value: "0",
+        cIdentifier: "GTK_ORIENTATION_HORIZONTAL",
+        glibNick: "horizontal",
+        glibName: "GTK_ORIENTATION_HORIZONTAL",
+        version: null,
+        deprecated: false,
+        deprecatedVersion: null,
+        stability: null,
+        annotations: [],
+      },
+      {
+        name: "vertical",
+        value: "1",
+        cIdentifier: "GTK_ORIENTATION_VERTICAL",
+        glibNick: "vertical",
+        glibName: "GTK_ORIENTATION_VERTICAL",
+        version: null,
+        deprecated: false,
+        deprecatedVersion: null,
+        stability: null,
+        annotations: [],
+      },
+    ],
+  }]);
   assertDeepFrozen(snapshot);
 });
 
@@ -266,7 +320,11 @@ test("GIR preserves lifecycle, availability, relationships, and annotations", ()
 });
 
 test("GIR snapshots do not depend on selection order or unselected declarations", () => {
-  const canonical = ingestFixture();
+  const canonical = ingestFixture(
+    [buttonSelection],
+    [requisitionSelection],
+    [orientationSelection],
+  );
   const reordered = ingestFixture([
     {
       name: "Button",
@@ -274,7 +332,10 @@ test("GIR snapshots do not depend on selection order or unselected declarations"
       methods: ["get_label", "set_label"],
       signals: ["clicked"],
     },
-  ]);
+  ], [requisitionSelection], [{
+    name: "Orientation",
+    members: ["vertical", "horizontal"],
+  }]);
 
   assert.deepEqual(reordered, canonical);
   assert.equal(
@@ -365,6 +426,21 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
   );
   assert.deepEqual(missingField.diagnostics.map(({ code }) => code), ["NTS4003"]);
 
+  const missingMember = ingestionDiagnostics(() =>
+    ingestFixture([], [], [{ name: "Orientation", members: ["diagonal"] }])
+  );
+  assert.deepEqual(missingMember.diagnostics.map(({ code }) => code), ["NTS4003"]);
+
+  const invalidValue = ingestionDiagnostics(() =>
+    ingestGir(fixtureSource.replace('value="1"', 'value="01"'), {
+      logicalPath: "fixtures/gir/invalid-enum-value.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [],
+      enumerations: [orientationSelection],
+    })
+  );
+  assert.deepEqual(invalidValue.diagnostics.map(({ code }) => code), ["NTS4005"]);
+
   const unsupported = ingestionDiagnostics(() =>
     ingestFixture([{ name: "Button", methods: ["unselected_callback"] }])
   );
@@ -449,7 +525,7 @@ test("GIR ingestion rejects provenance, syntax, and ownership ambiguity", () => 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
 
 test(
-  "installed Gtk-4.0 GIR satisfies selected Button and Requisition contracts",
+  "installed Gtk-4.0 GIR satisfies selected Button, Requisition, and Orientation contracts",
   { skip: !existsSync(systemGtkGir) },
   () => {
     const snapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
@@ -457,6 +533,7 @@ test(
       namespace: { name: "Gtk", version: "4.0" },
       classes: [buttonSelection],
       records: [requisitionSelection],
+      enumerations: [orientationSelection],
     });
     const button = snapshot.classes[0];
     assert.ok(button);
@@ -471,5 +548,16 @@ test(
       "width",
       "height",
     ]);
+    assert.deepEqual(
+      snapshot.enumerations[0]?.members.map(({ name, value, cIdentifier }) => ({
+        name,
+        value,
+        cIdentifier,
+      })),
+      [
+        { name: "horizontal", value: "0", cIdentifier: "GTK_ORIENTATION_HORIZONTAL" },
+        { name: "vertical", value: "1", cIdentifier: "GTK_ORIENTATION_VERTICAL" },
+      ],
+    );
   },
 );

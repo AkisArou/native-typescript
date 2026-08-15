@@ -24,6 +24,21 @@
         <type name="gint" c:type="int"/>
       </field>
     </record>
+    <enumeration name="Orientation"
+                 glib:type-name="GtkOrientation"
+                 glib:get-type="gtk_orientation_get_type"
+                 c:type="GtkOrientation">
+      <member name="horizontal"
+              value="0"
+              c:identifier="GTK_ORIENTATION_HORIZONTAL"
+              glib:nick="horizontal"
+              glib:name="GTK_ORIENTATION_HORIZONTAL"/>
+      <member name="vertical"
+              value="1"
+              c:identifier="GTK_ORIENTATION_VERTICAL"
+              glib:nick="vertical"
+              glib:name="GTK_ORIENTATION_VERTICAL"/>
+    </enumeration>
     <class name="Widget"
            c:symbol-prefix="widget"
            c:type="GtkWidget"

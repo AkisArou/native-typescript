@@ -5,6 +5,7 @@ import {
 } from "@native-typescript/bindgen-c";
 import type {
   CBindgenDiagnostic,
+  CEnumCandidate,
   CFunctionCandidate,
   CRecordCandidate,
   ClangAbiProbe,
@@ -81,6 +82,15 @@ export function generateGirClangAbiProbe(
   const diagnostics: CBindgenDiagnostic[] = [];
   const functions: CFunctionCandidate[] = [];
   const records: CRecordCandidate[] = [];
+  const enums: CEnumCandidate[] = snapshot.enumerations.map((enum_) => ({
+    id: `${snapshot.namespace.name}.${enum_.name}.${enum_.kind}`,
+    typeName: enum_.cType,
+    members: enum_.members.map((member) => ({
+      name: member.name,
+      cIdentifier: member.cIdentifier,
+      value: member.value,
+    })),
+  }));
   for (const class_ of snapshot.classes) {
     for (const callable of [...class_.constructors, ...class_.methods]) {
       const candidate = functionCandidate(
@@ -141,5 +151,6 @@ export function generateGirClangAbiProbe(
     includes: snapshot.cIncludes,
     functions,
     records,
+    enums,
   });
 }

@@ -233,6 +233,11 @@ test(
         namespace: { name: "Gtk", version: "4.0" },
         classes: [
           {
+            name: "Box",
+            constructors: ["new"],
+            methods: ["append"],
+          },
+          {
             name: "Button",
             constructors: ["new_with_label"],
             methods: ["get_label", "set_label"],
@@ -260,6 +265,7 @@ test(
           },
         ],
         records: [{ name: "Requisition", fields: ["width", "height"] }],
+        enumerations: [{ name: "Orientation", members: ["horizontal", "vertical"] }],
       });
       const plannedGobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
       const gtkProbe = generateGirClangAbiProbe(gtkSnapshot, plannedGobjectAdapter);
@@ -453,6 +459,15 @@ test(
       const generatedGtkManifest = parseScabiManifest(
         readFileSync(join(generatedGtkPath, "package.scabi.json"), "utf8"),
       );
+      const generatedGtkDeclarations = readFileSync(generatedGtkDeclarationsPath, "utf8");
+      assert.match(
+        generatedGtkDeclarations,
+        /class Box extends Widget \{[^}]*constructor\(orientation: Orientation, spacing: gint\);[^}]*append\(child: Widget\): void;/su,
+      );
+      assert.match(
+        generatedGtkDeclarations,
+        /namespace Orientation \{[^}]*const Vertical: Orientation;/su,
+      );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
       ) as GObjectAdapterSource;
@@ -481,6 +496,8 @@ test(
       });
       const gtkTranslated = translateScabiNativeProgram(generatedGtkManifest, {
         imports: [
+          "gtk_box_append",
+          "gtk_box_new",
           "gtk_button_get_label",
           "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
@@ -492,6 +509,7 @@ test(
           "gtk_overlay_add_overlay",
           "gtk_overlay_new",
           "gtk_overlay_set_child",
+          "gtk_orientation_vertical",
           "gtk_signal_connection_connected",
           "gtk_widget_activate",
           "gtk_widget_get_opacity",
@@ -517,6 +535,12 @@ test(
               .join("\n"),
       );
       if (!gtkTranslated.ok) return;
+      assert.deepEqual(gtkTranslated.input.constants, [{
+        id: "native-typescript.gtk4@0.0.0#gtk_orientation_vertical",
+        declaration: { module: "@native-typescript/gtk4", name: "Orientation.Vertical" },
+        type: { kind: "nativeScalar", scalar: "u32" },
+        value: "1",
+      }]);
       const translatedConnect = gtkTranslated.input.bindings.find(
         ({ declaration }) => declaration.name === "Button.onClicked",
       );

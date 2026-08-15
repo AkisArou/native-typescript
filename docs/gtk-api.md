@@ -143,6 +143,46 @@ ordinary `number`, `boolean`, or generated enum/flag types only where a checked
 projection proves the value is lossless and within the declared range. Values
 that cannot be represented exactly keep an explicit native scalar type.
 
+## Enums and flags
+
+Selected GIR enumerations become nominal numeric TypeScript types with named
+compile-time members:
+
+```ts
+export type Orientation = number & {
+  readonly [nativeScalar]: "Orientation";
+};
+
+export declare namespace Orientation {
+  const Horizontal: Orientation;
+  const Vertical: Orientation;
+}
+```
+
+This declaration-merging shape supports ordinary named imports and qualified
+members without creating a JavaScript namespace object:
+
+```ts
+import { Box, Orientation } from "@native-typescript/gtk4";
+
+const box = new Box(Orientation.Vertical, 8 as gint);
+```
+
+GIR supplies each member's semantic name, native C identifier, and canonical
+value. The matching target headers remain authoritative for storage: a Clang
+probe proves the enum's exact size, alignment, signedness, and every selected C
+member identity before SCABI or declarations are generated. For example, the
+current Linux x86-64 GTK gate proves `GtkOrientation` as an unsigned 32-bit
+physical scalar and proves `GTK_ORIENTATION_VERTICAL == 1`; the generator does
+not assume that a C enum is `gint`.
+
+SCABI retains the nominal enum over that proven storage and publishes each
+member as a declaration-backed constant. ScriptC substitutes a reached member
+as an exact Native IR scalar literal, so it needs no exported C data symbol,
+adapter, module initialization, or runtime property lookup. Flags use the same
+evidence path but remain a distinct nominal flags contract so valid bitwise
+composition can be specified independently of closed enum membership.
+
 ## Signals
 
 Signals become typed `onSignalName` methods. The callback receives the emitter
@@ -237,6 +277,20 @@ export declare class ApplicationWindow extends Window {
   setChild(child: Widget | null): void;
 }
 
+export type Orientation = number & {
+  readonly [nativeScalar]: "Orientation";
+};
+
+export declare namespace Orientation {
+  const Horizontal: Orientation;
+  const Vertical: Orientation;
+}
+
+export declare class Box extends Widget {
+  constructor(orientation: Orientation, spacing: gint);
+  append(child: Widget): void;
+}
+
 export declare class Button extends Widget {
   constructor();
   static withLabel(label: string): Button;
@@ -256,7 +310,9 @@ ownership, nullability, executor, and lifecycle contracts are proven.
 import {
   Application,
   ApplicationWindow,
+  Box,
   Button,
+  Orientation,
 } from "@native-typescript/gtk4";
 
 const app = new Application("dev.native_typescript.Counter");
@@ -271,8 +327,10 @@ app.onActivate((application) => {
   });
 
   const window = new ApplicationWindow({ application });
+  const content = new Box(Orientation.Vertical, 8 as gint);
+  content.append(button);
   window.title = "Native TypeScript";
-  window.setChild(button);
+  window.setChild(content);
   window.present();
 });
 
@@ -294,6 +352,12 @@ GIR getter/setter links now project `Button.label` and `Widget.opacity` as
 native properties without retaining method-shaped aliases.
 Selected caller-allocated transparent-record outputs now become immutable
 nested value results; `Widget.getPreferredSize()` is the real executable gate.
+Selected GIR enumerations now preserve their member metadata, receive
+target-Clang storage and value proof, and project as nominal TypeScript types
+with declaration-backed members. The real application gate constructs
+`Box(Orientation.Vertical, spacing)`, appends an ordinary `Widget`, and lowers
+the reached enum member directly to its proven exact native scalar through both
+ScriptC backends.
 `SignalConnection.disconnect()` is
 non-consuming and idempotent, while `connected` reads the actual native handler
 state; the separate connection release operation remains internal.

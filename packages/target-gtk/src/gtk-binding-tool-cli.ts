@@ -25,7 +25,7 @@ async function readInputs(
   const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as GirSnapshot;
   if (
     snapshot.schema !== "native-typescript.gir-snapshot" ||
-    snapshot.schemaVersion !== 1
+    snapshot.schemaVersion !== 2
   ) {
     throw new Error("Unsupported selected GIR snapshot schema");
   }

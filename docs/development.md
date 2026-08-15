@@ -176,10 +176,11 @@ node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```
 
 The C binding tests compile one canonical selected-ABI probe, derive an
-authoritative padded-record layout, reject deliberate function and field type
-mismatches, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call surface
-plus the selected `Gtk.Requisition` layout and calling classification and the
-generated nested `WidgetPreferredSize` result against Clang. A cross-target fixture pins direct register expansion on x86-64 SysV,
+authoritative padded-record layout, reject deliberate function, field, and enum
+mismatches, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call surface,
+the selected `Gtk.Requisition` layout and calling classification, the generated
+nested `WidgetPreferredSize` result, and `GtkOrientation` storage/member
+identities against Clang. A cross-target fixture pins direct register expansion on x86-64 SysV,
 the AArch64 homogeneous aggregate form, Windows hidden return/indirect input,
 and SysV `sret`/`byval`. The SCABI test turns the verified selection and exact
 GObject adapter into canonical declarations and a validated manifest, and pins
@@ -199,7 +200,10 @@ shared `SignalConnection` ABI as one package directory. The same generated
 surface now includes `DrawingArea.resize` with copied exact scalar payloads and
 canonical multiword-class ABI names. A second build root
 proves that unchanged
-package generation is restored from the local cache. The next planning phase composes
+package generation is restored from the local cache. The generated surface also
+contains the Clang-proven nominal `Orientation` enum and `Box`; the app constructs
+`Box(Orientation.Vertical, spacing)` and appends the overlay through both
+backends without a runtime enum namespace or native constant symbol. The next planning phase composes
 that verified package with the canonical GTK runtime fixture and plans C and
 LLVM programs. It snapshots ScriptC's built emitter
 and path-free compilation plan as host inputs, emits each program through a

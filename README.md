@@ -361,8 +361,11 @@ general JavaScript BigInt support. Declaration-backed compile-time constants now
 use that same exact representation: SCABI integer, enum, and flags values are
 canonicalized and range-checked, package composition rejects identity conflicts,
 and ScriptC lowers reached ambient symbols directly to Native IR literals without
-a runtime namespace object, module load, adapter, or C symbol. The same permanent
-path now supports nominal,
+a runtime namespace object, module load, adapter, or C symbol. GTK now consumes
+that permanent path: selected GIR enums retain their source and C identities,
+target Clang proves their exact storage and member values, and the generated
+nominal `Orientation` API drives `Box(Orientation.Vertical, spacing)` in the real
+GTK app through both backends. The same permanent path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
 or nested nominal native structs and whose SCABI metadata carries target
 Clang's complete physical calling signature. Direct registers, expanded

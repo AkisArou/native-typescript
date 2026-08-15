@@ -97,6 +97,7 @@ test(
         },
       ],
       records: [{ name: "Requisition", fields: ["width", "height"] }],
+      enumerations: [{ name: "Orientation", members: ["horizontal", "vertical"] }],
     });
     const gobjectAdapter = generateGObjectAdapterSource(snapshot);
     const probe = generateGirClangAbiProbe(snapshot, gobjectAdapter);
@@ -121,6 +122,14 @@ test(
       "GtkRequisition",
       "NtsGtkWidgetPreferredSize",
     ]);
+    assert.deepEqual(probe.enums, [{
+      id: "Gtk.Orientation.enumeration",
+      typeName: "GtkOrientation",
+      members: [
+        { name: "horizontal", cIdentifier: "GTK_ORIENTATION_HORIZONTAL", value: "0" },
+        { name: "vertical", cIdentifier: "GTK_ORIENTATION_VERTICAL", value: "1" },
+      ],
+    }]);
 
     const clangPath = executable("clang");
     const pkgConfigPath = executable("pkg-config");
@@ -254,6 +263,18 @@ test(
         { name: "minimumSize", offset: 0, size: 8, alignment: 4 },
         { name: "naturalSize", offset: 8, size: 8, alignment: 4 },
       ]);
+      assert.deepEqual(evidence.enums, [{
+        id: "Gtk.Orientation.enumeration",
+        typeName: "GtkOrientation",
+        clangType: "enum GtkOrientation",
+        size: 4,
+        alignment: 4,
+        signed: false,
+        members: [
+          { name: "horizontal", cIdentifier: "GTK_ORIENTATION_HORIZONTAL", value: "0" },
+          { name: "vertical", cIdentifier: "GTK_ORIENTATION_VERTICAL", value: "1" },
+        ],
+      }]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 
       const bindingSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
@@ -277,6 +298,7 @@ test(
           },
         ],
         records: [{ name: "Requisition", fields: ["width", "height"] }],
+        enumerations: [{ name: "Orientation", members: ["horizontal", "vertical"] }],
       });
       const gobjectAdapter = generateGObjectAdapterSource(bindingSnapshot);
       const generated = generateGtkScabiPackage({
@@ -321,6 +343,8 @@ test(
         "gtk_button_new_with_label",
         "gtk_button_release",
         "gtk_button_set_label",
+        "gtk_orientation_horizontal",
+        "gtk_orientation_vertical",
         "gtk_signal_connection_connected",
         "gtk_signal_connection_disconnect",
         "gtk_signal_connection_release",
@@ -348,6 +372,10 @@ test(
       assert.match(generated.declarations, /class Window extends Widget/u);
       assert.match(
         generated.declarations,
+        /namespace Orientation \{[^}]*const Horizontal: Orientation;[^}]*const Vertical: Orientation;/su,
+      );
+      assert.match(
+        generated.declarations,
         /interface Requisition \{[^}]*readonly width: gint;[^}]*readonly height: gint;/su,
       );
       assert.match(generated.declarations, /activate\(\): boolean;/u);
@@ -371,6 +399,7 @@ test(
       assert.deepEqual(generated.manifest.declarations.types, {
         gdouble: { module: ".", name: "gdouble" },
         gint: { module: ".", name: "gint" },
+        gtk_orientation: { module: ".", name: "Orientation" },
         gtk_button: { module: ".", name: "Button" },
         gtk_requisition: { module: ".", name: "Requisition" },
         gtk_signal_connection: {
@@ -391,6 +420,16 @@ test(
         threadSafety: "confined",
         identity: "platform",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
+      });
+      assert.deepEqual(generated.manifest.types.gtk_orientation_storage, {
+        kind: "integer",
+        signed: false,
+        bits: 32,
+      });
+      assert.deepEqual(generated.manifest.types.gtk_orientation, {
+        kind: "enum",
+        underlying: "gtk_orientation_storage",
+        members: { Horizontal: "0", Vertical: "1" },
       });
       assert.deepEqual(generated.manifest.types.gtk_window, {
         kind: "handle",
@@ -416,6 +455,7 @@ test(
           "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_orientation_vertical",
           "gtk_widget_activate",
           "gtk_widget_get_opacity",
           "gtk_widget_get_width",
@@ -431,6 +471,12 @@ test(
       });
       assert.equal(translated.ok, true);
       if (!translated.ok) return;
+      assert.deepEqual(translated.input.constants, [{
+        id: "native-typescript.gtk4@0.0.0#gtk_orientation_vertical",
+        declaration: { module: "@native-typescript/gtk4", name: "Orientation.Vertical" },
+        type: { kind: "nativeScalar", scalar: "u32" },
+        value: "1",
+      }]);
       assert.deepEqual(
         translated.input.bindings.find(
           ({ entry }) => entry.symbol === "nts_gobject_adopt_gtk_button_new_with_label",

@@ -5,6 +5,12 @@ typedef struct NTSWidget NTSWidget;
 typedef unsigned char NTSByte;
 typedef long long NTSI64;
 
+typedef enum NTSOrientation {
+  NTS_ORIENTATION_UNKNOWN = -1,
+  NTS_ORIENTATION_HORIZONTAL = 0,
+  NTS_ORIENTATION_VERTICAL = 1
+} NTSOrientation;
+
 typedef struct NTSPoint {
   int x;
   NTSByte tag;

@@ -7,7 +7,9 @@ import {
 } from "@native-typescript/gtk-counter-fixture";
 import {
   Button,
+  Box,
   DrawingArea,
+  Orientation,
   Overlay,
   Window,
   type gdouble,
@@ -37,6 +39,7 @@ const window = new Window();
 const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();
+const box = new Box(Orientation.Vertical, 8 as gint);
 const initial = button.label;
 button.label = "Generated: updated";
 button.setVisible(false);
@@ -47,7 +50,8 @@ drawingArea.setContentWidth(640 as gint);
 drawingArea.setContentHeight(480 as gint);
 overlay.setChild(drawingArea);
 overlay.addOverlay(button);
-window.setChild(overlay);
+box.append(overlay);
+window.setChild(box);
 const preferredSize = button.getPreferredSize();
 window.setDefaultSize(
   preferredSize.naturalSize.width,
