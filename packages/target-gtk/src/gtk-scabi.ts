@@ -828,7 +828,7 @@ export function generateGtkScabiPackage(
       const connectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_connect_${signalPart}`;
       const disconnectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_disconnect_${signalPart}`;
       const declaration = `${class_.name}.on${upperCamel(callable.name)}`;
-      const disconnectDeclaration = `${subscriptionName}.dispose`;
+      const disconnectDeclaration = `${subscriptionName}.disconnect`;
       if (adapter === undefined) {
         diagnostics.push(diagnostic(path, "GObject signal adapter is missing this signal"));
         continue;
@@ -921,11 +921,11 @@ export function generateGtkScabiPackage(
             ownership: Object.freeze({
               kind: "borrowed",
               scope: "registration",
-              anchor: "result",
+              anchor: lowerCamel(class_.name),
             }),
             callback: Object.freeze({
               lifetime: "until-cancelled",
-              registrationOwner: "result",
+              registrationOwner: lowerCamel(class_.name),
               cancellationBinding: disconnectId,
               contextParameter: "context",
               allowedInvocationExecutors: Object.freeze([
@@ -978,7 +978,7 @@ export function generateGtkScabiPackage(
       declarationLines.push(
         `export interface ${subscriptionName} {`,
         `  readonly [${signalSubscriptionBrand(class_.name, callable.name)}]: true;`,
-        "  dispose(): void;",
+        "  disconnect(): void;",
         "}",
         "",
       );

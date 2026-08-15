@@ -156,9 +156,10 @@ runtime.
 
 The ownership edge participates in ScriptC cycle collection. In particular, a
 callback that captures its own emitter must not leak merely because the signal
-registration retains the callback. Bindings cannot claim receiver ownership
-until the runtime and target adapter expose that edge to the collector and pass
-the corresponding cycle, cancellation-race, and shutdown tests.
+registration retains the callback. The implemented runtime exposes the
+receiver-to-connection and connection-to-closure edges to trial deletion, and
+its conformance gate collects the exact receiver/connection/closure cycle under
+plain, address-sanitized, and thread-sanitized builds.
 
 Cross-thread signals use the same source shape when their payload can be
 transported safely. Foreign threads may enqueue copied or natively retained
@@ -255,16 +256,18 @@ No signal handle or GObject release call is required in the ordinary path.
 ## Current migration boundary
 
 The implemented GTK slice now emits class declarations, canonical
-`new Class()` construction, and named static constructors. It still emits
-method-shaped accessors, per-signal result-owned subscription handles, and
-public `dispose()` methods. Those remaining declarations accurately describe
+`new Class()` construction, named static constructors, and receiver-owned
+signals whose returned per-signal connection handles expose `disconnect()`.
+It still emits method-shaped accessors, per-signal connection types instead of
+one public `SignalConnection`, zero-argument signal callbacks, and public
+GObject `dispose()` methods. Those remaining declarations accurately describe
 the current runtime but are not the final public contract.
 
 The migration is intentionally one-way:
 
-1. add receiver-owned callback registrations and cycle-collector edges;
-2. change signals to optional non-owning `SignalConnection` handles and remove
-   routine object `dispose()` declarations;
+1. unify per-signal connection types as the optional non-owning
+   `SignalConnection` capability and inject the typed sender parameter;
+2. remove routine object `dispose()` declarations;
 3. project proven GObject properties and broader signal payloads.
 
 No deprecated aliases or duplicate compatibility surface remains after each

@@ -749,6 +749,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
     nativeName: "NtsSubscription",
     threadSafety: "shared",
     identity: "pointer",
+    cycleCollection: "none",
     upcasts: [],
   }]);
   assert.deepEqual(result.input.bindings[0], {
@@ -984,6 +985,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       nativeName: "NtsCounterBase",
       threadSafety: "confined",
       identity: "pointer",
+      cycleCollection: "none",
       upcasts: [],
     },
     {
@@ -996,6 +998,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       nativeName: "NtsCounterMiddle",
       threadSafety: "confined",
       identity: "pointer",
+      cycleCollection: "none",
       upcasts: [{ kind: "identity", target: baseTypeId }],
     },
     {
@@ -1008,6 +1011,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       nativeName: "NtsCounter",
       threadSafety: "confined",
       identity: "pointer",
+      cycleCollection: "none",
       upcasts: [{ kind: "identity", target: middleTypeId }],
     },
   ]);

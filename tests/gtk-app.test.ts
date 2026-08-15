@@ -36,6 +36,7 @@ import {
   composeScriptCNativePrograms,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
+import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
 import {
   defineGtkBindingPackageRequest,
   generateGirClangFunctionProbe,
@@ -488,6 +489,23 @@ test(
               .join("\n"),
       );
       if (!gtkTranslated.ok) return;
+      const translatedConnect = gtkTranslated.input.bindings.find(
+        ({ declaration }) => declaration.name === "Button.onClicked",
+      );
+      assert.deepEqual(
+        translatedConnect?.arguments[1]?.callback?.registrationOwner,
+        { kind: "argument", argument: 0 },
+      );
+      for (const declarationName of ["Button", "ButtonClickedSubscription"]) {
+        const definition: ScriptCNativeTypeDefinition | undefined =
+          gtkTranslated.input.types.find(
+          ({ declaration }) => declaration.name === declarationName,
+          );
+        assert.equal(
+          definition?.kind === "handle" ? definition.cycleCollection : undefined,
+          "traceable",
+        );
+      }
       assert.deepEqual(
         gtkTranslated.build.linkInputs.map(({ name }) => name),
         gtkSdk.systemLibraries,

@@ -352,20 +352,21 @@ The implemented retained slice accepts `until-cancelled` callbacks with a
 `void` native result and copied exact-scalar payloads, including the zero-payload
 case. Same-caller or attached foreign producers admit opaque token events
 without entering the ScriptC heap; delivery runs one callback per runtime-owner
-turn. A result-owned native handle names the cancellation binding, closes new
-admission before its destructor, and completes only after the native disconnect
-returns and admitted leases drain. Other retained ownership modes, borrowed or
-aggregate payloads, synchronous foreign-thread results, and callbacks without
-an enforceable cancellation edge remain rejected.
+turn. The cancellation handle closes new admission before its destructor and
+completes only after native disconnection returns. Normal cancellation keeps
+the closure alive until admitted leases drain; collector cancellation suppresses
+those already-admitted deliveries before reclaiming their closure.
 
-An active entry in the implemented callback table is an explicit external
-root, and the current native-handle cell does not expose collector-traced
-children. Consequently, receiver-owned registrations are not a metadata-only
-variation of the result-owned contract. They require a ScriptC primitive that
-makes the receiver-to-registration-to-closure path visible to cycle collection,
-including transactional connection, cancellation races, native invalidation,
-and shutdown. Targets must keep emitting result-owned subscriptions until that
-primitive passes those gates.
+Registration ownership may be the result handle or a borrowed non-null method
+receiver. Receiver ownership preallocates a receiver-to-result edge before the
+native call and commits it transactionally with the result. Only those handle
+families receive cycle headers, including every identity-upcast-connected
+nominal type; ordinary native handles retain their lean allocation. The result
+lifecycle owns and traces the closure, so
+receiver-to-result-to-closure-to-receiver cycles are visible to ScriptC's cycle
+collector. Borrowed or aggregate callback payloads, synchronous foreign-thread
+results, and callbacks without an enforceable cancellation edge remain
+rejected.
 
 ## Error contract
 

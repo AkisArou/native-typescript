@@ -41,7 +41,7 @@ window.setChild(button);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);
-const subscription = button.onClicked((): void => {
+button.onClicked((): void => {
   const updated = button.getLabel();
   if (initial === "Generated: initial" && updated === "Generated: updated") {
     generatedValue = 41 as i32;
@@ -49,10 +49,7 @@ const subscription = button.onClicked((): void => {
   } else {
     failed = true;
   }
-  subscription.dispose();
   window.destroy();
-  button.dispose();
-  window.dispose();
   finishIfReady();
 });
 
@@ -67,9 +64,6 @@ const counter = createCounter((count): void => {
 const activated = button.activate();
 if (!activated) {
   failed = true;
-  subscription.dispose();
   window.destroy();
-  button.dispose();
-  window.dispose();
 }
 counter.scheduleClick();

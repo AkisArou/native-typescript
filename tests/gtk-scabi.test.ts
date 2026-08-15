@@ -294,7 +294,7 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
   );
 });
 
-test("GTK SCABI lowers a zero-payload signal to a result-owned subscription", () => {
+test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", () => {
   const generated = generateGtkScabiPackage(options(snapshot(["clicked"])));
   assert.match(
     generated.declarations,
@@ -304,6 +304,7 @@ test("GTK SCABI lowers a zero-payload signal to a result-owned subscription", ()
     generated.declarations,
     /export interface ButtonClickedSubscription/u,
   );
+  assert.match(generated.declarations, /disconnect\(\): void;/u);
   assert.deepEqual(generated.manifest.types.gtk_button_clicked_subscription, {
     kind: "handle",
     nativeName: "NtsGObjectButtonClickedSubscription",
@@ -314,9 +315,14 @@ test("GTK SCABI lowers a zero-payload signal to a result-owned subscription", ()
   const connect = generated.manifest.bindings.gtk_button_connect_clicked;
   assert.ok(connect && connect.kind !== "constant");
   assert.equal(connect.entry.symbol, "nts_gobject_connect_button_clicked");
+  assert.deepEqual(connect.signature.parameters[1]?.ownership, {
+    kind: "borrowed",
+    scope: "registration",
+    anchor: "button",
+  });
   assert.deepEqual(connect.signature.parameters[1]?.callback, {
     lifetime: "until-cancelled",
-    registrationOwner: "result",
+    registrationOwner: "button",
     cancellationBinding: "gtk_button_disconnect_clicked",
     contextParameter: "context",
     allowedInvocationExecutors: [{ kind: "same-as-caller" }],

@@ -137,28 +137,36 @@ payload immediately. Native cancellation completion and token destruction are
 separate owner operations, and destruction cannot succeed while any lease
 exists. The race fixture passes plain, ASan/UBSan, and Linux TSan gates.
 
-The token intentionally contains no closure pointer. The ScriptC fork now also
-implements the owner-only table: it maps slot/generation/signature identity to
-a strongly owned registration anchor, permits already-admitted leases to find a
-closing entry, and unlinks/releases the anchor only after cancellation and the
-last lease. Slots advance their generation on reuse and retire rather than wrap.
-The table uses retain/release hooks so this lifecycle core is not coupled to one
-generated closure ABI.
+The token intentionally contains no closure pointer. The ScriptC fork's
+owner-only table maps slot/generation/signature identity to a validated anchor,
+permits already-admitted leases to find a closing entry, and advances slot
+generations on reuse rather than wrapping. It owns the anchor during staging;
+after association, the native-handle lifecycle owns it and the table keeps only
+the owner-thread lookup pointer. On ordinary cancellation with pending leases,
+the table temporarily resumes ownership through the last delivery.
 
-This is a declared external root, not a hidden cache: an active
-`until-cancelled` native registration keeps its callback alive. The result-
-handle association below carries the cancellation edge that removes that root.
+An active `until-cancelled` registration keeps its callback alive. A lean
+result-owned handle expresses that as an external root. A receiver-owned
+registration instead traces receiver-to-result and result-to-closure edges, so
+an otherwise unreachable cycle can be collected.
 Native IR and both backends now generate copied exact-scalar invocation records
 and ABI thunks. Foreign thunks see only the opaque token; owner dispatch resolves
 the closure from the table and converts the payload on the owner.
 
-The result-handle association is now implemented in the ScriptC runtime. A
+The native-handle association is implemented in the ScriptC runtime. A
 generic native-handle lifecycle edge runs every begin hook before clearing and
 destroying the foreign resource, then runs completion hooks after the destructor
 has quiesced native callbacks. The callback specialization claims a staged table
 entry, closes token admission in the begin hook, marks native cancellation
 complete afterward, and opportunistically collects the entry. Reentrant or
 repeated handle disposal sees the edge already detached and is harmless.
+
+Receiver association preallocates its ownership link before entering native
+code, adopts the returned connection without allocation, and rolls the link
+back with a failed nullable result. Explicit connection cancellation detaches
+that shared link idempotently. Receiver destruction disconnects every child;
+collector destruction discards admitted deliveries before freeing the traced
+closure, so foreign-thread tokens never observe reclaimed managed memory.
 
 The conformance test attempts another native callback from inside the foreign
 destructor and verifies that it is rejected, while an invocation admitted
@@ -175,7 +183,9 @@ token is rejected without accessing the ScriptC heap.
 
 Disposal marks the entry closing, invokes the native cancellation operation
 when required, and prevents new admissions. Invocations admitted before closing
-remain deliverable. The entry becomes disposed and increments its generation
+remain deliverable during ordinary explicit or last-reference cancellation.
+Cycle collection instead marks those invocations for discard before reclaiming
+the traced closure. The entry becomes disposed and increments its generation
 after all leases finish.
 
 This rule avoids pretending cancellation can recall an event already delivered

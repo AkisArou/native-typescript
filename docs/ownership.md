@@ -209,36 +209,34 @@ A retained callback entry strongly owns its compiled closure unless its SCABI
 lifetime is weak. The native registration owns a callback token; the runtime
 entry owns the corresponding cancellation obligation.
 
-An active `retained` or `until-cancelled` registration is an explicit external
-root. The owner callback table records that root and its binding/owner
-provenance; it is not ordinary unreachable ScriptC garbage. For a
-result-owned registration, the result handle carries the edge that initiates
-cancellation and removes the table root. If the callback captures that handle,
-explicit disposal is therefore the deterministic operation that breaks the
-cycle. A `weak` lifetime uses a different non-rooting entry and must not be
-implemented by silently weakening this contract.
+The callback table owns the closure while a registration is staged. Association
+transfers that same +1 to the result lifecycle edge while the table retains only
+a validated owner-thread lookup pointer. A result-owned lean handle therefore
+still behaves as an external registration root; if its callback captures that
+handle, explicit cancellation is the deterministic operation that breaks the
+untraced cycle. A `weak` lifetime uses a different non-rooting entry and must
+not be implemented by silently weakening this contract.
 
 For a receiver-owned registration, the receiver handle carries the native
 cancellation edge and the registration carries the rooted closure. Native
 invalidation, receiver destruction, and runtime shutdown all close admission
 before disconnecting and releasing that root. This managed-to-native-to-managed
-edge must be visible to ScriptC's cycle collector. A closure that captures its
-receiver is otherwise a real cycle, not evidence that the receiver remains
-application-reachable. A target cannot advertise automatic receiver-owned
-cleanup until this edge is traceable and tested. A returned connection value is
+edge is visible to ScriptC's cycle collector: receiver-owned handle families
+are selectively headered, the receiver traces its child connection, and the
+connection traces its closure. A closure that captures its receiver is a
+collectible cycle, not evidence that the receiver remains
+application-reachable. A returned connection value is
 a non-owning cancellation capability: dropping it does not cancel, while an
 explicit disconnect races through the same idempotent state machine.
 
-The implemented table already enforces the root's transport lifetime: it owns
-the anchor through active and closing states and releases it only after native
-cancellation has completed and every admitted invocation lease has finished.
-Result-handle association is also implemented at the runtime layer. The handle
-claims the registration exactly once, closes admission before invoking its
-foreign destructor, and completes cancellation only after that destructor
-returns. This ordering lets a blocking cancellation operation guarantee that no
-native callback still uses the token while preserving earlier invocation
-leases. Generated binding attachment and checked root provenance are still
-pending.
+Normal cancellation transfers anchor ownership back to the table only when
+admitted leases remain, preserving their delivery until the last lease drains.
+Collector cancellation instead closes admission and marks admitted work for
+discard before the closure can be reclaimed. The handle claims the
+registration exactly once, closes admission before invoking its foreign
+destructor, and completes cancellation only after that destructor returns.
+SCABI validation, ScriptC translation, both backends, and GTK generation now
+carry the checked receiver provenance end to end.
 
 Call-scoped callbacks do not create that registration graph. They are dynamic
 borrows as defined above; promoting one to a retained registration implicitly

@@ -93,7 +93,9 @@ export type ScriptCNativeCallbackContract =
     }
   | {
       readonly lifetime: "until-cancelled";
-      readonly registrationOwner: { readonly kind: "result" };
+      readonly registrationOwner:
+        | { readonly kind: "result" }
+        | { readonly kind: "argument"; readonly argument: number };
       readonly cancellationBinding: string;
       readonly allowedInvocationExecutors: readonly (
         | "same-as-caller"
@@ -191,6 +193,7 @@ export interface ScriptCNativeHandleDefinition {
    * by the ScriptC runtime thread even when native code shares the resource. */
   readonly threadSafety: "confined" | "shared";
   readonly identity: "none" | "pointer" | "binding" | "platform";
+  readonly cycleCollection: "none" | "traceable";
   readonly upcasts: readonly {
     readonly kind: "identity";
     readonly target: string;
@@ -771,13 +774,21 @@ function supportedRetainedCallbackPair(
   const parameter = binding.signature.parameters[callbackIndex]!;
   const contract = parameter.callback;
   const callbackType = manifest.types[parameter.type];
+  const registrationOwnerIndex = contract?.registrationOwner === "result"
+    ? -1
+    : binding.signature.parameters.findIndex(
+      ({ name }) => name === contract?.registrationOwner,
+    );
+  const registrationOwner = registrationOwnerIndex < 0
+    ? undefined
+    : binding.signature.parameters[registrationOwnerIndex];
   if (
     contract === undefined ||
     parameter.passMode !== "pointer" ||
     parameter.nullable ||
     parameter.ownership.kind !== "borrowed" ||
     parameter.ownership.scope !== "registration" ||
-    parameter.ownership.anchor !== "result" ||
+    parameter.ownership.anchor !== contract.registrationOwner ||
     parameter.marshal !== undefined ||
     callbackType?.kind !== "callback"
   ) {
@@ -788,7 +799,15 @@ function supportedRetainedCallbackPair(
   );
   if (
     contract.lifetime !== "until-cancelled" ||
-    contract.registrationOwner !== "result" ||
+    (contract.registrationOwner !== "result" &&
+      (binding.kind !== "method" ||
+        registrationOwnerIndex !== 0 ||
+        registrationOwner === undefined ||
+        manifest.types[registrationOwner.type]?.kind !== "handle" ||
+        registrationOwner.passMode !== "pointer" ||
+        registrationOwner.nullable ||
+        registrationOwner.ownership.kind !== "borrowed" ||
+        registrationOwner.ownership.scope !== "call")) ||
     contract.cancellationBinding === undefined ||
     contract.contextParameter === undefined ||
     allowedInvocationExecutors.length === 0 ||
@@ -802,7 +821,7 @@ function supportedRetainedCallbackPair(
     contract.postDisposal !== "not-invoked" ||
     contract.shutdown !== "drain"
   ) {
-    return "only until-cancelled callbacks copied onto the runtime owner with explicit result-owned cancellation are supported";
+    return "only until-cancelled callbacks copied onto the runtime owner with explicit result or receiver ownership are supported";
   }
   if (
     callbackType.signature.callingConvention !== "c" ||
@@ -881,7 +900,12 @@ function supportedRetainedCallbackPair(
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
       lifetime: "until-cancelled",
-      registrationOwner: Object.freeze({ kind: "result" }),
+      registrationOwner: contract.registrationOwner === "result"
+        ? Object.freeze({ kind: "result" } as const)
+        : Object.freeze({
+          kind: "argument" as const,
+          argument: registrationOwnerIndex,
+        }),
       cancellationBinding: `${manifest.package.instance}#${contract.cancellationBinding}`,
       allowedInvocationExecutors: Object.freeze(
         allowedInvocationExecutors as ("same-as-caller" | "any-attached-thread")[],
@@ -1118,6 +1142,7 @@ export function translateScabiNativeProgram(
   const activeTypes = new Set<NativeTypeId>();
   const linkInputIds = new Set<string>();
   const adapterInputIds = new Set<string>();
+  const traceableHandleTypeIds = new Set<NativeTypeId>();
 
   const lowerType = (
     typeId: NativeTypeId,
@@ -1235,6 +1260,9 @@ export function translateScabiNativeProgram(
         nativeName: nativeType.nativeName,
         threadSafety: nativeType.threadSafety,
         identity: nativeType.identity,
+        cycleCollection: traceableHandleTypeIds.has(typeId)
+          ? "traceable"
+          : "none",
         upcasts: Object.freeze(upcasts),
       }));
       if (!visitedSourceTypes.has(typeId)) {
@@ -1347,6 +1375,45 @@ export function translateScabiNativeProgram(
         if (!reachable.has(dependency)) {
           reachable.add(dependency);
           expanded = true;
+        }
+      }
+    }
+  }
+
+  /* A receiver-owned registration creates managed owner -> result and
+   * result -> closure edges. Mark both nominal handle types collector-
+   * visible, then propagate over identity upcasts because all connected
+   * declarations can denote the same managed cell. */
+  for (const bindingId of reachable) {
+    const binding = manifest.bindings[bindingId];
+    if (binding === undefined || binding.kind === "constant") continue;
+    for (const parameter of binding.signature.parameters) {
+      const ownerName = parameter.callback?.registrationOwner;
+      if (ownerName === undefined || ownerName === "native-call" || ownerName === "result") {
+        continue;
+      }
+      const owner = binding.signature.parameters.find(({ name }) => name === ownerName);
+      if (owner !== undefined && manifest.types[owner.type]?.kind === "handle") {
+        traceableHandleTypeIds.add(owner.type);
+      }
+      if (manifest.types[binding.signature.result.type]?.kind === "handle") {
+        traceableHandleTypeIds.add(binding.signature.result.type);
+      }
+    }
+  }
+  let traceabilityExpanded = true;
+  while (traceabilityExpanded) {
+    traceabilityExpanded = false;
+    for (const [typeId, type] of Object.entries(manifest.types)) {
+      if (type.kind !== "handle") continue;
+      for (const upcast of type.upcasts) {
+        if (
+          traceableHandleTypeIds.has(typeId) !==
+          traceableHandleTypeIds.has(upcast.target)
+        ) {
+          traceableHandleTypeIds.add(typeId);
+          traceableHandleTypeIds.add(upcast.target);
+          traceabilityExpanded = true;
         }
       }
     }
@@ -1608,6 +1675,31 @@ export function translateScabiNativeProgram(
           context: Object.freeze({ placement: "last" } as const),
         } as const);
         callbackSignatures.set(index, signature);
+        let sourceCallbackContract = callback.contract;
+        if (
+          sourceCallbackContract.lifetime === "until-cancelled" &&
+          sourceCallbackContract.registrationOwner.kind === "argument"
+        ) {
+          const ownerArgument = argumentByParameter.get(
+            sourceCallbackContract.registrationOwner.argument,
+          );
+          if (ownerArgument === undefined) {
+            diagnostics.push(diagnostic(
+              "NTS3002",
+              `${parameterPath}/callback/registrationOwner`,
+              "Receiver-owned callbacks require the receiver source argument to precede the callback",
+            ));
+            valid = false;
+            continue;
+          }
+          sourceCallbackContract = Object.freeze({
+            ...sourceCallbackContract,
+            registrationOwner: Object.freeze({
+              kind: "argument" as const,
+              argument: ownerArgument,
+            }),
+          });
+        }
         const argument = sourceArguments.length;
         sourceArguments.push(Object.freeze({
           name: parameter.name,
@@ -1616,7 +1708,7 @@ export function translateScabiNativeProgram(
             params: signature.parameters,
             ret: signature.result,
           } as const),
-          callback: callback.contract,
+          callback: sourceCallbackContract,
         }));
         argumentByParameter.set(index, argument);
         argumentByParameter.set(callback.contextIndex, argument);

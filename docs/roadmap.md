@@ -254,9 +254,13 @@ reuse, weak handles, and native invalidation remain.
 The first generated signal policy is executable too. A selected zero-payload
 signal generates a C subscription object that strongly retains its instance,
 owns the handler ID, and disconnects deterministically. Its SCABI result handle
-owns the retained callback registration, closes admission before disconnect,
+is owned by the emitter, owns the retained callback registration, closes
+admission before disconnect,
 delivers on the runtime owner without inline TypeScript reentrancy, drains
-already admitted turns, and guarantees no invocation after disposal. Detailed
+already admitted turns during explicit cancellation, discards them during cycle
+collection, and guarantees no invocation after disconnection. The returned
+connection remains available for optional early cancellation, but ignoring it
+does not disconnect the signal. Detailed
 signals, payloads, return values, and other lifetime policies fail precisely.
 
 A permanent narrow fixture now compiles through both C and LLVM into a native

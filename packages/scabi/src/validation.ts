@@ -852,6 +852,53 @@ function validateCallback(
       ),
     );
   }
+  if (contract.lifetime === "call") {
+    if (contract.registrationOwner !== "native-call") {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/registrationOwner`,
+          "Call-scoped callbacks must be owned by the native call",
+        ),
+      );
+    }
+  } else if (contract.registrationOwner !== "result") {
+    const ownerIndex = binding.signature.parameters.findIndex(
+      ({ name }) => name === contract.registrationOwner,
+    );
+    const owner = binding.signature.parameters[ownerIndex];
+    if (
+      binding.kind !== "method" ||
+      ownerIndex !== 0 ||
+      owner === undefined ||
+      manifest.types[owner.type]?.kind !== "handle" ||
+      owner.passMode !== "pointer" ||
+      owner.nullable ||
+      owner.ownership.kind !== "borrowed" ||
+      owner.ownership.scope !== "call"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/registrationOwner`,
+          `Registration owner ${contract.registrationOwner} must name the borrowed non-null handle receiver`,
+        ),
+      );
+    }
+    if (
+      parameter.ownership.kind !== "borrowed" ||
+      parameter.ownership.scope !== "registration" ||
+      parameter.ownership.anchor !== contract.registrationOwner
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `/bindings/${bindingId}/signature/parameters/${index}/ownership`,
+          "A receiver-owned callback must be registration-borrowed from that receiver",
+        ),
+      );
+    }
+  }
   const resultType = manifest.types[callbackType.signature.result.type];
   if (contract.synchronousReturn) {
     if (
