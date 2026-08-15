@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
   defineArtifactGraph,
   digestArtifactPath,
   executeArtifactGraph,
+  resolveSourceArtifact,
 } from "@native-typescript/core";
 import type {
   ArtifactActionDefinition,
@@ -80,6 +81,33 @@ function sourceArtifact(sourceDigest: string): ArtifactDefinition {
     },
   };
 }
+
+test("source resolution keeps physical paths outside portable definitions", async () => {
+  const resolution = await resolveSourceArtifact({
+    id: "source/resolved-main",
+    path: fixturePath,
+    entryType: "file",
+    kind: "source",
+    mediaType: "text/x-c",
+    target,
+    domain: "target",
+    cache: "exportable",
+    fileName: "main.c",
+    logicalPath: "tests/fixtures/artifact-graph.c",
+  });
+
+  assert.equal(resolution.sourcePath, resolve(fixturePath));
+  assert.equal(
+    resolution.artifact.origin.kind === "source"
+      ? resolution.artifact.origin.digest
+      : undefined,
+    digest(fixturePath),
+  );
+  assert.equal(JSON.stringify(resolution.artifact).includes(fixturePath), false);
+  assert.equal(Object.isFrozen(resolution), true);
+  assert.equal(Object.isFrozen(resolution.artifact), true);
+  assert.equal(Object.isFrozen(resolution.artifact.origin), true);
+});
 
 function nativeArtifacts(sourceDigest: string): readonly ArtifactDefinition[] {
   return [

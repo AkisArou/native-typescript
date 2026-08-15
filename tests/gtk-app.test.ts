@@ -21,6 +21,7 @@ import {
   planScriptCExecutable,
   planScriptCProgramEmission,
   resolvePkgConfigSdk,
+  resolveSourceArtifact,
 } from "@native-typescript/core";
 import type {
   ArtifactActionArgument,
@@ -95,22 +96,19 @@ async function sourceArtifact(options: {
   readonly target?: string;
   readonly domain?: ArtifactDefinition["domain"];
 }): Promise<ArtifactDefinition> {
-  const content = await digestArtifactPath(options.path, "directory");
-  return {
+  const resolved = await resolveSourceArtifact({
     id: options.id,
+    path: options.path,
     kind: "source-tree",
     entryType: "directory",
     mediaType: "inode/directory",
     target: options.target ?? nativeTarget,
     domain: options.domain ?? "target",
     cache: "exportable",
-    origin: {
-      kind: "source",
-      digest: content.digest,
-      fileName: options.fileName,
-      logicalPath: options.logicalPath,
-    },
-  };
+    fileName: options.fileName,
+    logicalPath: options.logicalPath,
+  });
+  return resolved.artifact;
 }
 
 async function sourceFileArtifact(options: {
@@ -124,22 +122,19 @@ async function sourceFileArtifact(options: {
   readonly cache: ArtifactDefinition["cache"];
   readonly target?: string;
 }): Promise<ArtifactDefinition> {
-  const content = await digestArtifactPath(options.path, "file");
-  return {
+  const resolved = await resolveSourceArtifact({
     id: options.id,
+    path: options.path,
     kind: options.kind,
     entryType: "file",
     mediaType: options.mediaType,
     target: options.target ?? nativeTarget,
     domain: options.domain,
     cache: options.cache,
-    origin: {
-      kind: "source",
-      digest: content.digest,
-      fileName: options.fileName,
-      logicalPath: options.logicalPath,
-    },
-  };
+    fileName: options.fileName,
+    logicalPath: options.logicalPath,
+  });
+  return resolved.artifact;
 }
 
 function literalArguments(values: readonly string[]): readonly ArtifactActionArgument[] {

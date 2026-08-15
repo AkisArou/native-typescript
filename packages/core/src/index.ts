@@ -22,6 +22,8 @@ export type {
   PkgConfigResolverSnapshot,
   ResolvedPkgConfigSdk,
 } from "./pkg-config.ts";
+export { resolveSourceArtifact } from "./source-artifact.ts";
+export type { SourceArtifactResolution } from "./source-artifact.ts";
 export {
   ArtifactExecutionError,
   ArtifactGraphPlanningError,

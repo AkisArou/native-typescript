@@ -55,6 +55,12 @@ An artifact has:
 Artifact IDs are not filesystem paths. The executor chooses physical paths in a
 build directory and supplies them to actions.
 
+Source resolution preserves that boundary. `resolveSourceArtifact()` digests a
+physical file or directory and returns its immutable graph definition together
+with a separate executor source-path binding. The physical path is never a
+field of the definition, so planners and serialized graphs cannot accidentally
+make workspace or SDK locations part of the portable contract.
+
 ## Artifact kinds
 
 Core kinds include:
