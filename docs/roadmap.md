@@ -256,8 +256,10 @@ members drive the real `Box(Orientation.Vertical, spacing)` application path
 through both backends. The same path now preserves the distinct SCABI `flags`
 kind: `EventControllerScrollFlags.BothAxes` enters its generated constructor,
 while its getter/setter round-trip and exact equality preserve nominal flags
-values in the real app through both backends. A generic native-width
-flags-composition operation and broader
+values in the real app through both backends. ScriptC's exact integer primitive
+now implements `&`, `|`, and `^` without JavaScript `ToInt32`, and the app proves
+`Vertical | Horizontal` equals the Clang-proven `BothAxes`. A generic typed
+source projection for flags composition and broader
 enum/flags-bearing APIs remain to broaden over this foundation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result

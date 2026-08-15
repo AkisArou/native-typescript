@@ -120,6 +120,11 @@ function flagsPropertySnapshot(): GirSnapshot {
               c:identifier="GTK_EVENT_CONTROLLER_SCROLL_VERTICAL"
               glib:nick="vertical"
               glib:name="GTK_EVENT_CONTROLLER_SCROLL_VERTICAL"/>
+      <member name="horizontal"
+              value="2"
+              c:identifier="GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL"
+              glib:nick="horizontal"
+              glib:name="GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL"/>
       <member name="both_axes"
               value="3"
               c:identifier="GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES"
@@ -196,7 +201,7 @@ function flagsPropertySnapshot(): GirSnapshot {
     ],
     enumerations: [{
       name: "EventControllerScrollFlags",
-      members: ["both_axes", "vertical"],
+      members: ["both_axes", "horizontal", "vertical"],
     }],
   });
 }
@@ -485,7 +490,7 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
   );
   assert.match(
     generated.declarations,
-    /export declare namespace EventControllerScrollFlags \{\n  const BothAxes: EventControllerScrollFlags;\n  const Vertical: EventControllerScrollFlags;\n\}/u,
+    /export declare namespace EventControllerScrollFlags \{\n  const BothAxes: EventControllerScrollFlags;\n  const Horizontal: EventControllerScrollFlags;\n  const Vertical: EventControllerScrollFlags;\n\}/u,
   );
   assert.match(
     generated.declarations,
@@ -496,7 +501,7 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
     {
       kind: "flags",
       underlying: "gtk_event_controller_scroll_flags_storage",
-      members: { BothAxes: "3", Vertical: "1" },
+      members: { BothAxes: "3", Horizontal: "2", Vertical: "1" },
     },
   );
   const getter = generated.manifest.bindings.gtk_event_controller_scroll_get_flags;
@@ -511,6 +516,7 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
   const translated = translateScabiNativeProgram(generated.manifest, {
     imports: [
       "gtk_event_controller_scroll_flags_both_axes",
+      "gtk_event_controller_scroll_flags_horizontal",
       "gtk_event_controller_scroll_flags_vertical",
       "gtk_event_controller_scroll_get_flags",
       "gtk_event_controller_scroll_new",
@@ -529,6 +535,13 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
           name: "EventControllerScrollFlags.BothAxes",
         },
         value: "3",
+      },
+      {
+        declaration: {
+          module: "@native-typescript/gtk4",
+          name: "EventControllerScrollFlags.Horizontal",
+        },
+        value: "2",
       },
       {
         declaration: {

@@ -278,7 +278,7 @@ test(
         enumerations: [
           {
             name: "EventControllerScrollFlags",
-            members: ["both_axes", "vertical"],
+            members: ["both_axes", "horizontal", "vertical"],
           },
           { name: "Orientation", members: ["horizontal", "vertical"] },
         ],
@@ -490,7 +490,7 @@ test(
       );
       assert.match(
         generatedGtkDeclarations,
-        /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;/su,
+        /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Horizontal: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;/su,
       );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
@@ -531,6 +531,7 @@ test(
           "gtk_drawing_area_set_content_height",
           "gtk_drawing_area_set_content_width",
           "gtk_event_controller_scroll_flags_both_axes",
+          "gtk_event_controller_scroll_flags_horizontal",
           "gtk_event_controller_scroll_flags_vertical",
           "gtk_event_controller_scroll_get_flags",
           "gtk_event_controller_scroll_new",
@@ -573,6 +574,15 @@ test(
           },
           type: { kind: "nativeScalar", scalar: "u32" },
           value: "3",
+        },
+        {
+          id: "native-typescript.gtk4@0.0.0#gtk_event_controller_scroll_flags_horizontal",
+          declaration: {
+            module: "@native-typescript/gtk4",
+            name: "EventControllerScrollFlags.Horizontal",
+          },
+          type: { kind: "nativeScalar", scalar: "u32" },
+          value: "2",
         },
         {
           id: "native-typescript.gtk4@0.0.0#gtk_event_controller_scroll_flags_vertical",

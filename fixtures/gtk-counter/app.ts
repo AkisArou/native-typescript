@@ -43,11 +43,18 @@ const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();
 const box = new Box(Orientation.Vertical, 8 as gint);
-const scroll = new EventControllerScroll(EventControllerScrollFlags.BothAxes);
+const combinedScrollFlags = (
+  EventControllerScrollFlags.Vertical |
+  EventControllerScrollFlags.Horizontal
+) as EventControllerScrollFlags;
+const scroll = new EventControllerScroll(combinedScrollFlags);
 scroll.flags = EventControllerScrollFlags.Vertical;
 const currentScrollFlags = scroll.flags;
 scroll.flags = currentScrollFlags;
-if (currentScrollFlags === EventControllerScrollFlags.Vertical) {
+if (
+  combinedScrollFlags === EventControllerScrollFlags.BothAxes &&
+  currentScrollFlags === EventControllerScrollFlags.Vertical
+) {
   flagsReady = true;
 } else {
   failed = true;

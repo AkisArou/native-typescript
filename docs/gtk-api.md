@@ -198,12 +198,15 @@ const isVertical = current === EventControllerScrollFlags.Vertical;
 ```
 
 Known composite members such as `BothAxes` are ordinary generated members.
-Arbitrary composition is not currently typed: TypeScript's built-in `|`
-operator erases an intersection brand to `number`. The final projection must
-therefore provide one generic flags-composition operation that ScriptC lowers
-to exact native-width bitwise operations. The generator will not weaken flags
-parameters to `number`, require scattered assertions, or pretend an untyped
-bitwise result is still nominal.
+ScriptC now implements same-representation native-width `&`, `|`, and `^`
+without routing through JavaScript's `ToInt32`; the executable GTK gate proves
+that `Vertical | Horizontal` has the exact `BothAxes` representation. That
+compiler primitive is not yet the final source API: TypeScript's built-in `|`
+operator erases an intersection brand to `number`, so the internal gate uses a
+single assertion at the proof boundary. The final projection must expose one
+generic typed flags-composition operation over this primitive. The generator
+will not weaken flags parameters to `number`, require consumer assertions, or
+pretend an untyped bitwise result is still nominal.
 
 ## Signals
 
@@ -402,8 +405,9 @@ Selected GIR bitfields now use the same evidence path while retaining a distinct
 SCABI `flags` identity. The real application constructs an
 `EventControllerScroll` from `BothAxes`, writes `Vertical`, reads the native
 `flags` property, compares it without a JavaScript-number conversion, and passes
-that result back through both backends. A typed
-native-width flags-composition operation remains before arbitrary `A | B`
+that result back through both backends. The gate also combines `Vertical` and
+`Horizontal` with ScriptC's exact native-width OR and observes `BothAxes`. A
+typed source-level flags-composition operation remains before arbitrary
 combinations become part of the public contract.
 `SignalConnection.disconnect()` is
 non-consuming and idempotent, while `connected` reads the actual native handler

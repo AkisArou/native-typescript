@@ -368,7 +368,10 @@ nominal `Orientation` API drives `Box(Orientation.Vertical, spacing)` in the rea
 GTK app through both backends. The distinct SCABI flags kind now follows the
 same proven path: `EventControllerScrollFlags` enters a constructor and
 round-trips through its generated property, then compares at its exact native
-width without becoming an untyped number.
+width without becoming an untyped number. ScriptC now also carries exact-width
+`&`, `|`, and `^` operations, and the GTK gate proves `Vertical | Horizontal`
+produces the native `BothAxes` representation through both backends; the final
+public flags-composition helper remains a source-API projection task.
 The same permanent path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
 or nested nominal native structs and whose SCABI metadata carries target
