@@ -174,6 +174,18 @@ Each fork commit should:
 The parent repository updates its gitlink only after the fork commit is pushed
 and its test suite passes.
 
+### Current upstream baseline
+
+The pinned fork commit is `b1f6172`. It merges upstream through `6f50205`
+(`feat: support aarch64 Linux musl (#159)`), including the upstream AArch64
+musl runtime work and compiler subprocess diagnostic improvement. The upstream
+commit's plain, sanitizer, and Linux host-Clang CI lanes are green. Native
+TypeScript's focused Native IR, retained-callback, callback table/token/handle,
+owner-gateway, executable-plan, native-build-executor, and host compiler-driver
+gates also pass on the merged fork. The full upstream differential lane remains
+a VCR-sandbox gate: an arbitrary host SDK and declaration set is not an accepted
+replacement for its pinned image.
+
 ## Upstream policy
 
 Generally useful changes should be proposed upstream early enough for design

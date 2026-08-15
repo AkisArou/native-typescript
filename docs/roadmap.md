@@ -125,6 +125,11 @@ export uses that path end to end: SCABI selection resolves an exact `i32` entry
 function, both backends emit the public C symbol, and an independent C host
 verifies ordinary and overflow calls.
 
+The fork is synchronized with upstream through `6f50205`, which adds AArch64
+Linux musl support. The merge commit `b1f6172` is published on the fork's
+`native-typescript` branch; upstream's plain, sanitizer, and Linux host-Clang CI
+and the fork-focused Native TypeScript gates are green at that boundary.
+
 The first host-C artifact graph and Linux sandboxed executor now compile and
 link a permanent native fixture with content-verified sources, directory/SDK
 inputs, tools, and strict declared-output validation. ScriptC now delegates a
