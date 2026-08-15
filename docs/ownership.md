@@ -348,9 +348,10 @@ The resulting handle obligation is released exactly once with
 `g_object_unref` on the declared owner executor. This normalization is emitted
 as a content-addressed generated C artifact; it is not inferred in compiler
 lowering from a function name. The initial implemented slice proves floating
-normalization and weak finalization for real GTK constructors. Identity-map
-reuse, weak managed handles, native invalidation, and wiring the generated
-adapter into emitted SCABI declarations remain separate gates.
+normalization and weak finalization for real GTK constructors. The GTK package
+generator now wires that exact content-addressed adapter into an owned SCABI
+handle result and generated release binding. Identity-map reuse, weak managed
+handles, and native invalidation remain separate gates.
 
 ## Conformance tests
 

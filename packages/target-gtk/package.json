@@ -9,6 +9,7 @@
   "dependencies": {
     "@native-typescript/bindgen-c": "workspace:*",
     "@native-typescript/core": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
     "@native-typescript/target-api": "workspace:*",
     "saxes": "catalog:"
   }

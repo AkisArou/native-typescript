@@ -24,9 +24,12 @@ import {
 } from "@native-typescript/core";
 import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
+  generateGObjectAdapterSource,
   generateGirClangFunctionProbe,
+  generateGtkScabiPackage,
   ingestGir,
 } from "@native-typescript/target-gtk";
+import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
 const target = "x86_64-unknown-linux-gnu";
@@ -150,6 +153,89 @@ test(
         "gtk_button_set_label",
       ]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
+
+      const bindingSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+        logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+        namespace: { name: "Gtk", version: "4.0" },
+        classes: [
+          {
+            name: "Button",
+            constructors: ["new_with_label"],
+            methods: ["get_label", "set_label"],
+          },
+        ],
+      });
+      const gobjectAdapter = generateGObjectAdapterSource(bindingSnapshot);
+      const generated = generateGtkScabiPackage({
+        snapshot: bindingSnapshot,
+        evidence,
+        gobjectAdapter,
+        package: {
+          name: "@native-typescript/gtk4",
+          version: "0.0.0",
+          namespace: "native-typescript.gtk4",
+          instance: "native-typescript.gtk4@0.0.0",
+        },
+        target: {
+          triple: target,
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["gtk4", "glib-main-context"],
+        },
+        sdk: {
+          vendor: "GNOME",
+          name: "GTK",
+          version: bindingSnapshot.namespace.version,
+          deploymentTarget: target,
+          modules: ["gtk4"],
+        },
+        linkInputs: [
+          { id: "gtk4", kind: "system-library", name: "gtk4", order: 0 },
+        ],
+        adapterInput: {
+          id: "gtk4.gobject-constructors",
+          output: "gobject-adapters.o",
+        },
+      });
+      assert.equal(generated.manifest.declarations.digest, generated.declarationsDigest);
+      assert.deepEqual(Object.keys(generated.manifest.bindings), [
+        "gtk_button_get_label",
+        "gtk_button_new_with_label",
+        "gtk_button_release",
+        "gtk_button_set_label",
+      ]);
+      assert.match(
+        generated.declarations,
+        /export declare function createButtonWithLabel\(label: string\): Button;/u,
+      );
+      assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
+      assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
+      const constructor = generated.manifest.bindings.gtk_button_new_with_label;
+      assert.ok(constructor && constructor.kind !== "constant");
+      assert.deepEqual(constructor.entry, {
+        kind: "adapter-symbol",
+        symbol: "nts_gobject_adopt_gtk_button_new_with_label",
+      });
+      const translated = translateScabiNativeProgram(generated.manifest, {
+        imports: ["gtk_button_new_with_label", "gtk_button_set_label"],
+        exports: [],
+      });
+      assert.equal(translated.ok, true);
+      assert.deepEqual(translated.adapterInputIds, [
+        "gtk4.gobject-constructors",
+      ]);
+      assert.deepEqual(
+        translated.input.bindings
+          .find(({ entry }) =>
+            entry.symbol === "nts_gobject_adopt_gtk_button_new_with_label"
+          )
+          ?.parameters[0]?.projection,
+        { kind: "utf8CString", argument: 0 },
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }

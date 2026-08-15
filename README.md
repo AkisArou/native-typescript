@@ -212,9 +212,14 @@ package now converts the selected direct-call signatures into a structured,
 content-addressed probe. Sandboxed Clang checks the candidate types against the
 real headers and emits selected AST evidence as a graph artifact; correct
 `Gtk.Button` constructor/getter/setter signatures pass and a deliberate const
-mismatch fails in Clang. Record layout, GIR-to-SCABI/declaration generation, and
-GObject identity and weak-reference policy are still required before this
-replaces the hand-authored fixture. Selected constructors now also generate a
+mismatch fails in Clang. The first generator consumes that evidence together
+with the exact selected GIR snapshot and ownership-adapter source, then emits
+canonical TypeScript declarations and a validated SCABI package for managed
+`Gtk.Button` construction, disposal, and label access. Reached metadata outside
+the implemented handle/void/NUL-terminated UTF-8 algebra fails generation.
+Record layout, broader type/result lowering, and GObject identity and
+weak-reference policy are still required before this replaces the hand-authored
+application fixture. Selected constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one
 strong, non-floating reference, the object is compiled through the artifact
 graph, and a real GTK weak-finalization gate proves exact release. The first

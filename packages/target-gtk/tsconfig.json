@@ -6,6 +6,7 @@
   },
   "references": [
     { "path": "../bindgen-c" },
+    { "path": "../scabi" },
     { "path": "../target-api" },
     { "path": "../core" }
   ]

@@ -142,17 +142,26 @@ function against the real headers before a filtered AST record becomes
 canonical evidence. Raw AST output remains a non-cacheable intermediate because
 Clang includes unstable IDs and physical source locations; only the normalized
 selected evidence participates in binding identity. This verifies function
-signatures, not aggregate layout, calling-convention classification, or SCABI
-generation.
+signatures, not aggregate layout or calling-convention classification.
+
+The first GTK package generator accepts only when the GIR probe, normalized
+Clang evidence, target triple, SDK modules, and deterministically regenerated
+GObject ownership adapter agree. It currently maps selected GObject constructors,
+instance methods, `void`, required borrowed NUL-terminated UTF-8 inputs, borrowed
+UTF-8 results, and confined owned handles into canonical declarations and a
+validated SCABI manifest. Equivalent unordered target inputs produce identical
+output. Any reached signal or parameter/result form outside that closed algebra
+is an error instead of a guessed projection.
 
 Selected GObject constructors also produce a generated ownership adapter after
 their direct C signature has been accepted. GIR supplies the explicit `none` or
 `full` result-transfer fact; the adapter queries actual floating state when
 required and presents exactly one strong, non-floating reference to the future
 managed-handle projection. Its C source and object are declared artifact-graph
-nodes. This is constructor ownership normalization only: it does not yet emit
-the SCABI binding, unify repeated native identity, or generate method and signal
-adapters.
+nodes. The generated constructor SCABI binding enters through the adapter symbol
+and names its generated release binding as the owned-handle destructor. Repeated
+native identity, weak/invalidation policy, and method or signal adapters remain
+separate work.
 
 ## Native type algebra
 

@@ -13,6 +13,7 @@ import {
 
 export { ingestGir } from "./gir.ts";
 export { generateGirClangFunctionProbe } from "./gir-clang.ts";
+export { generateGtkScabiPackage } from "./gtk-scabi.ts";
 export {
   generateGObjectAdapterSource,
   planGObjectAdapterObject,
@@ -41,6 +42,10 @@ export type {
   GObjectAdapterObjectPlan,
   GObjectConstructorAdapter,
 } from "./gobject-adapter.ts";
+export type {
+  GtkScabiGenerationOptions,
+  GtkScabiPackage,
+} from "./gtk-scabi.ts";
 
 export const glibRuntimeNative = Object.freeze({
   header: "runtime/nts_glib_runtime.h",
