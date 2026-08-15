@@ -189,7 +189,10 @@ its `flags` getter/setter as one nominal type:
 
 ```ts
 const scroll = new EventControllerScroll(
-  EventControllerScrollFlags.BothAxes,
+  EventControllerScrollFlags.combine(
+    EventControllerScrollFlags.Vertical,
+    EventControllerScrollFlags.Horizontal,
+  ),
 );
 
 scroll.flags = EventControllerScrollFlags.Vertical;
@@ -200,13 +203,14 @@ const isVertical = current === EventControllerScrollFlags.Vertical;
 Known composite members such as `BothAxes` are ordinary generated members.
 ScriptC now implements same-representation native-width `&`, `|`, and `^`
 without routing through JavaScript's `ToInt32`; the executable GTK gate proves
-that `Vertical | Horizontal` has the exact `BothAxes` representation. That
-compiler primitive is not yet the final source API: TypeScript's built-in `|`
-operator erases an intersection brand to `number`, so the internal gate uses a
-single assertion at the proof boundary. The final projection must expose one
-generic typed flags-composition operation over this primitive. The generator
-will not weaken flags parameters to `number`, require consumer assertions, or
-pretend an untyped bitwise result is still nominal.
+that `combine(Vertical, Horizontal)` has the exact `BothAxes` representation.
+Each generated flags namespace declares `combine(first, ...rest)`, and SCABI
+translation derives its manifest-neutral integer-reduction operation from the
+flags type itself. ScriptC resolves that declaration by checker symbol and
+folds it directly to Native IR. It creates no runtime namespace, module
+evaluation, C adapter, or hidden target-specific compiler rule. The generator
+does not weaken flags parameters to `number`, require consumer assertions, or
+pretend an untyped built-in `|` result is still nominal.
 
 ## Signals
 
@@ -317,7 +321,12 @@ export type EventControllerScrollFlags = number & {
 
 export declare namespace EventControllerScrollFlags {
   const BothAxes: EventControllerScrollFlags;
+  const Horizontal: EventControllerScrollFlags;
   const Vertical: EventControllerScrollFlags;
+  function combine(
+    first: EventControllerScrollFlags,
+    ...rest: readonly EventControllerScrollFlags[]
+  ): EventControllerScrollFlags;
 }
 
 export declare class EventController {
@@ -406,9 +415,8 @@ SCABI `flags` identity. The real application constructs an
 `EventControllerScroll` from `BothAxes`, writes `Vertical`, reads the native
 `flags` property, compares it without a JavaScript-number conversion, and passes
 that result back through both backends. The gate also combines `Vertical` and
-`Horizontal` with ScriptC's exact native-width OR and observes `BothAxes`. A
-typed source-level flags-composition operation remains before arbitrary
-combinations become part of the public contract.
+`Horizontal` through the typed flags namespace operation, which ScriptC lowers
+to exact native-width OR, and observes `BothAxes`.
 `SignalConnection.disconnect()` is
 non-consuming and idempotent, while `connected` reads the actual native handler
 state; the separate connection release operation remains internal.

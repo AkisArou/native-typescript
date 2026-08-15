@@ -353,6 +353,17 @@ export interface ScriptCNativeExport {
   };
 }
 
+export interface ScriptCNativeOperation {
+  readonly id: string;
+  readonly declaration: ScriptCNativeDeclaration;
+  readonly kind: "integer-reduce";
+  readonly operator: "&" | "|" | "^";
+  readonly type: {
+    readonly kind: "nativeScalar";
+    readonly scalar: ScriptCNativeIntegerScalar;
+  };
+}
+
 /** The application-level roots for one compiler invocation. Imports are
  * reached native declarations called by TypeScript. Exports pair one SCABI
  * ABI contract with the entry-module function that implements it. */
@@ -375,6 +386,7 @@ export interface ScriptCNativeFrontendInput {
   };
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
   readonly constants: readonly ScriptCNativeConstant[];
+  readonly operations: readonly ScriptCNativeOperation[];
   readonly types: readonly ScriptCNativeTypeDefinition[];
   readonly bindings: readonly ScriptCNativeBinding[];
   readonly exports: readonly ScriptCNativeExport[];
@@ -479,6 +491,8 @@ export function composeScriptCNativePrograms(
   const sourceTypes = new Map<string, ScriptCNativeSourceType>();
   const constants = new Map<string, ScriptCNativeConstant>();
   const constantsByDeclaration = new Map<string, ScriptCNativeConstant>();
+  const operations = new Map<string, ScriptCNativeOperation>();
+  const operationsByDeclaration = new Map<string, ScriptCNativeOperation>();
   const types = new Map<string, ScriptCNativeTypeDefinition>();
   const bindings = new Map<string, ScriptCNativeBinding>();
   const bindingsByDeclaration = new Map<string, ScriptCNativeBinding>();
@@ -538,6 +552,17 @@ export function composeScriptCNativePrograms(
         constant,
         path,
         "constant declaration",
+      );
+    });
+    program.input.operations.forEach((operation, index) => {
+      const path = `${prefix}/input/operations/${index}`;
+      addExact(operations, operation.id, operation, path, "operation id");
+      addExact(
+        operationsByDeclaration,
+        declarationKey(operation.declaration),
+        operation,
+        path,
+        "operation declaration",
       );
     });
     program.input.types.forEach((type, index) => {
@@ -645,6 +670,9 @@ export function composeScriptCNativePrograms(
       target,
       sourceTypes: Object.freeze([...sourceTypes.values()].sort(byDeclaration)),
       constants: Object.freeze([...constants.values()].sort((left, right) =>
+        compareText(left.id, right.id)
+      )),
+      operations: Object.freeze([...operations.values()].sort((left, right) =>
         compareText(left.id, right.id)
       )),
       types: Object.freeze([...types.values()].sort((left, right) => compareText(left.id, right.id))),
@@ -1365,6 +1393,7 @@ export function translateScabiNativeProgram(
 ): ScriptCNativeTranslationResult {
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const constants: ScriptCNativeConstant[] = [];
+  const operations = new Map<NativeTypeId, ScriptCNativeOperation>();
   const bindings: ScriptCNativeBinding[] = [];
   const exports: ScriptCNativeExport[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
@@ -1399,6 +1428,10 @@ export function translateScabiNativeProgram(
         ));
         return null;
       }
+      const integerType = Object.freeze({
+        kind: "nativeScalar",
+        scalar: type.scalar,
+      } as const);
       if (sourceVisible && !visitedSourceTypes.has(typeId)) {
         visitedSourceTypes.add(typeId);
         const declaration = manifest.declarations.types[typeId];
@@ -1409,10 +1442,23 @@ export function translateScabiNativeProgram(
             `Reachable native type '${typeId}' has no TypeScript declaration identity`,
           ));
         } else {
+          const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
           sourceTypes.set(typeId, Object.freeze({
-            declaration: normalizeDeclaration(manifest, declaration),
+            declaration: normalizedDeclaration,
             type,
           }));
+          if (nativeType.kind === "flags") {
+            operations.set(typeId, Object.freeze({
+              id: `${manifest.package.instance}#source-operation/${typeId}/combine`,
+              declaration: Object.freeze({
+                module: normalizedDeclaration.module,
+                name: `${normalizedDeclaration.name}.combine`,
+              }),
+              kind: "integer-reduce",
+              operator: "|",
+              type: integerType,
+            }));
+          }
         }
       }
       return type;
@@ -2524,6 +2570,9 @@ export function translateScabiNativeProgram(
       }),
       sourceTypes: Object.freeze([...sourceTypes.values()]),
       constants: Object.freeze(constants),
+      operations: Object.freeze([...operations.values()].sort((left, right) =>
+        compareText(left.id, right.id)
+      )),
       types: Object.freeze([...nativeTypes.values()]),
       bindings: Object.freeze(bindings),
       exports: Object.freeze(exports),

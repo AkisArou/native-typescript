@@ -881,6 +881,9 @@ export function generateGtkScabiPackage(
       `export type ${enum_.name} = number & { readonly [nativeScalar]: "${enum_.name}" };`,
       `export declare namespace ${enum_.name} {`,
       ...memberLines,
+      ...(enum_.kind === "bitfield"
+        ? [`  function combine(first: ${enum_.name}, ...rest: readonly ${enum_.name}[]): ${enum_.name};`]
+        : []),
       "}",
       "",
     );

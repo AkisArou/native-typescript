@@ -341,6 +341,13 @@ IR literal. No runtime namespace object, module evaluation, adapter, or link
 symbol is introduced. Constants carrying runtime dependencies are rejected;
 address-valued constants will require a distinct future contract.
 
+Flags additionally imply a source-level combination projection, but not a new
+ABI binding. Once a reachable flags type is lowered, the translator publishes
+its generated `Flags.combine(first, ...rest)` declaration as a manifest-neutral
+exact integer reduction. ScriptC folds the call to native-width OR in IR. The
+SCABI manifest therefore remains an account of native types and entries rather
+than acquiring synthetic adapter symbols for language-level composition.
+
 Validation is eager over the complete manifest, not deferred until reachability.
 Integer values use canonical signed decimal spelling and must fit their exact
 fixed or target-pointer width. Every enum and flags member must fit its declared

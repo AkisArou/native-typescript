@@ -69,6 +69,26 @@ test("translated native packages compose canonically with build requirements", (
   assert.equal(deduplicated.ok, true);
   if (deduplicated.ok) assert.equal(deduplicated.input.bindings.length, 1);
 
+  const withOperation = structuredClone(scalar);
+  Object.assign(withOperation.input, {
+    operations: [{
+      id: "native-typescript.fixture.c-v1@0.0.0#i32_combine",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "FixtureValue.combine",
+      },
+      kind: "integer-reduce",
+      operator: "|",
+      type: { kind: "nativeScalar", scalar: "i32" },
+    }],
+  });
+  const operationComposition = composeScriptCNativePrograms([withOperation, withOperation]);
+  assert.equal(operationComposition.ok, true);
+  if (operationComposition.ok) {
+    assert.equal(operationComposition.input.operations.length, 1);
+    assert.equal(Object.isFrozen(operationComposition.input.operations), true);
+  }
+
   const shiftedRuntime = structuredClone(runtime);
   shiftedRuntime.build.linkInputs.forEach((input) => {
     Object.assign(input, { order: input.order + 100 });
@@ -102,6 +122,29 @@ test("native package composition rejects target and source identity collisions",
   assert.deepEqual(
     bindingResult.diagnostics.map(({ path }) => path),
     ["/programs/1/input/bindings/0"],
+  );
+
+  const withOperation = structuredClone(translated);
+  Object.assign(withOperation.input, {
+    operations: [{
+      id: "native-typescript.fixture.c-v1@0.0.0#i32_combine",
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "FixtureValue.combine",
+      },
+      kind: "integer-reduce",
+      operator: "|",
+      type: { kind: "nativeScalar", scalar: "i32" },
+    }],
+  });
+  const conflictingOperation = structuredClone(withOperation);
+  Object.assign(conflictingOperation.input.operations[0]!, { operator: "^" });
+  const operationResult = composeScriptCNativePrograms([withOperation, conflictingOperation]);
+  assert.equal(operationResult.ok, false);
+  if (operationResult.ok) return;
+  assert.deepEqual(
+    operationResult.diagnostics.map(({ path }) => path),
+    ["/programs/1/input/operations/0", "/programs/1/input/operations/0"],
   );
 
   const runtime = translateScabiNativeProgram(
@@ -152,6 +195,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
       },
     ],
     constants: [],
+    operations: [],
     types: [],
     bindings: [
       {
@@ -313,6 +357,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
       type: i32,
     }],
     constants: [],
+    operations: [],
     types: [],
     bindings: [],
     exports: [{

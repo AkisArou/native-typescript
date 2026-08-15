@@ -490,7 +490,7 @@ test(
       );
       assert.match(
         generatedGtkDeclarations,
-        /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Horizontal: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;/su,
+        /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Horizontal: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;[^}]*function combine\(first: EventControllerScrollFlags, \.\.\.rest: readonly EventControllerScrollFlags\[\]\): EventControllerScrollFlags;/su,
       );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
@@ -600,6 +600,16 @@ test(
           value: "1",
         },
       ]);
+      assert.deepEqual(gtkTranslated.input.operations, [{
+        id: "native-typescript.gtk4@0.0.0#source-operation/gtk_event_controller_scroll_flags/combine",
+        declaration: {
+          module: "@native-typescript/gtk4",
+          name: "EventControllerScrollFlags.combine",
+        },
+        kind: "integer-reduce",
+        operator: "|",
+        type: { kind: "nativeScalar", scalar: "u32" },
+      }]);
       const translatedConnect = gtkTranslated.input.bindings.find(
         ({ declaration }) => declaration.name === "Button.onClicked",
       );

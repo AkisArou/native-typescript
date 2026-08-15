@@ -205,8 +205,9 @@ contains the Clang-proven nominal `Orientation` enum and `Box`; the app construc
 `Box(Orientation.Vertical, spacing)` and appends the overlay through both
 backends without a runtime enum namespace or native constant symbol. It also
 constructs `EventControllerScroll` from the Clang-proven `BothAxes` flags
-representation by combining `Vertical | Horizontal` at its native width, then
-round-trips and exactly compares its nominal `flags` property. The next planning phase composes
+representation with the generated typed `combine(Vertical, Horizontal)`
+operation at its native width, then round-trips and exactly compares its
+nominal `flags` property. The next planning phase composes
 that verified package with the canonical GTK runtime fixture and plans C and
 LLVM programs. It snapshots ScriptC's built emitter
 and path-free compilation plan as host inputs, emits each program through a

@@ -490,7 +490,7 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
   );
   assert.match(
     generated.declarations,
-    /export declare namespace EventControllerScrollFlags \{\n  const BothAxes: EventControllerScrollFlags;\n  const Horizontal: EventControllerScrollFlags;\n  const Vertical: EventControllerScrollFlags;\n\}/u,
+    /export declare namespace EventControllerScrollFlags \{\n  const BothAxes: EventControllerScrollFlags;\n  const Horizontal: EventControllerScrollFlags;\n  const Vertical: EventControllerScrollFlags;\n  function combine\(first: EventControllerScrollFlags, \.\.\.rest: readonly EventControllerScrollFlags\[\]\): EventControllerScrollFlags;\n\}/u,
   );
   assert.match(
     generated.declarations,
@@ -559,6 +559,16 @@ test("Clang-proven GTK flags project through constructors and properties", () =>
     )?.result.type.kind,
     "nativeScalar",
   );
+  assert.deepEqual(translated.input.operations, [{
+    id: "native-typescript.gtk4@0.0.0#source-operation/gtk_event_controller_scroll_flags/combine",
+    declaration: {
+      module: "@native-typescript/gtk4",
+      name: "EventControllerScrollFlags.combine",
+    },
+    kind: "integer-reduce",
+    operator: "|",
+    type: { kind: "nativeScalar", scalar: "u32" },
+  }]);
 });
 
 test("GTK caller-allocated record outputs project as one nested value result", () => {
