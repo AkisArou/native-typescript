@@ -332,6 +332,15 @@ package instance before it enters Native IR, so bindings from multiple packages
 share one collision-free namespace. Calls reference that stable identity, never
 an unchecked symbol string supplied by application source.
 
+Resolved scalar constants are compile-time declaration identities, not hidden C
+calls. The translator maps an integer, enum, or flags declaration to its exact
+target-proven storage type, canonicalizes and range-checks the value, and passes
+the qualified constant to ScriptC. ScriptC resolves an ambient declaration such
+as `Orientation.Vertical` by checker symbol identity and emits an exact Native
+IR literal. No runtime namespace object, module evaluation, adapter, or link
+symbol is introduced. Constants carrying runtime dependencies are rejected;
+address-valued constants will require a distinct future contract.
+
 ## Function contract
 
 A callable binding records:

@@ -357,7 +357,12 @@ both C and LLVM without a JavaScript-number carrier. Fixed 64-bit and
 `isize`/`usize` source boundaries accept only exact BigInt literals or values
 already carrying that native type; pointer-sized ranges come from SCABI target
 metadata and are checked against the selected backend. This does not claim
-general JavaScript BigInt support. The same permanent path now supports nominal,
+general JavaScript BigInt support. Declaration-backed compile-time constants now
+use that same exact representation: SCABI integer, enum, and flags values are
+canonicalized and range-checked, package composition rejects identity conflicts,
+and ScriptC lowers reached ambient symbols directly to Native IR literals without
+a runtime namespace object, module load, adapter, or C symbol. The same permanent
+path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
 or nested nominal native structs and whose SCABI metadata carries target
 Clang's complete physical calling signature. Direct registers, expanded

@@ -244,6 +244,15 @@ type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.
 
+The generic constant boundary is now executable before GTK enum ingestion.
+SCABI integer, enum, and flags constants translate to manifest-neutral exact
+scalar declarations; package composition rejects conflicting IDs or declaration
+identities; and ScriptC substitutes reached ambient values as range-validated
+Native IR literals without materializing a JavaScript namespace or native
+symbol. The cross-repository gate runs this path through both backends. The next
+GTK slice must add GIR enum metadata and target-Clang proof of the C enum's
+storage before publishing values such as `Orientation.Vertical`.
+
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and
 becomes `string | null`. Exact integer-backed native booleans also project in

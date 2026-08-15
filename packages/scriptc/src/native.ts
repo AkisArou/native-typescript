@@ -220,6 +220,19 @@ export interface ScriptCNativeSourceType {
   readonly type: ScriptCNativeValueType;
 }
 
+/** A declaration-backed compile-time value. The frontend substitutes its
+ * exact canonical spelling directly into Native IR; it is not a linkable
+ * symbol and does not cause its declaration module to execute. */
+export interface ScriptCNativeConstant {
+  readonly id: string;
+  readonly declaration: ScriptCNativeDeclaration;
+  readonly type: {
+    readonly kind: "nativeScalar";
+    readonly scalar: ScriptCNativeScalar;
+  };
+  readonly value: string;
+}
+
 export interface ScriptCNativeStructDefinition {
   readonly kind: "struct";
   readonly id: string;
@@ -361,6 +374,7 @@ export interface ScriptCNativeFrontendInput {
     readonly abi: string;
   };
   readonly sourceTypes: readonly ScriptCNativeSourceType[];
+  readonly constants: readonly ScriptCNativeConstant[];
   readonly types: readonly ScriptCNativeTypeDefinition[];
   readonly bindings: readonly ScriptCNativeBinding[];
   readonly exports: readonly ScriptCNativeExport[];
@@ -416,6 +430,35 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function canonicalConstantValue(
+  value: string | number | boolean,
+  scalar: ScriptCNativeScalar,
+  pointerBits: 32 | 64,
+): string | null {
+  if (typeof value === "boolean") return null;
+  if (scalar === "f64") {
+    if (typeof value === "string" && value.trim() !== value) return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    return Object.is(numeric, -0) ? "-0" : String(numeric);
+  }
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || Object.is(value, -0)) return null;
+  } else if (!/^[+-]?[0-9]+$/.test(value)) {
+    return null;
+  }
+  const numeric = BigInt(value);
+  const bits = scalar === "isize" || scalar === "usize"
+    ? pointerBits
+    : Number(scalar.slice(1));
+  const signed = scalar.startsWith("i");
+  const minimum = signed ? -(1n << BigInt(bits - 1)) : 0n;
+  const maximum = signed
+    ? (1n << BigInt(bits - 1)) - 1n
+    : (1n << BigInt(bits)) - 1n;
+  return numeric < minimum || numeric > maximum ? null : numeric.toString();
+}
+
 /** Compose independently translated packages into one canonical compiler
  * input. Package boundaries remain visible in every nominal id; only exact
  * duplicates are coalesced. Conflicting source identities, native ids, or
@@ -430,6 +473,8 @@ export function composeScriptCNativePrograms(
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const target = Object.freeze({ ...programs[0].input.target });
   const sourceTypes = new Map<string, ScriptCNativeSourceType>();
+  const constants = new Map<string, ScriptCNativeConstant>();
+  const constantsByDeclaration = new Map<string, ScriptCNativeConstant>();
   const types = new Map<string, ScriptCNativeTypeDefinition>();
   const bindings = new Map<string, ScriptCNativeBinding>();
   const bindingsByDeclaration = new Map<string, ScriptCNativeBinding>();
@@ -478,6 +523,17 @@ export function composeScriptCNativePrograms(
         sourceType,
         `${prefix}/input/sourceTypes/${index}`,
         "source declaration",
+      );
+    });
+    program.input.constants.forEach((constant, index) => {
+      const path = `${prefix}/input/constants/${index}`;
+      addExact(constants, constant.id, constant, path, "constant id");
+      addExact(
+        constantsByDeclaration,
+        declarationKey(constant.declaration),
+        constant,
+        path,
+        "constant declaration",
       );
     });
     program.input.types.forEach((type, index) => {
@@ -584,6 +640,9 @@ export function composeScriptCNativePrograms(
     input: Object.freeze({
       target,
       sourceTypes: Object.freeze([...sourceTypes.values()].sort(byDeclaration)),
+      constants: Object.freeze([...constants.values()].sort((left, right) =>
+        compareText(left.id, right.id)
+      )),
       types: Object.freeze([...types.values()].sort((left, right) => compareText(left.id, right.id))),
       bindings: Object.freeze([...bindings.values()].sort((left, right) => compareText(left.id, right.id))),
       exports: Object.freeze([...exports.values()].sort((left, right) =>
@@ -1301,6 +1360,7 @@ export function translateScabiNativeProgram(
   selection: ScriptCNativeProgramSelection,
 ): ScriptCNativeTranslationResult {
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
+  const constants: ScriptCNativeConstant[] = [];
   const bindings: ScriptCNativeBinding[] = [];
   const exports: ScriptCNativeExport[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
@@ -1324,6 +1384,35 @@ export function translateScabiNativeProgram(
       return null;
     }
     if (nativeType.kind === "void") return Object.freeze({ kind: "void" });
+    if (nativeType.kind === "enum" || nativeType.kind === "flags") {
+      const type = lowerType(nativeType.underlying, `${path}/underlying`, false);
+      if (type === null) return null;
+      if (type.kind !== "nativeScalar" || type.scalar === "f64") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Native ${nativeType.kind} type '${typeId}' does not have an exact integer underlying type`,
+        ));
+        return null;
+      }
+      if (sourceVisible && !visitedSourceTypes.has(typeId)) {
+        visitedSourceTypes.add(typeId);
+        const declaration = manifest.declarations.types[typeId];
+        if (declaration === undefined) {
+          diagnostics.push(diagnostic(
+            "NTS3003",
+            `/declarations/types/${typeId}`,
+            `Reachable native type '${typeId}' has no TypeScript declaration identity`,
+          ));
+        } else {
+          sourceTypes.set(typeId, Object.freeze({
+            declaration: normalizeDeclaration(manifest, declaration),
+            type,
+          }));
+        }
+      }
+      return type;
+    }
     if (nativeType.kind === "integer" || nativeType.kind === "float") {
       if (nativeType.kind === "float" && nativeType.bits !== 64) {
         diagnostics.push(
@@ -1611,9 +1700,48 @@ export function translateScabiNativeProgram(
       continue;
     }
     if (binding.kind === "constant") {
-      diagnostics.push(
-        diagnostic("NTS3002", path, "Constant bindings are outside the direct-call slice"),
+      if (
+        binding.dependencies.bindings.length > 0 ||
+        binding.dependencies.linkInputs.length > 0 ||
+        binding.dependencies.adapterInputs.length > 0 ||
+        binding.dependencies.permissions.length > 0
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/dependencies`,
+          "Compile-time constants cannot carry runtime binding, link, adapter, or permission dependencies",
+        ));
+        continue;
+      }
+      const type = lowerType(binding.type, `${path}/type`);
+      if (type === null) continue;
+      if (type.kind !== "nativeScalar") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/type`,
+          "Compile-time constants require an exact scalar, enum, or flags type",
+        ));
+        continue;
+      }
+      const value = canonicalConstantValue(
+        binding.value,
+        type.scalar,
+        manifest.target.pointerWidth,
       );
+      if (value === null) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/value`,
+          `Constant value '${String(binding.value)}' is not representable as exact ${type.scalar}`,
+        ));
+        continue;
+      }
+      constants.push(Object.freeze({
+        id: `${manifest.package.instance}#${bindingId}`,
+        declaration: normalizeDeclaration(manifest, binding.declaration),
+        type,
+        value,
+      }));
       continue;
     }
     const unsupported = bindingUnsupported(manifest, bindingId, binding);
@@ -2379,6 +2507,7 @@ export function translateScabiNativeProgram(
         abi: manifest.target.abi,
       }),
       sourceTypes: Object.freeze([...sourceTypes.values()]),
+      constants: Object.freeze(constants),
       types: Object.freeze([...nativeTypes.values()]),
       bindings: Object.freeze(bindings),
       exports: Object.freeze(exports),

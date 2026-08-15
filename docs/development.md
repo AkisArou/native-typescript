@@ -126,9 +126,9 @@ failures. A three-level native-handle hierarchy verifies that a derived value
 reaches a base-typed native call through the same managed cell. Exact
 integer-backed native boolean parameters and results verify exact false/true
 projection, rejection of undeclared result representations, and exception
-propagation across a helper call.
-It resolves
-their TypeScript declaration symbols
+propagation across a helper call. A declaration-backed exact constant verifies
+that SCABI translation and ScriptC substitution agree without adding a link
+symbol. The gate resolves their TypeScript declaration symbols
 and links the resulting source-lowered programs against the permanent C fixture
 through both ScriptC backends:
 

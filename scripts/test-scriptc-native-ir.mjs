@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseScabiManifest } from "../packages/scabi/src/index.ts";
 import { translateScabiNativeProgram } from "../packages/scriptc/src/index.ts";
@@ -9,11 +15,26 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const scriptcRoot = join(repositoryRoot, "third_party/scriptc");
 const fixtureRoot = join(repositoryRoot, "fixtures/scabi-c-v1");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const manifest = parseScabiManifest(
+const manifest = structuredClone(parseScabiManifest(
   readFileSync(join(fixtureRoot, "package.scabi.json"), "utf8"),
-);
+));
+Object.assign(manifest.bindings, {
+  fixture_answer: {
+    kind: "constant",
+    declaration: { module: ".", name: "FixtureValue.answer" },
+    type: "i32",
+    value: "42",
+    dependencies: {
+      adapterInputs: [],
+      bindings: [],
+      linkInputs: [],
+      permissions: [],
+    },
+  },
+});
 const translated = translateScabiNativeProgram(manifest, {
   imports: [
+    "fixture_answer",
     "i8_identity",
     "u8_identity",
     "i16_identity",
@@ -27,6 +48,8 @@ const translated = translateScabiNativeProgram(manifest, {
     "native_invalid_boolean",
     "native_not",
     "native_true",
+    "pair32_transform",
+    "nested_pair32_transform",
     "padded_roundtrip",
     "hash_utf8",
     "c_string_observe",
@@ -54,24 +77,37 @@ if (!translated.ok) {
   );
 }
 
-const result = spawnSync(
-  pnpm,
-  ["exec", "vitest", "run", "tests/harness/native-ir.test.ts"],
-  {
-    cwd: scriptcRoot,
-    env: {
-      ...process.env,
-      SCRIPTC_NATIVE_IR_FIXTURE_SOURCE: join(
-        fixtureRoot,
-        "src/nts_scabi_fixture.c",
-      ),
-      SCRIPTC_NATIVE_IR_FIXTURE_INCLUDE: join(fixtureRoot, "include"),
-      SCRIPTC_NATIVE_IR_DECLARATIONS: join(fixtureRoot, "package.d.ts"),
-      SCRIPTC_NATIVE_FRONTEND_INPUT: JSON.stringify(translated.input),
-    },
-    stdio: "inherit",
-  },
+const declarationsDirectory = mkdtempSync(join(tmpdir(), "nts-scriptc-declarations-"));
+const declarationsPath = join(declarationsDirectory, "package.d.ts");
+writeFileSync(
+  declarationsPath,
+  `${readFileSync(join(fixtureRoot, "package.d.ts"), "utf8")}\n` +
+    "export declare namespace FixtureValue {\n  const answer: i32;\n}\n",
 );
+
+let result;
+try {
+  result = spawnSync(
+    pnpm,
+    ["exec", "vitest", "run", "tests/harness/native-ir.test.ts"],
+    {
+      cwd: scriptcRoot,
+      env: {
+        ...process.env,
+        SCRIPTC_NATIVE_IR_FIXTURE_SOURCE: join(
+          fixtureRoot,
+          "src/nts_scabi_fixture.c",
+        ),
+        SCRIPTC_NATIVE_IR_FIXTURE_INCLUDE: join(fixtureRoot, "include"),
+        SCRIPTC_NATIVE_IR_DECLARATIONS: declarationsPath,
+        SCRIPTC_NATIVE_FRONTEND_INPUT: JSON.stringify(translated.input),
+      },
+      stdio: "inherit",
+    },
+  );
+} finally {
+  rmSync(declarationsDirectory, { force: true, recursive: true });
+}
 
 if (result.error !== undefined) throw result.error;
 process.exitCode = result.status ?? 1;

@@ -151,6 +151,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         type: { kind: "nativeScalar", scalar: "i32" },
       },
     ],
+    constants: [],
     types: [],
     bindings: [
       {
@@ -187,6 +188,78 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   assert.equal(Object.isFrozen(result.input.bindings[0]), true);
 });
 
+test("SCABI enum constants lower to exact declaration-backed literals", () => {
+  const enumManifest = structuredClone(manifest);
+  Object.assign(enumManifest.types, {
+    fixture_orientation: {
+      kind: "enum",
+      underlying: "i32",
+      members: { horizontal: "0", vertical: "1" },
+    },
+  });
+  Object.assign(enumManifest.declarations.types, {
+    fixture_orientation: { module: ".", name: "FixtureOrientation" },
+  });
+  Object.assign(enumManifest.bindings, {
+    fixture_orientation_vertical: {
+      kind: "constant",
+      declaration: { module: ".", name: "FixtureOrientation.vertical" },
+      type: "fixture_orientation",
+      value: "1",
+      dependencies: {
+        adapterInputs: [],
+        bindings: [],
+        linkInputs: [],
+        permissions: [],
+      },
+    },
+  });
+
+  const result = translateScabiNativeProgram(
+    enumManifest,
+    selectImports(["fixture_orientation_vertical"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.sourceTypes, [{
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "FixtureOrientation",
+    },
+    type: { kind: "nativeScalar", scalar: "i32" },
+  }]);
+  assert.deepEqual(result.input.constants, [{
+    id: "native-typescript.fixture.c-v1@0.0.0#fixture_orientation_vertical",
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "FixtureOrientation.vertical",
+    },
+    type: { kind: "nativeScalar", scalar: "i32" },
+    value: "1",
+  }]);
+  assert.deepEqual(result.input.bindings, []);
+  assert.deepEqual(result.build, { linkInputs: [], adapterInputs: [] });
+  assert.equal(Object.isFrozen(result.input.constants), true);
+  assert.equal(Object.isFrozen(result.input.constants[0]), true);
+
+  const duplicate = composeScriptCNativePrograms([result, result]);
+  assert.equal(duplicate.ok, true);
+  if (duplicate.ok) assert.equal(duplicate.input.constants.length, 1);
+  const conflicting = structuredClone(result);
+  Object.assign(conflicting.input.constants[0]!, { value: "2" });
+  const collision = composeScriptCNativePrograms([result, conflicting]);
+  assert.equal(collision.ok, false);
+  if (!collision.ok) {
+    assert.deepEqual(
+      collision.diagnostics.map(({ path }) => path),
+      [
+        "/programs/1/input/constants/0",
+        "/programs/1/input/constants/0",
+      ],
+    );
+  }
+});
+
 test("SCABI maps a TypeScript implementation onto an exact C export contract", () => {
   const result = translateScabiNativeProgram(manifest, {
     imports: [],
@@ -205,6 +278,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
       },
       type: i32,
     }],
+    constants: [],
     types: [],
     bindings: [],
     exports: [{
