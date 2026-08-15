@@ -181,16 +181,19 @@ ownership remain outside this slice.
 An ordinary TypeScript `string` remains a ScriptC-managed, well-formed UTF-8
 value. A reached SCABI string-marshalling contract may borrow its bytes for one
 synchronous native call. The implemented slice requires a non-null const
-`i8`/`u8` pointer in address space zero, an explicit `usize` byte-length
-parameter, no required terminator, embedded NULs allowed, and call-scoped
-borrowing.
+`i8`/`u8` pointer in address space zero and call-scoped borrowing. A span
+contract projects an explicit `usize` byte length and allows embedded NULs. A
+C-string contract projects the runtime's existing trailing-NUL storage into one
+pointer and rejects any embedded NUL with a catchable `TypeError` before native
+entry.
 
-Native IR records one logical string argument and two physical ABI projections.
-The expression is evaluated once, the existing UTF-8 storage is passed without
-a copy, and length is measured in bytes rather than UTF-16 code units. The
+Native IR records one logical string argument and either one checked C-string
+projection or the data/byte-length projection pair. The expression is evaluated
+once and the existing UTF-8 storage is passed without a copy; span length is
+measured in bytes rather than UTF-16 code units. The
 foreign pointer exists only during lowering and is never a TypeScript-visible
-value. Mutable strings, transcoding, retained pointers, NUL-policy adaptation,
-remain outside this first slice.
+value. Mutable strings, transcoding, and retained pointers remain outside this
+slice.
 
 ## Borrowed byte views
 

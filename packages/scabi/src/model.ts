@@ -215,7 +215,9 @@ export type MarshallingContract =
   | {
       readonly kind: "string";
       readonly encoding: "utf-8" | "utf-16" | "latin-1";
-      readonly length: { readonly kind: "parameter"; readonly parameter: string };
+      readonly length:
+        | { readonly kind: "parameter"; readonly parameter: string }
+        | { readonly kind: "nul" };
       readonly termination: "none" | "nul";
       readonly embeddedNul: "allow" | "reject";
     }

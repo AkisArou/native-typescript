@@ -516,6 +516,14 @@
         "parameter": { "$ref": "#/$defs/id" }
       }
     },
+    "nulLength": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "nul" }
+      }
+    },
     "marshalling": {
       "oneOf": [
         {
@@ -525,7 +533,12 @@
           "properties": {
             "kind": { "const": "string" },
             "encoding": { "enum": ["utf-8", "utf-16", "latin-1"] },
-            "length": { "$ref": "#/$defs/parameterLength" },
+            "length": {
+              "oneOf": [
+                { "$ref": "#/$defs/parameterLength" },
+                { "$ref": "#/$defs/nulLength" }
+              ]
+            },
             "termination": { "enum": ["none", "nul"] },
             "embeddedNul": { "enum": ["allow", "reject"] }
           }

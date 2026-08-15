@@ -283,7 +283,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
   ]);
 });
 
-test("SCABI refuses UTF-8 contracts that require adapter work", () => {
+test("SCABI projects a checked NUL-terminated UTF-8 string into one C pointer", () => {
   const terminated = structuredClone(manifest);
   const binding = terminated.bindings.hash_utf8;
   assert.notEqual(binding?.kind, "constant");
@@ -291,17 +291,67 @@ test("SCABI refuses UTF-8 contracts that require adapter work", () => {
   const data = binding.signature.parameters[0];
   assert.equal(data?.marshal?.kind, "string");
   if (data?.marshal?.kind !== "string") return;
-  Object.assign(data.marshal, { termination: "nul" as const });
+  Object.assign(data.marshal, {
+    length: { kind: "nul" as const },
+    termination: "nul" as const,
+    embeddedNul: "reject" as const,
+  });
+  Object.assign(binding.signature, {
+    parameters: binding.signature.parameters.slice(0, 1),
+  });
 
   const result = translateScabiNativeProgram(terminated, selectImports(["hash_utf8"]));
-  assert.equal(result.ok, false);
-  if (result.ok) return;
-  assert.equal(
-    result.diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("no terminator")
-    ),
-    true,
-  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.bindings[0]?.arguments, [
+    { name: "data", type: { kind: "string" } },
+  ]);
+  assert.deepEqual(result.input.bindings[0]?.parameters, [
+    {
+      name: "data",
+      type: {
+        kind: "nativePointer",
+        pointee: "i8",
+        const: true,
+        addressSpace: 0,
+      },
+      passMode: "pointer",
+      ownership: { kind: "borrowed", scope: "call" },
+      projection: { kind: "utf8CString", argument: 0 },
+    },
+  ]);
+});
+
+test("SCABI adapter-symbol imports retain their generated adapter dependency", () => {
+  const adapted = structuredClone(manifest);
+  const binding = adapted.bindings.hash_utf8;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.entry, { kind: "adapter-symbol" as const });
+  Object.assign(binding.dependencies, {
+    adapterInputs: ["adapter/hash-utf8"],
+  });
+  Object.assign(adapted, {
+    adapterInputs: [
+      {
+        id: "adapter/hash-utf8",
+        family: "test",
+        language: "c" as const,
+        bindings: ["hash_utf8"],
+        outputs: ["hash-utf8.o"],
+        options: {},
+      },
+    ],
+  });
+
+  const result = translateScabiNativeProgram(adapted, selectImports(["hash_utf8"]));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.adapterInputIds, ["adapter/hash-utf8"]);
+  assert.deepEqual(result.input.bindings[0]?.entry, {
+    kind: "c-symbol",
+    symbol: "nts_hash_utf8",
+  });
 });
 
 test("SCABI projects one borrowed Uint8Array into exact data and byte-length slots", () => {

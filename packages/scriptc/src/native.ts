@@ -116,6 +116,7 @@ export type ScriptCNativeArgumentType =
   | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
   | { readonly kind: "argument"; readonly argument: number }
+  | { readonly kind: "utf8CString"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
   | { readonly kind: "utf8ByteLength"; readonly argument: number }
   | { readonly kind: "bytesData"; readonly argument: number }
@@ -340,6 +341,9 @@ function positionUnsupported(
 type BorrowedDataParameterPair = {
   readonly kind: "utf8" | "bytes";
   readonly lengthIndex: number;
+  readonly pointee: "i8" | "u8";
+} | {
+  readonly kind: "utf8-c-string";
   readonly pointee: "i8" | "u8";
 };
 
@@ -619,12 +623,40 @@ function supportedBorrowedDataPair(
   const marshal = data.marshal;
   if (marshal?.kind === "string") {
     if (
+      marshal.encoding === "utf-8" &&
+      marshal.termination === "nul" &&
+      marshal.embeddedNul === "reject" &&
+      marshal.length.kind === "nul"
+    ) {
+      const pointer = manifest.types[data.type];
+      const pointee = pointer?.kind === "pointer"
+        ? manifest.types[pointer.pointee]
+        : undefined;
+      if (
+        data.passMode !== "pointer" || data.nullable ||
+        data.ownership.kind !== "borrowed" || data.ownership.scope !== "call" ||
+        data.callback !== undefined ||
+        pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
+        pointer.nullable || pointer.addressSpace !== 0 ||
+        pointee?.kind !== "integer" || pointee.bits !== 8
+      ) {
+        return "NUL-terminated UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero";
+      }
+      return {
+        kind: "utf8-c-string",
+        pointee: pointee.signed ? "i8" : "u8",
+      };
+    }
+    if (marshal.length.kind === "nul") {
+      return "NUL-length strings require UTF-8, NUL termination, and embedded-NUL rejection";
+    }
+    if (
       marshal.encoding !== "utf-8" ||
       marshal.termination !== "none" ||
       marshal.embeddedNul !== "allow" ||
       marshal.length.kind !== "parameter"
     ) {
-      return "only borrowed UTF-8 strings with explicit byte length, no terminator, and embedded NULs allowed are supported";
+      return "only borrowed UTF-8 spans or NUL-terminated strings with embedded-NUL rejection are supported";
     }
   } else if (marshal?.kind === "bytes") {
     if (marshal.mutability !== "const" || marshal.length.kind !== "parameter") {
@@ -648,8 +680,12 @@ function supportedBorrowedDataPair(
       ? "UTF-8 data must be a non-null borrowed const i8/u8 pointer in address space zero"
       : "byte data must be a non-null borrowed const u8 pointer in address space zero";
   }
+  const spanLength = marshal.length;
+  if (spanLength.kind !== "parameter") {
+    return "borrowed spans require an explicit length parameter";
+  }
   const lengthIndex = binding.signature.parameters.findIndex(
-    (parameter) => parameter.name === marshal.length.parameter,
+    (parameter) => parameter.name === spanLength.parameter,
   );
   const length = binding.signature.parameters[lengthIndex];
   const lengthType = length === undefined ? undefined : manifest.types[length.type];
@@ -660,7 +696,7 @@ function supportedBorrowedDataPair(
     length.callback !== undefined ||
     lengthType?.kind !== "integer" || lengthType.signed || lengthType.bits !== "pointer"
   ) {
-    return `${marshal.kind === "string" ? "UTF-8 byte" : "byte"} length '${marshal.length.parameter}' must name an un-marshalled usize value parameter`;
+    return `${marshal.kind === "string" ? "UTF-8 byte" : "byte"} length '${spanLength.parameter}' must name an un-marshalled usize value parameter`;
   }
   return {
     kind: marshal.kind === "string" ? "utf8" : "bytes",
@@ -669,14 +705,29 @@ function supportedBorrowedDataPair(
   };
 }
 
-function bindingUnsupported(binding: CallableBinding): string | null {
+function bindingUnsupported(
+  manifest: ScabiManifest,
+  bindingId: string,
+  binding: CallableBinding,
+): string | null {
   if (!["function", "factory", "method"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
   }
   if (binding.kind === "method" && !binding.declaration.name.includes(".")) {
     return "method declaration identity must name its containing type and member";
   }
-  if (binding.entry.kind !== "c-symbol") return `entry kind '${binding.entry.kind}'`;
+  if (binding.entry.kind === "adapter-symbol") {
+    if (binding.dependencies.adapterInputs.length !== 1) {
+      return "adapter-symbol imports require exactly one adapter input";
+    }
+    const adapterId = binding.dependencies.adapterInputs[0]!;
+    const adapter = manifest.adapterInputs.find(({ id }) => id === adapterId);
+    if (adapter === undefined || !adapter.bindings.includes(bindingId)) {
+      return `adapter input '${adapterId}' does not provide this binding`;
+    }
+  } else if (binding.dependencies.adapterInputs.length > 0) {
+    return "direct C symbols cannot declare adapter inputs";
+  }
   if (binding.signature.callingConvention !== "c") {
     return `calling convention '${binding.signature.callingConvention}'`;
   }
@@ -698,10 +749,9 @@ function bindingUnsupported(binding: CallableBinding): string | null {
     return "thread, executor, or blocking semantics outside the direct-call slice";
   }
   if (
-    binding.dependencies.adapterInputs.length > 0 ||
     binding.dependencies.permissions.length > 0
   ) {
-    return "adapter or permission dependencies outside the direct-call slice";
+    return "permission dependencies outside the direct-call slice";
   }
   return null;
 }
@@ -959,7 +1009,7 @@ export function translateScabiNativeProgram(
       const binding = manifest.bindings[bindingId];
       if (
         binding === undefined || binding.kind === "constant" ||
-        bindingUnsupported(binding) !== null
+        bindingUnsupported(manifest, bindingId, binding) !== null
       ) {
         continue;
       }
@@ -997,7 +1047,7 @@ export function translateScabiNativeProgram(
       );
       continue;
     }
-    const unsupported = bindingUnsupported(binding);
+    const unsupported = bindingUnsupported(manifest, bindingId, binding);
     if (unsupported !== null) {
       diagnostics.push(diagnostic("NTS3002", path, unsupported));
       continue;
@@ -1058,7 +1108,7 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      if (borrowedByLength.has(pair.lengthIndex)) {
+      if (pair.kind !== "utf8-c-string" && borrowedByLength.has(pair.lengthIndex)) {
         diagnostics.push(
           diagnostic(
             "NTS3002",
@@ -1070,7 +1120,9 @@ export function translateScabiNativeProgram(
         continue;
       }
       borrowedByData.set(index, pair);
-      borrowedByLength.set(pair.lengthIndex, pair);
+      if (pair.kind !== "utf8-c-string") {
+        borrowedByLength.set(pair.lengthIndex, pair);
+      }
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       if (parameter.callback === undefined) continue;
@@ -1111,13 +1163,15 @@ export function translateScabiNativeProgram(
         sourceArguments.push(
           Object.freeze({
             name: parameter.name,
-            type: borrowed.kind === "utf8"
+            type: borrowed.kind === "utf8" || borrowed.kind === "utf8-c-string"
               ? Object.freeze({ kind: "string" } as const)
               : Object.freeze({ kind: "bytes", elem: "u8" } as const),
           }),
         );
         argumentByParameter.set(index, argument);
-        argumentByParameter.set(borrowed.lengthIndex, argument);
+        if (borrowed.kind !== "utf8-c-string") {
+          argumentByParameter.set(borrowed.lengthIndex, argument);
+        }
         continue;
       }
       const callback = callbackByFunction.get(index);
@@ -1281,7 +1335,11 @@ export function translateScabiNativeProgram(
                 passMode: "pointer",
                 ownership: Object.freeze({ kind: "borrowed", scope: "call" } as const),
                 projection: Object.freeze({
-                  kind: borrowedData.kind === "utf8" ? "utf8Data" : "bytesData",
+                  kind: borrowedData.kind === "utf8-c-string"
+                    ? "utf8CString"
+                    : borrowedData.kind === "utf8"
+                      ? "utf8Data"
+                      : "bytesData",
                   argument,
                 } as const),
               }
@@ -1388,6 +1446,7 @@ export function translateScabiNativeProgram(
     if (!valid || resultType === null) continue;
 
     for (const id of binding.dependencies.linkInputs) linkInputIds.add(id);
+    for (const id of binding.dependencies.adapterInputs) adapterInputIds.add(id);
     bindings.push(
       Object.freeze({
         id: `${manifest.package.instance}#${bindingId}`,

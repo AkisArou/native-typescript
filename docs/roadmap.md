@@ -85,7 +85,8 @@ The fixture remains the cross-backend and sanitizer regression suite.
 ### Current implementation boundary
 
 The permanent fixture and Native IR path currently cover exact integers,
-indirect padded structs, borrowed UTF-8 and byte views, owned owner-confined
+indirect padded structs, borrowed UTF-8 spans and checked NUL-terminated C
+strings, byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. Exact integer `errno` sentinels now snapshot the calling
 thread's error before cleanup and become operation-qualified catchable errors.

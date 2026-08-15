@@ -106,6 +106,28 @@ test("SCABI fixture provenance matches declarations and header", () => {
   assert.deepEqual(manifest.generator.inputDigests, [headerDigest]);
 });
 
+test("SCABI admits only coherent implicit-length C strings", () => {
+  const cString = structuredClone(manifest);
+  const binding = cString.bindings.hash_utf8;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const data = binding.signature.parameters[0];
+  assert.equal(data?.marshal?.kind, "string");
+  if (data?.marshal?.kind !== "string") return;
+  Object.assign(data.marshal, {
+    length: { kind: "nul" as const },
+    termination: "nul" as const,
+    embeddedNul: "reject" as const,
+  });
+  Object.assign(binding.signature, {
+    parameters: binding.signature.parameters.slice(0, 1),
+  });
+  assert.equal(validateScabiManifest(cString).ok, true);
+
+  Object.assign(data.marshal, { embeddedNul: "allow" as const });
+  assert.deepEqual(validationCodes(cString), ["NTS2021"]);
+});
+
 test(
   "C fixture executes scalar, aggregate, ownership, error, and callback contracts",
   { skip: process.platform !== "linux" || process.arch !== "x64" },

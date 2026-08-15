@@ -452,6 +452,13 @@ declarations, manifest bindings, target pointer width, Native IR, C symbols,
 and both ScriptC backends now agree end to end. The fixture's borrowed UTF-8
 binding additionally proves single source evaluation, exact byte length,
 Unicode encoding, embedded NUL preservation, and zero-copy data projection.
+The checked C-string variant uses a distinct implicit-NUL length contract:
+ScriptC passes the already terminated storage as one pointer and raises a
+`TypeError` before native entry if the logical string contains an embedded NUL.
+Both C and LLVM pass the normal and rejection paths. Import bindings whose
+entry is an adapter symbol retain the exact adapter input in the translated
+build requirements while lowering the callable entry to the same C-symbol
+Native IR operation.
 Its borrowed-byte binding proves the parallel `Uint8Array` contract: an exact
 offset view and its byte length reach native code without copying, mutation of
 the shared backing store is visible before the call, and temporary view/owner

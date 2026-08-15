@@ -701,7 +701,24 @@ function validateMarshalling(
       ),
     );
   }
-  const lengthName = parameter.marshal.length.parameter;
+  const length = parameter.marshal.length;
+  if (length.kind === "nul") {
+    if (
+      parameter.marshal.kind !== "string" ||
+      parameter.marshal.termination !== "nul" ||
+      parameter.marshal.embeddedNul !== "reject"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2021",
+          `/bindings/${bindingId}/signature/parameters/${index}/marshal`,
+          "NUL-length strings require NUL termination and embedded-NUL rejection",
+        ),
+      );
+    }
+    return;
+  }
+  const lengthName = length.parameter;
   const lengthParameter = binding.signature.parameters.find(
     ({ name }) => name === lengthName,
   );

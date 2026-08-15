@@ -144,7 +144,10 @@ cell with alias-safe explicit disposal, automatic exact destruction, and
 checked borrowed method ingress. Borrowed UTF-8 input is also implemented as
 one source string evaluated once and projected without copying into const data
 and byte-length ABI slots; Unicode and embedded NUL behavior passes both
-backends. Borrowed `Uint8Array` input follows the same logical-to-physical
+backends. Conventional C strings use a separate one-pointer projection over
+the runtime's existing trailing NUL and throw before native entry on an
+embedded NUL; normal and rejection paths pass C and LLVM. Borrowed `Uint8Array`
+input follows the same logical-to-physical
 projection path without copying. Exact view offsets and lengths, live
 backing-store mutation, single evaluation, and prompt post-call release pass
 both backends and the sanitizer/RC audit. Foreign pointers remain ABI-only and
