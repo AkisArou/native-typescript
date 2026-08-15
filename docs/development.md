@@ -203,7 +203,9 @@ proves that unchanged
 package generation is restored from the local cache. The generated surface also
 contains the Clang-proven nominal `Orientation` enum and `Box`; the app constructs
 `Box(Orientation.Vertical, spacing)` and appends the overlay through both
-backends without a runtime enum namespace or native constant symbol. The next planning phase composes
+backends without a runtime enum namespace or native constant symbol. It also
+constructs `EventControllerScroll` from the Clang-proven `BothAxes` flags
+member, then round-trips and exactly compares its nominal `flags` property. The next planning phase composes
 that verified package with the canonical GTK runtime fixture and plans C and
 LLVM programs. It snapshots ScriptC's built emitter
 and path-free compilation plan as host inputs, emits each program through a

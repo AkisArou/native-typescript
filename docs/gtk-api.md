@@ -183,6 +183,28 @@ adapter, module initialization, or runtime property lookup. Flags use the same
 evidence path but remain a distinct nominal flags contract so valid bitwise
 composition can be specified independently of closed enum membership.
 
+The first executable flags projection is `EventControllerScrollFlags`. Its
+Clang-proven members flow through the `EventControllerScroll` constructor and
+its `flags` getter/setter as one nominal type:
+
+```ts
+const scroll = new EventControllerScroll(
+  EventControllerScrollFlags.BothAxes,
+);
+
+scroll.flags = EventControllerScrollFlags.Vertical;
+const current: EventControllerScrollFlags = scroll.flags;
+const isVertical = current === EventControllerScrollFlags.Vertical;
+```
+
+Known composite members such as `BothAxes` are ordinary generated members.
+Arbitrary composition is not currently typed: TypeScript's built-in `|`
+operator erases an intersection brand to `number`. The final projection must
+therefore provide one generic flags-composition operation that ScriptC lowers
+to exact native-width bitwise operations. The generator will not weaken flags
+parameters to `number`, require scattered assertions, or pretend an untyped
+bitwise result is still nominal.
+
 ## Signals
 
 Signals become typed `onSignalName` methods. The callback receives the emitter
@@ -286,6 +308,24 @@ export declare namespace Orientation {
   const Vertical: Orientation;
 }
 
+export type EventControllerScrollFlags = number & {
+  readonly [nativeScalar]: "EventControllerScrollFlags";
+};
+
+export declare namespace EventControllerScrollFlags {
+  const BothAxes: EventControllerScrollFlags;
+  const Vertical: EventControllerScrollFlags;
+}
+
+export declare class EventController {
+  protected constructor();
+}
+
+export declare class EventControllerScroll extends EventController {
+  constructor(flags: EventControllerScrollFlags);
+  flags: EventControllerScrollFlags;
+}
+
 export declare class Box extends Widget {
   constructor(orientation: Orientation, spacing: gint);
   append(child: Widget): void;
@@ -358,6 +398,13 @@ with declaration-backed members. The real application gate constructs
 `Box(Orientation.Vertical, spacing)`, appends an ordinary `Widget`, and lowers
 the reached enum member directly to its proven exact native scalar through both
 ScriptC backends.
+Selected GIR bitfields now use the same evidence path while retaining a distinct
+SCABI `flags` identity. The real application constructs an
+`EventControllerScroll` from `BothAxes`, writes `Vertical`, reads the native
+`flags` property, compares it without a JavaScript-number conversion, and passes
+that result back through both backends. A typed
+native-width flags-composition operation remains before arbitrary `A | B`
+combinations become part of the public contract.
 `SignalConnection.disconnect()` is
 non-consuming and idempotent, while `connected` reads the actual native handler
 state; the separate connection release operation remains internal.

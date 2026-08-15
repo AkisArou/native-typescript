@@ -250,6 +250,16 @@ test(
             signals: ["resize"],
           },
           {
+            name: "EventController",
+            constructors: [],
+            methods: [],
+          },
+          {
+            name: "EventControllerScroll",
+            constructors: ["new"],
+            methods: ["get_flags", "set_flags"],
+          },
+          {
             name: "Overlay",
             constructors: ["new"],
             methods: ["add_overlay", "set_child"],
@@ -265,7 +275,13 @@ test(
           },
         ],
         records: [{ name: "Requisition", fields: ["width", "height"] }],
-        enumerations: [{ name: "Orientation", members: ["horizontal", "vertical"] }],
+        enumerations: [
+          {
+            name: "EventControllerScrollFlags",
+            members: ["both_axes", "vertical"],
+          },
+          { name: "Orientation", members: ["horizontal", "vertical"] },
+        ],
       });
       const plannedGobjectAdapter = generateGObjectAdapterSource(gtkSnapshot);
       const gtkProbe = generateGirClangAbiProbe(gtkSnapshot, plannedGobjectAdapter);
@@ -468,6 +484,14 @@ test(
         generatedGtkDeclarations,
         /namespace Orientation \{[^}]*const Vertical: Orientation;/su,
       );
+      assert.match(
+        generatedGtkDeclarations,
+        /class EventControllerScroll extends EventController \{[^}]*constructor\(flags: EventControllerScrollFlags\);[^}]*get flags\(\): EventControllerScrollFlags;[^}]*set flags\(value: EventControllerScrollFlags\);/su,
+      );
+      assert.match(
+        generatedGtkDeclarations,
+        /namespace EventControllerScrollFlags \{[^}]*const BothAxes: EventControllerScrollFlags;[^}]*const Vertical: EventControllerScrollFlags;/su,
+      );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),
       ) as GObjectAdapterSource;
@@ -506,6 +530,11 @@ test(
           "gtk_drawing_area_new",
           "gtk_drawing_area_set_content_height",
           "gtk_drawing_area_set_content_width",
+          "gtk_event_controller_scroll_flags_both_axes",
+          "gtk_event_controller_scroll_flags_vertical",
+          "gtk_event_controller_scroll_get_flags",
+          "gtk_event_controller_scroll_new",
+          "gtk_event_controller_scroll_set_flags",
           "gtk_overlay_add_overlay",
           "gtk_overlay_new",
           "gtk_overlay_set_child",
@@ -535,12 +564,32 @@ test(
               .join("\n"),
       );
       if (!gtkTranslated.ok) return;
-      assert.deepEqual(gtkTranslated.input.constants, [{
-        id: "native-typescript.gtk4@0.0.0#gtk_orientation_vertical",
-        declaration: { module: "@native-typescript/gtk4", name: "Orientation.Vertical" },
-        type: { kind: "nativeScalar", scalar: "u32" },
-        value: "1",
-      }]);
+      assert.deepEqual(gtkTranslated.input.constants, [
+        {
+          id: "native-typescript.gtk4@0.0.0#gtk_event_controller_scroll_flags_both_axes",
+          declaration: {
+            module: "@native-typescript/gtk4",
+            name: "EventControllerScrollFlags.BothAxes",
+          },
+          type: { kind: "nativeScalar", scalar: "u32" },
+          value: "3",
+        },
+        {
+          id: "native-typescript.gtk4@0.0.0#gtk_event_controller_scroll_flags_vertical",
+          declaration: {
+            module: "@native-typescript/gtk4",
+            name: "EventControllerScrollFlags.Vertical",
+          },
+          type: { kind: "nativeScalar", scalar: "u32" },
+          value: "1",
+        },
+        {
+          id: "native-typescript.gtk4@0.0.0#gtk_orientation_vertical",
+          declaration: { module: "@native-typescript/gtk4", name: "Orientation.Vertical" },
+          type: { kind: "nativeScalar", scalar: "u32" },
+          value: "1",
+        },
+      ]);
       const translatedConnect = gtkTranslated.input.bindings.find(
         ({ declaration }) => declaration.name === "Button.onClicked",
       );

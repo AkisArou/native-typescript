@@ -509,6 +509,10 @@ function methodResult(
   callable: GirCallable,
   receiverName: string,
   nullableUtf8Type: string,
+  enumerationTypeIds: ReadonlyMap<string, {
+    readonly cType: string;
+    readonly typeId: string;
+  }>,
   diagnostics: CBindgenDiagnostic[],
   path: string,
 ): AbiResult | null {
@@ -559,6 +563,25 @@ function methodResult(
   ) {
     return Object.freeze({
       type: scalarType.abiType,
+      passMode: "value",
+      nullable: false,
+      ownership: Object.freeze({ kind: "value" }),
+    });
+  }
+  const enumeration = result.type.kind === "named"
+    ? enumerationTypeIds.get(result.type.name)
+    : undefined;
+  if (
+    enumeration !== undefined &&
+    result.type.cType === enumeration.cType &&
+    result.transferOwnership === "none" &&
+    !result.nullable &&
+    result.scope === null &&
+    result.closureParameter === null &&
+    result.destroyParameter === null
+  ) {
+    return Object.freeze({
+      type: enumeration.typeId,
       passMode: "value",
       nullable: false,
       ownership: Object.freeze({ kind: "value" }),
@@ -720,6 +743,15 @@ export function generateGtkScabiPackage(
     options.snapshot.enumerations.map((enum_) => [
       enum_.name,
       `${options.snapshot.namespace.name.toLowerCase()}_${snakeCase(enum_.name)}`,
+    ]),
+  );
+  const enumerationTypeIds = new Map(
+    options.snapshot.enumerations.map((enum_) => [
+      enum_.name,
+      Object.freeze({
+        cType: enum_.cType,
+        typeId: typeIdByEnumeration.get(enum_.name)!,
+      }),
     ]),
   );
   const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
@@ -1379,6 +1411,7 @@ export function generateGtkScabiPackage(
         callable,
         receiver.name,
         callable.result.nullable ? "nullable_const_utf8" : "const_utf8",
+        enumerationTypeIds,
         diagnostics,
         `${path}/result`,
       );
@@ -1414,6 +1447,9 @@ export function generateGtkScabiPackage(
         availability: availability(class_, callable),
       });
       const scalarResult = sourceScalarType(callable.result.type);
+      const enumerationResult = callable.result.type.kind === "named"
+        ? enumerationByName.get(callable.result.type.name)
+        : undefined;
       const sourceResult = callable.result.type.cType === "void"
         ? "void"
         : callable.result.type.kind === "named" &&
@@ -1421,6 +1457,8 @@ export function generateGtkScabiPackage(
           ? "boolean"
           : scalarResult !== undefined
             ? scalarResult.girName
+            : enumerationResult !== undefined
+              ? enumerationResult.name
             : callable.result.nullable
               ? "string | null"
               : "string";
@@ -1770,7 +1808,7 @@ export function generateGtkScabiPackage(
     generator: {
       name: "native-typescript.gtk-gir",
       version: "1",
-      revision: "gtk-scabi-v2",
+      revision: "gtk-scabi-v3",
       arguments: [
         ...options.snapshot.classes.flatMap((class_) => [
           `--class=${class_.name}`,

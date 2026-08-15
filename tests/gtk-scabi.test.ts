@@ -108,6 +108,99 @@ function valueMethodSnapshot(): GirSnapshot {
   });
 }
 
+function flagsPropertySnapshot(): GirSnapshot {
+  const source = girSource.replace(
+    "  </namespace>",
+    `    <bitfield name="EventControllerScrollFlags"
+              glib:type-name="GtkEventControllerScrollFlags"
+              glib:get-type="gtk_event_controller_scroll_flags_get_type"
+              c:type="GtkEventControllerScrollFlags">
+      <member name="vertical"
+              value="1"
+              c:identifier="GTK_EVENT_CONTROLLER_SCROLL_VERTICAL"
+              glib:nick="vertical"
+              glib:name="GTK_EVENT_CONTROLLER_SCROLL_VERTICAL"/>
+      <member name="both_axes"
+              value="3"
+              c:identifier="GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES"
+              glib:nick="both-axes"
+              glib:name="GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES"/>
+    </bitfield>
+    <class name="EventController"
+           c:symbol-prefix="event_controller"
+           c:type="GtkEventController"
+           abstract="1"
+           glib:type-name="GtkEventController"
+           glib:get-type="gtk_event_controller_get_type"/>
+    <class name="EventControllerScroll"
+           c:symbol-prefix="event_controller_scroll"
+           c:type="GtkEventControllerScroll"
+           parent="EventController"
+           glib:type-name="GtkEventControllerScroll"
+           glib:get-type="gtk_event_controller_scroll_get_type">
+      <constructor name="new" c:identifier="gtk_event_controller_scroll_new">
+        <return-value transfer-ownership="full">
+          <type name="EventController" c:type="GtkEventController*"/>
+        </return-value>
+        <parameters>
+          <parameter name="flags" transfer-ownership="none">
+            <type name="EventControllerScrollFlags"
+                  c:type="GtkEventControllerScrollFlags"/>
+          </parameter>
+        </parameters>
+      </constructor>
+      <method name="get_flags"
+              c:identifier="gtk_event_controller_scroll_get_flags"
+              glib:get-property="flags">
+        <return-value transfer-ownership="none">
+          <type name="EventControllerScrollFlags"
+                c:type="GtkEventControllerScrollFlags"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="scroll" transfer-ownership="none">
+            <type name="EventControllerScroll"
+                  c:type="GtkEventControllerScroll*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="set_flags"
+              c:identifier="gtk_event_controller_scroll_set_flags"
+              glib:set-property="flags">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="scroll" transfer-ownership="none">
+            <type name="EventControllerScroll"
+                  c:type="GtkEventControllerScroll*"/>
+          </instance-parameter>
+          <parameter name="flags" transfer-ownership="none">
+            <type name="EventControllerScrollFlags"
+                  c:type="GtkEventControllerScrollFlags"/>
+          </parameter>
+        </parameters>
+      </method>
+    </class>
+  </namespace>`,
+  );
+  return ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.flags.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [
+      { name: "EventController", constructors: [], methods: [] },
+      {
+        name: "EventControllerScroll",
+        constructors: ["new"],
+        methods: ["get_flags", "set_flags"],
+      },
+    ],
+    enumerations: [{
+      name: "EventControllerScrollFlags",
+      members: ["both_axes", "vertical"],
+    }],
+  });
+}
+
 function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   const clang = Object.freeze({
     toolId: "tool/clang",
@@ -381,6 +474,78 @@ test("Clang-proven GTK enums become idiomatic exact constants", () => {
     value: "1",
   }]);
   assert.deepEqual(translated.build, { linkInputs: [], adapterInputs: [] });
+});
+
+test("Clang-proven GTK flags project through constructors and properties", () => {
+  const generated = generateGtkScabiPackage(options(flagsPropertySnapshot()));
+
+  assert.match(
+    generated.declarations,
+    /export type EventControllerScrollFlags = number & \{ readonly \[nativeScalar\]: "EventControllerScrollFlags" \};/u,
+  );
+  assert.match(
+    generated.declarations,
+    /export declare namespace EventControllerScrollFlags \{\n  const BothAxes: EventControllerScrollFlags;\n  const Vertical: EventControllerScrollFlags;\n\}/u,
+  );
+  assert.match(
+    generated.declarations,
+    /export declare class EventControllerScroll extends EventController \{[^}]*constructor\(flags: EventControllerScrollFlags\);[^}]*get flags\(\): EventControllerScrollFlags;[^}]*set flags\(value: EventControllerScrollFlags\);/su,
+  );
+  assert.deepEqual(
+    generated.manifest.types.gtk_event_controller_scroll_flags,
+    {
+      kind: "flags",
+      underlying: "gtk_event_controller_scroll_flags_storage",
+      members: { BothAxes: "3", Vertical: "1" },
+    },
+  );
+  const getter = generated.manifest.bindings.gtk_event_controller_scroll_get_flags;
+  assert.ok(getter && getter.kind !== "constant");
+  assert.equal(getter.kind, "getter");
+  assert.equal(getter.signature.result.type, "gtk_event_controller_scroll_flags");
+  const setter = generated.manifest.bindings.gtk_event_controller_scroll_set_flags;
+  assert.ok(setter && setter.kind !== "constant");
+  assert.equal(setter.kind, "setter");
+  assert.equal(setter.signature.parameters[1]?.type, "gtk_event_controller_scroll_flags");
+
+  const translated = translateScabiNativeProgram(generated.manifest, {
+    imports: [
+      "gtk_event_controller_scroll_flags_both_axes",
+      "gtk_event_controller_scroll_flags_vertical",
+      "gtk_event_controller_scroll_get_flags",
+      "gtk_event_controller_scroll_new",
+      "gtk_event_controller_scroll_set_flags",
+    ],
+    exports: [],
+  });
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+  assert.deepEqual(
+    translated.input.constants.map(({ declaration, value }) => ({ declaration, value })),
+    [
+      {
+        declaration: {
+          module: "@native-typescript/gtk4",
+          name: "EventControllerScrollFlags.BothAxes",
+        },
+        value: "3",
+      },
+      {
+        declaration: {
+          module: "@native-typescript/gtk4",
+          name: "EventControllerScrollFlags.Vertical",
+        },
+        value: "1",
+      },
+    ],
+  );
+  assert.equal(
+    translated.input.bindings.find(
+      ({ declaration }) => declaration.name === "EventControllerScroll.flags" &&
+        declaration.module === "@native-typescript/gtk4",
+    )?.result.type.kind,
+    "nativeScalar",
+  );
 });
 
 test("GTK caller-allocated record outputs project as one nested value result", () => {

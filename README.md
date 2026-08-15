@@ -365,7 +365,11 @@ a runtime namespace object, module load, adapter, or C symbol. GTK now consumes
 that permanent path: selected GIR enums retain their source and C identities,
 target Clang proves their exact storage and member values, and the generated
 nominal `Orientation` API drives `Box(Orientation.Vertical, spacing)` in the real
-GTK app through both backends. The same permanent path now supports nominal,
+GTK app through both backends. The distinct SCABI flags kind now follows the
+same proven path: `EventControllerScrollFlags` enters a constructor and
+round-trips through its generated property, then compares at its exact native
+width without becoming an untyped number.
+The same permanent path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
 or nested nominal native structs and whose SCABI metadata carries target
 Clang's complete physical calling signature. Direct registers, expanded

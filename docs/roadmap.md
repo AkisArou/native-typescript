@@ -253,8 +253,12 @@ symbol. GTK GIR ingestion now preserves selected enum members and C identities,
 while target Clang proves their storage, signedness, and values before package
 generation. The generated nominal `Orientation` type and its compile-time
 members drive the real `Box(Orientation.Vertical, spacing)` application path
-through both backends. Bitfield projection and broader enum-bearing APIs remain
-to broaden over this same evidence path.
+through both backends. The same path now preserves the distinct SCABI `flags`
+kind: `EventControllerScrollFlags.BothAxes` enters its generated constructor,
+while its getter/setter round-trip and exact equality preserve nominal flags
+values in the real app through both backends. A generic native-width
+flags-composition operation and broader
+enum/flags-bearing APIs remain to broaden over this foundation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and

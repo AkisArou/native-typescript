@@ -9,6 +9,8 @@ import {
   Button,
   Box,
   DrawingArea,
+  EventControllerScroll,
+  EventControllerScrollFlags,
   Orientation,
   Overlay,
   Window,
@@ -19,6 +21,7 @@ import {
 runtimeStart();
 let generatedReady = false;
 let counterReady = false;
+let flagsReady = false;
 let resizeReady = false;
 let failed = false;
 let generatedValue = 0 as i32;
@@ -28,7 +31,7 @@ function finishIfReady(): void {
   if (failed) {
     complete(0 as i32);
     quit();
-  } else if (generatedReady && counterReady && resizeReady) {
+  } else if (generatedReady && counterReady && flagsReady && resizeReady) {
     window.destroy();
     complete((generatedValue + observed) as i32);
     quit();
@@ -40,6 +43,15 @@ const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();
 const box = new Box(Orientation.Vertical, 8 as gint);
+const scroll = new EventControllerScroll(EventControllerScrollFlags.BothAxes);
+scroll.flags = EventControllerScrollFlags.Vertical;
+const currentScrollFlags = scroll.flags;
+scroll.flags = currentScrollFlags;
+if (currentScrollFlags === EventControllerScrollFlags.Vertical) {
+  flagsReady = true;
+} else {
+  failed = true;
+}
 const initial = button.label;
 button.label = "Generated: updated";
 button.setVisible(false);
