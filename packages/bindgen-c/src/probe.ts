@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { CBindgenError } from "./model.ts";
+import { parseClangRecordCallingConventions } from "./llvm-abi.ts";
 import type {
   CRecordCandidate,
   CBindgenDiagnostic,
@@ -359,6 +360,13 @@ export function generateClangAbiProbe(input: {
         "",
       );
     }
+    lines.push(
+      `__attribute__((noinline, used)) ${record.typeName} ` +
+        `nts_abi_classify_record_${recordSuffix}(${record.typeName} value) {`,
+      "  return value;",
+      "}",
+      "",
+    );
   }
   lines.push(`struct ${recordName} {`);
   for (const [index, function_] of functions.entries()) {
@@ -402,6 +410,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 export function parseClangAbiEvidence(
   astJson: string,
+  llvmIr: string,
   input: {
     readonly probe: ClangAbiProbe;
     readonly clang: {
@@ -539,6 +548,7 @@ export function parseClangAbiEvidence(
     return value;
   };
   const records: ClangRecordEvidence[] = [];
+  const callingConventions = parseClangRecordCallingConventions(llvmIr, input.probe);
   for (const [recordIndex, record] of input.probe.records.entries()) {
     const recordSuffix = recordIndex.toString().padStart(4, "0");
     const size = arrayExtent(`record_${recordSuffix}_size`, `ast/records/${recordIndex}/size`);
@@ -594,6 +604,7 @@ export function parseClangAbiEvidence(
         size,
         alignment,
         fields: Object.freeze(recordFields),
+        callingConvention: callingConventions[recordIndex]!,
       }));
     }
   }

@@ -9,14 +9,18 @@ import type { ClangAbiProbe } from "./model.ts";
 export interface ClangAbiProbeArtifactPlan {
   readonly source: ArtifactDefinition;
   readonly rawAst: ArtifactDefinition;
-  readonly action: ArtifactActionDefinition;
+  readonly rawLlvm: ArtifactDefinition;
+  readonly astAction: ArtifactActionDefinition;
+  readonly llvmAction: ArtifactActionDefinition;
 }
 
 export function planClangAbiProbe(input: {
   readonly probe: ClangAbiProbe;
   readonly sourceArtifactId: string;
   readonly rawAstArtifactId: string;
-  readonly actionId: string;
+  readonly rawLlvmArtifactId: string;
+  readonly astActionId: string;
+  readonly llvmActionId: string;
   readonly logicalPath: string;
   readonly arguments: readonly ArtifactActionInputArgument[];
   readonly tool: ArtifactActionDefinition["tool"];
@@ -48,14 +52,29 @@ export function planClangAbiProbe(input: {
     cache: "none",
     origin: Object.freeze({
       kind: "action",
-      action: input.actionId,
+      action: input.astActionId,
       fileName: "clang-abi-ast.json",
+    }),
+  });
+  const rawLlvm: ArtifactDefinition = Object.freeze({
+    id: input.rawLlvmArtifactId,
+    kind: "metadata",
+    entryType: "file",
+    mediaType: "text/x-llvm",
+    target: input.target,
+    domain: "target",
+    cache: "none",
+    origin: Object.freeze({
+      kind: "action",
+      action: input.llvmActionId,
+      fileName: "clang-abi-classification.ll",
     }),
   });
   const sdkInputs = input.arguments.flatMap((argument) =>
     argument.kind === "input-path" ? [argument.artifact] : []
   );
   const arguments_: ArtifactActionArgument[] = [
+    { kind: "literal", value: `--target=${input.target}` },
     { kind: "literal", value: "-std=gnu11" },
     { kind: "literal", value: "-Wall" },
     { kind: "literal", value: "-Wextra" },
@@ -70,8 +89,8 @@ export function planClangAbiProbe(input: {
     { kind: "literal", value: "c" },
     { kind: "input-path", artifact: input.sourceArtifactId },
   ];
-  const action: ArtifactActionDefinition = Object.freeze({
-    id: input.actionId,
+  const astAction: ArtifactActionDefinition = Object.freeze({
+    id: input.astActionId,
     implementation: Object.freeze({
       id: "native-typescript/clang-abi-probe",
       version: "1",
@@ -92,5 +111,36 @@ export function planClangAbiProbe(input: {
     deterministic: false,
     cacheable: false,
   });
-  return Object.freeze({ source, rawAst, action });
+  const llvmAction: ArtifactActionDefinition = Object.freeze({
+    id: input.llvmActionId,
+    implementation: Object.freeze({
+      id: "native-typescript/clang-abi-classification",
+      version: "1",
+    }),
+    tool: Object.freeze({ ...input.tool }),
+    arguments: Object.freeze([
+      Object.freeze({ kind: "literal" as const, value: `--target=${input.target}` }),
+      Object.freeze({ kind: "literal" as const, value: "-std=gnu11" }),
+      Object.freeze({ kind: "literal" as const, value: "-O0" }),
+      Object.freeze({ kind: "literal" as const, value: "-S" }),
+      Object.freeze({ kind: "literal" as const, value: "-emit-llvm" }),
+      ...input.arguments.map((argument) => Object.freeze(argument)),
+      Object.freeze({ kind: "literal" as const, value: "-x" }),
+      Object.freeze({ kind: "literal" as const, value: "c" }),
+      Object.freeze({ kind: "input-path" as const, artifact: input.sourceArtifactId }),
+      Object.freeze({ kind: "literal" as const, value: "-o" }),
+      Object.freeze({ kind: "output-path" as const, artifact: input.rawLlvmArtifactId }),
+    ]),
+    environment: Object.freeze([]),
+    inputs: Object.freeze([...new Set([input.sourceArtifactId, ...sdkInputs])]),
+    outputs: Object.freeze([input.rawLlvmArtifactId]),
+    standardOutput: Object.freeze({ kind: "report" as const }),
+    workingDirectory: "isolated",
+    network: "denied",
+    executionPlatform: input.executionPlatform,
+    target: input.target,
+    deterministic: false,
+    cacheable: false,
+  });
+  return Object.freeze({ source, rawAst, rawLlvm, astAction, llvmAction });
 }

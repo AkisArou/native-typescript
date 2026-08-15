@@ -228,6 +228,7 @@ function validateInputs(
         size: field.size,
         alignment: field.alignment,
       })),
+      callingConvention: record.callingConvention,
     })),
   };
   if (

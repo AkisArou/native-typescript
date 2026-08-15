@@ -178,8 +178,10 @@ node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 The C binding tests compile one canonical selected-ABI probe, derive an
 authoritative padded-record layout, reject deliberate function and field type
 mismatches, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call surface
-plus the selected `Gtk.Requisition` layout against Clang. The SCABI test turns
-the verified selection and exact
+plus the selected `Gtk.Requisition` layout and calling classification against
+Clang. A cross-target fixture pins direct register expansion on x86-64 SysV,
+the AArch64 homogeneous aggregate form, Windows hidden return/indirect input,
+and SysV `sret`/`byval`. The SCABI test turns the verified selection and exact
 GObject adapter into canonical declarations and a validated manifest, and pins
 the immutable evidence-normalization and cacheable binding-package action
 contracts, while rejecting tampered provenance and unsupported reached

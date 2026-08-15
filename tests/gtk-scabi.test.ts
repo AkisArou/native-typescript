@@ -119,6 +119,26 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
       size: 4,
       alignment: 4,
     }))),
+    callingConvention: Object.freeze({
+      result: Object.freeze({
+        type: Object.freeze({ kind: "integer" as const, bits: 64 }),
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: null,
+        structureReturn: null,
+      }),
+      parameters: Object.freeze([Object.freeze({
+        type: Object.freeze({ kind: "integer" as const, bits: 64 }),
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: null,
+        structureReturn: null,
+      })]),
+    }),
   })));
   const semanticValue = {
     schema: "native-typescript.clang-abi-evidence",
@@ -261,6 +281,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
     requestArtifact: "metadata/gtk4/request",
     snapshotArtifact: "metadata/gtk4/snapshot",
     rawAstArtifact: "metadata/gtk4/clang-ast",
+    rawLlvmArtifact: "metadata/gtk4/clang-llvm",
     generatorArtifact: "tool-input/target-gtk/generator",
     artifactId: "metadata/gtk4/clang-evidence",
     actionId: "normalize/gtk4/clang-evidence",
@@ -288,6 +309,7 @@ test("GTK evidence and binding generation are immutable cacheable actions", () =
     "tool-input/target-gtk/generator",
     "metadata/gtk4/snapshot",
     "metadata/gtk4/clang-ast",
+    "metadata/gtk4/clang-llvm",
     "metadata/gtk4/request",
   ]);
   assert.equal(evidencePlan.artifact.entryType, "file");

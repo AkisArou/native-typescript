@@ -38,13 +38,15 @@ async function readInputs(
 
 async function normalizeEvidence(
   snapshotPath: string,
-  rawEvidencePath: string,
+  rawAstPath: string,
+  rawLlvmPath: string,
   requestPath: string,
   outputPath: string,
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
   const evidence = parseClangAbiEvidence(
-    await readFile(rawEvidencePath, "utf8"),
+    await readFile(rawAstPath, "utf8"),
+    await readFile(rawLlvmPath, "utf8"),
     {
       probe: generateGirClangAbiProbe(snapshot),
       clang: request.clang,
@@ -113,27 +115,25 @@ async function generatePackage(
 }
 
 async function main(): Promise<void> {
-  const [command, snapshotPath, evidencePath, requestPath, outputPath, ...extra] =
-    process.argv.slice(2);
-  if (
-    command === undefined ||
-    snapshotPath === undefined ||
-    evidencePath === undefined ||
-    requestPath === undefined ||
-    outputPath === undefined ||
-    extra.length > 0
-  ) {
-    throw new Error(
-      "usage: gtk-binding-tool-cli <normalize-evidence|generate-package> " +
-        "<snapshot.json> <evidence.json> <request.json> <output>",
-    );
-  }
+  const [command, ...arguments_] = process.argv.slice(2);
   if (command === "normalize-evidence") {
-    await normalizeEvidence(snapshotPath, evidencePath, requestPath, outputPath);
+    if (arguments_.length !== 5) {
+      throw new Error(
+        "usage: gtk-binding-tool-cli normalize-evidence " +
+          "<snapshot.json> <ast.json> <classification.ll> <request.json> <output>",
+      );
+    }
+    await normalizeEvidence(arguments_[0]!, arguments_[1]!, arguments_[2]!, arguments_[3]!, arguments_[4]!);
     return;
   }
   if (command === "generate-package") {
-    await generatePackage(snapshotPath, evidencePath, requestPath, outputPath);
+    if (arguments_.length !== 4) {
+      throw new Error(
+        "usage: gtk-binding-tool-cli generate-package " +
+          "<snapshot.json> <evidence.json> <request.json> <output>",
+      );
+    }
+    await generatePackage(arguments_[0]!, arguments_[1]!, arguments_[2]!, arguments_[3]!);
     return;
   }
   throw new Error(`Unknown GTK binding tool command '${command}'`);

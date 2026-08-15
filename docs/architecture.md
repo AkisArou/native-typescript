@@ -288,7 +288,7 @@ The initial workspace roles are:
 
 - `@native-typescript/bindgen-c`: target-neutral structured C candidates,
   combined function/record Clang probe generation, authoritative selected
-  record layout, and canonical ABI evidence;
+  record layout and calling classification, and canonical ABI evidence;
 - `@native-typescript/scriptc`: typed integration with the pinned compiler fork;
 - `@native-typescript/target-api`: provider contracts and immutable target
   descriptions;

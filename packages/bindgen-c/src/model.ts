@@ -93,12 +93,46 @@ export interface ClangRecordFieldEvidence {
   readonly alignment: number;
 }
 
+export type ClangAbiType =
+  | { readonly kind: "void" }
+  | { readonly kind: "integer"; readonly bits: number }
+  | {
+      readonly kind: "float";
+      readonly format: "half" | "bfloat" | "float" | "double" | "fp128" | "x86_fp80";
+    }
+  | { readonly kind: "pointer"; readonly addressSpace: number }
+  | { readonly kind: "array"; readonly count: number; readonly element: ClangAbiType }
+  | {
+      readonly kind: "vector";
+      readonly count: number;
+      readonly scalable: boolean;
+      readonly element: ClangAbiType;
+    }
+  | { readonly kind: "struct"; readonly packed: boolean; readonly fields: readonly ClangAbiType[] }
+  | { readonly kind: "named"; readonly name: string };
+
+export interface ClangAbiValue {
+  readonly type: ClangAbiType;
+  readonly alignment: number | null;
+  readonly stackAlignment: number | null;
+  readonly extension: "sign" | "zero" | null;
+  readonly inRegister: boolean;
+  readonly byValue: ClangAbiType | null;
+  readonly structureReturn: ClangAbiType | null;
+}
+
+export interface ClangRecordCallingConventionEvidence {
+  readonly result: ClangAbiValue;
+  readonly parameters: readonly ClangAbiValue[];
+}
+
 export interface ClangRecordEvidence {
   readonly id: string;
   readonly typeName: string;
   readonly size: number;
   readonly alignment: number;
   readonly fields: readonly ClangRecordFieldEvidence[];
+  readonly callingConvention: ClangRecordCallingConventionEvidence;
 }
 
 export interface ClangAbiEvidenceSnapshot {

@@ -131,7 +131,9 @@ test(
       probe,
       sourceArtifactId: "source/gtk4/clang-abi-probe",
       rawAstArtifactId: "metadata/gtk4/clang-abi-ast",
-      actionId: "inspect/gtk4/clang-abi",
+      rawLlvmArtifactId: "metadata/gtk4/clang-abi-llvm",
+      astActionId: "inspect/gtk4/clang-abi",
+      llvmActionId: "inspect/gtk4/clang-calling-convention",
       logicalPath: "generated/gtk4/clang-abi-probe.c",
       arguments: sdk.compileArguments,
       tool: clang,
@@ -139,8 +141,8 @@ test(
       target,
     });
     const graph = defineArtifactGraph({
-      artifacts: [plan.source, ...sdk.artifacts, plan.rawAst],
-      actions: [plan.action],
+      artifacts: [plan.source, ...sdk.artifacts, plan.rawAst, plan.rawLlvm],
+      actions: [plan.astAction, plan.llvmAction],
     });
     assert.equal(JSON.stringify(graph).includes("/usr/include"), false);
 
@@ -158,8 +160,13 @@ test(
         sandbox: { kind: "bubblewrap", path: bubblewrapPath },
       });
       const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
+      const llvm = report.artifacts.find(({ id }) => id === plan.rawLlvm.id);
       assert.ok(ast);
-      const evidence = parseClangAbiEvidence(readFileSync(ast.path, "utf8"), {
+      assert.ok(llvm);
+      const evidence = parseClangAbiEvidence(
+        readFileSync(ast.path, "utf8"),
+        readFileSync(llvm.path, "utf8"),
+        {
         probe,
         clang: {
           toolId: clang.id,
@@ -167,7 +174,8 @@ test(
           digest: clang.digest,
           target,
         },
-      });
+        },
+      );
       assert.deepEqual(evidence.functions.map(({ symbol }) => symbol), [
         "gtk_button_new_with_label",
         "gtk_button_get_label",
@@ -206,6 +214,26 @@ test(
             alignment: 4,
           },
         ],
+        callingConvention: {
+          result: {
+            type: { kind: "integer", bits: 64 },
+            alignment: null,
+            stackAlignment: null,
+            extension: null,
+            inRegister: false,
+            byValue: null,
+            structureReturn: null,
+          },
+          parameters: [{
+            type: { kind: "integer", bits: 64 },
+            alignment: null,
+            stackAlignment: null,
+            extension: null,
+            inRegister: false,
+            byValue: null,
+            structureReturn: null,
+          }],
+        },
       }]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 

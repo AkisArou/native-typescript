@@ -146,14 +146,17 @@ new target-neutral C binding
 package defines the first closed named/pointer and selected-record candidate
 algebra, generates one content-addressed ABI probe, makes Clang prove exact
 function and field compatibility, derives target record size/alignment and
-field layout, and normalizes only selected AST evidence. Its permanent fixture
+field layout, and normalizes only selected AST/LLVM evidence. Its permanent fixture
 rejects a deliberately wrong const-qualified result and record field type. GTK binding generation is now a
 pair of deterministic producer actions: the first reduces raw Clang AST to
 canonical selected ABI evidence, and the second consumes that evidence,
 selected GIR, an immutable request, and a content-addressed bundled host tool to
 emit one verified package directory. The package is reused across distinct
-build roots. Phase 1 still requires aggregate calling-convention classification
-and broader SCABI/declaration generation;
+build roots. A second target-Clang action now derives aggregate calling
+classification as a closed physical LLVM type/attribute algebra. Cross-target
+fixtures distinguish direct, expanded, `sret`, `byval`, and plain indirect
+forms. Phase 1 still requires SCABI/Native IR consumption of direct and expanded
+classifications and broader declaration generation;
 modeling export adapters as producer actions; making implicit
 toolchain/system-library inputs explicit so native actions can use the
 implemented local cache; adding cache eviction/export; broadening callback
@@ -228,8 +231,9 @@ semantic GIR metadata rather than invented direct C functions: the generator
 emits deterministic connect/disconnect adapters and
 result-owned retained-callback contracts. Transparent selected GIR records now
 enter the same evidence path: the real `Gtk.Requisition` gate preserves its two
-fields and Clang proves its exact target layout. Public SCABI aggregate
-projection still awaits authoritative calling classification. Broader
+fields and Clang proves its exact target layout and direct x86-64 SysV
+classification. Public SCABI aggregate projection still
+awaits ScriptC consumption of direct/expanded classifications. Broader
 type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.

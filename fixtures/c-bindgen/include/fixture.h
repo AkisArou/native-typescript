@@ -3,12 +3,24 @@
 
 typedef struct NTSWidget NTSWidget;
 typedef unsigned char NTSByte;
+typedef long long NTSI64;
 
 typedef struct NTSPoint {
   int x;
   NTSByte tag;
   double weight;
 } NTSPoint;
+
+typedef struct NTSPair {
+  double x;
+  double y;
+} NTSPair;
+
+typedef struct NTSLarge {
+  NTSI64 x;
+  NTSI64 y;
+  NTSI64 z;
+} NTSLarge;
 
 NTSWidget *nts_widget_new(const char *label);
 const char *nts_widget_get_label(NTSWidget *widget);

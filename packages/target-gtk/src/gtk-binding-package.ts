@@ -122,6 +122,7 @@ export function planGtkClangEvidenceNormalization(input: {
   readonly requestArtifact: string;
   readonly snapshotArtifact: string;
   readonly rawAstArtifact: string;
+  readonly rawLlvmArtifact: string;
   readonly generatorArtifact: string;
   readonly artifactId: string;
   readonly actionId: string;
@@ -169,6 +170,10 @@ export function planGtkClangEvidenceNormalization(input: {
         }),
         Object.freeze({
           kind: "input-path" as const,
+          artifact: input.rawLlvmArtifact,
+        }),
+        Object.freeze({
+          kind: "input-path" as const,
           artifact: input.requestArtifact,
         }),
         Object.freeze({
@@ -181,6 +186,7 @@ export function planGtkClangEvidenceNormalization(input: {
         input.generatorArtifact,
         input.snapshotArtifact,
         input.rawAstArtifact,
+        input.rawLlvmArtifact,
         input.requestArtifact,
       ]),
       outputs: Object.freeze([input.artifactId]),

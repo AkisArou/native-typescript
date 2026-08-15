@@ -190,11 +190,12 @@ Generated code is a first-class artifact with:
 Generated source is normally placed in the build tree and not committed. Golden
 fixtures may be committed for review and testing.
 
-The GTK analysis graph applies this rule directly. Sandboxed Clang writes its
-raw selected AST to a metadata artifact. Because Clang AST JSON contains
-process- and sandbox-specific locations, a dependent action reduces it to
-canonical selected ABI evidence. Function types and selected record layout facts
-share the same probe contract and compiler action. The binding-package action consumes that
+The GTK analysis graph applies this rule directly. Two sandboxed target-Clang
+actions compile the same content-addressed probe: one writes selected AST and
+one writes LLVM calling-classification IR to raw metadata artifacts. Because
+those formats contain non-semantic compiler detail, a dependent action reduces
+them to canonical selected ABI evidence. Function types, selected record layout,
+and physical calling classifications share one probe contract. The binding-package action consumes that
 stable evidence, the canonical selected-GIR snapshot, an immutable generation
 request, and a content-addressed self-contained host generator. Its single
 directory output contains declarations, SCABI, GObject adapter source/metadata,

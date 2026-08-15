@@ -144,8 +144,12 @@ byte offset, size, and alignment. A filtered AST record then becomes canonical
 evidence. Raw AST output remains a non-cacheable intermediate because Clang
 includes unstable IDs and physical source locations; only normalized selected
 evidence participates in binding identity. Direct/indirect aggregate
-calling-convention classification is not inferred from layout and remains a
-separate target-compiler evidence slice.
+calling-convention classification is not inferred from layout. The same source
+is compiled to target LLVM by a second sandboxed Clang action, and canonical
+evidence records the closed physical type algebra, expanded parameter list,
+alignment/stack-alignment, extension/in-register attributes, and exact
+`byval`/`sret` pointee types. This preserves direct, expanded, and indirect ABI
+forms without encoding size heuristics in Native TypeScript.
 
 The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
@@ -162,10 +166,11 @@ algebra is an error instead of a guessed projection.
 
 Selected transparent GIR records also enter that probe. The permanent GTK gate
 selects `Gtk.Requisition` and preserves its field metadata, while target Clang
-proves its 8-byte size, 4-byte alignment, and two exact `int` field layouts.
-That evidence is validated and packaged but is not yet emitted as a public
-SCABI aggregate: doing so also requires authoritative direct/indirect calling
-classification, which layout alone cannot supply.
+proves its 8-byte size, 4-byte alignment, two exact `int` field layouts, and
+direct `i64` parameter/result classification on x86-64 SysV. That evidence is
+validated and packaged but is not yet emitted as a public SCABI aggregate:
+SCABI and ScriptC must first consume the new closed classification algebra for
+direct and expanded values as well as the already implemented indirect form.
 
 The source projection is distinct from ABI identity. Selected GObject types
 are emitted as named TypeScript classes with their proven inheritance.
