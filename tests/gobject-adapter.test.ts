@@ -106,7 +106,7 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 3);
+  assert.equal(generated.schemaVersion, 4);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -142,6 +142,8 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
   assert.deepEqual(generated.signalConnection, {
     nativeType: "NtsGtkSignalConnection",
     disconnectSymbol: "nts_gtk_signal_connection_disconnect",
+    connectedSymbol: "nts_gtk_signal_connection_connected",
+    releaseSymbol: "nts_gtk_signal_connection_release",
   });
   assert.deepEqual(generated.signals, [{
     id: "Button.signal.clicked",
@@ -159,6 +161,14 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
   assert.match(
     generated.source,
     /void nts_gtk_signal_connection_disconnect\(NtsGtkSignalConnection \*connection\)/u,
+  );
+  assert.match(
+    generated.source,
+    /gboolean nts_gtk_signal_connection_connected\(const NtsGtkSignalConnection \*connection\)/u,
+  );
+  assert.match(
+    generated.source,
+    /void nts_gtk_signal_connection_release\(NtsGtkSignalConnection \*connection\)/u,
   );
   assert.match(generated.source, /g_signal_connect\(instance, "clicked"/u);
   assert.match(generated.source, /g_object_ref\(instance\)/u);

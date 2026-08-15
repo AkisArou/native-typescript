@@ -591,7 +591,11 @@ export function generateGtkScabiPackage(
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
   const signalConnectionTypeId = `${namespacePrefix}_signal_connection`;
   const signalDisconnectId = `${namespacePrefix}_signal_connection_disconnect`;
+  const signalConnectedId = `${namespacePrefix}_signal_connection_connected`;
+  const signalReleaseId = `${namespacePrefix}_signal_connection_release`;
   const signalDisconnectDeclaration = "SignalConnection.disconnect";
+  const signalConnectedDeclaration = "SignalConnection.connected";
+  const signalReleaseDeclaration = "SignalConnection.__release";
   const declarationLines = [
     ...(usedSourceScalars.length > 0
       ? ["declare const nativeScalar: unique symbol;"]
@@ -632,7 +636,11 @@ export function generateGtkScabiPackage(
       types[signalConnectionTypeId] !== undefined ||
       declarationTypes[signalConnectionTypeId] !== undefined ||
       bindings[signalDisconnectId] !== undefined ||
-      declarations.has(signalDisconnectDeclaration)
+      bindings[signalConnectedId] !== undefined ||
+      bindings[signalReleaseId] !== undefined ||
+      declarations.has(signalDisconnectDeclaration) ||
+      declarations.has(signalConnectedDeclaration) ||
+      declarations.has(signalReleaseDeclaration)
     ) {
       diagnostics.push(diagnostic(path, "Generated signal connection identity collides"));
     } else {
@@ -656,6 +664,46 @@ export function generateGtkScabiPackage(
           name: "connection",
           type: signalConnectionTypeId,
           passMode: "pointer",
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        })],
+        result: Object.freeze({
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+      });
+      bindings[signalConnectedId] = callableBase({
+        declaration: signalConnectedDeclaration,
+        kind: "getter",
+        entryKind: "adapter-symbol",
+        symbol: connection.connectedSymbol,
+        parameters: [Object.freeze({
+          name: "connection",
+          type: signalConnectionTypeId,
+          passMode: "pointer",
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        })],
+        result: Object.freeze({
+          type: "gboolean",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+      });
+      bindings[signalReleaseId] = callableBase({
+        declaration: signalReleaseDeclaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: connection.releaseSymbol,
+        parameters: [Object.freeze({
+          name: "connection",
+          type: signalConnectionTypeId,
+          passMode: "pointer",
           nullable: true,
           ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
         })],
@@ -668,10 +716,13 @@ export function generateGtkScabiPackage(
         dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
       });
       declarations.add(signalDisconnectDeclaration);
-      adapterBindings.push(signalDisconnectId);
+      declarations.add(signalConnectedDeclaration);
+      declarations.add(signalReleaseDeclaration);
+      adapterBindings.push(signalDisconnectId, signalConnectedId, signalReleaseId);
       declarationLines.push(
         "export interface SignalConnection {",
         "  readonly [nativeResourceSignalConnection]: true;",
+        "  readonly connected: boolean;",
         "  disconnect(): void;",
         "}",
         "",
@@ -977,12 +1028,12 @@ export function generateGtkScabiPackage(
           ownership: Object.freeze({
             kind: "owned",
             transfer: "to-runtime",
-            destructor: signalDisconnectId,
+            destructor: signalReleaseId,
           }),
         }),
         error: Object.freeze({ kind: "nullable" }),
         dependencies: dependencies({
-          bindings: [signalDisconnectId],
+          bindings: [signalDisconnectId, signalReleaseId],
           links: linkIds,
           adapter: options.adapterInput.id,
         }),

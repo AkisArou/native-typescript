@@ -41,7 +41,7 @@ window.setChild(button);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);
-button.onClicked((sender): void => {
+const clicked = button.onClicked((sender): void => {
   const updated = sender.getLabel();
   if (
     initial === "Generated: initial" &&
@@ -55,6 +55,16 @@ button.onClicked((sender): void => {
   window.destroy();
   finishIfReady();
 });
+if (!clicked.connected) failed = true;
+
+const temporary = button.onClicked((): void => {
+  failed = true;
+});
+if (!temporary.connected) failed = true;
+temporary.disconnect();
+if (temporary.connected) failed = true;
+temporary.disconnect();
+if (temporary.connected) failed = true;
 
 const counter = createCounter((count): void => {
   observed = count;

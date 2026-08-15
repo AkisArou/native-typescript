@@ -357,10 +357,13 @@ The implemented retained slice accepts `until-cancelled` callbacks with a
 `void` native result and copied exact-scalar payloads, including the zero-payload
 case. Same-caller or attached foreign producers admit opaque token events
 without entering the ScriptC heap; delivery runs one callback per runtime-owner
-turn. The cancellation handle closes new admission before its destructor and
-completes only after native disconnection returns. Normal cancellation keeps
-the closure alive until admitted leases drain; collector cancellation suppresses
-those already-admitted deliveries before reclaiming their closure.
+turn. Cancellation may be either the handle destructor or a separate borrowed,
+non-consuming operation. Both close new admission before native disconnection
+and complete only after it returns. Explicit cancellation removes the callback
+lifecycle while leaving the native handle live for state observation and
+idempotent repeated calls. Normal cancellation keeps the closure alive until
+admitted leases drain; collector cancellation suppresses those already-admitted
+deliveries before reclaiming their closure.
 
 `sourceArguments` is an explicit logical projection. A
 `callback-parameter` entry selects one physical callback parameter; a

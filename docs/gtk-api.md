@@ -263,14 +263,15 @@ signals that all return one public `SignalConnection` capability with
 `disconnect()`, and zero-payload signals receive their typed emitter as the
 first callback argument. Routine GObject release bindings are now internal
 compiler dependencies rather than public `dispose()` methods. It still emits
-method-shaped accessors and has no `connected` observation yet; those remaining
-declarations accurately describe the current runtime but are not the final
-public contract.
+method-shaped accessors. `SignalConnection.disconnect()` is non-consuming and
+idempotent, while `connected` reads the actual native handler state; the
+separate connection release operation remains internal. The remaining
+method-shaped declarations accurately describe the current runtime but are not
+the final public contract.
 
 The migration is intentionally one-way:
 
-1. add a proven `connected` observation;
-2. project proven GObject properties and broader signal payloads.
+1. project proven GObject properties and broader signal payloads.
 
 No deprecated aliases or duplicate compatibility surface remains after each
 contract becomes implemented.

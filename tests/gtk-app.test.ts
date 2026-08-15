@@ -466,6 +466,7 @@ test(
           "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_signal_connection_connected",
           "gtk_widget_activate",
           "gtk_widget_get_opacity",
           "gtk_widget_get_width",

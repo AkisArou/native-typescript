@@ -852,6 +852,42 @@ function validateCallback(
       ),
     );
   }
+  if (
+    contract.lifetime === "until-cancelled" &&
+    contract.cancellationBinding !== undefined
+  ) {
+    const cancellation = manifest.bindings[contract.cancellationBinding];
+    const cancellationParameter = cancellation?.kind === "constant"
+      ? undefined
+      : cancellation?.signature.parameters[0];
+    const cancellationResult = cancellation?.kind === "constant"
+      ? undefined
+      : cancellation?.signature.result;
+    const cancellationOwnership = cancellationParameter?.ownership;
+    const validCancellationOwnership =
+      cancellationOwnership?.kind === "owned" ||
+      (cancellationOwnership?.kind === "borrowed" &&
+        cancellationOwnership.scope === "call");
+    if (
+      cancellation !== undefined &&
+      (cancellation.kind === "constant" ||
+        cancellation.signature.parameters.length !== 1 ||
+        cancellationParameter?.type !== binding.signature.result.type ||
+        cancellationParameter.passMode !== "pointer" ||
+        !validCancellationOwnership ||
+        cancellationResult?.type !== "void" ||
+        cancellationResult.passMode !== "value" ||
+        cancellationResult.ownership.kind !== "value")
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/cancellationBinding`,
+          `Cancellation binding ${contract.cancellationBinding} must consume or borrow one matching result handle and return void`,
+        ),
+      );
+    }
+  }
   if (contract.lifetime === "call") {
     if (contract.registrationOwner !== "native-call") {
       diagnostics.push(

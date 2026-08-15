@@ -247,7 +247,9 @@ test(
         "gtk_button_new_with_label",
         "gtk_button_release",
         "gtk_button_set_label",
+        "gtk_signal_connection_connected",
         "gtk_signal_connection_disconnect",
+        "gtk_signal_connection_release",
         "gtk_widget_activate",
         "gtk_widget_get_opacity",
         "gtk_widget_get_width",
@@ -278,6 +280,7 @@ test(
         /onClicked\(callback: \(button: Button\) => void\): SignalConnection;/u,
       );
       assert.doesNotMatch(generated.declarations, /dispose\(\): void;/u);
+      assert.match(generated.declarations, /readonly connected: boolean;/u);
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
       assert.match(
         generated.declarations,

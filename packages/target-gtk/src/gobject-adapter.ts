@@ -45,11 +45,13 @@ export interface GObjectSignalAdapter {
 export interface GObjectSignalConnectionAdapter {
   readonly nativeType: string;
   readonly disconnectSymbol: string;
+  readonly connectedSymbol: string;
+  readonly releaseSymbol: string;
 }
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -317,6 +319,8 @@ export function generateGObjectAdapterSource(
     ? Object.freeze({
         nativeType: `Nts${upperCamel(snapshot.namespace.name)}SignalConnection`,
         disconnectSymbol: `nts_${namespacePart}_signal_connection_disconnect`,
+        connectedSymbol: `nts_${namespacePart}_signal_connection_connected`,
+        releaseSymbol: `nts_${namespacePart}_signal_connection_release`,
       })
     : null;
   const lines = [
@@ -332,12 +336,26 @@ export function generateGObjectAdapterSource(
           "  gulong handler;",
           `} ${signalConnection.nativeType};`,
           "",
-          `void ${signalConnection.disconnectSymbol}(${signalConnection.nativeType} *connection) {`,
-          "  if (connection == NULL) return;",
+          `static void nts_${namespacePart}_signal_connection_disconnect_impl(${signalConnection.nativeType} *connection) {`,
           "  if (connection->handler != 0 &&",
           "      g_signal_handler_is_connected(connection->instance, connection->handler)) {",
           "    g_signal_handler_disconnect(connection->instance, connection->handler);",
           "  }",
+          "  connection->handler = 0;",
+          "}",
+          "",
+          `gboolean ${signalConnection.connectedSymbol}(const ${signalConnection.nativeType} *connection) {`,
+          "  return connection != NULL && connection->handler != 0 &&",
+          "      g_signal_handler_is_connected(connection->instance, connection->handler);",
+          "}",
+          "",
+          `void ${signalConnection.disconnectSymbol}(${signalConnection.nativeType} *connection) {`,
+          `  if (connection != NULL) nts_${namespacePart}_signal_connection_disconnect_impl(connection);`,
+          "}",
+          "",
+          `void ${signalConnection.releaseSymbol}(${signalConnection.nativeType} *connection) {`,
+          "  if (connection == NULL) return;",
+          `  nts_${namespacePart}_signal_connection_disconnect_impl(connection);`,
           "  g_object_unref(connection->instance);",
           "  free(connection);",
           "}",
@@ -386,7 +404,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 3,
+    schemaVersion: 4,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),

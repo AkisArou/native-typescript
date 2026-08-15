@@ -305,6 +305,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     /export interface SignalConnection/u,
   );
   assert.match(generated.declarations, /disconnect\(\): void;/u);
+  assert.match(generated.declarations, /readonly connected: boolean;/u);
   assert.doesNotMatch(generated.declarations, /dispose\(\): void;/u);
   assert.deepEqual(generated.manifest.types.gtk_signal_connection, {
     kind: "handle",
@@ -335,6 +336,22 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     postDisposal: "not-invoked",
     shutdown: "drain",
   });
+  assert.deepEqual(connect.signature.result.ownership, {
+    kind: "owned",
+    transfer: "to-runtime",
+    destructor: "gtk_signal_connection_release",
+  });
+  const disconnect = generated.manifest.bindings.gtk_signal_connection_disconnect;
+  assert.ok(disconnect && disconnect.kind !== "constant");
+  assert.equal(disconnect.kind, "method");
+  assert.deepEqual(disconnect.signature.parameters[0]?.ownership, {
+    kind: "borrowed",
+    scope: "call",
+  });
+  const connected = generated.manifest.bindings.gtk_signal_connection_connected;
+  assert.ok(connected && connected.kind !== "constant");
+  assert.equal(connected.kind, "getter");
+  assert.equal(connected.signature.result.type, "gboolean");
   const release = generated.manifest.bindings.gtk_button_release;
   assert.ok(release && release.kind !== "constant");
   const constructor = generated.manifest.bindings.gtk_button_new_with_label;
@@ -355,7 +372,9 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     "gtk_button_connect_clicked",
     "gtk_button_new_with_label",
     "gtk_button_release",
+    "gtk_signal_connection_connected",
     "gtk_signal_connection_disconnect",
+    "gtk_signal_connection_release",
   ]);
   assertDeepFrozen(generated);
 });

@@ -222,7 +222,8 @@ export interface ScriptCNativeBinding {
   readonly sourceCall:
     | { readonly kind: "function" }
     | { readonly kind: "constructor" }
-    | { readonly kind: "method"; readonly receiverArgument: number };
+    | { readonly kind: "method"; readonly receiverArgument: number }
+    | { readonly kind: "getter"; readonly receiverArgument: number };
   /** Failure detection is explicit Native IR data. Backends must snapshot
    * errno immediately after observing the exact failure sentinel. */
   readonly error: ScriptCNativeErrorContract;
@@ -980,10 +981,9 @@ function supportedRetainedCallbackPair(
     !result.nullable ||
     result.ownership.kind !== "owned" ||
     result.ownership.transfer !== "to-runtime" ||
-    result.ownership.destructor !== contract.cancellationBinding ||
     !binding.dependencies.bindings.includes(contract.cancellationBinding)
   ) {
-    return `retained callback registration must return a nullable owned handle cancelled by declared dependency '${contract.cancellationBinding}'`;
+    return `retained callback registration must return a nullable owned handle with declared cancellation dependency '${contract.cancellationBinding}'`;
   }
   return {
     functionIndex: callbackIndex,
@@ -1132,14 +1132,17 @@ function bindingUnsupported(
   bindingId: string,
   binding: CallableBinding,
 ): string | null {
-  if (!["function", "constructor", "factory", "method"].includes(binding.kind)) {
+  if (!["function", "constructor", "factory", "method", "getter"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
   }
   if (binding.kind === "constructor" && binding.declaration.name.includes(".")) {
     return "constructor declaration identity must name its constructed type";
   }
-  if (binding.kind === "method" && !binding.declaration.name.includes(".")) {
-    return "method declaration identity must name its containing type and member";
+  if (
+    (binding.kind === "method" || binding.kind === "getter") &&
+    !binding.declaration.name.includes(".")
+  ) {
+    return `${binding.kind} declaration identity must name its containing type and member`;
   }
   if (binding.entry.kind === "adapter-symbol") {
     if (binding.dependencies.adapterInputs.length !== 1) {
@@ -2143,6 +2146,8 @@ export function translateScabiNativeProgram(
         variadic: false,
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
+          : binding.kind === "getter"
+            ? Object.freeze({ kind: "getter", receiverArgument: 0 } as const)
           : binding.kind === "constructor"
             ? Object.freeze({ kind: "constructor" } as const)
             : Object.freeze({ kind: "function" } as const),
