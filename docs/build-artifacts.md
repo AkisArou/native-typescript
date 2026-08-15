@@ -67,9 +67,13 @@ Core kinds include:
 - static/shared library;
 - SCABI manifest and generated declarations;
 - generated C, C++, Objective-C++, Java, Kotlin, Swift, or other adapter source;
+- generated native subclasses, override/base-call tables, protocol/interface
+  adapters, and application lifecycle registration;
 - platform bytecode/object produced by authoritative tools;
 - capability schema and generated transport adapter;
 - resource, manifest fragment, permission declaration, and asset catalog;
+- pinned Unicode property tables, terminal profiles, and optional embedded
+  terminal capability databases;
 - debug symbols, source map/line table, coverage report, and trace schema;
 - executable, application bundle/package, SDK, and signing result.
 
@@ -202,6 +206,17 @@ Adapters should be narrow and mechanical. Application behavior belongs in
 TypeScript or a documented platform runtime component, not generated bespoke
 logic that cannot be tested independently.
 
+Native subclass adapters follow the same rule. Their keys include the exact
+source class/override declarations, authoritative SDK metadata, target ABI,
+runtime ABI, registration identity, and generated base-call operations. Android
+manifest classes, Objective-C runtime registrations, Apple protocol adapters,
+and Windows activation metadata are explicit consumers of those artifacts.
+
+Terminal Unicode tables and embedded capability profiles name their upstream
+version, normalized source digest, generator revision, licensing, and selected
+width policy. The runtime terminal type is not a build input, but every table
+used to interpret it is.
+
 ## Platform toolchains
 
 Native TypeScript delegates authoritative transformations:
@@ -224,6 +239,7 @@ A prebuilt Native TypeScript SDK may contain:
 - target runtime libraries;
 - generated adapter archives;
 - framework/runtime archives such as a pinned React or Yoga build;
+- pinned terminal profiles and Unicode data;
 - compiler-compatible IR/native objects where their ABI is stable;
 - headers, declarations, resources, and packaging support;
 - provenance, SBOM, licenses, signatures, and vulnerability/update metadata.

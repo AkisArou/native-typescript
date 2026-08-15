@@ -179,6 +179,14 @@ Automatic release is the safety net:
 The compiler must not make correctness depend on nondeterministic JavaScript
 finalizers.
 
+A terminal session uses a domain-specific idempotent `close()` operation. It
+owns externally visible device modes and event registrations, so normal
+application control flow and runtime shutdown close it explicitly. Automatic
+release is only a safety net and cannot promise restoration after `SIGKILL`,
+process corruption, machine loss, or an already disconnected emulator. Suspend
+and resume transition the same ownership record rather than constructing
+uncoordinated nested sessions.
+
 ## Native invalidation
 
 Some platforms destroy objects independently of ScriptC—for example a document
@@ -188,6 +196,25 @@ A target adapter invalidates the entry, releases associated callback anchors,
 and makes future operations fail with a typed invalid-resource error. Native
 invalidation and ScriptC disposal race through the same state machine so the
 destructor or remote release runs at most once.
+
+## Host-created native peers
+
+A platform-owned native subclass instance may have one associated TypeScript
+peer under its declared identity policy. The platform constructs and owns the
+foreign instance; the adapter attaches the peer without pretending TypeScript
+performed the native construction.
+
+The association records runtime, generation, native identity, allowed
+executor, managed peer root/weakness, lifecycle state, and child callback
+edges. Platform destruction or recreation invalidates the association and
+prevents later native method entry. Dropping an ordinary TypeScript alias does
+not destroy a platform-owned activity, controller, delegate, application, or
+window unless the platform contract explicitly transfers that obligation.
+
+Peer attachment and native subclass initialization are transactional. A failed
+attachment releases partial references and registration state exactly once.
+The generated adapter cannot retain a weak platform delegate strongly merely
+to keep its TypeScript peer convenient.
 
 ## Parent and child lifetimes
 

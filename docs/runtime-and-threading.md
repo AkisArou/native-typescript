@@ -263,6 +263,29 @@ instead of using latency-prone periodic polling.
 A platform promise/future adapter settles a ScriptC promise by posting a
 gateway event. It does not resolve the promise directly on the platform thread.
 
+### Shared wait set and event sources
+
+The final executable host uses one owner wait-set/event-source contract for all
+reached readiness families. Timers, host-dispatcher work, terminal input and
+output readiness, signals, sockets, pipes, child processes, filesystem watches,
+and gateway wakes cannot each own an independent blocking poller.
+
+An event source declares its pending/liveness rule, readiness registration,
+next deadline if any, bounded dispatch operation, cancellation, shutdown, and
+diagnostic identity. The owner wait selects ready sources, permits at most one
+host turn or a fairness-bounded batch, runs the ScriptC checkpoint, and returns
+to selection. Source registration and cancellation occur on the owner unless a
+separate thread-safe wake contract is declared.
+
+The shared wait set is generic ScriptC runtime capability. POSIX may realize it
+with `poll`, `ppoll`, `epoll`, `kqueue`, or another semantics-preserving
+adapter; Windows may use console/handle waits, I/O completion, or a composed
+dispatcher integration. The public semantics do not name one host primitive.
+
+Until this contract is implemented, combinations that would create independent
+blocking pollers continue to fail explicitly. Terminal support, sockets, or
+another target must not work around the fence with periodic polling.
+
 ## Scheduler hops
 
 Bindings declare required executors. A call has one of these behaviors:
@@ -327,23 +350,42 @@ threads when necessary, uses global or weak-global references for retained
 objects, releases local references in bounded frames, checks pending exceptions,
 and dispatches UI work through the main Looper.
 
+Host-created activity/application subclasses attach exactly one TypeScript peer
+to the generated Java subclass instance. Lifecycle override and `super` entry
+use checked same-owner native calls; destruction and recreation apply the
+declared peer invalidation/state policy.
+
 ### Apple
 
 Generated Objective-C++ observes ARC method families, establishes autorelease
 pools on native-created threads/turns, retains blocks and objects according to
 SCABI, and maps main-actor/main-queue requirements to the target executor.
+Generated controller/delegate subclasses attach platform-owned instances to
+their TypeScript peers and preserve selector and immediate-base `super`
+dispatch.
 
 ### Windows
 
 The adapter initializes the required COM apartment, preserves apartment/thread
 affinity, dispatches through the selected UI dispatcher, and never releases a
 COM reference from an invalid apartment when the binding forbids it.
+Generated application/window lifecycle adapters preserve activation metadata,
+peer identity, override dispatch, and exact base calls.
 
 ### GTK/GObject
 
 The adapter owns or attaches the correct `GMainContext`, observes floating
 references, disconnects signals before releasing callback entries, and delivers
 UI mutations on the owning context.
+
+### Terminal
+
+A terminal session is an owner-executor resource and event-source family. Its
+transport registers input, output-readiness, resize, signal, and protocol
+deadline work in the shared wait set. Input callbacks execute as ordinary owner
+turns with a checkpoint between turns. Session close removes registrations and
+restores terminal state before the owner stops. A terminal reader must not
+block the owner or execute TypeScript from a foreign transport thread.
 
 ## Error boundaries
 

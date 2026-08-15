@@ -53,6 +53,9 @@ This phase creates the reusable platform substrate.
 - Implement native aggregate/layout values.
 - Implement native handles and ownership operations.
 - Implement callback-table and owner-scheduler gateway primitives.
+- Implement one generic owner wait-set/event-source contract shared by host
+  dispatchers, timers, terminal/file-descriptor readiness, signals, sockets,
+  pipes, child processes, filesystem watches, and gateway wakes.
 - Extend coverage diagnostics and IR/cache versioning.
 
 ### Native TypeScript workspace
@@ -148,8 +151,10 @@ layout/calling-convention evidence and broader SCABI/declaration generation;
 modeling export adapters as producer actions; making implicit
 toolchain/system-library inputs explicit so native actions can use the
 implemented local cache; adding cache eviction/export; broadening callback
-payload/lifetime and error/export families; provider hooks; and the remaining
-workspace-side product/reporting work before its exit gate can pass.
+payload/lifetime and error/export families; replacing the explicit host/fd
+poller-composition fence with the generic owner wait set; provider hooks; and
+the remaining workspace-side product/reporting work before its exit gate can
+pass.
 
 ### Exit gate
 
@@ -308,7 +313,63 @@ A native counter application:
 - Incremental rebuilds reuse unchanged generated bindings and native objects.
 - Raw toolkit access is usable without React.
 
-## Phase 3: hosted mobile runtime and application packaging
+## Phase 3: terminal application environment and direct TUI
+
+The terminal phase validates a non-widget host environment, generic readiness
+integration, pure statically compiled TypeScript rendering code, Unicode cell
+semantics, and deterministic restoration before mobile adds another managed
+platform runtime. The first gate is POSIX; Windows transport follows the
+Windows target while preserving the same public terminal contract.
+
+### Deliverables
+
+- `@native-typescript/terminal` with transactional `TerminalSession`, explicit
+  endpoint and presentation modes, immutable capabilities, bounded input, and
+  screen presentation;
+- POSIX transport over authoritative termios, descriptor I/O, size query,
+  resize/job-control signals, and the generic owner wait set;
+- a conservative ECMA-48/VT-family baseline, reviewed terminal profiles, and
+  explicit capability negotiation for reached extensions;
+- pinned Unicode extended-grapheme and terminal-width data, continuation-cell
+  semantics, and matching conformance fixtures;
+- safe application-text rendering, style/cursor state, resize invalidation,
+  partial output, and deterministic frame diffing;
+- `@native-typescript/tui` with a headless scene tree, layout, focus, input
+  routing, widgets, and lifecycle usable without React;
+- PTY-backed artifact, runtime, restoration, parser, Unicode, and rendering
+  conformance tests;
+- terminal capability, transport, restoration, and unsupported-feature
+  diagnostics in build/runtime reports.
+
+Mouse protocols, advanced keyboard negotiation, synchronized output, graphics,
+clipboard control, broad system terminfo consumption, and Windows transport are
+not silently approximated by this first slice. They become later permanent
+extensions with their own gates.
+
+### Acceptance application
+
+A direct non-React TypeScript counter application enters a real alternate
+screen, receives keyboard and resize input without blocking the owner, updates
+through the TUI scene/cell renderer, preserves microtask ordering, handles
+suspend/resume, and restores every acquired terminal mode on normal,
+exceptional, and runtime shutdown paths. C and LLVM produce equivalent
+behavior and the executable ships no JavaScript engine.
+
+### Exit gate
+
+- Terminal is an application-environment profile over an OS target, not a
+  duplicate ABI target or runtime provider.
+- Terminal input, output readiness, resize, timers, and gateway wakes use one
+  generic owner wait set without periodic-poll workarounds.
+- Fragmented/ambiguous input, bounded paste, capability responses, partial
+  output, resize, and Unicode width pass PTY-driven deterministic tests.
+- Direct TUI code is usable without React, curses, or an embedded engine.
+- Normal, exceptional, suspend/resume, and shutdown tests leave no unexplained
+  mode, event-source, buffer, callback, or handle obligation.
+
+Detailed semantics are in [Terminal application environment](terminal.md).
+
+## Phase 4: hosted mobile runtime and application packaging
 
 Android is implemented first to validate JNI and managed/native thread
 boundaries. Apple follows using the same generic contracts; it is a separate
@@ -318,6 +379,8 @@ exit gate rather than a simultaneous checkbox.
 
 - JAR/AAR/class/Kotlin metadata ingestion for a bounded API surface.
 - JNI SCABI extension and generated Java/C++ registration adapters.
+- generated Java subclasses for reached TypeScript activity/application
+  classes, including exact override and native `super` bindings;
 - runtime ownership tied to application/activity lifecycle;
 - main-Looper integration, global/weak references, exception conversion;
 - generated manifest/resources and Gradle/D8 packaging plan;
@@ -325,15 +388,18 @@ exit gate rather than a simultaneous checkbox.
 
 ### Android acceptance application
 
-A TypeScript application creates a real Android view, receives a native
-listener, performs an asynchronous platform operation, survives a lifecycle
-transition defined by the fixture, and shuts down cleanly with no handwritten
-application Java/Kotlin glue.
+A TypeScript `MainActivity extends Activity` is constructed by Android through
+the generated manifest/subclass adapter, calls `super.onCreate()`, creates a
+real view, receives a native listener, performs an asynchronous platform
+operation, survives a lifecycle transition defined by the fixture, and shuts
+down cleanly with no handwritten application Java/Kotlin glue.
 
 ### Apple deliverables
 
 - framework headers, modules, and Objective-C-compatible Swift-header ingestion;
 - Objective-C/ARC SCABI extension and Objective-C++ adapters;
+- generated Objective-C-compatible controller/delegate subclasses and protocol
+  adapters with exact override and native `super` bindings;
 - runtime ownership tied to application/scene lifecycle;
 - main-run-loop/dispatch integration, autorelease, weak delegates, errors;
 - generated property lists/resources and Xcode packaging plan;
@@ -341,18 +407,20 @@ application Java/Kotlin glue.
 
 ### Apple acceptance application
 
-The equivalent TypeScript application creates a UIKit view, receives a native
-target/delegate callback, performs an asynchronous platform operation, handles
-lifecycle, and shuts down cleanly without handwritten application Swift or
-Objective-C glue.
+The equivalent TypeScript controller/delegate subclass is constructed or
+registered by the platform adapter, receives its idiomatic UIKit lifecycle
+override, calls the required native base implementation, creates a real view,
+receives a native target/delegate callback, performs an asynchronous platform
+operation, handles lifecycle, and shuts down cleanly without handwritten
+application Swift or Objective-C glue.
 
 ### Exit gate
 
 Each target independently passes common SCABI, ownership, callback, scheduler,
-artifact, and packaging tests. Supporting one platform may not introduce
-conditional semantics into the generic compiler for the next.
+native-subclass, artifact, and packaging tests. Supporting one platform may not
+introduce conditional semantics into the generic compiler for the next.
 
-## Phase 4: React compatibility and one renderer
+## Phase 5: React compatibility and one renderer
 
 React work begins as a compiler compatibility program, not a renderer demo.
 
@@ -371,9 +439,10 @@ mode.
 
 ### Renderer
 
-Implement one renderer against an already-conformant target, initially GTK or
-the most mature native target at that time. The renderer uses the same public
-bindings, handles, callbacks, scheduler, and artifact graph as ordinary code.
+Implement one renderer against an already-conformant environment, choosing the
+terminal TUI or GTK according to measured conformance maturity at that time.
+The renderer uses the same public scene/bindings, handles, callbacks, scheduler,
+and artifact graph as ordinary direct code.
 
 The first API is a Native TypeScript renderer package. It does not claim the
 full `react-native` or `react-dom` surface.
@@ -386,7 +455,7 @@ full `react-native` or `react-dom` surface.
 - Framework-specific compiler changes have general language tests.
 - Renderer API/version instability is contained inside the integration package.
 
-## Phase 5: partitions and secure capabilities
+## Phase 6: partitions and secure capabilities
 
 ### Deliverables
 
@@ -413,17 +482,22 @@ process exits.
 - No raw pointer, closure, or arbitrary object crosses the boundary.
 - Cross-domain latency and authority are visible in reports and traces.
 
-## Phase 6: additional native targets and renderer portability
+## Phase 7: additional native targets and renderer portability
 
 Windows/COM/WinRT/WinUI and AppKit-specific desktop work validate that the
 foundation is genuinely portable. React renderers may follow raw target access,
 not precede it.
 
+The Windows target also supplies the second terminal transport gate: attached
+console mode may normalize `ReadConsoleInputW` records while ConPTY/pipe mode
+uses VT-family byte streams. Both consume the same `TerminalSession`, input,
+screen, Unicode, TUI, and React-terminal semantics proven by the POSIX slice.
+
 Each target receives its own bounded vertical slice and exit gate. Broad SDK
 coverage grows only after ownership, error, thread, packaging, and conformance
 behavior are correct for the initial surface.
 
-## Phase 7: DOM/Chromium feasibility program
+## Phase 8: DOM/Chromium feasibility program
 
 This is an explicit research gate with production-quality fixtures. It does not
 change the core architecture unless a generally reusable primitive is proven.

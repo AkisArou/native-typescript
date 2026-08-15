@@ -265,6 +265,34 @@ handle may carry the implemented callback-cancellation lifecycle edge, but the
 handle itself never becomes foreign-thread accessible. Handle equality,
 sendable/shared handle types, and non-owner handle calls remain rejected.
 
+## Native classes and overrides
+
+Ordinary `class`, `extends`, `override`, and `super` syntax also describes a
+native subclass when the exact base declaration and application configuration
+select a metadata-proven native subclass contract. The source class remains a
+TypeScript class; generated Java, Objective-C++, Swift, or C++ adapter classes
+are build artifacts rather than source-language constructs.
+
+A host-created native instance attaches to one managed peer. Its native base
+storage is not represented as ordinary TypeScript fields, and TypeScript fields
+do not alter foreign object layout. Reached override entry and
+`super.member(...)` are distinct checked Native IR operations. `super` binds to
+the immediate native base implementation and cannot redispatch to the same
+override.
+
+The initial host-created profile forbids an explicit source constructor.
+Platform construction supplies the native base instance; peer attachment runs
+implicit instance initialization and TypeScript field initializers exactly once
+before the first lifecycle override. Application-created native subclasses or
+explicit peer-constructor parameters require a later separate contract.
+
+The compiler rejects dynamic base selection, unsupported/final native bases,
+ambiguous override identity, incompatible override signatures, missing
+executor/ownership/error facts, and native construction before a runtime peer
+can be established. Free adapter entry functions are not a fallback source API.
+
+See [Native subclassing and platform lifecycle](native-subclassing.md).
+
 ## Native failures
 
 An implemented `errno` binding returns an exact native integer physically and

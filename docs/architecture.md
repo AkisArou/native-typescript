@@ -13,8 +13,8 @@ The key words **must**, **must not**, **should**, and **may** are normative.
 
 Native TypeScript extends scriptc so TypeScript can be used across the native
 software stack: executables, servers, native libraries, operating-system APIs,
-desktop and mobile applications, native UI, React renderers, isolated services,
-and potentially the real browser DOM.
+desktop, mobile, and terminal applications, native UI, React renderers,
+isolated services, and potentially the real browser DOM.
 
 The project optimizes for a clean, high-performance architecture with explicit
 semantics. It does not preserve unpublished internal APIs when a refactor finds
@@ -186,6 +186,8 @@ families include:
 - statically identified native calls;
 - statically identified C-callable library exports;
 - opaque handle creation, retain, release, weak upgrade, and disposal;
+- host-created native peer attachment, virtual override entry, and exact native
+  base calls;
 - call-scoped and retained callbacks;
 - scheduler hops and callback delivery;
 - remote calls, remote handles, transferable buffers, and streams;
@@ -273,6 +275,8 @@ This repository owns platform composition:
 - target packages and SDK projections;
 - application build planning;
 - platform runtime adapters;
+- generated native subclasses, protocol/interface adapters, and application
+  lifecycle registration;
 - packaging;
 - framework renderers;
 - capability policy and domain planning;
@@ -296,7 +300,8 @@ The initial workspace roles are:
 
 Future packages should be created around stable ownership boundaries, not one
 package per small type. Likely additional boundaries include the runtime ABI,
-other binding families, and individual targets.
+other binding families, individual targets, the terminal engine, a direct TUI,
+and framework renderers.
 
 ## Target composition
 
@@ -315,6 +320,13 @@ Providers declare capabilities and version requirements. The planner resolves
 them once, rejects conflicts, and freezes a target plan. Details are defined in
 [Target SPI](target-spi.md).
 
+An application-environment profile may add public package roots, runtime
+features, transport adapters, and artifacts to an OS target. It does not create
+a second ABI identity or runtime provider. Terminal applications use this
+composition: `linux-x86_64`, `darwin-arm64`, or `windows-x86_64` remains the
+target, while the terminal profile adds the relevant session transport and TUI
+surface.
+
 ## Framework position
 
 Framework integrations consume public compiler/runtime capabilities:
@@ -322,7 +334,7 @@ Framework integrations consume public compiler/runtime capabilities:
 ```text
 application
     ↓ optional
-React / renderer / framework package
+React / renderer / framework package, or direct TUI
     ↓
 target declarations and native bindings
     ↓
@@ -347,6 +359,25 @@ GTK/GObject, Windows/COM/WinRT, Android/JNI, and Apple/Objective-C use the same
 Native IR while providing platform-specific binding schemas and runtime
 adapters. Generated Java or Objective-C++ is compiled by the platform's normal
 toolchain.
+
+When the native application model is subclass-based, the public TypeScript
+model is subclass-based. Android activities, Apple controllers/delegates, and
+Windows application lifecycle objects use ordinary `extends`, `override`, and
+`super` syntax. Generated native subclasses attach platform-owned instances to
+managed peers and implement exact override/base-call dispatch; adapter ingress
+functions are not exposed as the application API. See
+[Native subclassing and platform lifecycle](native-subclassing.md).
+
+### Terminal applications
+
+A terminal is an application environment over an OS executable target, not an
+ABI target. The public terminal engine owns transactional session state,
+capability negotiation, bounded input parsing, Unicode cell semantics, screen
+diffing, and platform transport normalization. A direct TUI and an optional
+React renderer share one headless scene/layout contract above it. POSIX and
+Windows transport details remain target integrations, and curses remains an
+optional raw binding rather than the portable semantic layer. See
+[Terminal application environment](terminal.md).
 
 ### React
 

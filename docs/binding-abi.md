@@ -197,6 +197,27 @@ This makes accessor pairs first-class: getter and setter bindings share one
 checker-owned declaration identity while retaining distinct native operations,
 reachability, ABI signatures, and reports.
 
+### Native subclass and override metadata
+
+Subclass-based platforms extend SCABI with explicit records for host-owned
+construction, native peer attachment, override entry, interface/protocol
+conformance, and immediate-base calls. The records identify exact source and
+native declarations and carry the same parameter/result, ownership, executor,
+reentrancy, error, and exception contracts as ordinary bindings.
+
+`super.member(...)` resolves to a distinct checked base-call binding; it is not
+spelled as a public helper such as `superOnCreate` and cannot redispatch to the
+same override. Metadata also states whether base invocation is required,
+optional, forbidden, or unavailable.
+
+The generated foreign subclass is an adapter artifact. A Java/JNI entry,
+Objective-C selector, Swift thunk, or C++/WinRT virtual method does not become a
+second source lifecycle declaration. Final or unsupported native classes,
+ambiguous overrides, unrepresentable peer lifetime, or missing base-call facts
+fail binding generation.
+
+See [Native subclassing and platform lifecycle](native-subclassing.md).
+
 ## Native type algebra
 
 Every type is a tagged value. Core SCABI v1 supports:

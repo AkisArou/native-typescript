@@ -64,10 +64,41 @@ flags. A target ID is stable and globally namespaced. Build configuration never
 selects a target by importing arbitrary executable configuration from a
 dependency.
 
+## Application-environment profiles
+
+An application-environment profile composes a usage environment onto one
+already selected target. It may require public module roots, target
+capabilities, runtime features, binding providers, transport adapters,
+artifacts, and packager inputs. It may not replace the target descriptor,
+native lowering, runtime owner, or ABI identity.
+
+Conceptually:
+
+```ts
+interface ApplicationEnvironmentProfile {
+  readonly id: string;
+  readonly version: string;
+  readonly requiredTargetCapabilities: readonly string[];
+  readonly requiredRuntimeFeatures: readonly string[];
+  readonly moduleRoots: readonly string[];
+  readonly artifactContributions: readonly ArtifactId[];
+}
+```
+
+The concrete API may represent contributions through existing provider results
+rather than this exact interface. Profiles are resolved and frozen with target
+planning; they cannot inspect compiler AST state or register providers after
+resolution.
+
+Terminal applications use a terminal environment profile over Linux, macOS, or
+Windows. A user-facing preset may select both, but internal reports preserve the
+OS target identity and the terminal profile identity separately.
+
 ## Module resolution
 
 A `ModuleResolver` handles a declared namespace or condition, for example
-`native:c`, `native:gtk`, or platform-selected package exports.
+`native:c`, `native:gtk`, `native:terminal`, or platform-selected package
+exports.
 
 Its output is one of:
 
@@ -132,6 +163,11 @@ It returns:
 - link inputs and ordering constraints;
 - diagnostics.
 
+Native subclassing contributes validated override, host-construction, peer
+attachment, and base-call operations through this closed Native IR boundary.
+Generated Java, Objective-C++, Swift, or C++ methods are adapters, not opaque
+compiler callbacks and not replacement source lifecycle APIs.
+
 It must not:
 
 - change language types or call-graph reachability;
@@ -162,6 +198,12 @@ It supplies:
 - error and trap sinks;
 - shutdown hooks.
 
+The runtime also supplies or selects one shared owner wait-set/event-source
+contract when the target reaches timers, terminal input, sockets, pipes,
+signals, child processes, filesystem watches, or another readiness source. An
+application-environment profile may require event sources but may not install a
+competing blocking loop.
+
 The first concrete runtime-provider slice is implemented in
 `@native-typescript/target-gtk`. Its C adapter installs a selected
 `GMainContext` as the executable's attached host scheduler and attaches every
@@ -190,11 +232,14 @@ use explicit transport between instances.
 Artifact providers contribute deterministic nodes such as:
 
 - generated JNI registration sources;
+- generated Java/Objective-C++/Swift/C++ native subclasses and exact base-call
+  adapters;
 - Objective-C++ protocol adapters;
 - COM activation metadata;
 - application manifests and permission fragments;
 - resources and asset catalogs;
 - generated capability schemas;
+- pinned Unicode tables and reviewed terminal-profile/terminfo resources;
 - debugging metadata.
 
 Each artifact declares its content hash inputs, media/type identity, logical
@@ -233,6 +278,8 @@ scabi/v1
 runtime-owner-executor/v1
 retained-callback/v1
 foreign-callback-ingress/v1
+runtime-owner-wait-set/v1
+native-subclass/v1
 artifact-graph/v1
 partition-interface/v1
 ```
@@ -256,7 +303,8 @@ architectural requirements, even before a target uses retained callbacks.
 
 Target planning follows this order:
 
-1. Resolve the target descriptor and provider set.
+1. Resolve the target descriptor, application-environment profiles, and
+   provider set.
 2. Validate compiler/provider capabilities.
 3. Snapshot toolchain and SDK identities.
 4. Resolve the complete source and binding graph.
@@ -271,11 +319,13 @@ Target planning follows this order:
 
 Provider registration is closed after step 1.
 
-The implemented `planTarget` operation performs step 1 and capability
-validation as a pure planning operation. It snapshots and freezes the compiler
-descriptor, target definition, ordered provider set, and resolved capability
-sources. Later phases consume that immutable result rather than re-reading
-mutable registration state.
+The implemented `planTarget` operation performs the target/provider portion of
+step 1 and capability validation as a pure planning operation. It snapshots and
+freezes the compiler descriptor, target definition, ordered provider set, and
+resolved capability sources. Application-environment profile input remains a
+planned extension of that same immutable operation; no separate mutable
+registry is introduced. Later phases consume the frozen result rather than
+re-reading mutable registration state.
 
 ## Diagnostics
 

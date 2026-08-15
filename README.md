@@ -5,7 +5,8 @@ and application language without turning it into a framework-specific dialect.
 It builds on [scriptc](https://github.com/vercel-labs/scriptc) and extends its
 static compiler, runtime, and native ABI so TypeScript can target native
 libraries, operating-system APIs, native UI toolkits, mobile applications,
-React renderers, and—if the engineering proves viable—the browser DOM.
+terminal applications, React renderers, and—if the engineering proves
+viable—the browser DOM.
 
 The project is in early implementation. Its first production seam validates
 compiler and provider capabilities and freezes target composition before any
@@ -30,9 +31,9 @@ native executable, library, application, or runtime image
 ```
 
 React is a library and renderer integration, not the architecture's lowest
-layer. Android, Apple, GTK, Windows, C, POSIX, and future targets remain
-directly accessible. A JavaScript engine may be selected as an explicit
-compatibility realm, but is never introduced silently.
+layer. Android, Apple, GTK, Windows, terminal, C, POSIX, and future platform
+surfaces remain directly accessible. A JavaScript engine may be selected as an
+explicit compatibility realm, but is never introduced silently.
 
 The following sketches show the intended direct, non-React experience. Package
 names and API details are directional until each target is implemented and
@@ -44,25 +45,38 @@ An Android application uses Android lifecycle and widget APIs directly; it does
 not need a JavaScript bridge or an embedded Node runtime.
 
 ```ts
-import { Activity, Bundle } from "@native-typescript/android/app";
+import { Activity } from "@native-typescript/android/app";
+import { Bundle } from "@native-typescript/android/os";
 import { Button, LinearLayout, TextView } from "@native-typescript/android/widget";
 
-export function onCreate(activity: Activity, state: Bundle | null): void {
-  activity.superOnCreate(state);
+export default class MainActivity extends Activity {
+  override onCreate(state: Bundle | null): void {
+    super.onCreate(state);
 
-  let count = 0;
-  const label = new TextView(activity, { text: "Count: 0" });
-  const increment = new Button(activity, { text: "Increment" });
-  increment.onClick((): void => {
-    label.text = `Count: ${++count}`;
-  });
+    let count = 0;
+    const label = new TextView(this);
+    label.text = "Count: 0";
 
-  activity.setContentView(new LinearLayout(activity, {
-    orientation: "vertical",
-    children: [label, increment],
-  }));
+    const increment = new Button(this);
+    increment.text = "Increment";
+    increment.onClick((): void => {
+      label.text = `Count: ${++count}`;
+    });
+
+    const content = new LinearLayout(this);
+    content.orientation = LinearLayout.Vertical;
+    content.addView(label);
+    content.addView(increment);
+    this.setContentView(content);
+  }
 }
 ```
+
+The platform still constructs the activity named by the generated application
+manifest. A generated Java/JNI subclass associates that host-owned object with
+the `MainActivity` TypeScript peer, dispatches the reached override, and lowers
+`super.onCreate()` to the exact native base implementation. The generated
+ingress function is not a second public lifecycle API.
 
 ### iOS
 
@@ -72,18 +86,22 @@ ownership and main-thread rules represented by its generated bindings.
 ```ts
 import { UIButton, UILabel, UIStackView, UIViewController } from "@native-typescript/apple/uikit";
 
-export function loadCounter(controller: UIViewController): void {
-  let count = 0;
-  const label = new UILabel({ text: "Count: 0" });
-  const button = UIButton.system({ title: "Increment" });
-  button.onPrimaryAction((): void => {
-    label.text = `Count: ${++count}`;
-  });
+export default class CounterViewController extends UIViewController {
+  override viewDidLoad(): void {
+    super.viewDidLoad();
 
-  controller.view = new UIStackView({
-    axis: "vertical",
-    arrangedSubviews: [label, button],
-  });
+    let count = 0;
+    const label = new UILabel({ text: "Count: 0" });
+    const button = UIButton.system({ title: "Increment" });
+    button.onPrimaryAction((): void => {
+      label.text = `Count: ${++count}`;
+    });
+
+    this.view = new UIStackView({
+      axis: "vertical",
+      arrangedSubviews: [label, button],
+    });
+  }
 }
 ```
 
@@ -93,19 +111,26 @@ The same Apple target family can expose AppKit without routing the application
 through a browser view or cross-platform UI abstraction.
 
 ```ts
-import { Button, StackView, TextField, Window } from "@native-typescript/apple/appkit";
+import { Button, StackView, TextField, ViewController } from "@native-typescript/apple/appkit";
 
-let count = 0;
-const label = TextField.label("Count: 0");
-const button = Button.withTitle("Increment");
-button.onAction((): void => {
-  label.stringValue = `Count: ${++count}`;
-});
+export default class CounterViewController extends ViewController {
+  override loadView(): void {
+    let count = 0;
+    const label = TextField.label("Count: 0");
+    const button = Button.withTitle("Increment");
+    button.onAction((): void => {
+      label.stringValue = `Count: ${++count}`;
+    });
 
-const window = new Window({ width: 640, height: 480 });
-window.contentView = new StackView({ views: [label, button] });
-window.show();
+    this.view = new StackView({ views: [label, button] });
+  }
+}
 ```
+
+UIKit and AppKit use generated Objective-C-compatible subclasses or protocol
+adapters for the same reason: controller/delegate lifecycle remains visible as
+ordinary TypeScript inheritance, while registration, peer identity, ARC, and
+selector dispatch remain generated native artifacts.
 
 ### GTK
 
@@ -132,18 +157,67 @@ Windows applications can target the native Windows application SDK directly;
 React is an optional renderer above this surface, not its owner.
 
 ```ts
-import { Button, StackPanel, TextBlock, Window } from "@native-typescript/windows/winui3";
+import {
+  Application,
+  Button,
+  LaunchActivatedEventArgs,
+  StackPanel,
+  TextBlock,
+  Window,
+} from "@native-typescript/windows/winui3";
 
+export default class CounterApplication extends Application {
+  private window: Window | null = null;
+
+  override onLaunched(_event: LaunchActivatedEventArgs): void {
+    let count = 0;
+    const label = new TextBlock({ text: "Count: 0" });
+    const button = new Button({ content: "Increment" });
+    button.onClick((): void => {
+      label.text = `Count: ${++count}`;
+    });
+
+    const window = new Window();
+    window.content = new StackPanel({ children: [label, button] });
+    window.activate();
+    this.window = window;
+  }
+}
+```
+
+### Terminal
+
+A terminal application is an environment composed over its real Linux, macOS,
+or Windows executable target. Native TypeScript owns the terminal session,
+screen, input, and direct TUI API; curses and React remain optional libraries
+above or beside that surface.
+
+```ts
+import { TerminalSession } from "@native-typescript/terminal";
+import { TuiApplication, column, text } from "@native-typescript/tui";
+
+const terminal = await TerminalSession.open({ presentation: "fullscreen" });
 let count = 0;
-const label = new TextBlock({ text: "Count: 0" });
-const button = new Button({ content: "Increment" });
-button.onClick((): void => {
-  label.text = `Count: ${++count}`;
+
+const app = new TuiApplication({
+  render: () => column(
+    text("Native TypeScript", { bold: true }),
+    text(`Count: ${count}`),
+    text("Press ↑ to increment"),
+  ),
+  input(event): void {
+    if (event.type === "key" && event.key === "ArrowUp") {
+      count++;
+      app.invalidate();
+    }
+  },
 });
 
-const window = new Window();
-window.content = new StackPanel({ children: [label, button] });
-window.activate();
+try {
+  await app.run(terminal);
+} finally {
+  terminal.close();
+}
 ```
 
 ### C
@@ -212,6 +286,12 @@ These documents are normative for implementation:
   validation rules.
 - [GTK TypeScript API](docs/gtk-api.md) defines the final source projection,
   construction, properties, signals, and automatic lifecycle rules.
+- [Native subclassing](docs/native-subclassing.md) defines host-owned platform
+  construction, TypeScript overrides, native `super` dispatch, and peer
+  lifecycle.
+- [Terminal application environment](docs/terminal.md) defines OS-target
+  environment composition, sessions, transports, protocols, cells, input, TUI,
+  and React layering.
 - [Runtime and threading](docs/runtime-and-threading.md) defines runtime
   instances, scheduling, callbacks, shutdown, and error boundaries.
 - [Ownership](docs/ownership.md) defines native handles, borrows, retention,
