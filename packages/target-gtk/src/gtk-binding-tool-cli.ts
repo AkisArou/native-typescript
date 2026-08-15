@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
-  type ClangFunctionEvidenceSnapshot,
-  parseClangFunctionEvidence,
+  type ClangAbiEvidenceSnapshot,
+  parseClangAbiEvidence,
 } from "@native-typescript/bindgen-c";
 import { canonicalizeJson } from "@native-typescript/scabi";
 import {
@@ -10,7 +10,7 @@ import {
   type GtkBindingPackageRequest,
   validateGtkBindingPackageRequest,
 } from "./gtk-binding-package.ts";
-import { generateGirClangFunctionProbe } from "./gir-clang.ts";
+import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type { GirSnapshot } from "./gir-model.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import { generateGtkScabiPackage } from "./gtk-scabi.ts";
@@ -43,10 +43,10 @@ async function normalizeEvidence(
   outputPath: string,
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
-  const evidence = parseClangFunctionEvidence(
+  const evidence = parseClangAbiEvidence(
     await readFile(rawEvidencePath, "utf8"),
     {
-      probe: generateGirClangFunctionProbe(snapshot),
+      probe: generateGirClangAbiProbe(snapshot),
       clang: request.clang,
     },
   );
@@ -62,7 +62,7 @@ async function generatePackage(
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
   const evidence = JSON.parse(
     await readFile(evidencePath, "utf8"),
-  ) as ClangFunctionEvidenceSnapshot;
+  ) as ClangAbiEvidenceSnapshot;
   const gobjectAdapter = generateGObjectAdapterSource(snapshot);
   const generated = generateGtkScabiPackage({
     snapshot,

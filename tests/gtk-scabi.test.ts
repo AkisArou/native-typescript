@@ -8,8 +8,8 @@ import {
   renderCFunctionPointerType,
 } from "@native-typescript/bindgen-c";
 import type {
-  ClangFunctionEvidenceSnapshot,
-  ClangFunctionProbe,
+  ClangAbiEvidenceSnapshot,
+  ClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import {
   canonicalizeJson,
@@ -17,7 +17,7 @@ import {
 } from "@native-typescript/scabi";
 import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 import {
-  generateGirClangFunctionProbe,
+  generateGirClangAbiProbe,
   generateGObjectAdapterSource,
   generateGtkScabiPackage,
   defineGtkBindingPackageRequest,
@@ -53,6 +53,7 @@ function snapshot(signals: readonly string[] = []): GirSnapshot {
         signals,
       },
     ],
+    records: [{ name: "Requisition", fields: ["width", "height"] }],
   });
 }
 
@@ -89,7 +90,7 @@ function scalarSignalSnapshot(): GirSnapshot {
   });
 }
 
-function evidence(probe: ClangFunctionProbe): ClangFunctionEvidenceSnapshot {
+function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   const clang = Object.freeze({
     toolId: "tool/clang",
     version: "test",
@@ -105,27 +106,43 @@ function evidence(probe: ClangFunctionProbe): ClangFunctionEvidenceSnapshot {
       clangType: type,
     });
   }));
+  const records = Object.freeze(probe.records.map((record) => Object.freeze({
+    id: record.id,
+    typeName: record.typeName,
+    size: 8,
+    alignment: 4,
+    fields: Object.freeze(record.fields.map((field, index) => Object.freeze({
+      name: field.name,
+      expectedType: "int",
+      clangType: "int",
+      offset: index * 4,
+      size: 4,
+      alignment: 4,
+    }))),
+  })));
   const semanticValue = {
-    schema: "native-typescript.clang-function-evidence",
+    schema: "native-typescript.clang-abi-evidence",
     schemaVersion: 1,
     probeDigest: probe.sourceDigest,
     clang,
     functions,
+    records,
   };
   return Object.freeze({
-    schema: "native-typescript.clang-function-evidence",
+    schema: "native-typescript.clang-abi-evidence",
     schemaVersion: 1,
     probeDigest: probe.sourceDigest,
     semanticDigest: sha256(JSON.stringify(semanticValue)),
     clang,
     functions,
+    records,
   });
 }
 
 function options(selected = snapshot()): GtkScabiGenerationOptions {
   return {
     snapshot: selected,
-    evidence: evidence(generateGirClangFunctionProbe(selected)),
+    evidence: evidence(generateGirClangAbiProbe(selected)),
     gobjectAdapter: generateGObjectAdapterSource(selected),
     package: {
       name: "@native-typescript/gtk4",
@@ -315,6 +332,29 @@ test("GTK SCABI generation rejects unverified evidence and adapter drift", () =>
   const evidenceError = generationError(() => generateGtkScabiPackage(invalidEvidence));
   assert.equal(
     evidenceError.diagnostics.some(({ path }) => path === "evidence/probeDigest"),
+    true,
+  );
+
+  const invalidRecord = options();
+  const firstRecord = invalidRecord.evidence.records[0]!;
+  const firstField = firstRecord.fields[0]!;
+  Object.assign(invalidRecord, {
+    evidence: Object.freeze({
+      ...invalidRecord.evidence,
+      records: Object.freeze([Object.freeze({
+        ...firstRecord,
+        fields: Object.freeze([
+          Object.freeze({ ...firstField, expectedType: "double" }),
+          ...firstRecord.fields.slice(1),
+        ]),
+      })]),
+    }),
+  });
+  const recordError = generationError(() => generateGtkScabiPackage(invalidRecord));
+  assert.equal(
+    recordError.diagnostics.some(
+      ({ path }) => path === "evidence/records/0/fields/0",
+    ),
     true,
   );
 

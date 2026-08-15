@@ -4,16 +4,16 @@ import type {
   ArtifactDefinition,
   ArtifactActionInputArgument,
 } from "@native-typescript/core";
-import type { ClangFunctionProbe } from "./model.ts";
+import type { ClangAbiProbe } from "./model.ts";
 
-export interface ClangFunctionProbeArtifactPlan {
+export interface ClangAbiProbeArtifactPlan {
   readonly source: ArtifactDefinition;
   readonly rawAst: ArtifactDefinition;
   readonly action: ArtifactActionDefinition;
 }
 
-export function planClangFunctionProbe(input: {
-  readonly probe: ClangFunctionProbe;
+export function planClangAbiProbe(input: {
+  readonly probe: ClangAbiProbe;
   readonly sourceArtifactId: string;
   readonly rawAstArtifactId: string;
   readonly actionId: string;
@@ -22,7 +22,7 @@ export function planClangFunctionProbe(input: {
   readonly tool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
-}): ClangFunctionProbeArtifactPlan {
+}): ClangAbiProbeArtifactPlan {
   const source: ArtifactDefinition = Object.freeze({
     id: input.sourceArtifactId,
     kind: "generated-source",
@@ -34,7 +34,7 @@ export function planClangFunctionProbe(input: {
     origin: Object.freeze({
       kind: "source",
       digest: input.probe.sourceDigest,
-      fileName: "clang-function-probe.c",
+      fileName: "clang-abi-probe.c",
       logicalPath: input.logicalPath,
     }),
   });
@@ -42,14 +42,14 @@ export function planClangFunctionProbe(input: {
     id: input.rawAstArtifactId,
     kind: "metadata",
     entryType: "file",
-    mediaType: "application/vnd.native-typescript.clang-ast+json",
+    mediaType: "application/vnd.native-typescript.clang-abi-ast+json",
     target: input.target,
     domain: "target",
     cache: "none",
     origin: Object.freeze({
       kind: "action",
       action: input.actionId,
-      fileName: "clang-function-ast.json",
+      fileName: "clang-abi-ast.json",
     }),
   });
   const sdkInputs = input.arguments.flatMap((argument) =>
@@ -73,7 +73,7 @@ export function planClangFunctionProbe(input: {
   const action: ArtifactActionDefinition = Object.freeze({
     id: input.actionId,
     implementation: Object.freeze({
-      id: "native-typescript/clang-function-probe",
+      id: "native-typescript/clang-abi-probe",
       version: "1",
     }),
     tool: Object.freeze({ ...input.tool }),

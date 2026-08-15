@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { CBindgenError } from "./model.ts";
 import type {
+  CRecordCandidate,
   CBindgenDiagnostic,
   CBindgenDiagnosticCode,
   CFunctionCandidate,
   ClangFunctionEvidence,
-  ClangFunctionEvidenceSnapshot,
-  ClangFunctionProbe,
+  ClangAbiEvidenceSnapshot,
+  ClangAbiProbe,
+  ClangRecordEvidence,
+  ClangRecordFieldEvidence,
   CQualifier,
   CTypeCandidate,
 } from "./model.ts";
@@ -186,10 +189,11 @@ export function renderCFunctionPointerType(
   return `${renderCType(function_.result)} (*${name})(${parameters})`;
 }
 
-export function generateClangFunctionProbe(input: {
+export function generateClangAbiProbe(input: {
   readonly includes: readonly string[];
   readonly functions: readonly CFunctionCandidate[];
-}): ClangFunctionProbe {
+  readonly records: readonly CRecordCandidate[];
+}): ClangAbiProbe {
   const diagnostics: CBindgenDiagnostic[] = [];
   const includes = [...input.includes];
   const seenIncludes = new Set<string>();
@@ -256,20 +260,71 @@ export function generateClangFunctionProbe(input: {
       ),
     }));
   }
-  if (functions.length === 0) {
+
+  const records: CRecordCandidate[] = [];
+  const seenRecordTypes = new Set<string>();
+  for (const [index, record] of input.records.entries()) {
+    const path = `records/${index}`;
+    if (!identityPattern.test(record.id)) {
+      diagnostics.push(
+        diagnostic("NTS5001", `${path}/id`, `Invalid record identity '${record.id}'`),
+      );
+    } else if (seenIds.has(record.id)) {
+      diagnostics.push(
+        diagnostic("NTS5002", `${path}/id`, `Duplicate ABI identity '${record.id}'`),
+      );
+    }
+    if (!cIdentifierPattern.test(record.typeName)) {
+      diagnostics.push(
+        diagnostic("NTS5001", `${path}/typeName`, `Invalid C type identifier '${record.typeName}'`),
+      );
+    } else if (seenRecordTypes.has(record.typeName)) {
+      diagnostics.push(
+        diagnostic("NTS5002", `${path}/typeName`, `Duplicate record type '${record.typeName}'`),
+      );
+    }
+    seenIds.add(record.id);
+    seenRecordTypes.add(record.typeName);
+    const seenFields = new Set<string>();
+    const fields = record.fields.map((field, fieldIndex) => {
+      const fieldPath = `${path}/fields/${fieldIndex}`;
+      if (!cIdentifierPattern.test(field.name)) {
+        diagnostics.push(
+          diagnostic("NTS5001", `${fieldPath}/name`, `Invalid C field '${field.name}'`),
+        );
+      } else if (seenFields.has(field.name)) {
+        diagnostics.push(
+          diagnostic("NTS5002", `${fieldPath}/name`, `Duplicate C field '${field.name}'`),
+        );
+      }
+      seenFields.add(field.name);
+      return Object.freeze({
+        name: field.name,
+        type: normalizeType(field.type, `${fieldPath}/type`, diagnostics),
+      });
+    });
+    records.push(Object.freeze({
+      id: record.id,
+      typeName: record.typeName,
+      fields: Object.freeze(fields),
+    }));
+  }
+  if (functions.length === 0 && records.length === 0) {
     diagnostics.push(
-      diagnostic("NTS5001", "functions", "A Clang function probe requires a selection"),
+      diagnostic("NTS5001", "selection", "A Clang ABI probe requires a function or record"),
     );
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
   includes.sort(compareText);
   functions.sort((left, right) => compareText(left.id, right.id));
+  records.sort((left, right) => compareText(left.id, right.id));
   const contractDigest = sha256(JSON.stringify({
-    schema: "native-typescript.clang-function-contract",
+    schema: "native-typescript.clang-abi-contract",
     schemaVersion: 1,
     includes,
     functions,
+    records,
   }));
   const recordName = `nts_abi_probe_snapshot_${contractDigest
     .slice("sha256:".length, "sha256:".length + 16)}`;
@@ -290,21 +345,54 @@ export function generateClangFunctionProbe(input: {
       "",
     );
   }
+  for (const [recordIndex, record] of records.entries()) {
+    const recordSuffix = recordIndex.toString().padStart(4, "0");
+    for (const [fieldIndex, field] of record.fields.entries()) {
+      const fieldSuffix = fieldIndex.toString().padStart(4, "0");
+      const typeName = `nts_abi_record_${recordSuffix}_field_${fieldSuffix}_expected`;
+      lines.push(
+        `typedef ${renderCType(field.type)} ${typeName};`,
+        "_Static_assert(",
+        `  __builtin_types_compatible_p(__typeof__(((${record.typeName} *)0)->${field.name}), ${typeName}),`,
+        `  "NTS5004 C record field mismatch for ${record.id}.${field.name}"`,
+        ");",
+        "",
+      );
+    }
+  }
   lines.push(`struct ${recordName} {`);
   for (const [index, function_] of functions.entries()) {
     const suffix = index.toString().padStart(4, "0");
     lines.push(`  __typeof__(&${function_.symbol}) symbol_${suffix};`);
   }
+  for (const [recordIndex, record] of records.entries()) {
+    const recordSuffix = recordIndex.toString().padStart(4, "0");
+    lines.push(
+      `  unsigned char record_${recordSuffix}_size[sizeof(${record.typeName})];`,
+      `  unsigned char record_${recordSuffix}_alignment[_Alignof(${record.typeName})];`,
+    );
+    for (const [fieldIndex, field] of record.fields.entries()) {
+      const prefix = `record_${recordSuffix}_field_${fieldIndex.toString().padStart(4, "0")}`;
+      const expression = `((${record.typeName} *)0)->${field.name}`;
+      lines.push(
+        `  __typeof__(${expression}) ${prefix}_type;`,
+        `  unsigned char ${prefix}_offset[__builtin_offsetof(${record.typeName}, ${field.name}) + 1];`,
+        `  unsigned char ${prefix}_size[sizeof(${expression})];`,
+        `  unsigned char ${prefix}_alignment[_Alignof(__typeof__(${expression}))];`,
+      );
+    }
+  }
   lines.push("};", "");
   const source = lines.join("\n");
   return Object.freeze({
-    schema: "native-typescript.clang-function-probe",
+    schema: "native-typescript.clang-abi-probe",
     schemaVersion: 1,
     source,
     sourceDigest: sha256(source),
     contractDigest,
     includes: Object.freeze(includes),
     functions: Object.freeze(functions),
+    records: Object.freeze(records),
   });
 }
 
@@ -312,10 +400,10 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function parseClangFunctionEvidence(
+export function parseClangAbiEvidence(
   astJson: string,
   input: {
-    readonly probe: ClangFunctionProbe;
+    readonly probe: ClangAbiProbe;
     readonly clang: {
       readonly toolId: string;
       readonly version: string;
@@ -323,7 +411,7 @@ export function parseClangFunctionEvidence(
       readonly target: string;
     };
   },
-): ClangFunctionEvidenceSnapshot {
+): ClangAbiEvidenceSnapshot {
   const diagnostics: CBindgenDiagnostic[] = [];
   const clang = Object.freeze({
     toolId: input.clang.toolId,
@@ -384,12 +472,16 @@ export function parseClangFunctionEvidence(
   const fields = isRecord(root) && Array.isArray(root.inner)
     ? root.inner.filter((entry) => isRecord(entry) && entry.kind === "FieldDecl")
     : [];
-  if (fields.length !== input.probe.functions.length) {
+  const expectedFieldCount = input.probe.functions.length + input.probe.records.reduce(
+    (count, record) => count + 2 + record.fields.length * 4,
+    0,
+  );
+  if (fields.length !== expectedFieldCount) {
     diagnostics.push(
       diagnostic(
         "NTS5004",
         "ast/fields",
-        `Expected ${input.probe.functions.length} verified symbols, received ${fields.length}`,
+        `Expected ${expectedFieldCount} ABI evidence fields, received ${fields.length}`,
       ),
     );
   }
@@ -420,21 +512,108 @@ export function parseClangFunctionEvidence(
       clangType,
     }));
   }
+
+  const fieldsByName = new Map(
+    fields.flatMap((field) =>
+      isRecord(field) && typeof field.name === "string" ? [[field.name, field] as const] : []
+    ),
+  );
+  const arrayExtent = (name: string, path: string): number | null => {
+    const field = fieldsByName.get(name);
+    const type = isRecord(field) && isRecord(field.type) ? field.type : null;
+    const spelling = typeof type?.desugaredQualType === "string"
+      ? type.desugaredQualType
+      : typeof type?.qualType === "string"
+        ? type.qualType
+        : null;
+    const match = spelling === null ? null : /\[([0-9]+)\]$/u.exec(spelling);
+    if (match === null) {
+      diagnostics.push(diagnostic("NTS5004", path, `Clang AST field '${name}' has no constant extent`));
+      return null;
+    }
+    const value = Number(match[1]);
+    if (!Number.isSafeInteger(value) || value < 1) {
+      diagnostics.push(diagnostic("NTS5004", path, `Clang AST field '${name}' has an invalid extent`));
+      return null;
+    }
+    return value;
+  };
+  const records: ClangRecordEvidence[] = [];
+  for (const [recordIndex, record] of input.probe.records.entries()) {
+    const recordSuffix = recordIndex.toString().padStart(4, "0");
+    const size = arrayExtent(`record_${recordSuffix}_size`, `ast/records/${recordIndex}/size`);
+    const alignment = arrayExtent(
+      `record_${recordSuffix}_alignment`,
+      `ast/records/${recordIndex}/alignment`,
+    );
+    const recordFields: ClangRecordFieldEvidence[] = [];
+    for (const [fieldIndex, candidate] of record.fields.entries()) {
+      const prefix = `record_${recordSuffix}_field_${fieldIndex.toString().padStart(4, "0")}`;
+      const typeField = fieldsByName.get(`${prefix}_type`);
+      const type = isRecord(typeField) && isRecord(typeField.type) ? typeField.type : null;
+      const clangType = typeof type?.desugaredQualType === "string"
+        ? type.desugaredQualType
+        : typeof type?.qualType === "string"
+          ? type.qualType
+          : null;
+      const offsetExtent = arrayExtent(`${prefix}_offset`, `ast/records/${recordIndex}/fields/${fieldIndex}/offset`);
+      const fieldSize = arrayExtent(`${prefix}_size`, `ast/records/${recordIndex}/fields/${fieldIndex}/size`);
+      const fieldAlignment = arrayExtent(
+        `${prefix}_alignment`,
+        `ast/records/${recordIndex}/fields/${fieldIndex}/alignment`,
+      );
+      if (clangType === null) {
+        diagnostics.push(
+          diagnostic(
+            "NTS5004",
+            `ast/records/${recordIndex}/fields/${fieldIndex}/type`,
+            `Clang AST field '${prefix}_type' is missing or malformed`,
+          ),
+        );
+      }
+      if (
+        clangType !== null &&
+        offsetExtent !== null &&
+        fieldSize !== null &&
+        fieldAlignment !== null
+      ) {
+        recordFields.push(Object.freeze({
+          name: candidate.name,
+          expectedType: renderCType(candidate.type),
+          clangType,
+          offset: offsetExtent - 1,
+          size: fieldSize,
+          alignment: fieldAlignment,
+        }));
+      }
+    }
+    if (size !== null && alignment !== null && recordFields.length === record.fields.length) {
+      records.push(Object.freeze({
+        id: record.id,
+        typeName: record.typeName,
+        size,
+        alignment,
+        fields: Object.freeze(recordFields),
+      }));
+    }
+  }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
   const semanticValue = {
-    schema: "native-typescript.clang-function-evidence",
+    schema: "native-typescript.clang-abi-evidence",
     schemaVersion: 1,
     probeDigest: input.probe.sourceDigest,
     clang,
     functions,
+    records,
   };
   return Object.freeze({
-    schema: "native-typescript.clang-function-evidence",
+    schema: "native-typescript.clang-abi-evidence",
     schemaVersion: 1,
     probeDigest: input.probe.sourceDigest,
     semanticDigest: sha256(JSON.stringify(semanticValue)),
     clang,
     functions: Object.freeze(functions),
+    records: Object.freeze(records),
   });
 }

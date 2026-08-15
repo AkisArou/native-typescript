@@ -12,7 +12,7 @@ import {
 } from "@native-typescript/target-api";
 
 export { ingestGir } from "./gir.ts";
-export { generateGirClangFunctionProbe } from "./gir-clang.ts";
+export { generateGirClangAbiProbe } from "./gir-clang.ts";
 export { generateGtkScabiPackage } from "./gtk-scabi.ts";
 export {
   defineGtkBindingPackageRequest,
@@ -38,6 +38,9 @@ export type {
   GirIngestionOptions,
   GirParameter,
   GirParameterDirection,
+  GirRecord,
+  GirRecordField,
+  GirRecordSelection,
   GirReturnValue,
   GirSignalWhen,
   GirSnapshot,

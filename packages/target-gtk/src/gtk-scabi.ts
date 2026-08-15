@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import {
   CBindgenError,
   renderCFunctionPointerType,
+  renderCType,
 } from "@native-typescript/bindgen-c";
 import type {
   CBindgenDiagnostic,
-  ClangFunctionEvidenceSnapshot,
+  ClangAbiEvidenceSnapshot,
 } from "@native-typescript/bindgen-c";
 import {
   canonicalizeJson,
@@ -25,7 +26,7 @@ import type {
   Sha256Digest,
   TargetIdentity,
 } from "@native-typescript/scabi";
-import { generateGirClangFunctionProbe } from "./gir-clang.ts";
+import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type {
   GirCallable,
   GirClass,
@@ -38,7 +39,7 @@ import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
 export interface GtkScabiGenerationOptions {
   readonly snapshot: GirSnapshot;
-  readonly evidence: ClangFunctionEvidenceSnapshot;
+  readonly evidence: ClangAbiEvidenceSnapshot;
   readonly gobjectAdapter: GObjectAdapterSource;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
@@ -181,12 +182,12 @@ function validateInputs(
   options: GtkScabiGenerationOptions,
   diagnostics: CBindgenDiagnostic[],
 ): void {
-  const probe = generateGirClangFunctionProbe(options.snapshot);
+  const probe = generateGirClangAbiProbe(options.snapshot);
   if (options.evidence.probeDigest !== probe.sourceDigest) {
     diagnostics.push(
       diagnostic(
         "evidence/probeDigest",
-        "Clang evidence does not belong to the selected GIR function probe",
+        "Clang evidence does not belong to the selected GIR ABI probe",
       ),
     );
   }
@@ -199,7 +200,7 @@ function validateInputs(
     );
   }
   const semanticValue = {
-    schema: "native-typescript.clang-function-evidence",
+    schema: "native-typescript.clang-abi-evidence",
     schemaVersion: 1,
     probeDigest: options.evidence.probeDigest,
     clang: {
@@ -214,6 +215,20 @@ function validateInputs(
       expectedType: function_.expectedType,
       clangType: function_.clangType,
     })),
+    records: options.evidence.records.map((record) => ({
+      id: record.id,
+      typeName: record.typeName,
+      size: record.size,
+      alignment: record.alignment,
+      fields: record.fields.map((field) => ({
+        name: field.name,
+        expectedType: field.expectedType,
+        clangType: field.clangType,
+        offset: field.offset,
+        size: field.size,
+        alignment: field.alignment,
+      })),
+    })),
   };
   if (
     !digestPattern.test(options.evidence.semanticDigest) ||
@@ -227,6 +242,41 @@ function validateInputs(
     diagnostics.push(
       diagnostic("evidence/functions", "Clang evidence has the wrong selected function count"),
     );
+  }
+  if (options.evidence.records.length !== probe.records.length) {
+    diagnostics.push(
+      diagnostic("evidence/records", "Clang evidence has the wrong selected record count"),
+    );
+  }
+  for (const [recordIndex, record] of probe.records.entries()) {
+    const recordEvidence = options.evidence.records[recordIndex];
+    if (
+      recordEvidence?.id !== record.id ||
+      recordEvidence.typeName !== record.typeName ||
+      recordEvidence.fields.length !== record.fields.length
+    ) {
+      diagnostics.push(
+        diagnostic(
+          `evidence/records/${recordIndex}`,
+          `Clang evidence does not match selected record '${record.id}'`,
+        ),
+      );
+      continue;
+    }
+    for (const [fieldIndex, field] of record.fields.entries()) {
+      const fieldEvidence = recordEvidence.fields[fieldIndex];
+      if (
+        fieldEvidence?.name !== field.name ||
+        fieldEvidence.expectedType !== renderCType(field.type)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            `evidence/records/${recordIndex}/fields/${fieldIndex}`,
+            `Clang evidence does not match selected field '${record.id}.${field.name}'`,
+          ),
+        );
+      }
+    }
   }
   for (const [index, function_] of probe.functions.entries()) {
     const evidence = options.evidence.functions[index];

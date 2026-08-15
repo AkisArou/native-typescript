@@ -8,6 +8,7 @@ import {
 } from "@native-typescript/target-gtk";
 import type {
   GirClassSelection,
+  GirRecordSelection,
   GirSnapshot,
 } from "@native-typescript/target-gtk";
 
@@ -18,22 +19,28 @@ const fixturePath = resolve(
 );
 const fixtureSource = readFileSync(fixturePath, "utf8");
 const fixtureDigest =
-  "sha256:83966a2ec93a0e086df55577e1b17360e2631ac364a0ab46e5b199e267390c97";
+  "sha256:5563c6d6056fc2d3a4b2eb48940f90c3dcdad36273c70df61128592e0abb2b99";
 const buttonSelection: GirClassSelection = Object.freeze({
   name: "Button",
   constructors: Object.freeze(["new_with_label"]),
   methods: Object.freeze(["set_label", "get_label"]),
   signals: Object.freeze(["clicked"]),
 });
+const requisitionSelection: GirRecordSelection = Object.freeze({
+  name: "Requisition",
+  fields: Object.freeze(["width", "height"]),
+});
 
 function ingestFixture(
   classes: readonly GirClassSelection[] = [buttonSelection],
+  records: readonly GirRecordSelection[] = [requisitionSelection],
 ): GirSnapshot {
   return ingestGir(fixtureSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
     expectedDigest: fixtureDigest,
     namespace: { name: "Gtk", version: "4.0" },
     classes,
+    records,
   });
 }
 
@@ -78,6 +85,42 @@ test("selected GIR metadata becomes a canonical immutable snapshot", () => {
     identifierPrefixes: ["Gtk"],
     symbolPrefixes: ["gtk"],
   });
+
+  assert.deepEqual(snapshot.records, [{
+    kind: "record",
+    name: "Requisition",
+    cType: "GtkRequisition",
+    disguised: false,
+    foreign: false,
+    opaque: false,
+    pointer: false,
+    version: null,
+    deprecated: false,
+    deprecatedVersion: null,
+    stability: null,
+    glibTypeName: "GtkRequisition",
+    glibGetType: "gtk_requisition_get_type",
+    cSymbolPrefix: "requisition",
+    annotations: [],
+    fields: [
+      {
+        name: "width",
+        readable: true,
+        writable: true,
+        bits: null,
+        annotations: [],
+        type: { kind: "named", name: "gint", cType: "int", arguments: [] },
+      },
+      {
+        name: "height",
+        readable: true,
+        writable: true,
+        bits: null,
+        annotations: [],
+        type: { kind: "named", name: "gint", cType: "int", arguments: [] },
+      },
+    ],
+  }]);
 
   const button = snapshot.classes[0];
   assert.ok(button);
@@ -317,6 +360,11 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
   assert.equal(Object.isFrozen(missing.diagnostics), true);
   assert.equal(Object.isFrozen(missing.diagnostics[0]), true);
 
+  const missingField = ingestionDiagnostics(() =>
+    ingestFixture([buttonSelection], [{ name: "Requisition", fields: ["depth"] }])
+  );
+  assert.deepEqual(missingField.diagnostics.map(({ code }) => code), ["NTS4003"]);
+
   const unsupported = ingestionDiagnostics(() =>
     ingestFixture([{ name: "Button", methods: ["unselected_callback"] }])
   );
@@ -399,13 +447,14 @@ test("GIR ingestion rejects provenance, syntax, and ownership ambiguity", () => 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
 
 test(
-  "installed Gtk-4.0 GIR satisfies the selected Button contract",
+  "installed Gtk-4.0 GIR satisfies selected Button and Requisition contracts",
   { skip: !existsSync(systemGtkGir) },
   () => {
     const snapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
       namespace: { name: "Gtk", version: "4.0" },
       classes: [buttonSelection],
+      records: [requisitionSelection],
     });
     const button = snapshot.classes[0];
     assert.ok(button);
@@ -416,5 +465,9 @@ test(
       true,
     );
     assert.equal(button.signals[0]?.name, "clicked");
+    assert.deepEqual(snapshot.records[0]?.fields.map(({ name }) => name), [
+      "width",
+      "height",
+    ]);
   },
 );

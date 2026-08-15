@@ -452,18 +452,24 @@ content-addressed immutable snapshot. Real `Gtk.Widget`, `Gtk.Button`, and
 `Gtk.Window` ingestion preserves C and GType identity, class ancestry,
 ownership, nullability, receivers, and signals while
 rejecting malformed or unsupported reached metadata. A target-neutral C binding
-package now converts the selected direct-call signatures into a structured,
-content-addressed probe. Sandboxed Clang checks the candidate types against the
-real headers and emits selected AST evidence as a graph artifact; correct
+package now converts selected functions and record fields into one structured,
+content-addressed ABI probe. Sandboxed Clang checks candidate types against the
+real headers, derives selected record size/alignment and field layout, and emits
+selected AST evidence as a graph artifact; correct
 Button and Window constructor/method signatures pass and a deliberate const
-mismatch fails in Clang. A deterministic normalization action reduces that raw,
-location-bearing AST to canonical selected-function evidence. A dependent
+mismatch fails in Clang, as does a deliberately wrong record field. A deterministic
+normalization action reduces that raw, location-bearing AST to canonical selected
+ABI evidence. A dependent
 binding-package action consumes the stable evidence together with the exact
 selected GIR snapshot and a canonical generation request. Their
 content-addressed host tool regenerates the GObject adapter and emits one
 immutable package directory containing TypeScript declarations, validated
 SCABI, adapter metadata/source, and package provenance. A second build root
 reuses that package from the local action cache.
+The same evidence path selects the transparent `Gtk.Requisition` GIR record and
+has target Clang prove its size, alignment, field types, offsets, sizes, and
+alignments. It remains evidence-only until aggregate calling classification is
+authoritative; the public API does not guess an ABI from layout.
 The native application never contains that Node build tool. The generated
 surface covers managed Widget ancestry, class-based `new Window()` and
 `Button.withLabel(...)` construction, automatic release, native properties,

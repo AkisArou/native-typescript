@@ -1,4 +1,4 @@
-import type { ClangFunctionEvidenceSnapshot } from "@native-typescript/bindgen-c";
+import type { ClangAbiEvidenceSnapshot } from "@native-typescript/bindgen-c";
 import type {
   ArtifactActionDefinition,
   ArtifactDefinition,
@@ -11,7 +11,7 @@ export const gtkBindingToolFile = "gtk-binding-tool-cli.mjs";
 export interface GtkBindingPackageRequest {
   readonly schema: "native-typescript.gtk-binding-package-request";
   readonly schemaVersion: 1;
-  readonly clang: ClangFunctionEvidenceSnapshot["clang"];
+  readonly clang: ClangAbiEvidenceSnapshot["clang"];
   readonly generation: Omit<
     GtkScabiGenerationOptions,
     "snapshot" | "evidence" | "gobjectAdapter"
@@ -136,20 +136,20 @@ export function planGtkClangEvidenceNormalization(input: {
       kind: "metadata",
       entryType: "file",
       mediaType:
-        "application/vnd.native-typescript.clang-function-evidence+json",
+        "application/vnd.native-typescript.clang-abi-evidence+json",
       target: input.target,
       domain: "target",
       cache: "exportable",
       origin: Object.freeze({
         kind: "action",
         action: input.actionId,
-        fileName: "clang-function-evidence.json",
+        fileName: "clang-abi-evidence.json",
       }),
     }),
     action: Object.freeze({
       id: input.actionId,
       implementation: Object.freeze({
-        id: "native-typescript/gtk-clang-function-evidence",
+        id: "native-typescript/gtk-clang-abi-evidence",
         version: String(input.request.schemaVersion),
       }),
       tool: Object.freeze({ ...input.tool }),

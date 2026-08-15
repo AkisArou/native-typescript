@@ -1,12 +1,13 @@
 import {
   CBindgenError,
-  generateClangFunctionProbe,
+  generateClangAbiProbe,
   parseCTypeCandidate,
 } from "@native-typescript/bindgen-c";
 import type {
   CBindgenDiagnostic,
   CFunctionCandidate,
-  ClangFunctionProbe,
+  CRecordCandidate,
+  ClangAbiProbe,
   CTypeCandidate,
 } from "@native-typescript/bindgen-c";
 import type {
@@ -72,11 +73,12 @@ function functionCandidate(
   };
 }
 
-export function generateGirClangFunctionProbe(
+export function generateGirClangAbiProbe(
   snapshot: GirSnapshot,
-): ClangFunctionProbe {
+): ClangAbiProbe {
   const diagnostics: CBindgenDiagnostic[] = [];
   const functions: CFunctionCandidate[] = [];
+  const records: CRecordCandidate[] = [];
   for (const class_ of snapshot.classes) {
     for (const callable of [...class_.constructors, ...class_.methods]) {
       const candidate = functionCandidate(
@@ -88,9 +90,30 @@ export function generateGirClangFunctionProbe(
       if (candidate !== null) functions.push(candidate);
     }
   }
+  for (const record of snapshot.records) {
+    const fields = record.fields.map((field, index) => ({
+      name: field.name,
+      type: physicalType(
+        field.type,
+        `${snapshot.namespace.name}/${record.name}/field/${index}`,
+        diagnostics,
+      ),
+    }));
+    if (fields.every((field) => field.type !== null)) {
+      records.push({
+        id: `${snapshot.namespace.name}.${record.name}.record`,
+        typeName: record.cType,
+        fields: fields.map((field) => ({
+          name: field.name,
+          type: field.type!,
+        })),
+      });
+    }
+  }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
-  return generateClangFunctionProbe({
+  return generateClangAbiProbe({
     includes: snapshot.cIncludes,
     functions,
+    records,
   });
 }

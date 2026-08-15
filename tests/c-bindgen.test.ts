@@ -14,13 +14,14 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   CBindgenError,
-  generateClangFunctionProbe,
+  generateClangAbiProbe,
   parseCTypeCandidate,
-  parseClangFunctionEvidence,
-  planClangFunctionProbe,
+  parseClangAbiEvidence,
+  planClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import type {
   CFunctionCandidate,
+  CRecordCandidate,
   CQualifier,
   CTypeCandidate,
 } from "@native-typescript/bindgen-c";
@@ -90,6 +91,12 @@ function fixtureFunctions(
   const constCharPointer = pointer(named("char", ["const"]));
   return [
     {
+      id: "fixture.point.translate",
+      symbol: "nts_point_translate",
+      result: named("NTSPoint"),
+      parameters: [named("NTSPoint"), named("int")],
+    },
+    {
       id: "fixture.widget.new",
       symbol: "nts_widget_new",
       result: widgetPointer,
@@ -110,14 +117,28 @@ function fixtureFunctions(
   ];
 }
 
+function fixtureRecords(): readonly CRecordCandidate[] {
+  return [{
+    id: "fixture.point",
+    typeName: "NTSPoint",
+    fields: [
+      { name: "x", type: named("int") },
+      { name: "tag", type: named("NTSByte") },
+      { name: "weight", type: named("double") },
+    ],
+  }];
+}
+
 test("C candidates produce a canonical immutable Clang probe", () => {
-  const forward = generateClangFunctionProbe({
+  const forward = generateClangAbiProbe({
     includes: ["fixture.h"],
     functions: fixtureFunctions(),
+    records: fixtureRecords(),
   });
-  const reverse = generateClangFunctionProbe({
+  const reverse = generateClangAbiProbe({
     includes: ["fixture.h"],
     functions: [...fixtureFunctions()].reverse(),
+    records: [...fixtureRecords()].reverse(),
   });
 
   assert.equal(forward.schemaVersion, 1);
@@ -127,8 +148,9 @@ test("C candidates produce a canonical immutable Clang probe", () => {
   assert.match(forward.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.match(
     forward.source,
-    /typedef const char \* \(\*nts_abi_expected_0000\)\(NTSWidget \*\);/u,
+    /typedef const char \* \(\*nts_abi_expected_0001\)\(NTSWidget \*\);/u,
   );
+  assert.match(forward.source, /record_0000_field_0002_offset/u);
   assert.match(forward.source, /__builtin_types_compatible_p/u);
   assert.match(forward.source, /struct nts_abi_probe_snapshot_[0-9a-f]{16}/u);
   assert.equal(Object.isFrozen(forward), true);
@@ -138,7 +160,7 @@ test("C candidates produce a canonical immutable Clang probe", () => {
 
 test("C candidate validation rejects unsafe source spellings and duplicates", () => {
   assert.throws(
-    () => generateClangFunctionProbe({
+    () => generateClangAbiProbe({
       includes: ["../fixture.h", "../fixture.h"],
       functions: [
         ...fixtureFunctions(),
@@ -146,6 +168,10 @@ test("C candidate validation rejects unsafe source spellings and duplicates", ()
           ...fixtureFunctions()[0]!,
           symbol: "not-a-c-symbol",
         },
+      ],
+      records: [
+        ...fixtureRecords(),
+        { ...fixtureRecords()[0]!, id: fixtureFunctions()[0]!.id },
       ],
     }),
     (error) => {
@@ -175,14 +201,15 @@ test("the candidate type parser is narrow, structured, and non-authoritative", (
   assert.throws(() => parseCTypeCandidate("char (*)(int)"), CBindgenError);
 });
 
-test("Clang verifies selected function ABI and emits structured evidence", async () => {
+test("Clang verifies selected function and record ABI and emits structured evidence", async () => {
   const clangPath = executable("clang");
   const sandboxPath = executable("bwrap");
   const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-c-"));
   try {
-    const probe = generateClangFunctionProbe({
+    const probe = generateClangAbiProbe({
       includes: ["fixture.h"],
       functions: fixtureFunctions(),
+      records: fixtureRecords(),
     });
     const sourcePath = join(temporaryRoot, "probe.c");
     writeFileSync(sourcePath, probe.source);
@@ -203,7 +230,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
       },
     };
     const tool = clangIdentity(clangPath);
-    const plan = planClangFunctionProbe({
+    const plan = planClangAbiProbe({
       probe,
       sourceArtifactId: "source/c-bindgen/probe",
       rawAstArtifactId: "metadata/c-bindgen/raw-ast",
@@ -232,7 +259,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
     });
     const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
     assert.ok(ast);
-    const evidence = parseClangFunctionEvidence(readFileSync(ast.path, "utf8"), {
+    const evidence = parseClangAbiEvidence(readFileSync(ast.path, "utf8"), {
       probe,
       clang: {
         toolId: tool.id,
@@ -242,6 +269,7 @@ test("Clang verifies selected function ABI and emits structured evidence", async
       },
     });
     assert.deepEqual(evidence.functions.map(({ symbol }) => symbol), [
+      "nts_point_translate",
       "nts_widget_get_label",
       "nts_widget_new",
       "nts_widget_set_label",
@@ -250,6 +278,38 @@ test("Clang verifies selected function ABI and emits structured evidence", async
       evidence.functions.every(({ clangType }) => clangType.includes("(*)")),
       true,
     );
+    assert.deepEqual(evidence.records, [{
+      id: "fixture.point",
+      typeName: "NTSPoint",
+      size: 16,
+      alignment: 8,
+      fields: [
+        {
+          name: "x",
+          expectedType: "int",
+          clangType: "int",
+          offset: 0,
+          size: 4,
+          alignment: 4,
+        },
+        {
+          name: "tag",
+          expectedType: "NTSByte",
+          clangType: "unsigned char",
+          offset: 4,
+          size: 1,
+          alignment: 1,
+        },
+        {
+          name: "weight",
+          expectedType: "double",
+          clangType: "double",
+          offset: 8,
+          size: 8,
+          alignment: 8,
+        },
+      ],
+    }]);
     assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.equal(Object.isFrozen(evidence), true);
     assert.equal(Object.isFrozen(evidence.functions[0]), true);
@@ -263,9 +323,10 @@ test("Clang rejects a candidate that disagrees with the header", async () => {
   const sandboxPath = executable("bwrap");
   const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-mismatch-"));
   try {
-    const probe = generateClangFunctionProbe({
+    const probe = generateClangAbiProbe({
       includes: ["fixture.h"],
       functions: fixtureFunctions(true),
+      records: fixtureRecords(),
     });
     const sourcePath = join(temporaryRoot, "probe.c");
     writeFileSync(sourcePath, probe.source);
@@ -285,7 +346,7 @@ test("Clang rejects a candidate that disagrees with the header", async () => {
       },
     };
     const tool = clangIdentity(clangPath);
-    const plan = planClangFunctionProbe({
+    const plan = planClangAbiProbe({
       probe,
       sourceArtifactId: "source/c-bindgen/probe",
       rawAstArtifactId: "metadata/c-bindgen/raw-ast",
@@ -317,6 +378,35 @@ test("Clang rejects a candidate that disagrees with the header", async () => {
         error instanceof ArtifactExecutionError &&
         /NTS5004 C ABI mismatch for fixture\.widget\.get-label/u.test(error.stderr),
     );
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("Clang rejects a selected record field that disagrees with the header", () => {
+  const clangPath = executable("clang");
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-bindgen-record-mismatch-"));
+  try {
+    const point = fixtureRecords()[0]!;
+    const probe = generateClangAbiProbe({
+      includes: ["fixture.h"],
+      functions: fixtureFunctions(),
+      records: [{
+        ...point,
+        fields: point.fields.map((field) =>
+          field.name === "tag" ? { ...field, type: named("int") } : field
+        ),
+      }],
+    });
+    const sourcePath = join(temporaryRoot, "probe.c");
+    writeFileSync(sourcePath, probe.source);
+    const result = spawnSync(
+      clangPath,
+      ["-std=gnu11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only", "-I", fixtureHeaders, sourcePath],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /NTS5004 C record field mismatch for fixture\.point\.tag/u);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }

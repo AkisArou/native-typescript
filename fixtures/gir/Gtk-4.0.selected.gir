@@ -12,6 +12,18 @@
              shared-library="libgtk-4.so.1"
              c:identifier-prefixes="Gtk"
              c:symbol-prefixes="gtk">
+    <record name="Requisition"
+            c:type="GtkRequisition"
+            glib:type-name="GtkRequisition"
+            glib:get-type="gtk_requisition_get_type"
+            c:symbol-prefix="requisition">
+      <field name="width" writable="1">
+        <type name="gint" c:type="int"/>
+      </field>
+      <field name="height" writable="1">
+        <type name="gint" c:type="int"/>
+      </field>
+    </record>
     <class name="Button"
            c:symbol-prefix="button"
            c:type="GtkButton"

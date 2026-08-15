@@ -42,6 +42,11 @@ export interface GirClassSelection {
   readonly signals?: readonly string[];
 }
 
+export interface GirRecordSelection {
+  readonly name: string;
+  readonly fields: readonly string[];
+}
+
 export interface GirIngestionOptions {
   readonly logicalPath: string;
   readonly expectedDigest?: string;
@@ -50,6 +55,7 @@ export interface GirIngestionOptions {
     readonly version: string;
   };
   readonly classes: readonly GirClassSelection[];
+  readonly records?: readonly GirRecordSelection[];
 }
 
 export interface GirInclude {
@@ -165,6 +171,34 @@ export interface GirClass {
   readonly signals: readonly GirCallable[];
 }
 
+export interface GirRecordField {
+  readonly name: string;
+  readonly readable: boolean;
+  readonly writable: boolean;
+  readonly bits: number | null;
+  readonly annotations: readonly GirAnnotation[];
+  readonly type: GirTypeReference;
+}
+
+export interface GirRecord {
+  readonly kind: "record";
+  readonly name: string;
+  readonly cType: string;
+  readonly disguised: boolean;
+  readonly foreign: boolean;
+  readonly opaque: boolean;
+  readonly pointer: boolean;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly glibTypeName: string | null;
+  readonly glibGetType: string | null;
+  readonly cSymbolPrefix: string | null;
+  readonly annotations: readonly GirAnnotation[];
+  readonly fields: readonly GirRecordField[];
+}
+
 export interface GirSnapshot {
   readonly schema: "native-typescript.gir-snapshot";
   readonly schemaVersion: 1;
@@ -184,4 +218,5 @@ export interface GirSnapshot {
     readonly symbolPrefixes: readonly string[];
   };
   readonly classes: readonly GirClass[];
+  readonly records: readonly GirRecord[];
 }

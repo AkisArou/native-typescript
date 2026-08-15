@@ -15,6 +15,9 @@ import type {
   GirIngestionOptions,
   GirParameter,
   GirParameterDirection,
+  GirRecord,
+  GirRecordField,
+  GirRecordSelection,
   GirReturnValue,
   GirSignalWhen,
   GirSnapshot,
@@ -33,6 +36,11 @@ interface NormalizedClassSelection {
   readonly constructors: ReadonlySet<string>;
   readonly methods: ReadonlySet<string>;
   readonly signals: ReadonlySet<string>;
+}
+
+interface NormalizedRecordSelection {
+  readonly name: string;
+  readonly fields: ReadonlySet<string>;
 }
 
 interface MutableTypeReference {
@@ -128,6 +136,40 @@ interface MutableClass {
   readonly foundConstructors: Set<string>;
   readonly foundMethods: Set<string>;
   readonly foundSignals: Set<string>;
+}
+
+interface MutableRecordField {
+  readonly depth: number;
+  readonly path: string;
+  readonly name: string;
+  readonly readable: boolean;
+  readonly writable: boolean;
+  readonly bits: number | null;
+  readonly annotations: GirAnnotation[];
+  unsupportedType: boolean;
+  type: MutableTypeReference | null;
+}
+
+interface MutableRecord {
+  readonly depth: number;
+  readonly path: string;
+  readonly selection: NormalizedRecordSelection;
+  readonly name: string;
+  readonly cType: string;
+  readonly disguised: boolean;
+  readonly foreign: boolean;
+  readonly opaque: boolean;
+  readonly pointer: boolean;
+  readonly version: string | null;
+  readonly deprecated: boolean;
+  readonly deprecatedVersion: string | null;
+  readonly stability: string | null;
+  readonly glibTypeName: string | null;
+  readonly glibGetType: string | null;
+  readonly cSymbolPrefix: string | null;
+  readonly annotations: GirAnnotation[];
+  readonly fields: GirRecordField[];
+  readonly foundFields: Set<string>;
 }
 
 function diagnostic(
@@ -370,6 +412,43 @@ function normalizeSelections(
   return result;
 }
 
+function normalizeRecordSelections(
+  selections: readonly GirRecordSelection[],
+  diagnostics: GirDiagnostic[],
+): ReadonlyMap<string, NormalizedRecordSelection> {
+  const result = new Map<string, NormalizedRecordSelection>();
+  for (const [index, selection] of selections.entries()) {
+    const path = `records/${index}`;
+    if (!selectionNamePattern.test(selection.name)) {
+      diagnostics.push(
+        diagnostic("NTS4001", `${path}/name`, `Invalid GIR record selection '${selection.name}'`),
+      );
+      continue;
+    }
+    if (result.has(selection.name)) {
+      diagnostics.push(
+        diagnostic("NTS4001", `${path}/name`, `Duplicate GIR record selection '${selection.name}'`),
+      );
+      continue;
+    }
+    const fields = new Set<string>();
+    for (const [fieldIndex, name] of selection.fields.entries()) {
+      if (!selectionNamePattern.test(name)) {
+        diagnostics.push(
+          diagnostic("NTS4001", `${path}/fields/${fieldIndex}`, `Invalid GIR field selection '${name}'`),
+        );
+      } else if (fields.has(name)) {
+        diagnostics.push(
+          diagnostic("NTS4001", `${path}/fields/${fieldIndex}`, `Duplicate GIR field selection '${name}'`),
+        );
+      }
+      fields.add(name);
+    }
+    result.set(selection.name, { name: selection.name, fields });
+  }
+  return result;
+}
+
 function freezeAnnotations(
   annotations: readonly GirAnnotation[],
 ): readonly GirAnnotation[] {
@@ -419,6 +498,25 @@ function freezeType(type: MutableTypeReference): GirTypeReference {
       children: [],
     }),
   });
+}
+
+function validateTypeShape(
+  type: MutableTypeReference,
+  path: string,
+  diagnostics: GirDiagnostic[],
+): void {
+  if (type.kind === "array" && type.children.length !== 1) {
+    diagnostics.push(
+      diagnostic(
+        "NTS4005",
+        path,
+        `GIR array requires exactly one element type, received ${type.children.length}`,
+      ),
+    );
+  }
+  for (const [index, child] of type.children.entries()) {
+    validateTypeShape(child, `${path}/arguments/${index}`, diagnostics);
+  }
 }
 
 function freezeCallable(callable: MutableCallable): GirCallable {
@@ -492,19 +590,24 @@ export function ingestGir(
     );
   }
   const selections = normalizeSelections(options.classes, diagnostics);
+  const recordSelections = normalizeRecordSelections(options.records ?? [], diagnostics);
   if (diagnostics.length > 0) throw new GirIngestionError(diagnostics);
 
   const includes: GirInclude[] = [];
   const packages: string[] = [];
   const cIncludes: string[] = [];
   const classes: GirClass[] = [];
+  const records: GirRecord[] = [];
   const foundClasses = new Set<string>();
+  const foundRecords = new Set<string>();
   const stack: SaxesTagNS[] = [];
   const typeStack: MutableTypeReference[] = [];
   let repositoryVersion: string | null = null;
   let namespaceDepth: number | null = null;
   let namespaceMetadata: GirSnapshot["namespace"] | null = null;
   let activeClass: MutableClass | null = null;
+  let activeRecord: MutableRecord | null = null;
+  let activeRecordField: MutableRecordField | null = null;
   let activeCallable: MutableCallable | null = null;
   let activeValue: MutableValue | null = null;
   let syntaxError: string | null = null;
@@ -677,6 +780,154 @@ export function ingestGir(
           foundSignals: new Set(),
         };
       }
+    } else if (
+      namespaceDepth !== null &&
+      depth === namespaceDepth + 1 &&
+      isCore &&
+      tag.local === "record"
+    ) {
+      const name = attribute(tag, "name") ?? "<missing>";
+      const selection = recordSelections.get(name);
+      if (selection !== undefined) {
+        const path = `namespace/${options.namespace.name}/record/${name}`;
+        if (foundRecords.has(name)) {
+          diagnostics.push(
+            diagnostic("NTS4002", path, `Selected GIR record '${name}' is duplicated`),
+          );
+        }
+        foundRecords.add(name);
+        requireIntrospectable(tag, path, diagnostics, `Selected GIR record '${name}'`);
+        activeRecord = {
+          depth,
+          path,
+          selection,
+          name,
+          cType: requiredAttribute(tag, "type", cNamespace, path, diagnostics),
+          disguised: booleanAttribute(tag, "disguised", path, diagnostics, false),
+          foreign: booleanAttribute(tag, "foreign", path, diagnostics, false),
+          opaque: booleanAttribute(tag, "opaque", path, diagnostics, false),
+          pointer: booleanAttribute(tag, "pointer", path, diagnostics, false),
+          version: attribute(tag, "version") ?? null,
+          deprecated: booleanAttribute(tag, "deprecated", path, diagnostics, false),
+          deprecatedVersion: attribute(tag, "deprecated-version") ?? null,
+          stability: attribute(tag, "stability") ?? null,
+          glibTypeName: attribute(tag, "type-name", glibNamespace) ?? null,
+          glibGetType: attribute(tag, "get-type", glibNamespace) ?? null,
+          cSymbolPrefix: attribute(tag, "symbol-prefix", cNamespace) ?? null,
+          annotations: [],
+          fields: [],
+          foundFields: new Set(),
+        };
+      }
+    } else if (
+      activeRecord !== null &&
+      activeRecordField === null &&
+      depth === activeRecord.depth + 1 &&
+      isCore &&
+      tag.local === "attribute"
+    ) {
+      activeRecord.annotations.push(
+        readAnnotation(
+          tag,
+          `${activeRecord.path}/annotations/${activeRecord.annotations.length}`,
+          diagnostics,
+        ),
+      );
+    } else if (
+      activeRecord !== null &&
+      depth === activeRecord.depth + 1 &&
+      isCore &&
+      tag.local === "field"
+    ) {
+      const name = attribute(tag, "name") ?? "<missing>";
+      if (activeRecord.selection.fields.has(name)) {
+        const path = `${activeRecord.path}/field/${name}`;
+        if (activeRecord.foundFields.has(name)) {
+          diagnostics.push(
+            diagnostic("NTS4002", path, `Selected GIR field '${name}' is duplicated`),
+          );
+        }
+        activeRecord.foundFields.add(name);
+        requireIntrospectable(tag, path, diagnostics, `Selected GIR field '${name}'`);
+        activeRecordField = {
+          depth,
+          path,
+          name,
+          readable: booleanAttribute(tag, "readable", path, diagnostics, true),
+          writable: booleanAttribute(tag, "writable", path, diagnostics, false),
+          bits: integerAttribute(tag, "bits", path, diagnostics),
+          annotations: [],
+          unsupportedType: false,
+          type: null,
+        };
+      }
+    } else if (
+      activeRecordField !== null &&
+      depth === activeRecordField.depth + 1 &&
+      isCore &&
+      tag.local === "attribute"
+    ) {
+      activeRecordField.annotations.push(
+        readAnnotation(
+          tag,
+          `${activeRecordField.path}/annotations/${activeRecordField.annotations.length}`,
+          diagnostics,
+        ),
+      );
+    } else if (
+      activeRecordField !== null &&
+      depth > activeRecordField.depth &&
+      isCore &&
+      (tag.local === "type" || tag.local === "array") &&
+      (parent?.local === "field" || typeStack.length > 0)
+    ) {
+      const path = `${activeRecordField.path}/type`;
+      requireIntrospectable(tag, path, diagnostics, "Selected GIR record field type");
+      const type: MutableTypeReference = {
+        kind: tag.local === "array" ? "array" : "named",
+        depth,
+        cType: attribute(tag, "type", cNamespace) ?? null,
+        name: tag.local === "type"
+          ? requiredAttribute(tag, "name", "", path, diagnostics)
+          : null,
+        lengthParameter: tag.local === "array"
+          ? integerAttribute(tag, "length", path, diagnostics)
+          : null,
+        fixedSize: tag.local === "array"
+          ? integerAttribute(tag, "fixed-size", path, diagnostics)
+          : null,
+        zeroTerminated: tag.local === "array" && attribute(tag, "zero-terminated") !== undefined
+          ? booleanAttribute(tag, "zero-terminated", path, diagnostics, false)
+          : null,
+        children: [],
+      };
+      const parentType = typeStack.at(-1);
+      if (parentType === undefined) {
+        if (activeRecordField.type !== null) {
+          diagnostics.push(
+            diagnostic("NTS4002", path, "GIR record field has multiple physical types"),
+          );
+        } else {
+          activeRecordField.type = type;
+        }
+      } else {
+        parentType.children.push(type);
+      }
+      typeStack.push(type);
+    } else if (
+      activeRecordField !== null &&
+      depth > activeRecordField.depth &&
+      isCore &&
+      (tag.local === "callback" || tag.local === "varargs")
+    ) {
+      activeRecordField.unsupportedType = true;
+      diagnostics.push(
+        diagnostic(
+          "NTS4004",
+          `${activeRecordField.path}/type`,
+          "Selected GIR record field type is outside the record-layout slice",
+        ),
+      );
     } else if (
       activeClass !== null &&
       depth === activeClass.depth + 1 &&
@@ -968,6 +1219,31 @@ export function ingestGir(
     ) {
       typeStack.pop();
     }
+    if (activeRecordField !== null && activeRecordField.depth === depth) {
+      if (activeRecordField.type === null) {
+        if (!activeRecordField.unsupportedType) {
+          diagnostics.push(
+            diagnostic(
+              "NTS4004",
+              `${activeRecordField.path}/type`,
+              "Selected GIR record field has no type",
+            ),
+          );
+        }
+      } else {
+        validateTypeShape(activeRecordField.type, `${activeRecordField.path}/type`, diagnostics);
+        activeRecord!.fields.push(Object.freeze({
+          name: activeRecordField.name,
+          readable: activeRecordField.readable,
+          writable: activeRecordField.writable,
+          bits: activeRecordField.bits,
+          annotations: freezeAnnotations(activeRecordField.annotations),
+          type: freezeType(activeRecordField.type),
+        }));
+      }
+      activeRecordField = null;
+      typeStack.length = 0;
+    }
     if (activeValue !== null && activeValue.depth === depth) {
       if (activeValue.type === null) {
         if (!activeValue.unsupportedType) {
@@ -976,21 +1252,7 @@ export function ingestGir(
           );
         }
       } else {
-        const validateType = (type: MutableTypeReference, path: string): void => {
-          if (type.kind === "array" && type.children.length !== 1) {
-            diagnostics.push(
-              diagnostic(
-                "NTS4005",
-                path,
-                `GIR array requires exactly one element type, received ${type.children.length}`,
-              ),
-            );
-          }
-          for (const [index, child] of type.children.entries()) {
-            validateType(child, `${path}/arguments/${index}`);
-          }
-        };
-        validateType(activeValue.type, `${activeValue.path}/type`);
+        validateTypeShape(activeValue.type, `${activeValue.path}/type`, diagnostics);
         const frozenType = freezeType(activeValue.type);
         if (activeValue.kind === "result") {
           activeCallable!.result = Object.freeze({
@@ -1100,6 +1362,63 @@ export function ingestGir(
       }));
       activeClass = null;
     }
+    if (activeRecord !== null && activeRecord.depth === depth) {
+      for (const name of activeRecord.selection.fields) {
+        if (!activeRecord.foundFields.has(name)) {
+          diagnostics.push(
+            diagnostic(
+              "NTS4003",
+              `${activeRecord.path}/field/${name}`,
+              `Selected GIR field '${name}' does not exist`,
+            ),
+          );
+        }
+      }
+      if (
+        activeRecord.disguised ||
+        activeRecord.foreign ||
+        activeRecord.opaque ||
+        activeRecord.pointer
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS4004",
+            activeRecord.path,
+            "Selected GIR record is not a transparent by-value C aggregate",
+          ),
+        );
+      }
+      for (const field of activeRecord.fields) {
+        if (field.bits !== null) {
+          diagnostics.push(
+            diagnostic(
+              "NTS4004",
+              `${activeRecord.path}/field/${field.name}/@bits`,
+              "Bit-field layout is outside the first record evidence slice",
+            ),
+          );
+        }
+      }
+      records.push(Object.freeze({
+        kind: "record",
+        name: activeRecord.name,
+        cType: activeRecord.cType,
+        disguised: activeRecord.disguised,
+        foreign: activeRecord.foreign,
+        opaque: activeRecord.opaque,
+        pointer: activeRecord.pointer,
+        version: activeRecord.version,
+        deprecated: activeRecord.deprecated,
+        deprecatedVersion: activeRecord.deprecatedVersion,
+        stability: activeRecord.stability,
+        glibTypeName: activeRecord.glibTypeName,
+        glibGetType: activeRecord.glibGetType,
+        cSymbolPrefix: activeRecord.cSymbolPrefix,
+        annotations: freezeAnnotations(activeRecord.annotations),
+        fields: Object.freeze([...activeRecord.fields]),
+      }));
+      activeRecord = null;
+    }
     if (namespaceDepth === depth && tag.uri === coreNamespace && tag.local === "namespace") {
       namespaceDepth = null;
     }
@@ -1139,6 +1458,17 @@ export function ingestGir(
       );
     }
   }
+  for (const name of recordSelections.keys()) {
+    if (!foundRecords.has(name)) {
+      diagnostics.push(
+        diagnostic(
+          "NTS4003",
+          `namespace/${options.namespace.name}/record/${name}`,
+          `Selected GIR record '${name}' does not exist`,
+        ),
+      );
+    }
+  }
   if (diagnostics.length > 0) throw new GirIngestionError(diagnostics);
 
   return Object.freeze({
@@ -1160,5 +1490,6 @@ export function ingestGir(
     cIncludes: Object.freeze([...new Set(cIncludes)].sort(compareText)),
     namespace: namespaceMetadata!,
     classes: Object.freeze(classes.sort((left, right) => compareText(left.name, right.name))),
+    records: Object.freeze(records.sort((left, right) => compareText(left.name, right.name))),
   });
 }

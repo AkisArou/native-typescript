@@ -134,15 +134,18 @@ with the matching headers and target compiler's Clang AST/layout results before
 emitting SCABI. Missing ownership or a disagreement between GIR and the
 authoritative C view is an error; the generator does not guess.
 
-The implemented first C evidence slice accepts only named types and pointer
-composition. It treats a GIR C spelling as an untrusted candidate, converts it
-to that closed structure, and generates a content-addressed probe containing
-Clang `typeof` compatibility assertions. Clang must accept every selected
-function against the real headers before a filtered AST record becomes
-canonical evidence. Raw AST output remains a non-cacheable intermediate because
-Clang includes unstable IDs and physical source locations; only the normalized
-selected evidence participates in binding identity. This verifies function
-signatures, not aggregate layout or calling-convention classification.
+The implemented C evidence slice accepts named types, pointer composition, and
+explicitly selected typedef-named records and fields. It treats metadata C
+spellings as untrusted candidates and generates one content-addressed ABI probe.
+Clang `typeof` compatibility assertions must accept every selected function and
+record field against the real headers. The same target compilation records each
+selected aggregate's size and alignment plus every selected field's Clang type,
+byte offset, size, and alignment. A filtered AST record then becomes canonical
+evidence. Raw AST output remains a non-cacheable intermediate because Clang
+includes unstable IDs and physical source locations; only normalized selected
+evidence participates in binding identity. Direct/indirect aggregate
+calling-convention classification is not inferred from layout and remains a
+separate target-compiler evidence slice.
 
 The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
@@ -156,6 +159,13 @@ produce identical output. Signals are adapter entries rather than invented
 direct C functions. Exact scalar signal payloads are copied before owner
 delivery; any reached signal or parameter/result form outside that closed
 algebra is an error instead of a guessed projection.
+
+Selected transparent GIR records also enter that probe. The permanent GTK gate
+selects `Gtk.Requisition` and preserves its field metadata, while target Clang
+proves its 8-byte size, 4-byte alignment, and two exact `int` field layouts.
+That evidence is validated and packaged but is not yet emitted as a public
+SCABI aggregate: doing so also requires authoritative direct/indirect calling
+classification, which layout alone cannot supply.
 
 The source projection is distinct from ABI identity. Selected GObject types
 are emitted as named TypeScript classes with their proven inheritance.

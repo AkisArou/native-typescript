@@ -27,7 +27,7 @@ import type {
   ArtifactActionDefinition,
   ArtifactDefinition,
 } from "@native-typescript/core";
-import { planClangFunctionProbe } from "@native-typescript/bindgen-c";
+import { planClangAbiProbe } from "@native-typescript/bindgen-c";
 import {
   canonicalizeJson,
   parseScabiManifest,
@@ -39,7 +39,7 @@ import {
 import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
 import {
   defineGtkBindingPackageRequest,
-  generateGirClangFunctionProbe,
+  generateGirClangAbiProbe,
   gtkBindingToolFile,
   glibRuntimeArtifactIds,
   ingestGir,
@@ -259,13 +259,13 @@ test(
           },
         ],
       });
-      const gtkProbe = generateGirClangFunctionProbe(gtkSnapshot);
-      const gtkProbePlan = planClangFunctionProbe({
+      const gtkProbe = generateGirClangAbiProbe(gtkSnapshot);
+      const gtkProbePlan = planClangAbiProbe({
         probe: gtkProbe,
-        sourceArtifactId: "source/gtk4/clang-function-probe",
-        rawAstArtifactId: "metadata/gtk4/clang-function-ast",
-        actionId: "inspect/gtk4/clang-functions",
-        logicalPath: "generated/gtk4/clang-function-probe.c",
+        sourceArtifactId: "source/gtk4/clang-abi-probe",
+        rawAstArtifactId: "metadata/gtk4/clang-abi-ast",
+        actionId: "inspect/gtk4/clang-abi",
+        logicalPath: "generated/gtk4/clang-abi-probe.c",
         arguments: gtkSdk.compileArguments,
         tool: clangTool,
         executionPlatform,
@@ -368,8 +368,8 @@ test(
         snapshotArtifact: gtkSnapshotArtifact.id,
         rawAstArtifact: gtkProbePlan.rawAst.id,
         generatorArtifact: gtkBindingToolArtifact.id,
-        artifactId: "metadata/gtk4/normalized-clang-function-evidence",
-        actionId: "normalize/gtk4/clang-function-evidence",
+        artifactId: "metadata/gtk4/normalized-clang-abi-evidence",
+        actionId: "normalize/gtk4/clang-abi-evidence",
         tool: nodeTool,
         executionPlatform,
         target: nativeTarget,

@@ -193,7 +193,8 @@ fixtures may be committed for review and testing.
 The GTK analysis graph applies this rule directly. Sandboxed Clang writes its
 raw selected AST to a metadata artifact. Because Clang AST JSON contains
 process- and sandbox-specific locations, a dependent action reduces it to
-canonical selected-function evidence. The binding-package action consumes that
+canonical selected ABI evidence. Function types and selected record layout facts
+share the same probe contract and compiler action. The binding-package action consumes that
 stable evidence, the canonical selected-GIR snapshot, an immutable generation
 request, and a content-addressed self-contained host generator. Its single
 directory output contains declarations, SCABI, GObject adapter source/metadata,

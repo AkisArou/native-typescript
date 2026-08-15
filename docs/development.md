@@ -175,9 +175,11 @@ node --test tests/gir.test.ts
 node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```
 
-The C binding tests compile a canonical selected-function probe, reject a
-deliberate header mismatch, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call
-surface against Clang. The SCABI test turns the verified selection and exact
+The C binding tests compile one canonical selected-ABI probe, derive an
+authoritative padded-record layout, reject deliberate function and field type
+mismatches, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call surface
+plus the selected `Gtk.Requisition` layout against Clang. The SCABI test turns
+the verified selection and exact
 GObject adapter into canonical declarations and a validated manifest, and pins
 the immutable evidence-normalization and cacheable binding-package action
 contracts, while rejecting tampered provenance and unsupported reached

@@ -14,8 +14,8 @@ import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
-  parseClangFunctionEvidence,
-  planClangFunctionProbe,
+  parseClangAbiEvidence,
+  planClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import {
   defineArtifactGraph,
@@ -25,7 +25,7 @@ import {
 import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
   generateGObjectAdapterSource,
-  generateGirClangFunctionProbe,
+  generateGirClangAbiProbe,
   generateGtkScabiPackage,
   ingestGir,
 } from "@native-typescript/target-gtk";
@@ -96,8 +96,9 @@ test(
           methods: ["destroy", "present", "set_child", "set_default_size"],
         },
       ],
+      records: [{ name: "Requisition", fields: ["width", "height"] }],
     });
-    const probe = generateGirClangFunctionProbe(snapshot);
+    const probe = generateGirClangAbiProbe(snapshot);
     assert.deepEqual(probe.functions.map(({ symbol }) => symbol), [
       "gtk_button_new_with_label",
       "gtk_button_get_label",
@@ -114,6 +115,7 @@ test(
       "gtk_window_set_default_size",
     ]);
     assert.equal(probe.source.includes("clicked"), false);
+    assert.deepEqual(probe.records.map(({ typeName }) => typeName), ["GtkRequisition"]);
 
     const clangPath = executable("clang");
     const pkgConfigPath = executable("pkg-config");
@@ -125,12 +127,12 @@ test(
       modules: ["gtk4"],
       target,
     });
-    const plan = planClangFunctionProbe({
+    const plan = planClangAbiProbe({
       probe,
-      sourceArtifactId: "source/gtk4/clang-function-probe",
-      rawAstArtifactId: "metadata/gtk4/clang-function-ast",
-      actionId: "inspect/gtk4/clang-functions",
-      logicalPath: "generated/gtk4/clang-function-probe.c",
+      sourceArtifactId: "source/gtk4/clang-abi-probe",
+      rawAstArtifactId: "metadata/gtk4/clang-abi-ast",
+      actionId: "inspect/gtk4/clang-abi",
+      logicalPath: "generated/gtk4/clang-abi-probe.c",
       arguments: sdk.compileArguments,
       tool: clang,
       executionPlatform,
@@ -144,7 +146,7 @@ test(
 
     const temporaryRoot = mkdtempSync(join(tmpdir(), "native-typescript-gtk-clang-"));
     try {
-      const sourcePath = join(temporaryRoot, "clang-function-probe.c");
+      const sourcePath = join(temporaryRoot, "clang-abi-probe.c");
       writeFileSync(sourcePath, probe.source);
       const report = await executeArtifactGraph(graph, {
         buildRoot: join(temporaryRoot, "build"),
@@ -157,7 +159,7 @@ test(
       });
       const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
       assert.ok(ast);
-      const evidence = parseClangFunctionEvidence(readFileSync(ast.path, "utf8"), {
+      const evidence = parseClangAbiEvidence(readFileSync(ast.path, "utf8"), {
         probe,
         clang: {
           toolId: clang.id,
@@ -181,6 +183,30 @@ test(
         "gtk_window_set_child",
         "gtk_window_set_default_size",
       ]);
+      assert.deepEqual(evidence.records, [{
+        id: "Gtk.Requisition.record",
+        typeName: "GtkRequisition",
+        size: 8,
+        alignment: 4,
+        fields: [
+          {
+            name: "width",
+            expectedType: "int",
+            clangType: "int",
+            offset: 0,
+            size: 4,
+            alignment: 4,
+          },
+          {
+            name: "height",
+            expectedType: "int",
+            clangType: "int",
+            offset: 4,
+            size: 4,
+            alignment: 4,
+          },
+        ],
+      }]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 
       const bindingSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
@@ -203,6 +229,7 @@ test(
             methods: ["destroy", "present", "set_child", "set_default_size"],
           },
         ],
+        records: [{ name: "Requisition", fields: ["width", "height"] }],
       });
       const gobjectAdapter = generateGObjectAdapterSource(bindingSnapshot);
       const generated = generateGtkScabiPackage({

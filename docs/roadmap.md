@@ -138,16 +138,17 @@ executable. Tool standard output can now be streamed into an ordinary
 verified/cacheable metadata artifact without shell redirection, which is the
 required path for Clang AST and other machine-readable compiler evidence. The
 new target-neutral C binding
-package defines the first closed named/pointer candidate algebra, generates
-content-addressed function probes, makes Clang prove exact header compatibility,
-and normalizes only the selected AST evidence. Its permanent fixture rejects a
-deliberately wrong const-qualified result. GTK binding generation is now a
+package defines the first closed named/pointer and selected-record candidate
+algebra, generates one content-addressed ABI probe, makes Clang prove exact
+function and field compatibility, derives target record size/alignment and
+field layout, and normalizes only selected AST evidence. Its permanent fixture
+rejects a deliberately wrong const-qualified result and record field type. GTK binding generation is now a
 pair of deterministic producer actions: the first reduces raw Clang AST to
-canonical selected-function evidence, and the second consumes that evidence,
+canonical selected ABI evidence, and the second consumes that evidence,
 selected GIR, an immutable request, and a content-addressed bundled host tool to
 emit one verified package directory. The package is reused across distinct
-build roots. Phase 1 still requires aggregate
-layout/calling-convention evidence and broader SCABI/declaration generation;
+build roots. Phase 1 still requires aggregate calling-convention classification
+and broader SCABI/declaration generation;
 modeling export adapters as producer actions; making implicit
 toolchain/system-library inputs explicit so native actions can use the
 implemented local cache; adding cache eviction/export; broadening callback
@@ -220,7 +221,10 @@ additional constructors use static named factories, with exact declaration
 symbols lowered by ScriptC rather than runtime class objects. Signals remain
 semantic GIR metadata rather than invented direct C functions: the generator
 emits deterministic connect/disconnect adapters and
-result-owned retained-callback contracts. Aggregate layout evidence, broader
+result-owned retained-callback contracts. Transparent selected GIR records now
+enter the same evidence path: the real `Gtk.Requisition` gate preserves its two
+fields and Clang proves its exact target layout. Public SCABI aggregate
+projection still awaits authoritative calling classification. Broader
 type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.
@@ -287,7 +291,7 @@ presentation, activation, exact size/opacity input/output, the `clicked`
 connection, copied `resize` payloads, and deterministic disposal. The remaining
 hand-authored fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
-widget or signal API. Aggregate layout evidence, broader generated methods and
+widget or signal API. GIR-to-SCABI aggregate projection, broader generated methods and
 non-scalar signal payloads/results, general GObject identity/weak-reference
 rules, graphing compiler emission itself, cacheability for the complete native toolchain, full
 application lifecycle, resources, CLI orchestration, and GTK packaging remain

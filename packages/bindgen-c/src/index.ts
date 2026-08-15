@@ -1,20 +1,24 @@
 export {
-  generateClangFunctionProbe,
+  generateClangAbiProbe,
   parseCTypeCandidate,
-  parseClangFunctionEvidence,
+  parseClangAbiEvidence,
   renderCFunctionPointerType,
   renderCType,
 } from "./probe.ts";
-export { planClangFunctionProbe } from "./artifact.ts";
+export { planClangAbiProbe } from "./artifact.ts";
 export { CBindgenError } from "./model.ts";
-export type { ClangFunctionProbeArtifactPlan } from "./artifact.ts";
+export type { ClangAbiProbeArtifactPlan } from "./artifact.ts";
 export type {
   CBindgenDiagnostic,
   CBindgenDiagnosticCode,
   CFunctionCandidate,
+  CRecordCandidate,
+  CRecordFieldCandidate,
   ClangFunctionEvidence,
-  ClangFunctionEvidenceSnapshot,
-  ClangFunctionProbe,
+  ClangAbiEvidenceSnapshot,
+  ClangAbiProbe,
+  ClangRecordEvidence,
+  ClangRecordFieldEvidence,
   CQualifier,
   CTypeCandidate,
 } from "./model.ts";
