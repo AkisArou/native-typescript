@@ -129,6 +129,11 @@ export type ScriptCNativeParameterProjection =
 
 export type ScriptCNativeResultProjection =
   | { readonly kind: "direct" }
+  | {
+      readonly kind: "boolean";
+      readonly falseValue: string;
+      readonly trueValue: string;
+    }
   | { readonly kind: "utf8CString"; readonly nullable: boolean };
 
 export type ScriptCNativeIrType =
@@ -1106,6 +1111,7 @@ export function translateScabiNativeProgram(
   const lowerType = (
     typeId: NativeTypeId,
     path: string,
+    sourceVisible = true,
   ): ScriptCNativeIrType | null => {
     const nativeType = manifest.types[typeId];
     if (nativeType === undefined) {
@@ -1134,7 +1140,7 @@ export function translateScabiNativeProgram(
             : "usize"
           : `${nativeType.signed ? "i" : "u"}${nativeType.bits}`;
       const type = Object.freeze({ kind: "nativeScalar", scalar } as const);
-      if (!visitedSourceTypes.has(typeId)) {
+      if (sourceVisible && !visitedSourceTypes.has(typeId)) {
         visitedSourceTypes.add(typeId);
         const declaration = manifest.declarations.types[typeId];
         if (declaration === undefined) {
@@ -1688,6 +1694,7 @@ export function translateScabiNativeProgram(
     let resultType: ScriptCNativeBinding["result"]["type"] | null = null;
     let resultOwnership: ScriptCNativeBinding["result"]["ownership"] | null = null;
     let resultProjection: ScriptCNativeResultProjection | null = null;
+    const declaredResultType = manifest.types[binding.signature.result.type];
     if (binding.signature.result.marshal?.kind === "string") {
       const borrowed = supportedBorrowedStringResult(manifest, binding);
       if (typeof borrowed === "string") {
@@ -1708,6 +1715,38 @@ export function translateScabiNativeProgram(
         resultProjection = Object.freeze({
           kind: "utf8CString",
           nullable: borrowed.nullable,
+        });
+      }
+    } else if (declaredResultType?.kind === "boolean") {
+      const booleanType = declaredResultType;
+      const unsupportedResult = positionUnsupported(
+        binding.signature.result,
+        false,
+        booleanType,
+      );
+      if (unsupportedResult !== null) {
+        diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
+        valid = false;
+      }
+      resultType = lowerType(
+        booleanType.storage,
+        `${resultPath}/type/storage`,
+        false,
+      );
+      if (resultType?.kind !== "nativeScalar" || resultType.scalar === "f64") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${resultPath}/type`,
+          "Native boolean storage must lower to an exact integer scalar",
+        ));
+        resultType = null;
+        valid = false;
+      } else {
+        resultOwnership = Object.freeze({ kind: "value" });
+        resultProjection = Object.freeze({
+          kind: "boolean",
+          falseValue: booleanType.falseValue,
+          trueValue: booleanType.trueValue,
         });
       }
     } else {

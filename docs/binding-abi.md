@@ -146,12 +146,14 @@ signatures, not aggregate layout or calling-convention classification.
 
 The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
-GObject ownership adapter agree. It currently maps selected GObject constructors,
-instance methods, `void`, required borrowed NUL-terminated UTF-8 inputs, borrowed
-UTF-8 results, and confined owned handles into canonical declarations and a
-validated SCABI manifest. Equivalent unordered target inputs produce identical
-output. Any reached signal or parameter/result form outside that closed algebra
-is an error instead of a guessed projection.
+GObject adapter agree. It currently maps selected GObject constructors,
+instance methods, `void`, exact `gboolean`, required borrowed NUL-terminated
+UTF-8 inputs, borrowed UTF-8 results, confined owned handles, and non-detailed
+zero-payload `void` signals into canonical declarations and a validated SCABI
+manifest. Equivalent unordered target inputs produce identical output. Signals
+are adapter entries rather than invented direct C functions. Any reached signal
+or parameter/result form outside that closed algebra is an error instead of a
+guessed projection.
 
 Opaque handles declare their direct upcast edges explicitly. The first edge
 kind is `identity`: source and target share the exact foreign-pointer
@@ -167,8 +169,15 @@ required and presents exactly one strong, non-floating reference to the future
 managed-handle projection. Its C source and object are declared artifact-graph
 nodes. The generated constructor SCABI binding enters through the adapter symbol
 and names its generated release binding as the owned-handle destructor. Repeated
-native identity, weak/invalidation policy, and method or signal adapters remain
+native identity, weak/invalidation policy, and broader method adapters remain
 separate work.
+
+For an accepted zero-payload signal, the same generated source owns an explicit
+subscription object. It strongly retains the GObject instance, records the
+handler ID and opaque callback token, and disconnects, unreferences, and frees
+in one deterministic destructor. SCABI exposes that object as a confined,
+non-identity handle whose owned-result lifecycle closes callback admission
+before native disconnection and drains admitted callbacks before final release.
 
 ## Native type algebra
 
@@ -191,6 +200,13 @@ Every type is a tagged value. Core SCABI v1 supports:
 
 Ordinary TypeScript strings, bytes, records, and errors map through explicit
 marshalling rules. They are not native types by implication.
+
+A native boolean names an integer storage type plus distinct, canonical,
+in-range false and true values. Its source projection is an ordinary TypeScript
+`boolean`; the storage integer is ABI-only. Both backends compare the exact
+physical value, preserve a previously pending callback exception, and throw a
+catchable `TypeError` if native code returns any representation other than the
+two declared values.
 
 ## Layout
 
@@ -315,14 +331,22 @@ transport-safe arguments. A callback requiring a synchronous TypeScript result
 from a foreign thread is unsupported until a separately specified execution
 model exists.
 
-The implemented first callback slice accepts only non-variadic C callbacks with
+The implemented call-scoped callback slice accepts non-variadic C callbacks with
 exact scalar value parameters, an exact scalar or `void` result, and one typed
 context pointer in the trailing physical parameter position. The callback and
 context are non-null, call-scoped, owned by the native call, delivered
 synchronously on the caller, and explicitly reentrant. Every callback argument
-is borrowed in ABI order. Translation rejects retained lifetimes, cancellation,
-foreign executors, asynchronous delivery, missing context, or looser transport
-instead of approximating those contracts.
+is borrowed in ABI order.
+
+The implemented retained slice accepts `until-cancelled` callbacks with a
+`void` native result and copied exact-scalar payloads, including the zero-payload
+case. Same-caller or attached foreign producers admit opaque token events
+without entering the ScriptC heap; delivery runs one callback per runtime-owner
+turn. A result-owned native handle names the cancellation binding, closes new
+admission before its destructor, and completes only after the native disconnect
+returns and admitted leases drain. Other retained ownership modes, borrowed or
+aggregate payloads, synchronous foreign-thread results, and callbacks without
+an enforceable cancellation edge remain rejected.
 
 ## Error contract
 

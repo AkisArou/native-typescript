@@ -123,7 +123,10 @@ before a temporary handle is released, and translates the synchronous
 call-scoped exact-scalar callback and its
 trailing context parameter, plus exact integer `errno` and nullable owned-handle
 failures. A three-level native-handle hierarchy verifies that a derived value
-reaches a base-typed native call through the same managed cell. It resolves
+reaches a base-typed native call through the same managed cell. Exact
+integer-backed native boolean results verify false/true projection, rejection
+of undeclared representations, and exception propagation across a helper call.
+It resolves
 their TypeScript declaration symbols
 and links the resulting source-lowered programs against the permanent C fixture
 through both ScriptC backends:
@@ -181,13 +184,16 @@ contract and, when the system file exists, parses the real `Gtk-4.0.gir`
 `Gtk.Button` surface. The runtime test compiles the GLib adapter in plain,
 ASan/UBSan, and TSan modes.
 The application test builds the ScriptC compiler, regenerates selected Widget,
-Button, and Window declarations, SCABI, and ownership adapters from installed GIR plus
+Button, and Window declarations, SCABI, GObject adapters, and a deterministic
+zero-payload signal subscription adapter from installed GIR plus
 sandboxed Clang evidence, composes that package with the canonical GTK runtime
 fixture, and emits C and LLVM programs. It captures ScriptC's exact native
 driver request, resolves compile inputs and the system-library closure from
-`pkg-config`, materializes the runtime, wrapper, generated ownership adapter,
+`pkg-config`, materializes the runtime, wrapper, generated GObject adapter,
 and final executable through sandboxed graphs, then proves
-`Window.setChild(button)` through generated handle ancestry and runs both
+`Window.setChild(button)` through generated handle ancestry, projects
+`Widget.activate()` from exact `gboolean`, delivers `Button.clicked` through a
+generated result-owned retained callback, and runs both
 backends against a real GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,
 Bubblewrap, GIR, or Xvfb inputs are unavailable.
 

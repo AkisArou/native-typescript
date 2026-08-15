@@ -37,6 +37,9 @@ int main(void) {
   assert(nts_usize_identity(SIZE_MAX) == SIZE_MAX);
   assert(nts_f32_identity(1.25f) == 1.25f);
   assert(nts_f64_identity(1.25) == 1.25);
+  assert(nts_boolean_false() == 0);
+  assert(nts_boolean_invalid() == 2);
+  assert(nts_boolean_true() == 1);
 
   NtsPadded input = {.tag = 7, .value = UINT64_C(0xfeedface), .ratio = 0.5};
   NtsPadded output = nts_padded_roundtrip(input);

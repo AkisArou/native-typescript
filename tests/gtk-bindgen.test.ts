@@ -86,11 +86,11 @@ test(
           methods: ["get_label", "set_label"],
           signals: ["clicked"],
         },
-        { name: "Widget" },
+        { name: "Widget", methods: ["activate"] },
         {
           name: "Window",
           constructors: ["new"],
-          methods: ["destroy", "set_child"],
+          methods: ["destroy", "present", "set_child"],
         },
       ],
     });
@@ -99,8 +99,10 @@ test(
       "gtk_button_new_with_label",
       "gtk_button_get_label",
       "gtk_button_set_label",
+      "gtk_widget_activate",
       "gtk_window_new",
       "gtk_window_destroy",
+      "gtk_window_present",
       "gtk_window_set_child",
     ]);
     assert.equal(probe.source.includes("clicked"), false);
@@ -160,8 +162,10 @@ test(
         "gtk_button_new_with_label",
         "gtk_button_get_label",
         "gtk_button_set_label",
+        "gtk_widget_activate",
         "gtk_window_new",
         "gtk_window_destroy",
+        "gtk_window_present",
         "gtk_window_set_child",
       ]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
@@ -174,12 +178,13 @@ test(
             name: "Button",
             constructors: ["new_with_label"],
             methods: ["get_label", "set_label"],
+            signals: ["clicked"],
           },
-          { name: "Widget" },
+          { name: "Widget", methods: ["activate"] },
           {
             name: "Window",
             constructors: ["new"],
-            methods: ["destroy", "set_child"],
+            methods: ["destroy", "present", "set_child"],
           },
         ],
       });
@@ -215,18 +220,22 @@ test(
           { id: "gtk4", kind: "system-library", name: "gtk4", order: 0 },
         ],
         adapterInput: {
-          id: "gtk4.gobject-constructors",
+          id: "gtk4.gobject-adapters",
           output: "gobject-adapters.o",
         },
       });
       assert.equal(generated.manifest.declarations.digest, generated.declarationsDigest);
       assert.deepEqual(Object.keys(generated.manifest.bindings), [
+        "gtk_button_connect_clicked",
+        "gtk_button_disconnect_clicked",
         "gtk_button_get_label",
         "gtk_button_new_with_label",
         "gtk_button_release",
         "gtk_button_set_label",
+        "gtk_widget_activate",
         "gtk_window_destroy",
         "gtk_window_new",
+        "gtk_window_present",
         "gtk_window_release",
         "gtk_window_set_child",
       ]);
@@ -238,6 +247,11 @@ test(
       assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
       assert.match(generated.declarations, /interface Button extends Widget/u);
       assert.match(generated.declarations, /interface Window extends Widget/u);
+      assert.match(generated.declarations, /activate\(\): boolean;/u);
+      assert.match(
+        generated.declarations,
+        /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
+      );
       assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
       assert.match(
         generated.declarations,
@@ -266,10 +280,13 @@ test(
       const translated = translateScabiNativeProgram(generated.manifest, {
         imports: [
           "gtk_button_get_label",
+          "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_widget_activate",
           "gtk_window_destroy",
           "gtk_window_new",
+          "gtk_window_present",
           "gtk_window_set_child",
         ],
         exports: [],
@@ -288,8 +305,22 @@ test(
       assert.deepEqual(buttonType.upcasts, [
         { kind: "identity", target: widgetType.id },
       ]);
+      const activate = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_widget_activate",
+      );
+      assert.deepEqual(activate?.result, {
+        type: { kind: "nativeScalar", scalar: "i32" },
+        passMode: "value",
+        ownership: { kind: "value" },
+        projection: { kind: "boolean", falseValue: "0", trueValue: "1" },
+      });
+      const connect = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "nts_gobject_connect_button_clicked",
+      );
+      assert.equal(connect?.arguments[1]?.type.kind, "func");
+      assert.equal(connect?.arguments[1]?.callback?.lifetime, "until-cancelled");
       assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
-        "gtk4.gobject-constructors",
+        "gtk4.gobject-adapters",
       ]);
       assert.deepEqual(
         translated.input.bindings

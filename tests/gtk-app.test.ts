@@ -132,7 +132,7 @@ function literalArguments(values: readonly string[]): readonly ArtifactActionArg
 }
 
 test(
-  "compiled TypeScript composes a generated GTK hierarchy with a real window loop",
+  "compiled TypeScript delivers a generated GTK signal through a real window loop",
   {
     skip:
       process.platform !== "linux" ||
@@ -214,12 +214,13 @@ test(
             name: "Button",
             constructors: ["new_with_label"],
             methods: ["get_label", "set_label"],
+            signals: ["clicked"],
           },
-          { name: "Widget" },
+          { name: "Widget", methods: ["activate"] },
           {
             name: "Window",
             constructors: ["new"],
-            methods: ["destroy", "set_child"],
+            methods: ["destroy", "present", "set_child"],
           },
         ],
       });
@@ -307,7 +308,7 @@ test(
           order,
         })),
         adapterInput: {
-          id: "gtk4.gobject-constructors",
+          id: "gtk4.gobject-adapters",
           output: "gobject-adapters.o",
         },
       });
@@ -330,10 +331,13 @@ test(
       const gtkTranslated = translateScabiNativeProgram(generatedGtk.manifest, {
         imports: [
           "gtk_button_get_label",
+          "gtk_button_connect_clicked",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_widget_activate",
           "gtk_window_destroy",
           "gtk_window_new",
+          "gtk_window_present",
           "gtk_window_set_child",
         ],
         exports: [],
@@ -367,7 +371,7 @@ test(
       );
       if (!translated.ok) return;
       assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
-        "gtk4.gobject-constructors",
+        "gtk4.gobject-adapters",
       ]);
       assert.deepEqual(
         translated.build.linkInputs.map(({ id }) => id),

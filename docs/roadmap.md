@@ -193,19 +193,25 @@ The selected `Gtk.Button` constructor and label getter/setter now also become a
 structured C probe and pass exact compatibility assertions against the installed
 GTK headers inside the sandboxed artifact graph. The first GTK package generator
 accepts that normalized evidence only when it matches the selected GIR snapshot,
-target, SDK, and exact regenerated ownership adapter. It emits canonical
+target, SDK, and exact regenerated GObject adapter. It emits canonical
 TypeScript declarations and validated SCABI for the narrow managed-handle,
-`void`, and NUL-terminated UTF-8 surface. Signals remain semantic GIR metadata
-rather than direct C function candidates. Aggregate layout evidence, broader
-type/result lowering, and GObject identity, weak-handle, and invalidation policy
-remain before broader selected metadata can drive application compilation.
+`void`, exact `gboolean`, NUL-terminated UTF-8, and non-detailed zero-payload
+signal surface. Signals remain semantic GIR metadata rather than invented direct
+C functions: the generator emits deterministic connect/disconnect adapters and
+result-owned retained-callback contracts. Aggregate layout evidence, broader
+type/result and signal-payload lowering, and GObject identity, weak-handle, and
+invalidation policy remain before broader selected metadata can drive
+application compilation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and
-becomes `string | null`. The generated Button package now enters the real
-application compilation too: TypeScript constructs, reads, updates, and disposes
-a real button through both backends, with its generated ownership adapter linked
-as an explicit artifact.
+becomes `string | null`. Exact integer-backed native booleans also project to an
+ordinary TypeScript `boolean`; the physical result must equal the declared false
+or true representation, and any other value throws catchably through transitive
+may-throw analysis. The generated GTK package now enters the real application
+compilation: TypeScript constructs, reads, updates, activates, and disposes a
+real Widget/Button/Window hierarchy through both backends, with generated
+adapters linked as explicit artifacts.
 
 Multi-package Native IR inputs now have a first-class canonical composition
 boundary. Generated toolkit bindings and target-runtime support can enter one
@@ -226,6 +232,14 @@ generated constructor binding now enters through the ownership adapter and uses
 its generated release symbol as the owned handle destructor. General identity-map
 reuse, weak handles, and native invalidation remain.
 
+The first generated signal policy is executable too. A selected zero-payload
+signal generates a C subscription object that strongly retains its instance,
+owns the handler ID, and disconnects deterministically. Its SCABI result handle
+owns the retained callback registration, closes admission before disconnect,
+delivers on the runtime owner without inline TypeScript reentrancy, drains
+already admitted turns, and guarantees no invocation after disposal. Detailed
+signals, payloads, return values, and other lifetime policies fail precisely.
+
 A permanent narrow fixture now compiles through both C and LLVM into a native
 GTK executable, creates a real window and button, delivers the button signal to
 a retained TypeScript callback, observes its microtask, and tears down the
@@ -233,16 +247,16 @@ signal, handle, callback service, attached loop, and window with exact
 destruction assertions. It contains no JavaScript engine. Its GLib runtime and
 GTK wrapper C objects are now materialized by the sandboxed artifact executor
 from content-addressed local and pkg-config SDK trees; physical SDK paths do not
-enter the graph. The same app now composes the generated `Gtk.Button` package
-for direct construction, label access, and disposal with the hand-authored
-Window/signal runtime package. The remaining wrapper exists because that
-lifecycle and signal surface is broader than the implemented package generator.
-Expanding generated SCABI/declarations to that
-surface, aggregate layout evidence, general GObject identity/weak-reference
-rules, generated signal adapters, graphing compiler emission itself, enabling
-cacheability for the complete native toolchain, full application lifecycle,
-resources, CLI orchestration, and GTK packaging remain before the phase exit
-gate.
+enter the graph. The app now uses the generated GTK package for Window/Button
+construction, label access, Widget ancestry, presentation, activation,
+`clicked` subscription, and deterministic disposal. The remaining hand-authored
+fixture provides host-loop control, completion observation, and the independent
+counter event used to prove turn composition; it no longer owns the application
+widget or signal API. Aggregate layout evidence, broader generated methods and
+signal payloads, general GObject identity/weak-reference rules, graphing compiler
+emission itself, cacheability for the complete native toolchain, full
+application lifecycle, resources, CLI orchestration, and GTK packaging remain
+before the phase exit gate.
 
 ### Acceptance application
 

@@ -1,5 +1,7 @@
 declare const nativeScalar: unique symbol;
 declare const nativeResource: unique symbol;
+declare const nativeCounterBaseResource: unique symbol;
+declare const nativeCounterMiddleResource: unique symbol;
 
 type NativeScalar<Name extends string, Carrier> = Carrier & {
   readonly [nativeScalar]: Name;
@@ -35,12 +37,20 @@ export interface Subscription {
   dispose(): void;
 }
 
-export interface Counter {
+export interface CounterBase {
+  readonly [nativeCounterBaseResource]: true;
+  value(): i32;
+}
+
+export interface CounterMiddle extends CounterBase {
+  readonly [nativeCounterMiddleResource]: true;
+}
+
+export interface Counter extends CounterMiddle {
   readonly [nativeResource]: "Counter";
   add(delta: i32): i32;
   label(): string | null;
   requiredLabel(): string;
-  value(): i32;
   dispose(): void;
 }
 
@@ -55,6 +65,9 @@ export declare function u64Identity(value: u64): u64;
 export declare function usizeIdentity(value: usize): usize;
 export declare function f32Identity(value: f32): f32;
 export declare function f64Identity(value: f64): f64;
+export declare function nativeFalse(): boolean;
+export declare function nativeInvalidBoolean(): boolean;
+export declare function nativeTrue(): boolean;
 export declare function paddedRoundtrip(value: Padded): Padded;
 export declare function hashUtf8(value: string): u64;
 export declare function cStringObserve(value: string): void;

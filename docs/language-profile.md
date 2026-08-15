@@ -149,6 +149,15 @@ Binding declarations must use exact scalars wherever the native ABI does.
 Ordinary `number` is accepted only when the binding explicitly declares a
 JavaScript-number conversion policy.
 
+### Native boolean projection
+
+An ABI boolean is not an exact-integer source alias. SCABI declares its integer
+storage and exact false/true representations, while TypeScript sees an ordinary
+`boolean`. A native result is accepted only when its raw storage equals one of
+those two values. Any other representation throws a catchable `TypeError` at
+the native-call boundary; it is never normalized by C truthiness. The ABI-only
+storage type need not be exported as a TypeScript declaration.
+
 ## Native aggregates
 
 Native structs and unions are layout values, distinct from ordinary structural
@@ -247,12 +256,12 @@ the destructor synchronously and idempotently. Releasing the final alias does
 the same automatically if explicit disposal has not occurred.
 
 The pointer, destructor, and nominal type tag remain runtime-private. This
-slice is confined to the runtime owner lane and does not yet provide retained
-or weak handles, binding-declared identity unification, external native
-invalidation, executor-hopping destruction, callbacks, or foreign-thread
-ingress. It therefore rejects handle equality, sendable/shared handle types,
-non-owner handle calls, and general consuming transfers even when their SCABI
-metadata is retained for a later slice.
+slice is confined to the runtime owner lane and does not yet provide weak
+handles, binding-declared identity unification, external native invalidation,
+executor-hopping destruction, or general consuming transfers. A result-owned
+handle may carry the implemented callback-cancellation lifecycle edge, but the
+handle itself never becomes foreign-thread accessible. Handle equality,
+sendable/shared handle types, and non-owner handle calls remain rejected.
 
 ## Native failures
 
@@ -311,10 +320,16 @@ generated trampoline plus the borrowed closure context. Captured state therefore
 works without global or thread-local callback slots. A callback throw propagates
 through the outer native call into the surrounding TypeScript `catch`.
 
-The native side may not store or invoke either pointer after return. Retained,
-once, weak, cancellable, asynchronously delivered, foreign-thread, variadic, or
-aggregate callback contracts remain unsupported until their callback-table,
-owner-scheduler, transport, and lifetime primitives are implemented.
+The native side may not store or invoke either pointer after return.
+
+The implemented retained slice separately supports `until-cancelled` callbacks
+with copied exact-scalar payloads and a `void` result. Native producers receive
+only an opaque token; same-caller and attached foreign threads can admit copied
+events without touching ScriptC heap state, and the runtime owner invokes one
+rooted closure per host turn. A result-owned native handle provides the exact
+cancellation edge and prevents post-disposal invocation. Once/weak lifetimes,
+borrowed or aggregate retained payloads, synchronous foreign-thread results,
+and callbacks lacking deterministic cancellation remain unsupported.
 
 ## Async behavior
 

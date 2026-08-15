@@ -33,12 +33,24 @@ export interface GObjectConstructorAdapter {
   readonly nullable: boolean;
 }
 
+export interface GObjectSignalAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly nativeType: string;
+  readonly signalName: string;
+  readonly subscriptionNativeType: string;
+  readonly connectSymbol: string;
+  readonly disconnectSymbol: string;
+  readonly callbackType: string;
+}
+
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
+  readonly signals: readonly GObjectSignalAdapter[];
 }
 
 export interface GObjectAdapterObjectPlan {
@@ -83,6 +95,18 @@ function sourceTransfer(
     message: "GObject constructors cannot transfer container-only ownership",
   });
   return null;
+}
+
+function upperCamel(value: string): string {
+  return value
+    .split(/[_-]+/u)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join("");
+}
+
+function signalSymbolPart(value: string): string {
+  return value.replaceAll("-", "_");
 }
 
 function generateConstructor(
@@ -187,14 +211,119 @@ function generateConstructor(
   };
 }
 
+function generateSignal(
+  class_: GirClass,
+  callable: GirCallable,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectSignalAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/signal/${callable.name}`;
+  const signalPart = signalSymbolPart(callable.name);
+  const nativeClass = physicalType(class_.cType, `${path}/class`, diagnostics);
+  const result = physicalType(callable.result.type.cType, `${path}/result`, diagnostics);
+  if (
+    nativeClass === null ||
+    nativeClass.kind !== "named" ||
+    result === null ||
+    result.kind !== "named" ||
+    result.name !== "void" ||
+    callable.parameters.length !== 0 ||
+    callable.result.transferOwnership !== "none" ||
+    callable.result.nullable ||
+    callable.result.skip ||
+    callable.result.scope !== null ||
+    callable.result.closureParameter !== null ||
+    callable.result.destroyParameter !== null ||
+    callable.signalDetailed
+  ) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path,
+      message: "Only non-detailed, zero-parameter void GObject signals are implemented",
+    });
+    return null;
+  }
+
+  const classPart = class_.cSymbolPrefix;
+  const typeStem = `NtsGObject${upperCamel(class_.name)}${upperCamel(callable.name)}`;
+  const callbackType = `${typeStem}Callback`;
+  const subscriptionNativeType = `${typeStem}Subscription`;
+  const connectSymbol = `nts_gobject_connect_${classPart}_${signalPart}`;
+  const disconnectSymbol = `nts_gobject_disconnect_${classPart}_${signalPart}`;
+  const dispatchSymbol = `nts_gobject_dispatch_${classPart}_${signalPart}`;
+  const nativeClassPointer = `${renderCType(nativeClass)} *`;
+  const lines = [
+    `typedef void (*${callbackType})(void *context);`,
+    `typedef struct ${subscriptionNativeType} {`,
+    `  ${nativeClassPointer}instance;`,
+    "  gulong handler;",
+    `  ${callbackType} callback;`,
+    "  void *context;",
+    `} ${subscriptionNativeType};`,
+    "",
+    `static void ${dispatchSymbol}(${nativeClassPointer}instance, void *opaque) {`,
+    "  (void)instance;",
+    `  ${subscriptionNativeType} *subscription = opaque;`,
+    "  subscription->callback(subscription->context);",
+    "}",
+    "",
+    `${subscriptionNativeType} *${connectSymbol}(`,
+    `    ${nativeClassPointer}instance, ${callbackType} callback, void *context) {`,
+    "  if (instance == NULL || callback == NULL) return NULL;",
+    `  ${subscriptionNativeType} *subscription = calloc(1, sizeof *subscription);`,
+    "  if (subscription == NULL) return NULL;",
+    "  subscription->instance = g_object_ref(instance);",
+    "  subscription->callback = callback;",
+    "  subscription->context = context;",
+    `  subscription->handler = g_signal_connect(instance, "${callable.name}",`,
+    `      G_CALLBACK(${dispatchSymbol}), subscription);`,
+    "  if (subscription->handler == 0) {",
+    "    g_object_unref(subscription->instance);",
+    "    free(subscription);",
+    "    return NULL;",
+    "  }",
+    "  return subscription;",
+    "}",
+    "",
+    `void ${disconnectSymbol}(${subscriptionNativeType} *subscription) {`,
+    "  if (subscription == NULL) return;",
+    "  if (subscription->handler != 0 &&",
+    "      g_signal_handler_is_connected(subscription->instance, subscription->handler)) {",
+    "    g_signal_handler_disconnect(subscription->instance, subscription->handler);",
+    "  }",
+    "  g_object_unref(subscription->instance);",
+    "  free(subscription);",
+    "}",
+    "",
+  ];
+  return {
+    adapter: Object.freeze({
+      id: `${class_.name}.signal.${callable.name}`,
+      className: class_.name,
+      nativeType: class_.cType,
+      signalName: callable.name,
+      subscriptionNativeType,
+      connectSymbol,
+      disconnectSymbol,
+      callbackType,
+    }),
+    lines,
+  };
+}
+
 export function generateGObjectAdapterSource(
   snapshot: GirSnapshot,
 ): GObjectAdapterSource {
   const diagnostics: CBindgenDiagnostic[] = [];
   const constructors: GObjectConstructorAdapter[] = [];
+  const signals: GObjectSignalAdapter[] = [];
   const lines = [
     "/* Generated by @native-typescript/target-gtk. */",
     ...snapshot.cIncludes.map((include) => `#include <${include}>`),
+    "#include <stdlib.h>",
     "",
   ];
   for (const class_ of snapshot.classes) {
@@ -215,13 +344,23 @@ export function generateGObjectAdapterSource(
         "",
       );
     }
+    for (const callable of class_.signals) {
+      const generated = generateSignal(class_, callable, diagnostics);
+      if (generated === null) continue;
+      signals.push(generated.adapter);
+      lines.push(...generated.lines);
+    }
   }
-  if (constructors.length === 0) {
+  if (
+    constructors.length === 0 &&
+    signals.length === 0 &&
+    diagnostics.length === 0
+  ) {
     diagnostics.push({
       code: "NTS5001",
       severity: "error",
-      path: "constructors",
-      message: "GObject adapter generation requires a selected constructor",
+      path: "adapters",
+      message: "GObject adapter generation requires a selected constructor or signal",
     });
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
@@ -229,10 +368,11 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 1,
+    schemaVersion: 2,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
+    signals: Object.freeze(signals),
   });
 }
 

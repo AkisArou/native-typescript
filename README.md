@@ -175,7 +175,11 @@ operation-qualified `Error` is thrown through the ordinary catch path in both
 backends. Nullable owned handle results also throw before null wrapping;
 non-null results preserve their exact destructor during ordinary returns and
 callback-exception unwinding. Other native error conventions remain explicit
-future slices. The ScriptC fork now also has the standalone foreign-thread
+future slices. Exact integer-backed native boolean results now use their SCABI
+false/true representations directly in both backends and become ordinary
+TypeScript `boolean` values. Any other native representation throws a catchable
+`TypeError`, including through transitive helper calls. The ScriptC fork now
+also has the standalone foreign-thread
 ingress foundation: an
 instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
 shutdown states, and exact event destruction under admission races. It is
@@ -223,18 +227,26 @@ content-addressed probe. Sandboxed Clang checks the candidate types against the
 real headers and emits selected AST evidence as a graph artifact; correct
 Button and Window constructor/method signatures pass and a deliberate const
 mismatch fails in Clang. The first generator consumes that evidence together
-with the exact selected GIR snapshot and ownership-adapter source, then emits
+with the exact selected GIR snapshot and GObject-adapter source, then emits
 canonical TypeScript declarations and a validated SCABI package for managed
 Widget ancestry, Button and Window construction/disposal, label access, and
-borrowed handle parameters. Reached metadata outside the implemented
-handle/void/NUL-terminated UTF-8 algebra fails generation.
+borrowed handle parameters. It also generates exact `gboolean` methods and
+deterministic result-owned subscriptions for non-detailed zero-payload `void`
+signals. The adapter strongly retains the signal instance, disconnects by its
+handler ID, and composes with ScriptC's retained callback lifecycle so no
+callback runs after disposal. Reached metadata outside the implemented
+handle/void/boolean/NUL-terminated UTF-8/zero-payload-signal algebra fails
+generation.
 The application gate now regenerates that package from installed GIR plus
 sandboxed Clang evidence, composes it with the target-runtime package, compiles
 both ScriptC backends, and executes constructor, nullable label getter, setter,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
-disposal against real GTK. The hand-authored wrapper remains for the
-signal-driven counter/event-loop fixture. Record layout, broader type lowering,
-and GObject identity and weak-reference policy remain. Selected
+disposal against real GTK. It calls generated `Widget.activate()`, projects its
+native boolean result, and receives the resulting real `Button.clicked` through
+the generated retained subscription. The remaining hand-authored fixture is
+limited to host-loop/completion control and an independent counter turn. Record
+layout, broader type and signal-payload lowering, and GObject identity and
+weak-reference policy remain. Selected
 constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one
 strong, non-floating reference, the object is compiled through the artifact

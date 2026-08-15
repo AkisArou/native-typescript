@@ -97,6 +97,14 @@ function handleBrand(className: string): string {
   return `nativeResource${upperCamel(className)}`;
 }
 
+function signalSubscriptionName(className: string, signalName: string): string {
+  return `${className}${upperCamel(signalName)}Subscription`;
+}
+
+function signalSubscriptionBrand(className: string, signalName: string): string {
+  return `nativeResource${signalSubscriptionName(className, signalName)}`;
+}
+
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -220,7 +228,9 @@ function validateInputs(
     options.gobjectAdapter.schemaVersion !== expectedAdapter.schemaVersion ||
     options.gobjectAdapter.source !== expectedAdapter.source ||
     canonicalizeJson(options.gobjectAdapter.constructors) !==
-      canonicalizeJson(expectedAdapter.constructors)
+      canonicalizeJson(expectedAdapter.constructors) ||
+    canonicalizeJson(options.gobjectAdapter.signals) !==
+      canonicalizeJson(expectedAdapter.signals)
   ) {
     diagnostics.push(
       diagnostic(
@@ -352,6 +362,23 @@ function methodResult(
   }
   if (
     result.type.kind === "named" &&
+    result.type.name === "gboolean" &&
+    result.type.cType === "gboolean" &&
+    result.transferOwnership === "none" &&
+    !result.nullable &&
+    result.scope === null &&
+    result.closureParameter === null &&
+    result.destroyParameter === null
+  ) {
+    return Object.freeze({
+      type: "gboolean",
+      passMode: "value",
+      nullable: false,
+      ownership: Object.freeze({ kind: "value" }),
+    });
+  }
+  if (
+    result.type.kind === "named" &&
     result.type.name === "utf8" &&
     result.type.cType === "const char*" &&
     result.transferOwnership === "none" &&
@@ -377,7 +404,10 @@ function methodResult(
       }),
     });
   }
-  diagnostics.push(diagnostic(path, "Method result is outside the void/borrowed-UTF-8 slice"));
+  diagnostics.push(diagnostic(
+    path,
+    "Method result is outside the void/boolean/borrowed-UTF-8 slice",
+  ));
   return null;
 }
 
@@ -445,6 +475,13 @@ export function generateGtkScabiPackage(
       addressSpace: 0,
     }),
     i8: Object.freeze({ kind: "integer", signed: true, bits: 8 }),
+    gint: Object.freeze({ kind: "integer", signed: true, bits: 32 }),
+    gboolean: Object.freeze({
+      kind: "boolean",
+      storage: "gint",
+      falseValue: "0",
+      trueValue: "1",
+    }),
     nullable_const_utf8: Object.freeze({
       kind: "pointer",
       pointee: "i8",
@@ -465,6 +502,9 @@ export function generateGtkScabiPackage(
     ...options.snapshot.classes.map((class_) =>
       `declare const ${handleBrand(class_.name)}: unique symbol;`
     ),
+    ...options.snapshot.classes.flatMap((class_) => class_.signals.map((signal) =>
+      `declare const ${signalSubscriptionBrand(class_.name, signal.name)}: unique symbol;`
+    )),
     "",
   ];
   const adapterBindings: string[] = [];
@@ -475,15 +515,13 @@ export function generateGtkScabiPackage(
   const adapterByConstructor = new Map(
     options.gobjectAdapter.constructors.map((constructor) => [constructor.id, constructor]),
   );
+  const adapterBySignal = new Map(
+    options.gobjectAdapter.signals.map((signal) => [signal.id, signal]),
+  );
   const declarations = new Set<string>();
 
   for (const class_ of options.snapshot.classes) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
-    if (class_.signals.length > 0) {
-      diagnostics.push(
-        diagnostic(`${classPath}/signals`, "Signal declaration generation is not implemented"),
-      );
-    }
     const typeId = typeIdByClass.get(class_.name)!;
     const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
     const releaseDeclaration = `${class_.name}.dispose`;
@@ -628,11 +666,179 @@ export function generateGtkScabiPackage(
       });
       const sourceResult = callable.result.type.cType === "void"
         ? "void"
-        : callable.result.nullable
-          ? "string | null"
-          : "string";
+        : callable.result.type.kind === "named" &&
+            callable.result.type.name === "gboolean"
+          ? "boolean"
+          : callable.result.nullable
+            ? "string | null"
+            : "string";
       interfaceLines.push(
         `  ${lowerCamel(callable.name)}(${sourceParameters.join(", ")}): ${sourceResult};`,
+      );
+    }
+    for (const callable of class_.signals) {
+      const path = `${classPath}/signal/${callable.name}`;
+      const adapter = adapterBySignal.get(`${class_.name}.signal.${callable.name}`);
+      const subscriptionName = signalSubscriptionName(class_.name, callable.name);
+      const signalPart = callable.name.replaceAll("-", "_");
+      const callbackTypeId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_${signalPart}_callback`;
+      const subscriptionTypeId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_${signalPart}_subscription`;
+      const connectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_connect_${signalPart}`;
+      const disconnectId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_disconnect_${signalPart}`;
+      const declaration = `${class_.name}.on${upperCamel(callable.name)}`;
+      const disconnectDeclaration = `${subscriptionName}.dispose`;
+      if (adapter === undefined) {
+        diagnostics.push(diagnostic(path, "GObject signal adapter is missing this signal"));
+        continue;
+      }
+      if (
+        types[callbackTypeId] !== undefined ||
+        types[subscriptionTypeId] !== undefined ||
+        declarationTypes[subscriptionTypeId] !== undefined ||
+        bindings[connectId] !== undefined ||
+        bindings[disconnectId] !== undefined ||
+        declarations.has(declaration) ||
+        declarations.has(disconnectDeclaration)
+      ) {
+        diagnostics.push(diagnostic(path, "Generated GObject signal identity collides"));
+        continue;
+      }
+      if (types.void_ptr === undefined) {
+        types.void_ptr = Object.freeze({
+          kind: "pointer",
+          pointee: "void",
+          mutability: "mutable",
+          nullable: true,
+          addressSpace: 0,
+        });
+      }
+      types[callbackTypeId] = Object.freeze({
+        kind: "callback",
+        signature: Object.freeze({
+          callingConvention: "c",
+          variadic: false,
+          parameters: Object.freeze([]),
+          result: Object.freeze({
+            type: "void",
+            passMode: "value",
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" }),
+          }),
+        }),
+        context: Object.freeze({ placement: "last", type: "void_ptr" }),
+      });
+      types[subscriptionTypeId] = Object.freeze({
+        kind: "handle",
+        nativeName: adapter.subscriptionNativeType,
+        threadSafety: "confined",
+        identity: "none",
+        upcasts: Object.freeze([]),
+      });
+      declarationTypes[subscriptionTypeId] = Object.freeze({
+        module: ".",
+        name: subscriptionName,
+      });
+      bindings[disconnectId] = callableBase({
+        declaration: disconnectDeclaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: adapter.disconnectSymbol,
+        parameters: [Object.freeze({
+          name: "subscription",
+          type: subscriptionTypeId,
+          passMode: "pointer",
+          nullable: true,
+          ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
+        })],
+        result: Object.freeze({
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+      });
+      bindings[connectId] = callableBase({
+        declaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: adapter.connectSymbol,
+        parameters: [
+          Object.freeze({
+            name: lowerCamel(class_.name),
+            type: typeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+          }),
+          Object.freeze({
+            name: "callback",
+            type: callbackTypeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "borrowed",
+              scope: "registration",
+              anchor: "result",
+            }),
+            callback: Object.freeze({
+              lifetime: "until-cancelled",
+              registrationOwner: "result",
+              cancellationBinding: disconnectId,
+              contextParameter: "context",
+              allowedInvocationExecutors: Object.freeze([
+                Object.freeze({ kind: "same-as-caller" as const }),
+              ]),
+              deliveryExecutor: Object.freeze({ kind: "runtime-owner" }),
+              synchronousReturn: false,
+              arguments: Object.freeze([]),
+              reentrancy: "allowed",
+              postDisposal: "not-invoked",
+              shutdown: "drain",
+            }),
+          }),
+          Object.freeze({
+            name: "context",
+            type: "void_ptr",
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "borrowed",
+              scope: "registration",
+              anchor: "callback",
+            }),
+          }),
+        ],
+        result: Object.freeze({
+          type: subscriptionTypeId,
+          passMode: "pointer",
+          nullable: true,
+          ownership: Object.freeze({
+            kind: "owned",
+            transfer: "to-runtime",
+            destructor: disconnectId,
+          }),
+        }),
+        error: Object.freeze({ kind: "nullable" }),
+        dependencies: dependencies({
+          bindings: [disconnectId],
+          links: linkIds,
+          adapter: options.adapterInput.id,
+        }),
+        availability: availability(class_, callable),
+      });
+      declarations.add(declaration);
+      declarations.add(disconnectDeclaration);
+      adapterBindings.push(connectId, disconnectId);
+      interfaceLines.push(
+        `  on${upperCamel(callable.name)}(callback: () => void): ${subscriptionName};`,
+      );
+      declarationLines.push(
+        `export interface ${subscriptionName} {`,
+        `  readonly [${signalSubscriptionBrand(class_.name, callable.name)}]: true;`,
+        "  dispose(): void;",
+        "}",
+        "",
       );
     }
     if (class_.constructors.length > 0) interfaceLines.push("  dispose(): void;");
@@ -754,6 +960,7 @@ export function generateGtkScabiPackage(
         `--class=${class_.name}`,
         ...class_.constructors.map(({ name }) => `--constructor=${class_.name}.${name}`),
         ...class_.methods.map(({ name }) => `--method=${class_.name}.${name}`),
+        ...class_.signals.map(({ name }) => `--signal=${class_.name}.${name}`),
       ]),
       inputDigests: [
         options.snapshot.source.digest as Sha256Digest,
@@ -770,7 +977,7 @@ export function generateGtkScabiPackage(
     linkInputs: orderedLinkInputs,
     adapterInputs: [{
       id: options.adapterInput.id,
-      family: "gobject-constructor-ownership",
+      family: "gobject-adapters",
       language: "c",
       bindings: [...new Set(adapterBindings)].sort(),
       outputs: [options.adapterInput.output],

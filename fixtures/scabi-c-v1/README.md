@@ -16,12 +16,12 @@ Workspace tests validate schema and semantic invariants, check declaration and
 header provenance digests, compare aggregate layout with the C compiler, and
 compile/run the fixture with strict C11 diagnostics.
 
-The cross-repository ScriptC gate currently translates and executes the
-fixture's synchronous call-scoped callback through both C and LLVM. It proves
-exact scalar argument/result transport, captured closure context, reentrancy,
-and exception propagation under the ordinary and sanitizer/reference-count
-lanes. Retained and foreign-thread cases remain fixture contracts for later
-runtime callback-table and owner-gateway slices.
+The cross-repository ScriptC gate translates and executes the fixture through
+both C and LLVM. It covers exact scalars and native boolean results, aggregate
+ABI passing, borrowed strings and bytes, a three-level identity handle
+hierarchy, synchronous callbacks, retained same/foreign-thread callbacks,
+native errors, and exact destruction under ordinary and sanitizer/reference-
+count lanes.
 
 The exported `nts_ts_add_i32` symbol is deliberately declared but not
 implemented here. It becomes the first TypeScript-to-C export produced by the

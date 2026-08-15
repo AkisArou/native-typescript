@@ -117,7 +117,7 @@ function options(selected = snapshot()): GtkScabiGenerationOptions {
       { id: "gtk4", kind: "system-library", name: "gtk4", order: 0 },
     ],
     adapterInput: {
-      id: "gtk4.gobject-constructors",
+      id: "gtk4.gobject-adapters",
       output: "gobject-adapters.o",
     },
   };
@@ -172,7 +172,7 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   assert.deepEqual(generateGtkScabiPackage(options()), generated);
 });
 
-test("GTK SCABI generation rejects unverified evidence and reached signals", () => {
+test("GTK SCABI generation rejects unverified evidence and adapter drift", () => {
   const invalidEvidence = options();
   Object.assign(invalidEvidence, {
     evidence: Object.freeze({
@@ -183,14 +183,6 @@ test("GTK SCABI generation rejects unverified evidence and reached signals", () 
   const evidenceError = generationError(() => generateGtkScabiPackage(invalidEvidence));
   assert.equal(
     evidenceError.diagnostics.some(({ path }) => path === "evidence/probeDigest"),
-    true,
-  );
-
-  const signalError = generationError(() =>
-    generateGtkScabiPackage(options(snapshot(["clicked"])))
-  );
-  assert.equal(
-    signalError.diagnostics.some(({ path }) => path === "Gtk/Button/signals"),
     true,
   );
 
@@ -211,6 +203,48 @@ test("GTK SCABI generation rejects unverified evidence and reached signals", () 
     adapterError.diagnostics.some(({ path }) => path === "gobjectAdapter"),
     true,
   );
+});
+
+test("GTK SCABI lowers a zero-payload signal to a result-owned subscription", () => {
+  const generated = generateGtkScabiPackage(options(snapshot(["clicked"])));
+  assert.match(
+    generated.declarations,
+    /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
+  );
+  assert.match(
+    generated.declarations,
+    /export interface ButtonClickedSubscription/u,
+  );
+  assert.deepEqual(generated.manifest.types.gtk_button_clicked_subscription, {
+    kind: "handle",
+    nativeName: "NtsGObjectButtonClickedSubscription",
+    threadSafety: "confined",
+    identity: "none",
+    upcasts: [],
+  });
+  const connect = generated.manifest.bindings.gtk_button_connect_clicked;
+  assert.ok(connect && connect.kind !== "constant");
+  assert.equal(connect.entry.symbol, "nts_gobject_connect_button_clicked");
+  assert.deepEqual(connect.signature.parameters[1]?.callback, {
+    lifetime: "until-cancelled",
+    registrationOwner: "result",
+    cancellationBinding: "gtk_button_disconnect_clicked",
+    contextParameter: "context",
+    allowedInvocationExecutors: [{ kind: "same-as-caller" }],
+    deliveryExecutor: { kind: "runtime-owner" },
+    synchronousReturn: false,
+    arguments: [],
+    reentrancy: "allowed",
+    postDisposal: "not-invoked",
+    shutdown: "drain",
+  });
+  assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
+    "gtk_button_connect_clicked",
+    "gtk_button_disconnect_clicked",
+    "gtk_button_new_with_label",
+    "gtk_button_release",
+  ]);
+  assertDeepFrozen(generated);
 });
 
 test("GTK SCABI generation canonicalizes unordered target inputs", () => {

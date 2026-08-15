@@ -331,6 +331,26 @@ test("SCABI translates every reached integer with exact signedness and width", (
   );
 });
 
+test("SCABI projects integer-backed native boolean results", () => {
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["native_true"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.sourceTypes, []);
+  assert.deepEqual(result.input.bindings[0]?.declaration, {
+    module: "@native-typescript/scabi-c-v1-fixture",
+    name: "nativeTrue",
+  });
+  assert.deepEqual(result.input.bindings[0]?.result, {
+    type: { kind: "nativeScalar", scalar: "i32" },
+    passMode: "value",
+    ownership: { kind: "value" },
+    projection: { kind: "boolean", falseValue: "0", trueValue: "1" },
+  });
+});
+
 test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI slots", () => {
   const result = translateScabiNativeProgram(manifest, selectImports(["hash_utf8"]));
   assert.equal(result.ok, true);
@@ -936,7 +956,33 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
 
   const instance = "native-typescript.fixture.c-v1@0.0.0";
   const typeId = `${instance}#type:counter`;
+  const baseTypeId = `${instance}#type:counter_base`;
+  const middleTypeId = `${instance}#type:counter_middle`;
   assert.deepEqual(result.input.types, [
+    {
+      kind: "handle",
+      id: baseTypeId,
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "CounterBase",
+      },
+      nativeName: "NtsCounterBase",
+      threadSafety: "confined",
+      identity: "pointer",
+      upcasts: [],
+    },
+    {
+      kind: "handle",
+      id: middleTypeId,
+      declaration: {
+        module: "@native-typescript/scabi-c-v1-fixture",
+        name: "CounterMiddle",
+      },
+      nativeName: "NtsCounterMiddle",
+      threadSafety: "confined",
+      identity: "pointer",
+      upcasts: [{ kind: "identity", target: baseTypeId }],
+    },
     {
       kind: "handle",
       id: typeId,
@@ -947,7 +993,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       nativeName: "NtsCounter",
       threadSafety: "confined",
       identity: "pointer",
-      upcasts: [],
+      upcasts: [{ kind: "identity", target: middleTypeId }],
     },
   ]);
   assert.deepEqual(
@@ -1014,62 +1060,36 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
 });
 
 test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () => {
-  const hierarchy = structuredClone(manifest);
-  const counter = hierarchy.types.counter;
-  assert.equal(counter?.kind, "handle");
-  if (counter?.kind !== "handle") return;
-  Object.assign(hierarchy.types, {
-    counter_base: {
-      kind: "handle" as const,
-      nativeName: "NtsCounterBase",
-      threadSafety: "confined" as const,
-      identity: "pointer" as const,
-      upcasts: [],
-    },
-  });
-  Object.assign(hierarchy.declarations.types, {
-    counter_base: { module: ".", name: "CounterBase" },
-  });
-  Object.assign(counter, {
-    upcasts: [{ kind: "identity" as const, target: "counter_base" }],
-  });
-
   const result = translateScabiNativeProgram(
-    hierarchy,
+    manifest,
     selectImports(["counter_create"]),
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
   const instance = "native-typescript.fixture.c-v1@0.0.0";
-  assert.deepEqual(result.input.types, [
-    {
-      kind: "handle",
-      id: `${instance}#type:counter_base`,
-      declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
-        name: "CounterBase",
+  assert.deepEqual(
+    result.input.types.map((definition) => ({
+      id: definition.id,
+      upcasts: definition.kind === "handle" ? definition.upcasts : [],
+    })),
+    [
+      { id: `${instance}#type:counter_base`, upcasts: [] },
+      {
+        id: `${instance}#type:counter_middle`,
+        upcasts: [{
+          kind: "identity",
+          target: `${instance}#type:counter_base`,
+        }],
       },
-      nativeName: "NtsCounterBase",
-      threadSafety: "confined",
-      identity: "pointer",
-      upcasts: [],
-    },
-    {
-      kind: "handle",
-      id: `${instance}#type:counter`,
-      declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
-        name: "Counter",
+      {
+        id: `${instance}#type:counter`,
+        upcasts: [{
+          kind: "identity",
+          target: `${instance}#type:counter_middle`,
+        }],
       },
-      nativeName: "NtsCounter",
-      threadSafety: "confined",
-      identity: "pointer",
-      upcasts: [{
-        kind: "identity",
-        target: `${instance}#type:counter_base`,
-      }],
-    },
-  ]);
+    ],
+  );
 });
 
 test("SCABI lowers nullable owned handles as errors rather than nullable source values", () => {

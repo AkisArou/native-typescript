@@ -37,6 +37,9 @@ uint64_t nts_u64_identity(uint64_t value) { return value; }
 size_t nts_usize_identity(size_t value) { return value; }
 float nts_f32_identity(float value) { return value; }
 double nts_f64_identity(double value) { return value; }
+int32_t nts_boolean_false(void) { return 0; }
+int32_t nts_boolean_invalid(void) { return 2; }
+int32_t nts_boolean_true(void) { return 1; }
 
 NtsPadded nts_padded_roundtrip(NtsPadded value) { return value; }
 

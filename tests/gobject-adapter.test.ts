@@ -14,6 +14,9 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 import {
+  CBindgenError,
+} from "@native-typescript/bindgen-c";
+import {
   defineArtifactGraph,
   executeArtifactGraph,
   resolvePkgConfigSdk,
@@ -78,6 +81,19 @@ function adapter(transferOwnership: "none" | "full" = "none") {
   return generateGObjectAdapterSource(snapshot);
 }
 
+function signalAdapter() {
+  const snapshot = ingestGir(girSource, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{
+      name: "Button",
+      constructors: ["new_with_label"],
+      signals: ["clicked"],
+    }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
 function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
@@ -90,7 +106,7 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 1);
+  assert.equal(generated.schemaVersion, 2);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -105,6 +121,7 @@ test("GObject constructors normalize borrowed floating results to one strong ref
       nullable: false,
     },
   ]);
+  assert.deepEqual(generated.signals, []);
   assert.match(
     generated.source,
     /GtkButton \*nts_gobject_adopt_gtk_button_new_with_label\(const char \* parameter_0000\)/u,
@@ -117,6 +134,55 @@ test("GObject constructors normalize borrowed floating results to one strong ref
   );
   assertDeepFrozen(generated);
   assert.deepEqual(adapter(), generated);
+});
+
+test("zero-payload GObject signals generate owned deterministic subscriptions", () => {
+  const generated = signalAdapter();
+  assert.deepEqual(generated.signals, [{
+    id: "Button.signal.clicked",
+    className: "Button",
+    nativeType: "GtkButton",
+    signalName: "clicked",
+    subscriptionNativeType: "NtsGObjectButtonClickedSubscription",
+    connectSymbol: "nts_gobject_connect_button_clicked",
+    disconnectSymbol: "nts_gobject_disconnect_button_clicked",
+    callbackType: "NtsGObjectButtonClickedCallback",
+  }]);
+  assert.match(
+    generated.source,
+    /NtsGObjectButtonClickedSubscription \*nts_gobject_connect_button_clicked/u,
+  );
+  assert.match(generated.source, /g_signal_connect\(instance, "clicked"/u);
+  assert.match(generated.source, /g_object_ref\(instance\)/u);
+  assert.match(generated.source, /g_signal_handler_disconnect/u);
+  assert.match(generated.source, /g_object_unref\(subscription->instance\)/u);
+  assertDeepFrozen(generated);
+  assert.deepEqual(signalAdapter(), generated);
+});
+
+test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
+  const detailedSource = girSource.replace(
+    '<glib:signal name="clicked" when="first" action="1">',
+    '<glib:signal name="clicked" when="first" action="1" detailed="1">',
+  );
+  const snapshot = ingestGir(detailedSource, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Button", signals: ["clicked"] }],
+  });
+  assert.throws(
+    () => generateGObjectAdapterSource(snapshot),
+    (error: unknown) => {
+      assert.ok(error instanceof CBindgenError);
+      assert.deepEqual(error.diagnostics, [{
+        code: "NTS5001",
+        severity: "error",
+        path: "Button/signal/clicked",
+        message: "Only non-detailed, zero-parameter void GObject signals are implemented",
+      }]);
+      return true;
+    },
+  );
 });
 
 test("owned GObject constructor results preserve an existing reference and sink only floating results", () => {
