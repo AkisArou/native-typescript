@@ -369,55 +369,5 @@ The build suite includes:
 
 ## Current implementation boundary
 
-The first host-C slice is implemented in `@native-typescript/core`. It defines
-a canonical, deeply immutable schema-v1 graph for file and directory artifacts,
-validates identities, producer ownership, declared path arguments, tool
-consistency, action policy, and dependency cycles, and keeps physical workspace,
-SDK, and tool paths outside the plan. Source files, source/SDK trees, and
-executable tools are content-verified before execution. Directory digests cover
-sorted relative file names and bytes and reject symbolic or special entries.
-
-The Linux executor runs dependency-ready actions with bounded parallelism in
-separate Bubblewrap sandboxes. The host filesystem is read-only, only the
-current action directory is writable, the environment is cleared, temporary
-storage is private to the action, and the network namespace is unshared. File
-and directory inputs are private, re-verified copies; outputs are checked for
-missing, wrong-kind, or undeclared entries before their content digests enter
-the report. A permanent fixture compiles and links a real C executable through
-this path. The pkg-config resolver converts discovered include directories into
-logical, content-addressed SDK tree inputs while keeping their host paths only
-in execution bindings, and records the exact `-l` system-library closure. It
-rejects linker fragments whose semantics are not represented by the current
-build model.
-
-The executor also implements the schema-v1 local action cache described above.
-Action reports distinguish execution from cache materialization and expose the
-canonical cache key. Tests cover tool-free hits, input invalidation, file and
-directory outputs, dependent executable restoration, content and schema
-corruption, and concurrent publication.
-
-ScriptC exposes an immutable, schema-versioned executable-compilation plan. It
-contains validated serialized IR, canonical source identities, one exact
-backend/target, and the native-build feature plan, but no workspace paths.
-Native TypeScript content-addresses that plan and the built ScriptC emitter,
-then runs emission as a deterministic cacheable Node action whose generated C
-or LLVM file is an ordinary target artifact.
-
-ScriptC also permits an external materializer to receive its exact
-compiler-driver command. A dedicated planning API derives that command from
-the executable plan without emitting, compiling, or creating vendor/output
-artifacts. Native TypeScript supplies logical IDs for every program, runtime,
-object, and output position; an unknown ambient path is rejected. This keeps
-ScriptC's feature analysis and runtime-source selection as the single source
-of truth. The GTK fixture materializes compiler emission, hand-authored native
-objects, reached ScriptC runtime sources, and the final executable through one
-graph.
-
-The graph does not yet model the compiler driver's implicit system image,
-library-search trees, or every toolchain-provided system library as declared
-inputs. Current native actions therefore remain deliberately non-cacheable. ScriptC features
-whose driver command introduces an undeclared vendor path are rejected until
-that producer is represented in the graph. Cache eviction, export/import and
-remote transport, generated adapter planning, diagnostic parsers, resource
-accounting, packaging/signing, and sandbox executors for non-Linux hosts also
-remain. Those are extensions of this graph, not alternate build paths.
+Recorded in [Implementation status](status.md). The rules above are normative
+regardless of how much of them is built.

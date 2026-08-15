@@ -204,20 +204,9 @@ signals, child processes, filesystem watches, or another readiness source. An
 application-environment profile may require event sources but may not install a
 competing blocking loop.
 
-The first concrete runtime-provider slice is implemented in
-`@native-typescript/target-gtk`. Its C adapter installs a selected
-`GMainContext` as the executable's attached host scheduler and attaches every
-retained-callback wake through a fresh GLib source. It therefore never invokes
-TypeScript inline from a native factory even when the wake originates on the
-owner thread. ScriptC contributes the next timer deadline to the GLib wait;
-poller-backed ScriptC I/O is rejected until the runtime has a shared poll-set
-contract. Each callback source dispatches one event, runs the ScriptC
-checkpoint, and routes callback, checkpoint, and unhandled-rejection failures
-through an owner-side sink. Plain, ASan/UBSan, TSan, and real GTK executable
-tests cover owner and foreign-thread wake paths, timer waits, teardown of an
-already-scheduled source, and complete loop attachment/detachment.
-Artifact-graph materialization and general GTK application lifecycle remain
-separate provider work.
+The first concrete runtime-provider slice is the GLib main-context adapter in
+`@native-typescript/target-gtk`; see [Implementation status](status.md) for
+what it currently guarantees.
 
 The provider must preserve the runtime rules in
 [Runtime and threading](runtime-and-threading.md). It cannot opt a target into a

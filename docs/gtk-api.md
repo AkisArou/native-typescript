@@ -509,44 +509,11 @@ ordinary path.
 
 ## Current migration boundary
 
-The implemented GTK slice now emits class declarations, canonical
-`new Class()` construction, named static constructors, and receiver-owned
-signals that all return one public `SignalConnection` capability with
-`disconnect()`. Signal callbacks receive their typed emitter first; the
-implemented non-detailed `void` subset then receives copied exact
-`gint`/`gdouble` payloads in GIR order. Routine GObject release bindings are now
-internal compiler dependencies rather than public `dispose()` methods. Authoritative
-GIR getter/setter links now project `Button.label`, `Window.title`, and `Widget.opacity` as
-native properties without retaining method-shaped aliases.
-`Window.title` is the first nullable input property: both its getter and setter
-are `string | null`, and the real application gate passes null and text through
-a runtime union without a GTK-specific marshalling path.
-Selected caller-allocated transparent-record outputs now become immutable
-nested value results; `Widget.getPreferredSize()` is the real executable gate.
-Selected GIR enumerations now preserve their member metadata, receive
-target-Clang storage and value proof, and project as nominal TypeScript types
-with declaration-backed members. The real application gate constructs
-`Box(Orientation.Vertical, spacing)`, appends an ordinary `Widget`, and lowers
-the reached enum member directly to its proven exact native scalar through both
-ScriptC backends.
-Selected GIR bitfields now use the same evidence path while retaining a distinct
-SCABI `flags` identity. The real application constructs an
-`EventControllerScroll` from `BothAxes`, writes `Vertical`, reads the native
-`flags` property, compares it without a JavaScript-number conversion, and passes
-that result back through both backends. The gate also combines `Vertical` and
-`Horizontal` through the typed flags namespace operation, which ScriptC lowers
-to exact native-width OR, and observes `BothAxes`.
-`SignalConnection.disconnect()` is
-non-consuming and idempotent, while `connected` reads the actual native handler
-state; the separate connection release operation remains internal.
-
-`Application` is specified above but not yet generated. The executable fixture
-still starts the GLib runtime and requests its stop through hand-authored C.
-Replacing that fixture entry point with the generated non-blocking
-`Application` lifecycle is the next GTK slice; the blocking `run()` projection
-that previously appeared in this document was withdrawn because it contradicts
-the attached-host-scheduler contract in
-[Runtime and threading](runtime-and-threading.md).
+The generated surface is recorded in [Implementation status](status.md). The
+projection above is normative: a declaration is emitted only once its GIR
+semantics, C ABI, ownership, nullability, executor, and lifecycle contracts are
+proven, and reached metadata outside the implemented algebra fails generation
+rather than degrading.
 
 The migration is intentionally one-way:
 

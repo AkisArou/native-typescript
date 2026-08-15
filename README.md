@@ -305,6 +305,10 @@ These documents are normative for implementation:
 - [Roadmap](docs/roadmap.md) defines permanent vertical slices and their exit
   gates.
 
+[Implementation status](docs/status.md) is not normative. It records what is
+currently built and proven, so the specifications above can stay a statement of
+what must be true rather than a changelog.
+
 When documents conflict, [Architecture](docs/architecture.md) owns system
 invariants. The focused specification owns details in its domain. A conflict
 must be resolved in the documents before implementation proceeds.
@@ -350,205 +354,29 @@ pnpm test
 
 ## Status
 
-The repository is not yet an application framework or production compiler.
-Capability-aware target planning, the SCABI v1 core manifest/C conformance
-fixture, and the first ScriptC Native IR slice are implemented. That compiler
-slice translates reached SCABI bindings into a manifest-neutral compiler input,
-recognizes exact TypeScript declaration symbols, and lowers signed and unsigned
-8-, 16-, 32-, 64-, and target-pointer-width integer literals and calls through
-both C and LLVM without a JavaScript-number carrier. Fixed 64-bit and
-`isize`/`usize` source boundaries accept only exact BigInt literals or values
-already carrying that native type; pointer-sized ranges come from SCABI target
-metadata and are checked against the selected backend. This does not claim
-general JavaScript BigInt support. Declaration-backed compile-time constants now
-use that same exact representation: SCABI integer, enum, and flags values are
-canonicalized and range-checked, package composition rejects identity conflicts,
-and ScriptC lowers reached ambient symbols directly to Native IR literals without
-a runtime namespace object, module load, adapter, or C symbol. GTK now consumes
-that permanent path: selected GIR enums retain their source and C identities,
-target Clang proves their exact storage and member values, and the generated
-nominal `Orientation` API drives `Box(Orientation.Vertical, spacing)` in the real
-GTK app through both backends. The distinct SCABI flags kind now follows the
-same proven path: `EventControllerScrollFlags` enters a constructor and
-round-trips through its generated property, then compares at its exact native
-width without becoming an untyped number. ScriptC now also carries exact-width
-`&`, `|`, and `^` operations. The generated
-`EventControllerScrollFlags.combine(Vertical, Horizontal)` API folds directly
-to exact Native IR and produces the native `BothAxes` representation through
-both backends, without an assertion, runtime namespace, or adapter symbol.
-The same permanent path now supports nominal,
-default-packed, trivially copyable native structs whose fields are exact scalars
-or nested nominal native structs and whose SCABI metadata carries target
-Clang's complete physical calling signature. Direct registers, expanded
-parameters, ordinary indirect pointers,
-`byval`, and `sret` lower without platform size heuristics. A direct
-object-literal assertion constructs aggregate storage without reinterpreting a
-JavaScript object; C verifies size, alignment, and offsets at compile time, while
-LLVM emits the target's recorded physical signature. Direct-`i64`, expanded
-two-`double`, padded indirect, and nested nominal fixtures pass through both
-backends, including statically typed field reads from returned values. GTK generation now exposes
-the Clang-proven `Requisition` layout and direct classification as a public
-nominal declaration and SCABI type. Its first caller-allocated record-output
-adapter projects `Widget.getPreferredSize()` as an immutable nested value;
-Clang proves the generated adapter record and the real GTK executable reads it.
-Owned, owner-confined opaque handles now use
-a runtime-private managed
-cell with alias-safe explicit disposal, automatic exact destruction, and
-checked borrowed method ingress. Direct, representation-preserving handle
-upcasts are explicit in SCABI and Native IR, close over transitive ancestors,
-and preserve the same managed cell in both backends. The runtime accepts a
-derived handle at a declared base call while continuing to reject undeclared
-nominal conversions. Borrowed UTF-8 input is also implemented as
-one source string evaluated once and projected without copying into const data
-and byte-length ABI slots; Unicode and embedded NUL behavior passes both
-backends. Conventional C strings use a separate one-pointer projection over
-the runtime's existing trailing NUL and throw before native entry on an
-embedded NUL; normal and rejection paths pass C and LLVM. The reverse borrowed
-C-string boundary is distinct from the physical pointer result: ScriptC copies
-a checked receiver-anchored `const char *` into managed UTF-8 storage before
-releasing the receiver and preserves declared `string | null` nullability.
-Temporary-receiver lifetime and null behavior pass C, LLVM, and the sanitizer
-gate. Nullable checked C-string inputs are a distinct Native IR source contract:
-`string | null` becomes either the checked terminated string pointer or `NULL`,
-including values carried through a runtime union. The generated `Window.title`
-property exercises both branches through real GTK on C and LLVM.
-Borrowed `Uint8Array`
-input follows the same logical-to-physical
-projection path without copying. Exact view offsets and lengths, live
-backing-store mutation, single evaluation, and prompt post-call release pass
-both backends and the sanitizer/RC audit. Foreign pointers remain ABI-only and
-cannot enter TypeScript values. Synchronous call-scoped callbacks are also
-implemented for non-variadic C signatures with exact scalar parameters/results
-and a required trailing context pointer. One source closure is projected into
-the physical function/context pair; captures, reentrancy, and callback
-exceptions pass both backends and the sanitizer/RC audit. Retained
-`until-cancelled` callbacks are now implemented for copied exact-scalar
-payloads: generated C and LLVM thunks admit opaque tokens from same or foreign
-threads without touching the ScriptC heap, and the owner invokes the rooted
-closure. Broader payload families and ownership modes remain future slices. Exact integer
-`errno` contracts are also implemented: the failure sentinel is checked in its
-native type, thread-local `errno` is captured before cleanup, and a symbolic,
-operation-qualified `Error` is thrown through the ordinary catch path in both
-backends. Nullable owned handle results also throw before null wrapping;
-non-null results preserve their exact destructor during ordinary returns and
-callback-exception unwinding. Other native error conventions remain explicit
-future slices. Exact integer-backed native boolean parameters and results now
-use their SCABI false/true representations directly in both backends while
-remaining ordinary TypeScript `boolean` values. Any other native result
-representation throws a catchable `TypeError`, including through transitive
-helper calls. The ScriptC fork now
-also has the standalone foreign-thread
-ingress foundation: an
-instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
-shutdown states, and exact event destruction under admission races. It is
-threaded and sanitizer-tested. Retained callback transport tokens now build on
-that queue with slot/generation identity and one combined atomic
-state/invocation-lease word, so close and admission have an exact order and
-every admitted event remains owned through delivery or discard. The
-owner-side table now roots active registration anchors explicitly and retires
-them only after cancellation and all leases complete. Owned native handles now
-carry generic lifecycle edges, and a result-owned callback edge closes
-admission before the native destructor and completes cancellation only after it
-returns. Native factories use a prepare/call/commit transaction so runtime OOM
-cannot strand a returned resource or staged callback registration. The runtime
-also exposes one-event owner dispatch and a host-callable nextTick/microtask
-checkpoint; this prevents batching from collapsing distinct JavaScript turns
-and leaves callback exceptions pending for the target error policy. A concrete
-GLib adapter now posts those turns to an attached `GMainContext` from owner or
-foreign threads without inline reentrancy. It routes callback/checkpoint
-failures through an owner-side sink and passes plain, ASan/UBSan, and TSan
-conformance. The first canonical artifact graph and Linux sandboxed executor
-now content-verify file/tree sources and tools, compile and link a real host-C
-product, and reject cycles, content drift, and undeclared outputs. Pkg-config
-include trees resolve to logical SDK artifacts without host paths in the plan,
-and the real GTK fixture's GLib runtime and wrapper objects use that path. A
-schema-versioned local action cache now keys deterministic actions by their
-complete logical request and verified input content, verifies every hit, rejects
-corrupt entries, and publishes concurrent misses atomically. Actions can stream
-tool standard output into a declared, verified, cacheable metadata artifact;
-machine-readable compiler output therefore needs no shell-redirection escape
-hatch.
-ScriptC now exposes a schema-versioned, path-free executable-compilation plan
-containing validated IR, exact backend/target facts, and its complete native
-build request. Native TypeScript runs the corresponding deterministic C/LLVM
-emitter as a cacheable graph action, then uses ScriptC's exact compiler-driver
-plan without calling a materializer or inventing caller-visible paths. This
-preserves ScriptC's runtime-source selection as the single source of truth. The
-GTK fixture materializes that generated unit, its adapter objects, ScriptC
-runtime, and the final executable in one graph. Implicit system
-toolchain/library trees are not declared graph inputs yet, so the GTK native
-actions remain deliberately non-cacheable. Only reached bindings and native
-types enter emitted IR or the link. The GTK target now also turns an explicit
-namespace/class/member selection from GIR into a
-content-addressed immutable snapshot. Real `Gtk.Widget`, `Gtk.Button`, and
-`Gtk.Window` ingestion preserves C and GType identity, class ancestry,
-ownership, nullability, receivers, and signals while
-rejecting malformed or unsupported reached metadata. A target-neutral C binding
-package now converts selected functions and record fields into one structured,
-content-addressed ABI probe. Sandboxed target-Clang actions check candidate types
-against the real headers, derive selected record size/alignment and field layout,
-and emit raw AST plus LLVM calling-classification evidence; correct
-Button and Window constructor/method signatures pass and a deliberate const
-mismatch fails in Clang, as does a deliberately wrong record field. A deterministic
-normalization action reduces that raw, location-bearing AST to canonical selected
-ABI evidence. A dependent
-binding-package action consumes the stable evidence together with the exact
-selected GIR snapshot and a canonical generation request. Their
-content-addressed host tool regenerates the GObject adapter and emits one
-immutable package directory containing TypeScript declarations, validated
-SCABI, adapter metadata/source, and package provenance. A second build root
-reuses that package from the local action cache.
-The same evidence path selects the transparent `Gtk.Requisition` GIR record and
-has target Clang prove its size, alignment, field types, offsets, sizes, and
-alignments plus its direct x86-64 SysV `i64` parameter/result ABI. Cross-target
-fixtures also pin expanded AArch64/SysV forms and indirect Windows/SysV forms.
-The generated package publishes that layout as `Requisition`, SCABI carries the
-closed physical signature, and ScriptC consumes it without guessing an ABI from
-layout. Adapter-owned records are probe inputs too: `Widget.getPreferredSize()`
-calls GTK once and returns a Clang-classified `WidgetPreferredSize` containing
-two nested `Requisition` values.
-The native application never contains that Node build tool. The generated
-surface covers managed Widget ancestry, class-based `new Window()` and
-`Button.withLabel(...)` construction, automatic release, native properties,
-borrowed handle
-parameters, exact `gboolean` methods, branded
-`gint`/`gdouble` parameters and results, and one shared `SignalConnection`
-capability for non-detailed `void` signals with zero or copied exact
-`gint`/`gdouble` payloads. The adapter strongly retains the signal instance,
-disconnects by its handler ID, and composes with ScriptC's retained callback
-lifecycle so no callback runs after disposal.
-Reached metadata outside the implemented
-handle/void/boolean/exact-scalar/NUL-terminated UTF-8/exact-scalar-signal
-algebra fails generation.
-The application gate now chains Clang inspection, evidence normalization, and
-package generation as three declared analysis actions, promotes the verified
-package artifact into the compiler phase, composes it with the target-runtime
-package, and compiles
-both ScriptC backends, and executes constructor, nullable `Button.label`
-property reads and writes, nullable `Window.title` reads and writes,
-`Window.setChild(button)` through the declared Widget upcast, destruction, and
-disposal against real GTK. It passes both boolean representations through
-generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
-`gint` values, feeds `Widget.getWidth()` back into a native call, round-trips
-exact `gdouble` through the `Widget.opacity` property, then calls
-`Widget.activate()`, projects its native boolean result, and receives the
-resulting real `Button.clicked` through the generated receiver-owned connection.
-The same application builds a real `DrawingArea`/`Overlay`, receives
-`DrawingArea.resize(sender, width, height)`, and feeds both copied `gint`
-payloads back through generated native methods on both backends.
-The remaining hand-authored fixture is
-limited to host-loop/completion control and an independent counter turn. Record
-layout, non-scalar signal-payload/result lowering, and GObject identity and
-weak-reference policy remain. Selected
-constructors now also generate a
-content-addressed ownership adapter: GIR `none` and `full` results become one
-strong, non-floating reference, the object is compiled through the artifact
-graph, and a real GTK weak-finalization gate proves exact release. The first
-reverse boundary is now implemented too: a SCABI
-`export` root explicitly maps an entry-module TypeScript function to an exact
-C symbol. Exact `i32` parameters, results, and wrapping `+` compile through C
-and LLVM, link into a static library, and execute from an independent C host;
-the translation retains the selected C-export adapter's provenance. Broader
-export types and artifact-graph materialization remain pending.
-Platform UI and framework work begins only after those contracts pass their
-conformance gates.
+Native TypeScript is in early implementation. It is not yet an application
+framework or a production compiler.
+
+The C ABI foundation and the first GTK vertical slice are the working surface
+today. A narrow but real GTK application — window, button, properties, signals,
+deterministic teardown — compiles from TypeScript through both the C and LLVM
+backends and runs against real GTK with no JavaScript engine in the executable.
+
+| Layer | State |
+| --- | --- |
+| Exact scalars, aggregates, proven ABI classification | implemented |
+| Native handles, ownership, borrowed strings and bytes | implemented |
+| Callbacks, foreign-thread ingress, owner scheduling | implemented |
+| Artifact graph, sandboxed executor, local action cache | implemented |
+| Clang-proven C ABI evidence and GIR/GObject projection | implemented, narrow algebra |
+| GTK target runtime and generated widget surface | implemented, narrow surface |
+| GTK application lifecycle | specified, not generated |
+| Terminal, mobile, React, partitions, DOM | not started |
+
+[Implementation status](docs/status.md) records what is built and proven, by
+layer and by gate, including the deliberate boundaries that remain. The
+[Roadmap](docs/roadmap.md) defines the sequencing and exit gates that govern
+what comes next.
+
+Platform UI and framework work begins only after the current contracts pass
+their conformance gates.
