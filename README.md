@@ -175,10 +175,11 @@ operation-qualified `Error` is thrown through the ordinary catch path in both
 backends. Nullable owned handle results also throw before null wrapping;
 non-null results preserve their exact destructor during ordinary returns and
 callback-exception unwinding. Other native error conventions remain explicit
-future slices. Exact integer-backed native boolean results now use their SCABI
-false/true representations directly in both backends and become ordinary
-TypeScript `boolean` values. Any other native representation throws a catchable
-`TypeError`, including through transitive helper calls. The ScriptC fork now
+future slices. Exact integer-backed native boolean parameters and results now
+use their SCABI false/true representations directly in both backends while
+remaining ordinary TypeScript `boolean` values. Any other native result
+representation throws a catchable `TypeError`, including through transitive
+helper calls. The ScriptC fork now
 also has the standalone foreign-thread
 ingress foundation: an
 instance-owned, target-wakeable MPSC gateway with bounded FIFO drains, explicit
@@ -241,7 +242,8 @@ The application gate now regenerates that package from installed GIR plus
 sandboxed Clang evidence, composes it with the target-runtime package, compiles
 both ScriptC backends, and executes constructor, nullable label getter, setter,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
-disposal against real GTK. It calls generated `Widget.activate()`, projects its
+disposal against real GTK. It passes both boolean representations through
+generated `Widget.setVisible(boolean)`, calls `Widget.activate()`, projects its
 native boolean result, and receives the resulting real `Button.clicked` through
 the generated retained subscription. The remaining hand-authored fixture is
 limited to host-loop/completion control and an independent counter turn. Record

@@ -331,18 +331,33 @@ test("SCABI translates every reached integer with exact signedness and width", (
   );
 });
 
-test("SCABI projects integer-backed native boolean results", () => {
+test("SCABI projects integer-backed native boolean parameters and results", () => {
   const result = translateScabiNativeProgram(
     manifest,
-    selectImports(["native_true"]),
+    selectImports(["native_not"]),
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.input.sourceTypes, []);
   assert.deepEqual(result.input.bindings[0]?.declaration, {
     module: "@native-typescript/scabi-c-v1-fixture",
-    name: "nativeTrue",
+    name: "nativeNot",
   });
+  assert.deepEqual(result.input.bindings[0]?.arguments, [
+    { name: "value", type: { kind: "bool" } },
+  ]);
+  assert.deepEqual(result.input.bindings[0]?.parameters, [{
+    name: "value",
+    type: { kind: "nativeScalar", scalar: "i32" },
+    passMode: "value",
+    ownership: { kind: "value" },
+    projection: {
+      kind: "boolean",
+      argument: 0,
+      falseValue: "0",
+      trueValue: "1",
+    },
+  }]);
   assert.deepEqual(result.input.bindings[0]?.result, {
     type: { kind: "nativeScalar", scalar: "i32" },
     passMode: "value",

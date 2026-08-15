@@ -86,7 +86,7 @@ test(
           methods: ["get_label", "set_label"],
           signals: ["clicked"],
         },
-        { name: "Widget", methods: ["activate"] },
+        { name: "Widget", methods: ["activate", "set_visible"] },
         {
           name: "Window",
           constructors: ["new"],
@@ -100,6 +100,7 @@ test(
       "gtk_button_get_label",
       "gtk_button_set_label",
       "gtk_widget_activate",
+      "gtk_widget_set_visible",
       "gtk_window_new",
       "gtk_window_destroy",
       "gtk_window_present",
@@ -163,6 +164,7 @@ test(
         "gtk_button_get_label",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_set_visible",
         "gtk_window_new",
         "gtk_window_destroy",
         "gtk_window_present",
@@ -180,7 +182,7 @@ test(
             methods: ["get_label", "set_label"],
             signals: ["clicked"],
           },
-          { name: "Widget", methods: ["activate"] },
+          { name: "Widget", methods: ["activate", "set_visible"] },
           {
             name: "Window",
             constructors: ["new"],
@@ -233,6 +235,7 @@ test(
         "gtk_button_release",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_set_visible",
         "gtk_window_destroy",
         "gtk_window_new",
         "gtk_window_present",
@@ -248,6 +251,7 @@ test(
       assert.match(generated.declarations, /interface Button extends Widget/u);
       assert.match(generated.declarations, /interface Window extends Widget/u);
       assert.match(generated.declarations, /activate\(\): boolean;/u);
+      assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
         /onClicked\(callback: \(\) => void\): ButtonClickedSubscription;/u,
@@ -284,6 +288,7 @@ test(
           "gtk_button_new_with_label",
           "gtk_button_set_label",
           "gtk_widget_activate",
+          "gtk_widget_set_visible",
           "gtk_window_destroy",
           "gtk_window_new",
           "gtk_window_present",
@@ -313,6 +318,25 @@ test(
         passMode: "value",
         ownership: { kind: "value" },
         projection: { kind: "boolean", falseValue: "0", trueValue: "1" },
+      });
+      const setVisible = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_widget_set_visible",
+      );
+      assert.deepEqual(setVisible?.arguments, [
+        { name: "widget", type: { kind: "nativeHandle", typeId: widgetType.id } },
+        { name: "visible", type: { kind: "bool" } },
+      ]);
+      assert.deepEqual(setVisible?.parameters[1], {
+        name: "visible",
+        type: { kind: "nativeScalar", scalar: "i32" },
+        passMode: "value",
+        ownership: { kind: "value" },
+        projection: {
+          kind: "boolean",
+          argument: 1,
+          falseValue: "0",
+          trueValue: "1",
+        },
       });
       const connect = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "nts_gobject_connect_button_clicked",

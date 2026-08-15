@@ -39,6 +39,12 @@ float nts_f32_identity(float value) { return value; }
 double nts_f64_identity(double value) { return value; }
 int32_t nts_boolean_false(void) { return 0; }
 int32_t nts_boolean_invalid(void) { return 2; }
+int32_t nts_boolean_not(int32_t value) {
+  if (value != 0 && value != 1) {
+    abort();
+  }
+  return value == 0 ? 1 : 0;
+}
 int32_t nts_boolean_true(void) { return 1; }
 
 NtsPadded nts_padded_roundtrip(NtsPadded value) { return value; }

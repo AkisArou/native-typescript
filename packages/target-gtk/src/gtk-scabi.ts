@@ -290,6 +290,40 @@ function cStringParameter(
   });
 }
 
+function booleanParameter(
+  parameter: GirParameter,
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): AbiParameter | null {
+  if (
+    parameter.kind !== "parameter" ||
+    parameter.type.kind !== "named" ||
+    parameter.type.name !== "gboolean" ||
+    parameter.type.cType !== "gboolean" ||
+    parameter.direction !== "in" ||
+    parameter.transferOwnership !== "none" ||
+    parameter.nullable ||
+    parameter.optional ||
+    parameter.callerAllocates ||
+    parameter.skip ||
+    parameter.scope !== null ||
+    parameter.closureParameter !== null ||
+    parameter.destroyParameter !== null
+  ) {
+    diagnostics.push(
+      diagnostic(path, "Only required non-null gboolean input is implemented"),
+    );
+    return null;
+  }
+  return Object.freeze({
+    name: parameter.name,
+    type: "gboolean",
+    passMode: "value",
+    nullable: false,
+    ownership: Object.freeze({ kind: "value" }),
+  });
+}
+
 function handleParameter(
   parameter: GirParameter,
   classByName: ReadonlyMap<string, GirClass>,
@@ -620,6 +654,17 @@ export function generateGtkScabiPackage(
           } else {
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
+          }
+        } else if (
+          parameter.type.kind === "named" &&
+          parameter.type.name === "gboolean"
+        ) {
+          const abi = booleanParameter(parameter, parameterPath, diagnostics);
+          if (abi === null) {
+            valid = false;
+          } else {
+            abiParameters.push(abi);
+            sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
           }
         } else {
           const handle = handleParameter(

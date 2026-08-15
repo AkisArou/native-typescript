@@ -67,6 +67,7 @@ export declare function f32Identity(value: f32): f32;
 export declare function f64Identity(value: f64): f64;
 export declare function nativeFalse(): boolean;
 export declare function nativeInvalidBoolean(): boolean;
+export declare function nativeNot(value: boolean): boolean;
 export declare function nativeTrue(): boolean;
 export declare function paddedRoundtrip(value: Padded): Padded;
 export declare function hashUtf8(value: string): u64;

@@ -206,7 +206,8 @@ in-range false and true values. Its source projection is an ordinary TypeScript
 `boolean`; the storage integer is ABI-only. Both backends compare the exact
 physical value, preserve a previously pending callback exception, and throw a
 catchable `TypeError` if native code returns any representation other than the
-two declared values.
+two declared values. For parameters, both backends select the declared false or
+true physical value directly from the logical TypeScript boolean.
 
 ## Layout
 

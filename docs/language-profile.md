@@ -153,10 +153,12 @@ JavaScript-number conversion policy.
 
 An ABI boolean is not an exact-integer source alias. SCABI declares its integer
 storage and exact false/true representations, while TypeScript sees an ordinary
-`boolean`. A native result is accepted only when its raw storage equals one of
-those two values. Any other representation throws a catchable `TypeError` at
-the native-call boundary; it is never normalized by C truthiness. The ABI-only
-storage type need not be exported as a TypeScript declaration.
+`boolean`. A parameter selects the declared false or true storage value without
+exposing that integer to source code. A native result is accepted only when its
+raw storage equals one of those two values. Any other representation throws a
+catchable `TypeError` at the native-call boundary; it is never normalized by C
+truthiness. The ABI-only storage type need not be exported as a TypeScript
+declaration.
 
 ## Native aggregates
 

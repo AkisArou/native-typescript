@@ -124,8 +124,9 @@ call-scoped exact-scalar callback and its
 trailing context parameter, plus exact integer `errno` and nullable owned-handle
 failures. A three-level native-handle hierarchy verifies that a derived value
 reaches a base-typed native call through the same managed cell. Exact
-integer-backed native boolean results verify false/true projection, rejection
-of undeclared representations, and exception propagation across a helper call.
+integer-backed native boolean parameters and results verify exact false/true
+projection, rejection of undeclared result representations, and exception
+propagation across a helper call.
 It resolves
 their TypeScript declaration symbols
 and links the resulting source-lowered programs against the permanent C fixture
@@ -192,6 +193,7 @@ driver request, resolves compile inputs and the system-library closure from
 `pkg-config`, materializes the runtime, wrapper, generated GObject adapter,
 and final executable through sandboxed graphs, then proves
 `Window.setChild(button)` through generated handle ancestry, projects
+both representations through `Widget.setVisible(boolean)`, lowers
 `Widget.activate()` from exact `gboolean`, delivers `Button.clicked` through a
 generated result-owned retained callback, and runs both
 backends against a real GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,

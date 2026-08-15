@@ -205,13 +205,14 @@ application compilation.
 
 The generated nullable label getter now reaches ScriptC's C and LLVM result
 projection: its receiver-borrowed pointer is copied before handle release and
-becomes `string | null`. Exact integer-backed native booleans also project to an
-ordinary TypeScript `boolean`; the physical result must equal the declared false
-or true representation, and any other value throws catchably through transitive
-may-throw analysis. The generated GTK package now enters the real application
-compilation: TypeScript constructs, reads, updates, activates, and disposes a
-real Widget/Button/Window hierarchy through both backends, with generated
-adapters linked as explicit artifacts.
+becomes `string | null`. Exact integer-backed native booleans also project in
+both directions: logical parameters select the declared false/true storage,
+while a physical result must equal one of those representations or throw
+catchably through transitive may-throw analysis. The generated GTK package now
+enters the real application compilation: TypeScript constructs, reads, updates,
+changes visibility, activates, and disposes a real Widget/Button/Window
+hierarchy through both backends, with generated adapters linked as explicit
+artifacts.
 
 Multi-package Native IR inputs now have a first-class canonical composition
 boundary. Generated toolkit bindings and target-runtime support can enter one

@@ -216,7 +216,7 @@ test(
             methods: ["get_label", "set_label"],
             signals: ["clicked"],
           },
-          { name: "Widget", methods: ["activate"] },
+          { name: "Widget", methods: ["activate", "set_visible"] },
           {
             name: "Window",
             constructors: ["new"],
@@ -335,6 +335,7 @@ test(
           "gtk_button_new_with_label",
           "gtk_button_set_label",
           "gtk_widget_activate",
+          "gtk_widget_set_visible",
           "gtk_window_destroy",
           "gtk_window_new",
           "gtk_window_present",

@@ -38,6 +38,7 @@ NTS_SCABI_EXPORT float nts_f32_identity(float value);
 NTS_SCABI_EXPORT double nts_f64_identity(double value);
 NTS_SCABI_EXPORT int32_t nts_boolean_false(void);
 NTS_SCABI_EXPORT int32_t nts_boolean_invalid(void);
+NTS_SCABI_EXPORT int32_t nts_boolean_not(int32_t value);
 NTS_SCABI_EXPORT int32_t nts_boolean_true(void);
 
 NTS_SCABI_EXPORT NtsPadded nts_padded_roundtrip(NtsPadded value);

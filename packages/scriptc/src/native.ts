@@ -114,11 +114,18 @@ export type ScriptCNativeAbiType =
   | ScriptCNativeContextType;
 export type ScriptCNativeArgumentType =
   | ScriptCNativeValueType
+  | { readonly kind: "bool" }
   | { readonly kind: "string" }
   | { readonly kind: "bytes"; readonly elem: "u8" }
   | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
   | { readonly kind: "argument"; readonly argument: number }
+  | {
+      readonly kind: "boolean";
+      readonly argument: number;
+      readonly falseValue: string;
+      readonly trueValue: string;
+    }
   | { readonly kind: "utf8CString"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
   | { readonly kind: "utf8ByteLength"; readonly argument: number }
@@ -1415,6 +1422,11 @@ export function translateScabiNativeProgram(
     const callbackByContext = new Map<number, SupportedCallbackPair>();
     const callbackSignatures = new Map<number, ScriptCNativeCallbackSignature>();
     const directTypes = new Map<number, ScriptCNativeValueType>();
+    const booleanTypes = new Map<number, {
+      readonly storage: ScriptCNativeValueType;
+      readonly falseValue: string;
+      readonly trueValue: string;
+    }>();
     const argumentByParameter = new Map<number, number>();
     let valid = true;
     for (const [index, parameter] of binding.signature.parameters.entries()) {
@@ -1476,6 +1488,45 @@ export function translateScabiNativeProgram(
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
       if (borrowedByLength.has(index) || callbackByContext.has(index)) continue;
+      const declaredParameterType = manifest.types[parameter.type];
+      if (declaredParameterType?.kind === "boolean") {
+        const unsupportedPosition = positionUnsupported(
+          parameter,
+          true,
+          declaredParameterType,
+        );
+        if (unsupportedPosition !== null) {
+          diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
+          valid = false;
+          continue;
+        }
+        const storage = lowerType(
+          declaredParameterType.storage,
+          `${parameterPath}/type/storage`,
+          false,
+        );
+        if (storage?.kind !== "nativeScalar" || storage.scalar === "f64") {
+          diagnostics.push(diagnostic(
+            "NTS3002",
+            `${parameterPath}/type`,
+            "Native boolean storage must lower to an exact integer scalar",
+          ));
+          valid = false;
+          continue;
+        }
+        const argument = sourceArguments.length;
+        sourceArguments.push(Object.freeze({
+          name: parameter.name,
+          type: Object.freeze({ kind: "bool" } as const),
+        }));
+        booleanTypes.set(index, Object.freeze({
+          storage,
+          falseValue: declaredParameterType.falseValue,
+          trueValue: declaredParameterType.trueValue,
+        }));
+        argumentByParameter.set(index, argument);
+        continue;
+      }
       const borrowed = borrowedByData.get(index);
       if (borrowed !== undefined) {
         const argument = sourceArguments.length;
@@ -1641,51 +1692,65 @@ export function translateScabiNativeProgram(
           continue;
         }
         const directType = directTypes.get(index);
+        const booleanType = booleanTypes.get(index);
         parameters.push(Object.freeze(
-          borrowedData !== undefined
+          booleanType !== undefined
             ? {
                 name: parameter.name,
-                type: Object.freeze({
-                  kind: "nativePointer",
-                  pointee: borrowedData.pointee,
-                  const: true,
-                  addressSpace: 0,
-                } as const),
-                passMode: "pointer",
-                ownership: Object.freeze({ kind: "borrowed", scope: "call" } as const),
+                type: booleanType.storage,
+                passMode: "value",
+                ownership: Object.freeze({ kind: "value" } as const),
                 projection: Object.freeze({
-                  kind: borrowedData.kind === "utf8-c-string"
-                    ? "utf8CString"
-                    : borrowedData.kind === "utf8"
-                      ? "utf8Data"
-                      : "bytesData",
+                  kind: "boolean",
                   argument,
+                  falseValue: booleanType.falseValue,
+                  trueValue: booleanType.trueValue,
                 } as const),
               }
-            : borrowedLength !== undefined
+            : borrowedData !== undefined
               ? {
                   name: parameter.name,
-                  type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
-                  passMode: "value",
-                  ownership: Object.freeze({ kind: "value" } as const),
+                  type: Object.freeze({
+                    kind: "nativePointer",
+                    pointee: borrowedData.pointee,
+                    const: true,
+                    addressSpace: 0,
+                  } as const),
+                  passMode: "pointer",
+                  ownership: Object.freeze({ kind: "borrowed", scope: "call" } as const),
                   projection: Object.freeze({
-                    kind: borrowedLength.kind === "utf8"
-                      ? "utf8ByteLength"
-                      : "bytesByteLength",
+                    kind: borrowedData.kind === "utf8-c-string"
+                      ? "utf8CString"
+                      : borrowedData.kind === "utf8"
+                        ? "utf8Data"
+                        : "bytesData",
                     argument,
                   } as const),
                 }
-              : {
-                  name: parameter.name,
-                  type: directType!,
-                  passMode: parameter.passMode as "value" | "pointer",
-                  ownership: parameter.ownership.kind === "borrowed"
-                    ? Object.freeze({ kind: "borrowed", scope: "call" } as const)
-                    : parameter.ownership.kind === "owned"
-                      ? Object.freeze({ kind: "owned", transfer: "to-native" } as const)
-                      : Object.freeze({ kind: "value" } as const),
-                  projection: Object.freeze({ kind: "argument", argument } as const),
-                },
+              : borrowedLength !== undefined
+                ? {
+                    name: parameter.name,
+                    type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
+                    passMode: "value",
+                    ownership: Object.freeze({ kind: "value" } as const),
+                    projection: Object.freeze({
+                      kind: borrowedLength.kind === "utf8"
+                        ? "utf8ByteLength"
+                        : "bytesByteLength",
+                      argument,
+                    } as const),
+                  }
+                : {
+                    name: parameter.name,
+                    type: directType!,
+                    passMode: parameter.passMode as "value" | "pointer",
+                    ownership: parameter.ownership.kind === "borrowed"
+                      ? Object.freeze({ kind: "borrowed", scope: "call" } as const)
+                      : parameter.ownership.kind === "owned"
+                        ? Object.freeze({ kind: "owned", transfer: "to-native" } as const)
+                        : Object.freeze({ kind: "value" } as const),
+                    projection: Object.freeze({ kind: "argument", argument } as const),
+                  },
         ));
       }
     }

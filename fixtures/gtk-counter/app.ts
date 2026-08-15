@@ -31,6 +31,8 @@ const window = createWindow();
 const button = createButtonWithLabel("Generated: initial");
 const initial = button.getLabel();
 button.setLabel("Generated: updated");
+button.setVisible(false);
+button.setVisible(true);
 window.setChild(button);
 window.present();
 const subscription = button.onClicked((): void => {

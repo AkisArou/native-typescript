@@ -39,6 +39,8 @@ int main(void) {
   assert(nts_f64_identity(1.25) == 1.25);
   assert(nts_boolean_false() == 0);
   assert(nts_boolean_invalid() == 2);
+  assert(nts_boolean_not(0) == 1);
+  assert(nts_boolean_not(1) == 0);
   assert(nts_boolean_true() == 1);
 
   NtsPadded input = {.tag = 7, .value = UINT64_C(0xfeedface), .ratio = 0.5};
