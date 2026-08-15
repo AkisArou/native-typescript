@@ -202,6 +202,7 @@
         "underlying": { "$ref": "#/$defs/id" },
         "members": {
           "type": "object",
+          "propertyNames": { "$ref": "#/$defs/memberName" },
           "additionalProperties": { "type": "string" }
         }
       }
@@ -215,6 +216,7 @@
         "underlying": { "$ref": "#/$defs/id" },
         "members": {
           "type": "object",
+          "propertyNames": { "$ref": "#/$defs/memberName" },
           "additionalProperties": { "type": "string" }
         }
       }

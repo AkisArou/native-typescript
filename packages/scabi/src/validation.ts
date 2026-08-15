@@ -8,6 +8,8 @@ import type {
   CallbackContract,
   CallbackType,
   CallableBinding,
+  ConstantBinding,
+  IntegerType,
   NativeBindingId,
   NativeLayout,
   NativePhysicalAbiType,
@@ -307,6 +309,31 @@ function isPowerOfTwo(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0 && Number.isInteger(Math.log2(value));
 }
 
+function canonicalIntegerValue(
+  value: string | number | boolean,
+  type: IntegerType,
+  pointerWidth: 32 | 64,
+): string | null {
+  if (typeof value === "boolean") return null;
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || Object.is(value, -0)) return null;
+  } else if (
+    value.length > 20 ||
+    !/^-?(?:0|[1-9][0-9]*)$/u.test(value) ||
+    value === "-0"
+  ) {
+    return null;
+  }
+
+  const integer = BigInt(value);
+  const bits = type.bits === "pointer" ? pointerWidth : type.bits;
+  const minimum = type.signed ? -(1n << BigInt(bits - 1)) : 0n;
+  const maximum = type.signed
+    ? (1n << BigInt(bits - 1)) - 1n
+    : (1n << BigInt(bits)) - 1n;
+  return integer < minimum || integer > maximum ? null : integer.toString();
+}
+
 function typeSize(
   manifest: ScabiManifest,
   typeId: NativeTypeId,
@@ -572,6 +599,38 @@ function validateTypes(
               "Boolean storage must reference an integer type",
             ),
           );
+          break;
+        }
+        const falseValue = canonicalIntegerValue(
+          type.falseValue,
+          storage,
+          manifest.target.pointerWidth,
+        );
+        const trueValue = canonicalIntegerValue(
+          type.trueValue,
+          storage,
+          manifest.target.pointerWidth,
+        );
+        if (falseValue === null) {
+          diagnostics.push(diagnostic(
+            "NTS2021",
+            `/types/${id}/falseValue`,
+            "Boolean falseValue must be a canonical integer representable by its storage type",
+          ));
+        }
+        if (trueValue === null) {
+          diagnostics.push(diagnostic(
+            "NTS2021",
+            `/types/${id}/trueValue`,
+            "Boolean trueValue must be a canonical integer representable by its storage type",
+          ));
+        }
+        if (falseValue !== null && falseValue === trueValue) {
+          diagnostics.push(diagnostic(
+            "NTS2021",
+            `/types/${id}/trueValue`,
+            "Boolean falseValue and trueValue must be distinct",
+          ));
         }
         break;
       }
@@ -586,6 +645,18 @@ function validateTypes(
               `${type.kind} underlying type must be an integer`,
             ),
           );
+          break;
+        }
+        for (const [member, value] of Object.entries(type.members).sort(
+          ([left], [right]) => left < right ? -1 : left > right ? 1 : 0,
+        )) {
+          if (canonicalIntegerValue(value, underlying, manifest.target.pointerWidth) === null) {
+            diagnostics.push(diagnostic(
+              "NTS2021",
+              `/types/${id}/members/${member}`,
+              `${type.kind} member values must be canonical integers representable by the underlying type`,
+            ));
+          }
         }
         break;
       }
@@ -719,6 +790,98 @@ function validateTypes(
       default:
         break;
     }
+  }
+}
+
+function validateConstantBinding(
+  manifest: ScabiManifest,
+  id: NativeBindingId,
+  binding: ConstantBinding,
+  diagnostics: ScabiDiagnostic[],
+): void {
+  const path = `/bindings/${id}`;
+  if (
+    binding.dependencies.bindings.length > 0 ||
+    binding.dependencies.linkInputs.length > 0 ||
+    binding.dependencies.adapterInputs.length > 0 ||
+    binding.dependencies.permissions.length > 0
+  ) {
+    diagnostics.push(diagnostic(
+      "NTS2021",
+      `${path}/dependencies`,
+      "Compile-time constants cannot have runtime dependencies",
+    ));
+  }
+
+  const type = manifest.types[binding.type];
+  if (type === undefined) return;
+  switch (type.kind) {
+    case "integer": {
+      if (
+        canonicalIntegerValue(binding.value, type, manifest.target.pointerWidth) === null
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `${path}/value`,
+          "Integer constant value must be canonical and representable by its declared type",
+        ));
+      }
+      break;
+    }
+    case "enum":
+    case "flags": {
+      const underlying = manifest.types[type.underlying];
+      if (underlying?.kind !== "integer") return;
+      const value = canonicalIntegerValue(
+        binding.value,
+        underlying,
+        manifest.target.pointerWidth,
+      );
+      if (value === null) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `${path}/value`,
+          `${type.kind} constant value must be canonical and representable by its underlying type`,
+        ));
+      } else if (!Object.values(type.members).includes(value)) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `${path}/value`,
+          `${type.kind} constant value must name one of its declared members`,
+        ));
+      }
+      break;
+    }
+    case "boolean":
+      if (typeof binding.value !== "boolean") {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `${path}/value`,
+          "Boolean constant value must be a JSON boolean",
+        ));
+      }
+      break;
+    case "float":
+      if (
+        typeof binding.value !== "number" ||
+        !Number.isFinite(binding.value) ||
+        Object.is(binding.value, -0) ||
+        (type.bits === 32 && Math.fround(binding.value) !== binding.value)
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `${path}/value`,
+          `Float constant value must be a finite, canonical, exactly representable f${type.bits} JSON number`,
+        ));
+      }
+      break;
+    default:
+      diagnostics.push(diagnostic(
+        "NTS2021",
+        `${path}/type`,
+        "Compile-time constants require an integer, enum, flags, boolean, or float type",
+      ));
+      break;
   }
 }
 
@@ -1519,7 +1682,9 @@ function validateSemantics(
   validateUniqueInputIds(manifest, diagnostics);
   validateDependencies(manifest, diagnostics);
   for (const [id, binding] of Object.entries(manifest.bindings)) {
-    if (binding.kind !== "constant") {
+    if (binding.kind === "constant") {
+      validateConstantBinding(manifest, id, binding, diagnostics);
+    } else {
       validateCallableBinding(manifest, id, binding, diagnostics);
     }
   }

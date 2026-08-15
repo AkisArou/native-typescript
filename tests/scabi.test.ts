@@ -35,6 +35,20 @@ function validationCodes(value: unknown): readonly string[] {
   return result.diagnostics.map(({ code }) => code);
 }
 
+function emptyDependencies(): {
+  adapterInputs: never[];
+  bindings: never[];
+  linkInputs: never[];
+  permissions: never[];
+} {
+  return {
+    adapterInputs: [],
+    bindings: [],
+    linkInputs: [],
+    permissions: [],
+  };
+}
+
 interface ExecutionResult {
   readonly status: number | null;
   readonly stdout: string;
@@ -136,6 +150,197 @@ test("SCABI handle upcasts are explicit, canonical, and representation-safe", ()
     upcasts: [{ kind: "identity" as const, target: "derived_handle" }],
   });
   assert.deepEqual(validationCodes(cyclic), ["NTS2021"]);
+});
+
+test("SCABI constants and scalar member representations are validated eagerly", () => {
+  const valid = structuredClone(manifest);
+  Object.assign(valid.types, {
+    access: {
+      kind: "flags" as const,
+      underlying: "u8",
+      members: { None: "0", Read: "1", Write: "2", ReadWrite: "3" },
+    },
+    orientation: {
+      kind: "enum" as const,
+      underlying: "i8",
+      members: { Unknown: "-1", Horizontal: "0", Vertical: "1" },
+    },
+  });
+  Object.assign(valid.bindings, {
+    access_read_write: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "Access.ReadWrite" },
+      type: "access",
+      value: "3",
+      dependencies: emptyDependencies(),
+    },
+    boolean_true: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "nativeTrue" },
+      type: "native_boolean",
+      value: true,
+      dependencies: emptyDependencies(),
+    },
+    exact_f32: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "exactF32" },
+      type: "f32",
+      value: 1.5,
+      dependencies: emptyDependencies(),
+    },
+    exact_f64: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "exactF64" },
+      type: "f64",
+      value: 0.1,
+      dependencies: emptyDependencies(),
+    },
+    i64_minimum: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "i64Minimum" },
+      type: "i64",
+      value: "-9223372036854775808",
+      dependencies: emptyDependencies(),
+    },
+    orientation_unknown: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "Orientation.Unknown" },
+      type: "orientation",
+      value: "-1",
+      dependencies: emptyDependencies(),
+    },
+    u64_maximum: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "u64Maximum" },
+      type: "u64",
+      value: "18446744073709551615",
+      dependencies: emptyDependencies(),
+    },
+  });
+  assert.equal(validateScabiManifest(valid).ok, true);
+
+  const malformedMembers = structuredClone(valid);
+  const malformedOrientation = malformedMembers.types.orientation;
+  assert.equal(malformedOrientation?.kind, "enum");
+  if (malformedOrientation?.kind !== "enum") return;
+  Object.assign(malformedOrientation, {
+    members: { LeadingZero: "01", Overflow: "128" },
+  });
+  const malformedMembersResult = validateScabiManifest(malformedMembers);
+  assert.equal(malformedMembersResult.ok, false);
+  if (malformedMembersResult.ok) return;
+  assert.deepEqual(
+    malformedMembersResult.diagnostics.map(({ path }) => path),
+    [
+      "/types/orientation/members/LeadingZero",
+      "/types/orientation/members/Overflow",
+      "/bindings/orientation_unknown/value",
+    ],
+  );
+
+  const invalidBooleanStorage = structuredClone(valid);
+  const nativeBoolean = invalidBooleanStorage.types.native_boolean;
+  assert.equal(nativeBoolean?.kind, "boolean");
+  if (nativeBoolean?.kind !== "boolean") return;
+  Object.assign(nativeBoolean, { falseValue: "0", trueValue: "0" });
+  const invalidBooleanStorageResult = validateScabiManifest(invalidBooleanStorage);
+  assert.equal(invalidBooleanStorageResult.ok, false);
+  if (invalidBooleanStorageResult.ok) return;
+  assert.deepEqual(
+    invalidBooleanStorageResult.diagnostics.map(({ path }) => path),
+    ["/types/native_boolean/trueValue"],
+  );
+
+  const invalidCases: ReadonlyArray<{
+    readonly id: string;
+    readonly type: string;
+    readonly value: string | number | boolean;
+    readonly expectedPath: string;
+  }> = [
+    {
+      id: "integer_noncanonical",
+      type: "i32",
+      value: "+1",
+      expectedPath: "/bindings/integer_noncanonical/value",
+    },
+    {
+      id: "integer_overflow",
+      type: "u8",
+      value: "256",
+      expectedPath: "/bindings/integer_overflow/value",
+    },
+    {
+      id: "enum_unnamed",
+      type: "orientation",
+      value: "2",
+      expectedPath: "/bindings/enum_unnamed/value",
+    },
+    {
+      id: "flags_undeclared_composite",
+      type: "access",
+      value: "4",
+      expectedPath: "/bindings/flags_undeclared_composite/value",
+    },
+    {
+      id: "boolean_physical_value",
+      type: "native_boolean",
+      value: "1",
+      expectedPath: "/bindings/boolean_physical_value/value",
+    },
+    {
+      id: "rounded_f32",
+      type: "f32",
+      value: 0.1,
+      expectedPath: "/bindings/rounded_f32/value",
+    },
+    {
+      id: "pointer_constant",
+      type: "void_ptr",
+      value: "0",
+      expectedPath: "/bindings/pointer_constant/type",
+    },
+  ];
+  for (const invalidCase of invalidCases) {
+    const invalid = structuredClone(valid);
+    Object.assign(invalid.bindings, {
+      [invalidCase.id]: {
+        kind: "constant" as const,
+        declaration: { module: ".", name: invalidCase.id },
+        type: invalidCase.type,
+        value: invalidCase.value,
+        dependencies: emptyDependencies(),
+      },
+    });
+    const result = validateScabiManifest(invalid);
+    assert.equal(result.ok, false, invalidCase.id);
+    if (result.ok) continue;
+    assert.deepEqual(
+      result.diagnostics.map(({ code, path }) => ({ code, path })),
+      [{ code: "NTS2021", path: invalidCase.expectedPath }],
+      invalidCase.id,
+    );
+  }
+
+  const dependent = structuredClone(valid);
+  Object.assign(dependent.bindings, {
+    dependent_constant: {
+      kind: "constant" as const,
+      declaration: { module: ".", name: "dependentConstant" },
+      type: "i32",
+      value: "1",
+      dependencies: {
+        ...emptyDependencies(),
+        bindings: ["i32_identity"],
+      },
+    },
+  });
+  const dependentResult = validateScabiManifest(dependent);
+  assert.equal(dependentResult.ok, false);
+  if (dependentResult.ok) return;
+  assert.deepEqual(
+    dependentResult.diagnostics.map(({ code, path }) => ({ code, path })),
+    [{ code: "NTS2021", path: "/bindings/dependent_constant/dependencies" }],
+  );
 });
 
 test("SCABI fixture provenance matches declarations and header", () => {

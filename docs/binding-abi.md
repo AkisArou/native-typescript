@@ -341,6 +341,18 @@ IR literal. No runtime namespace object, module evaluation, adapter, or link
 symbol is introduced. Constants carrying runtime dependencies are rejected;
 address-valued constants will require a distinct future contract.
 
+Validation is eager over the complete manifest, not deferred until reachability.
+Integer values use canonical signed decimal spelling and must fit their exact
+fixed or target-pointer width. Every enum and flags member must fit its declared
+integer storage, and a declaration-backed enum or flags constant must name one
+of those declared values. Boolean constants use JSON booleans; their native
+false and true representations must be distinct, canonical integers in range.
+Floating constants use finite JSON numbers, reject negative zero because JSON
+cannot preserve it, and an `f32` value must already be exactly representable at
+that width. Other constant type families are invalid. These rules prevent an
+unreached malformed declaration from making a package's meaning depend on the
+application that first imports it.
+
 ## Function contract
 
 A callable binding records:

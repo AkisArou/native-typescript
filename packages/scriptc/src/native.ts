@@ -437,14 +437,18 @@ function canonicalConstantValue(
 ): string | null {
   if (typeof value === "boolean") return null;
   if (scalar === "f64") {
-    if (typeof value === "string" && value.trim() !== value) return null;
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
-    return Object.is(numeric, -0) ? "-0" : String(numeric);
+    if (typeof value !== "number" || !Number.isFinite(value) || Object.is(value, -0)) {
+      return null;
+    }
+    return String(value);
   }
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value) || Object.is(value, -0)) return null;
-  } else if (!/^[+-]?[0-9]+$/.test(value)) {
+  } else if (
+    value.length > 20 ||
+    !/^-?(?:0|[1-9][0-9]*)$/u.test(value) ||
+    value === "-0"
+  ) {
     return null;
   }
   const numeric = BigInt(value);
@@ -1733,6 +1737,18 @@ export function translateScabiNativeProgram(
           "NTS3002",
           `${path}/value`,
           `Constant value '${String(binding.value)}' is not representable as exact ${type.scalar}`,
+        ));
+        continue;
+      }
+      const declaredType = manifest.types[binding.type];
+      if (
+        (declaredType?.kind === "enum" || declaredType?.kind === "flags") &&
+        !Object.values(declaredType.members).includes(value)
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/value`,
+          `${declaredType.kind} constant value '${value}' does not name a declared member`,
         ));
         continue;
       }

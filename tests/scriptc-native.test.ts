@@ -242,6 +242,40 @@ test("SCABI enum constants lower to exact declaration-backed literals", () => {
   assert.equal(Object.isFrozen(result.input.constants), true);
   assert.equal(Object.isFrozen(result.input.constants[0]), true);
 
+  const unnamedMember = structuredClone(enumManifest);
+  const unnamedBinding = unnamedMember.bindings.fixture_orientation_vertical;
+  assert.equal(unnamedBinding?.kind, "constant");
+  if (unnamedBinding?.kind !== "constant") return;
+  Object.assign(unnamedBinding, { value: "2" });
+  const unnamedResult = translateScabiNativeProgram(
+    unnamedMember,
+    selectImports(["fixture_orientation_vertical"]),
+  );
+  assert.equal(unnamedResult.ok, false);
+  if (!unnamedResult.ok) {
+    assert.deepEqual(
+      unnamedResult.diagnostics.map(({ path }) => path),
+      ["/bindings/fixture_orientation_vertical/value"],
+    );
+  }
+
+  const noncanonical = structuredClone(enumManifest);
+  const noncanonicalBinding = noncanonical.bindings.fixture_orientation_vertical;
+  assert.equal(noncanonicalBinding?.kind, "constant");
+  if (noncanonicalBinding?.kind !== "constant") return;
+  Object.assign(noncanonicalBinding, { value: "+1" });
+  const noncanonicalResult = translateScabiNativeProgram(
+    noncanonical,
+    selectImports(["fixture_orientation_vertical"]),
+  );
+  assert.equal(noncanonicalResult.ok, false);
+  if (!noncanonicalResult.ok) {
+    assert.deepEqual(
+      noncanonicalResult.diagnostics.map(({ path }) => path),
+      ["/bindings/fixture_orientation_vertical/value"],
+    );
+  }
+
   const duplicate = composeScriptCNativePrograms([result, result]);
   assert.equal(duplicate.ok, true);
   if (duplicate.ok) assert.equal(duplicate.input.constants.length, 1);
