@@ -8,9 +8,43 @@ import type { GtkScabiGenerationOptions } from "./gtk-scabi.ts";
 
 export const gtkBindingToolFile = "gtk-binding-tool-cli.mjs";
 
+const girNamespaceNamePattern = /^[A-Z][A-Za-z0-9]*$/u;
+const girNamespaceVersionPattern = /^[0-9]+(?:\.[0-9]+)*$/u;
+
+/**
+ * The package slug for a GIR namespace, matching its published package name:
+ * `Gtk-4.0` is `gtk4` and `Gio-2.0` is `gio2`. Artifact and action identities
+ * are derived from it so two namespaces analysed in one build cannot collide.
+ */
+export function girPackageSlug(namespace: {
+  readonly name: string;
+  readonly version: string;
+}): string {
+  if (
+    !girNamespaceNamePattern.test(namespace.name) ||
+    !girNamespaceVersionPattern.test(namespace.version)
+  ) {
+    throw new Error(
+      `Malformed GIR namespace ${namespace.name}-${namespace.version}`,
+    );
+  }
+  return `${namespace.name.toLowerCase()}${namespace.version.split(".")[0]}`;
+}
+
 export interface GtkBindingPackageRequest {
   readonly schema: "native-typescript.gtk-binding-package-request";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
+  /**
+   * The GIR namespace this package projects. It is declared here rather than
+   * read from the snapshot so the request stays an independent,
+   * content-addressed statement of intent that the snapshot is checked
+   * against. A namespace version is not an SDK version: Gio-2.0 and Gtk-4.0
+   * are both reached through the GTK SDK.
+   */
+  readonly namespace: {
+    readonly name: string;
+    readonly version: string;
+  };
   readonly clang: ClangAbiEvidenceSnapshot["clang"];
   readonly generation: Omit<
     GtkScabiGenerationOptions,
@@ -65,7 +99,7 @@ export function validateGtkBindingPackageRequest(
 ): void {
   if (
     request.schema !== "native-typescript.gtk-binding-package-request" ||
-    request.schemaVersion !== 1
+    request.schemaVersion !== 2
   ) {
     throw new Error("Unsupported GTK binding-package request schema");
   }
@@ -73,7 +107,11 @@ export function validateGtkBindingPackageRequest(
     typeof request.clang !== "object" ||
     request.clang === null ||
     typeof request.generation !== "object" ||
-    request.generation === null
+    request.generation === null ||
+    typeof request.namespace !== "object" ||
+    request.namespace === null ||
+    !girNamespaceNamePattern.test(request.namespace.name) ||
+    !girNamespaceVersionPattern.test(request.namespace.version)
   ) {
     throw new Error("GTK binding-package request is incomplete");
   }
@@ -90,7 +128,7 @@ export function defineGtkBindingPackageRequest(
 ): GtkBindingPackageRequest {
   const request = JSON.parse(canonicalizeJson({
     schema: "native-typescript.gtk-binding-package-request",
-    schemaVersion: 1,
+    schemaVersion: 2,
     ...input,
   })) as GtkBindingPackageRequest;
   validateGtkBindingPackageRequest(request);

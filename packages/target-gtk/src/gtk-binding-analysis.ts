@@ -11,6 +11,7 @@ import type {
 import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type { GirSnapshot } from "./gir-model.ts";
 import {
+  girPackageSlug,
   planGtkBindingPackage,
   planGtkClangEvidenceNormalization,
 } from "./gtk-binding-package.ts";
@@ -22,13 +23,32 @@ import type {
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
-export const gtkBindingAnalysisArtifactIds = Object.freeze({
-  probeSource: "source/gtk4/clang-abi-probe",
-  rawAst: "metadata/gtk4/clang-abi-ast",
-  rawLlvm: "metadata/gtk4/clang-abi-llvm",
-  evidence: "metadata/gtk4/normalized-clang-abi-evidence",
-  bindings: "package/gtk4/bindings",
-});
+export interface GtkBindingAnalysisArtifactIds {
+  readonly probeSource: string;
+  readonly rawAst: string;
+  readonly rawLlvm: string;
+  readonly evidence: string;
+  readonly bindings: string;
+}
+
+/**
+ * Artifact identities for one namespace's analysis subgraph. They are derived
+ * from the namespace so a build that analyses Gtk-4.0 and Gio-2.0 together
+ * produces two disjoint subgraphs rather than colliding on one set of IDs.
+ */
+export function gtkBindingAnalysisArtifactIds(namespace: {
+  readonly name: string;
+  readonly version: string;
+}): GtkBindingAnalysisArtifactIds {
+  const slug = girPackageSlug(namespace);
+  return Object.freeze({
+    probeSource: `source/${slug}/clang-abi-probe`,
+    rawAst: `metadata/${slug}/clang-abi-ast`,
+    rawLlvm: `metadata/${slug}/clang-abi-llvm`,
+    evidence: `metadata/${slug}/normalized-clang-abi-evidence`,
+    bindings: `package/${slug}/bindings`,
+  });
+}
 
 export interface GtkBindingAnalysisPlan {
   readonly adapter: GObjectAdapterSource;
@@ -71,28 +91,32 @@ export function planGtkBindingAnalysis(input: {
         `but analysis targets ${input.target}`,
     );
   }
-  if (input.snapshot.namespace.name !== "Gtk") {
+  // The request declares the namespace independently of the snapshot so the
+  // two must agree. A namespace version is not an SDK version; Gio-2.0 and
+  // Gtk-4.0 are both reached through one GTK SDK.
+  if (
+    input.snapshot.namespace.name !== input.request.namespace.name ||
+    input.snapshot.namespace.version !== input.request.namespace.version
+  ) {
     throw new Error(
-      `GTK binding analysis requires the Gtk namespace, but received ${input.snapshot.namespace.name}`,
+      `GIR binding request declares ${input.request.namespace.name}-` +
+        `${input.request.namespace.version}, but the snapshot is ` +
+        `${input.snapshot.namespace.name}-${input.snapshot.namespace.version}`,
     );
   }
-  if (input.snapshot.namespace.version !== input.request.generation.sdk.version) {
-    throw new Error(
-      `GTK GIR ${input.snapshot.namespace.version} does not match SDK ` +
-        input.request.generation.sdk.version,
-    );
-  }
+  const artifactIds = gtkBindingAnalysisArtifactIds(input.snapshot.namespace);
+  const slug = girPackageSlug(input.snapshot.namespace);
 
   const adapter = generateGObjectAdapterSource(input.snapshot);
   const probe = generateGirClangAbiProbe(input.snapshot, adapter);
   const clang = planClangAbiProbe({
     probe,
-    sourceArtifactId: gtkBindingAnalysisArtifactIds.probeSource,
-    rawAstArtifactId: gtkBindingAnalysisArtifactIds.rawAst,
-    rawLlvmArtifactId: gtkBindingAnalysisArtifactIds.rawLlvm,
-    astActionId: "inspect/gtk4/clang-abi",
-    llvmActionId: "inspect/gtk4/clang-calling-convention",
-    logicalPath: "generated/gtk4/clang-abi-probe.c",
+    sourceArtifactId: artifactIds.probeSource,
+    rawAstArtifactId: artifactIds.rawAst,
+    rawLlvmArtifactId: artifactIds.rawLlvm,
+    astActionId: `inspect/${slug}/clang-abi`,
+    llvmActionId: `inspect/${slug}/clang-calling-convention`,
+    logicalPath: `generated/${slug}/clang-abi-probe.c`,
     arguments: input.clangArguments,
     tool: input.clangTool,
     executionPlatform: input.executionPlatform,
@@ -105,8 +129,8 @@ export function planGtkBindingAnalysis(input: {
     rawAstArtifact: clang.rawAst.id,
     rawLlvmArtifact: clang.rawLlvm.id,
     generatorArtifact: input.generatorArtifact,
-    artifactId: gtkBindingAnalysisArtifactIds.evidence,
-    actionId: "normalize/gtk4/clang-abi-evidence",
+    artifactId: artifactIds.evidence,
+    actionId: `normalize/${slug}/clang-abi-evidence`,
     tool: input.nodeTool,
     executionPlatform: input.executionPlatform,
     target: input.target,
@@ -117,8 +141,8 @@ export function planGtkBindingAnalysis(input: {
     snapshotArtifact: input.snapshotArtifact,
     normalizedEvidenceArtifact: evidence.artifact.id,
     generatorArtifact: input.generatorArtifact,
-    artifactId: gtkBindingAnalysisArtifactIds.bindings,
-    actionId: "generate/gtk4/binding-package",
+    artifactId: artifactIds.bindings,
+    actionId: `generate/${slug}/binding-package`,
     tool: input.nodeTool,
     executionPlatform: input.executionPlatform,
     target: input.target,

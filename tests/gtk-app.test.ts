@@ -281,6 +281,7 @@ test(
         ],
       });
       const gtkBindingRequest = defineGtkBindingPackageRequest({
+        namespace: { name: "Gtk", version: "4.0" },
         clang: {
           toolId: clangTool.id,
           version: clangTool.version,

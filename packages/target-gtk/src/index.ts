@@ -23,6 +23,7 @@ export {
 export { generateGtkScabiPackage } from "./gtk-scabi.ts";
 export {
   defineGtkBindingPackageRequest,
+  girPackageSlug,
   gtkBindingToolFile,
   planGtkBindingPackage,
   planGtkClangEvidenceNormalization,

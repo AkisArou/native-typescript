@@ -615,6 +615,7 @@ test("GTK caller-allocated record outputs project as one nested value result", (
 test("GTK evidence and binding generation are immutable cacheable actions", () => {
   const generation = options();
   const request = defineGtkBindingPackageRequest({
+    namespace: { name: "Gtk", version: "4.0" },
     clang: generation.evidence.clang,
     generation: {
       package: generation.package,
@@ -700,6 +701,7 @@ test("GTK binding analysis composes one immutable target plan", () => {
   const selected = snapshot(["clicked"]);
   const generation = options(selected);
   const request = defineGtkBindingPackageRequest({
+    namespace: { name: "Gtk", version: "4.0" },
     clang: generation.evidence.clang,
     generation: {
       package: generation.package,
