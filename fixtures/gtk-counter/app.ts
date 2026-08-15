@@ -31,18 +31,18 @@ function finishIfReady(): void {
 
 const window = new Window();
 const button = Button.withLabel("Generated: initial");
-const initial = button.getLabel();
-button.setLabel("Generated: updated");
+const initial = button.label;
+button.label = "Generated: updated";
 button.setVisible(false);
 button.setVisible(true);
-button.setOpacity(0.75 as gdouble);
-button.setOpacity(button.getOpacity());
+button.opacity = 0.75 as gdouble;
+button.opacity = button.opacity;
 window.setChild(button);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);
 const clicked = button.onClicked((sender): void => {
-  const updated = sender.getLabel();
+  const updated = sender.label;
   if (
     initial === "Generated: initial" &&
     updated === "Generated: updated"

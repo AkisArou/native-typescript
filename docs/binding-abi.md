@@ -149,9 +149,9 @@ Clang evidence, target triple, SDK modules, and deterministically regenerated
 GObject adapter agree. It currently maps selected GObject constructors,
 instance methods, `void`, exact `gboolean`, branded exact `gint` and `gdouble`,
 required borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
-owned handles, and non-detailed zero-payload `void` signals into canonical
-declarations and a validated SCABI manifest. Equivalent unordered target inputs
-produce identical output. Signals
+owned handles, coherent GIR-linked getter/setter properties, and non-detailed
+zero-payload `void` signals into canonical declarations and a validated SCABI
+manifest. Equivalent unordered target inputs produce identical output. Signals
 are adapter entries rather than invented direct C functions. Any reached signal
 or parameter/result form outside that closed algebra is an error instead of a
 guessed projection.
@@ -183,13 +183,19 @@ separate work.
 
 For accepted signals, the generated source embeds one namespace-local
 `SignalConnection` base in each signal-specific callback record. The base
-strongly retains the GObject instance and records the handler ID; one shared
-disconnect symbol disconnects, unreferences, and frees every such record.
+strongly retains the GObject instance and records the handler ID. One shared,
+non-consuming disconnect symbol closes the handler; a separate internal release
+symbol disconnects if necessary, unreferences the instance, and frees the record.
 Signal-specific records retain distinct callback layouts so payload-bearing
 signals can be added without changing the connection ABI. SCABI exposes the
 base as one confined, non-identity handle whose owned-result lifecycle closes
 callback admission before native disconnection and drains admitted callbacks
 before final release.
+
+Native IR records whether a source declaration is called, read, or written.
+This makes accessor pairs first-class: getter and setter bindings share one
+checker-owned declaration identity while retaining distinct native operations,
+reachability, ABI signatures, and reports.
 
 ## Native type algebra
 
@@ -542,8 +548,9 @@ contract. Their physical const pointer stays anchored to a borrowed handle
 receiver, while the logical result is `string` or `string | null`. ScriptC
 copies the bytes into managed storage before releasing a temporary receiver;
 both backends verify the surviving string and null branch. The generated
-`Gtk.Button.getLabel()` binding is the first real package surface translated
-through this result projection.
+`Gtk.Button.label` getter is the first real package surface translated through
+this result projection. It shares one declaration symbol with its setter while
+retaining two exact native binding identities.
 Its borrowed-byte binding proves the parallel `Uint8Array` contract: an exact
 offset view and its byte length reach native code without copying, mutation of
 the shared backing store is visible before the call, and temporary view/owner

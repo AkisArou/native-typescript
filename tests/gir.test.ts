@@ -18,7 +18,7 @@ const fixturePath = resolve(
 );
 const fixtureSource = readFileSync(fixturePath, "utf8");
 const fixtureDigest =
-  "sha256:3eeaa040a38e58dc7fbd33fa5a33fbe6cad743d8f7da62eef125ed42f0c47d1d";
+  "sha256:83966a2ec93a0e086df55577e1b17360e2631ac364a0ab46e5b199e267390c97";
 const buttonSelection: GirClassSelection = Object.freeze({
   name: "Button",
   constructors: Object.freeze(["new_with_label"]),
@@ -131,6 +131,11 @@ test("GIR callables preserve C, ownership, nullability, receiver, and signal sem
   assert.equal(getLabel.parameters[0]?.kind, "instance");
   assert.equal(getLabel.parameters[0]?.type.kind, "named");
   assert.equal(getLabel.parameters[0]?.type.cType, "GtkButton*");
+  assert.equal(getLabel.glibGetProperty, "label");
+  assert.equal(
+    button.methods.find(({ name }) => name === "set_label")?.glibSetProperty,
+    "label",
+  );
 
   const clicked = button.signals[0];
   assert.ok(clicked);
@@ -152,7 +157,7 @@ test("GIR preserves lifecycle, availability, relationships, and annotations", ()
       'glib:get-type="gtk_button_get_type" glib:ref-func="g_object_ref" glib:unref-func="g_object_unref"',
     )
     .replace(
-      '<method name="get_label" c:identifier="gtk_button_get_label">',
+      '<method name="get_label" c:identifier="gtk_button_get_label" glib:get-property="label">',
       `<method name="get_label"
               c:identifier="gtk_button_get_label"
               deprecated="1"
@@ -336,8 +341,8 @@ test("GIR ingestion rejects missing selections and unsupported reachable metadat
   assert.match(variadic.message, /Variadic parameters/u);
 
   const nonIntrospectableSource = fixtureSource.replace(
-    '<method name="get_label" c:identifier="gtk_button_get_label">',
-    '<method name="get_label" c:identifier="gtk_button_get_label" introspectable="0">',
+    '<method name="get_label" c:identifier="gtk_button_get_label" glib:get-property="label">',
+    '<method name="get_label" c:identifier="gtk_button_get_label" glib:get-property="label" introspectable="0">',
   );
   const nonIntrospectable = ingestionDiagnostics(() =>
     ingestGir(nonIntrospectableSource, {

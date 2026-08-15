@@ -34,6 +34,149 @@ layer. Android, Apple, GTK, Windows, C, POSIX, and future targets remain
 directly accessible. A JavaScript engine may be selected as an explicit
 compatibility realm, but is never introduced silently.
 
+The following sketches show the intended direct, non-React experience. Package
+names and API details are directional until each target is implemented and
+proven against its authoritative SDK metadata and ABI.
+
+### Android
+
+An Android application uses Android lifecycle and widget APIs directly; it does
+not need a JavaScript bridge or an embedded Node runtime.
+
+```ts
+import { Activity, Bundle } from "@native-typescript/android/app";
+import { Button, LinearLayout, TextView } from "@native-typescript/android/widget";
+
+export function onCreate(activity: Activity, state: Bundle | null): void {
+  activity.superOnCreate(state);
+
+  let count = 0;
+  const label = new TextView(activity, { text: "Count: 0" });
+  const increment = new Button(activity, { text: "Increment" });
+  increment.onClick((): void => {
+    label.text = `Count: ${++count}`;
+  });
+
+  activity.setContentView(new LinearLayout(activity, {
+    orientation: "vertical",
+    children: [label, increment],
+  }));
+}
+```
+
+### iOS
+
+UIKit remains available as an ordinary native target surface, with Objective-C
+ownership and main-thread rules represented by its generated bindings.
+
+```ts
+import { UIButton, UILabel, UIStackView, UIViewController } from "@native-typescript/apple/uikit";
+
+export function loadCounter(controller: UIViewController): void {
+  let count = 0;
+  const label = new UILabel({ text: "Count: 0" });
+  const button = UIButton.system({ title: "Increment" });
+  button.onPrimaryAction((): void => {
+    label.text = `Count: ${++count}`;
+  });
+
+  controller.view = new UIStackView({
+    axis: "vertical",
+    arrangedSubviews: [label, button],
+  });
+}
+```
+
+### macOS
+
+The same Apple target family can expose AppKit without routing the application
+through a browser view or cross-platform UI abstraction.
+
+```ts
+import { Button, StackView, TextField, Window } from "@native-typescript/apple/appkit";
+
+let count = 0;
+const label = TextField.label("Count: 0");
+const button = Button.withTitle("Increment");
+button.onAction((): void => {
+  label.stringValue = `Count: ${++count}`;
+});
+
+const window = new Window({ width: 640, height: 480 });
+window.contentView = new StackView({ views: [label, button] });
+window.show();
+```
+
+### GTK
+
+GTK is the first implemented application target and establishes the binding,
+ownership, callback, and artifact path that broader target work builds on.
+
+```ts
+import { Button, Window } from "@native-typescript/gtk4";
+
+let count = 0;
+const button = Button.withLabel("Count: 0");
+button.onClicked((sender): void => {
+  sender.label = `Count: ${++count}`;
+});
+
+const window = new Window();
+window.child = button;
+window.present();
+```
+
+### Windows
+
+Windows applications can target the native Windows application SDK directly;
+React is an optional renderer above this surface, not its owner.
+
+```ts
+import { Button, StackPanel, TextBlock, Window } from "@native-typescript/windows/winui3";
+
+let count = 0;
+const label = new TextBlock({ text: "Count: 0" });
+const button = new Button({ content: "Increment" });
+button.onClick((): void => {
+  label.text = `Count: ${++count}`;
+});
+
+const window = new Window();
+window.content = new StackPanel({ children: [label, button] });
+window.activate();
+```
+
+### C
+
+C libraries are usable through verified headers and generated SCABI rather than
+hand-written foreign-function casts. Exact C scalar types remain visible where
+their width or signedness matters.
+
+```ts
+import { strlen } from "@native-typescript/c/string";
+import type { size_t } from "@native-typescript/c/types";
+
+const byteLength: size_t = strlen("native TypeScript");
+```
+
+### POSIX
+
+POSIX is a systems surface rather than an application framework. Calls expose
+their real error and resource contracts to the compiler.
+
+```ts
+import { O_RDONLY, close, open, read } from "@native-typescript/posix";
+
+const fd = open("/etc/hostname", O_RDONLY);
+try {
+  const buffer = new Uint8Array(256);
+  const bytesRead = read(fd, buffer);
+  process.stdout.write(buffer.subarray(0, bytesRead));
+} finally {
+  close(fd);
+}
+```
+
 ## Non-negotiable properties
 
 - Static compilation is the default and unsupported behavior fails precisely.
@@ -243,7 +386,8 @@ SCABI, adapter metadata/source, and package provenance. A second build root
 reuses that package from the local action cache.
 The native application never contains that Node build tool. The generated
 surface covers managed Widget ancestry, class-based `new Window()` and
-`Button.withLabel(...)` construction, disposal, label access, borrowed handle
+`Button.withLabel(...)` construction, automatic release, native properties,
+borrowed handle
 parameters, exact `gboolean` methods, branded
 `gint`/`gdouble` parameters and results, and one shared `SignalConnection`
 capability for non-detailed zero-payload `void` signals. The adapter strongly
@@ -256,12 +400,13 @@ The application gate now chains Clang inspection, evidence normalization, and
 package generation as three declared analysis actions, promotes the verified
 package artifact into the compiler phase, composes it with the target-runtime
 package, and compiles
-both ScriptC backends, and executes constructor, nullable label getter, setter,
+both ScriptC backends, and executes constructor, nullable `Button.label`
+property reads and writes,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
 disposal against real GTK. It passes both boolean representations through
 generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
 `gint` values, feeds `Widget.getWidth()` back into a native call, round-trips
-exact `gdouble` through `Widget.setOpacity()`/`getOpacity()`, then calls
+exact `gdouble` through the `Widget.opacity` property, then calls
 `Widget.activate()`, projects its native boolean result, and receives the
 resulting real `Button.clicked` through the generated receiver-owned connection.
 The remaining hand-authored fixture is

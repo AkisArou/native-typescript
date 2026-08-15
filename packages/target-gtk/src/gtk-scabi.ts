@@ -800,8 +800,80 @@ export function generateGtkScabiPackage(
       `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
     const constructorLines: string[] = [];
+    const propertyAccessors = new Map<string, {
+      getter?: GirCallable;
+      setter?: GirCallable;
+    }>();
+    const invalidPropertyMethods = new Set<GirCallable>();
+    const projectedPropertyMethods = new Set<GirCallable>();
+    for (const callable of class_.methods) {
+      const getterName = callable.glibGetProperty;
+      const setterName = callable.glibSetProperty;
+      if (getterName !== null && setterName !== null) {
+        diagnostics.push(
+          diagnostic(
+            `${classPath}/method/${callable.name}`,
+            "A GIR method cannot be both a property getter and setter",
+          ),
+        );
+        invalidPropertyMethods.add(callable);
+        continue;
+      }
+      const propertyName = getterName ?? setterName;
+      if (propertyName === null) continue;
+      const accessors = propertyAccessors.get(propertyName) ?? {};
+      const slot = getterName === null ? "setter" : "getter";
+      if (accessors[slot] !== undefined) {
+        diagnostics.push(
+          diagnostic(
+            `${classPath}/property/${propertyName}`,
+            `Selected GIR methods contain duplicate ${slot}s`,
+          ),
+        );
+        invalidPropertyMethods.add(callable);
+        invalidPropertyMethods.add(accessors[slot]!);
+      } else {
+        accessors[slot] = callable;
+      }
+      propertyAccessors.set(propertyName, accessors);
+    }
+    for (const [propertyName, accessors] of propertyAccessors) {
+      if (accessors.getter === undefined || accessors.setter === undefined) {
+        continue;
+      }
+      const setterValue = accessors.setter.parameters[1];
+      if (
+        accessors.getter.parameters.length !== 1 ||
+        accessors.setter.parameters.length !== 2 ||
+        accessors.setter.result.type.cType !== "void" ||
+        setterValue === undefined ||
+        canonicalizeJson(accessors.getter.result.type) !== canonicalizeJson(setterValue.type)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            `${classPath}/property/${propertyName}`,
+            "GIR getter and setter do not form one coherent property type contract",
+          ),
+        );
+        invalidPropertyMethods.add(accessors.getter);
+        invalidPropertyMethods.add(accessors.setter);
+      } else {
+        projectedPropertyMethods.add(accessors.getter);
+        projectedPropertyMethods.add(accessors.setter);
+      }
+    }
+    const projectedPropertyKinds = new Map<string, Set<"getter" | "setter">>();
     for (const callable of class_.methods) {
       const path = `${classPath}/method/${callable.name}`;
+      if (invalidPropertyMethods.has(callable)) continue;
+      const propertyKind = projectedPropertyMethods.has(callable)
+        ? callable.glibGetProperty !== null
+          ? "getter" as const
+          : "setter" as const
+        : null;
+      const propertyName = propertyKind === null
+        ? null
+        : callable.glibGetProperty ?? callable.glibSetProperty;
       if (callable.cIdentifier === null || callable.throws || callable.result.skip) {
         diagnostics.push(diagnostic(path, "Method needs a direct non-throwing C entry"));
         continue;
@@ -812,6 +884,7 @@ export function generateGtkScabiPackage(
         continue;
       }
       const sourceParameters: string[] = [];
+      const sourceParameterTypes: string[] = [];
       const abiParameters: AbiParameter[] = [Object.freeze({
         name: receiver.name,
         type: typeId,
@@ -833,6 +906,7 @@ export function generateGtkScabiPackage(
           } else {
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
+            sourceParameterTypes.push("string");
           }
         } else if (
           parameter.type.kind === "named" &&
@@ -849,6 +923,7 @@ export function generateGtkScabiPackage(
           } else {
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
+            sourceParameterTypes.push("boolean");
           }
         } else if (scalar !== undefined) {
           const abi = requiredValueParameter(
@@ -864,6 +939,7 @@ export function generateGtkScabiPackage(
             sourceParameters.push(
               `${lowerCamel(parameter.name)}: ${scalar.girName}`,
             );
+            sourceParameterTypes.push(scalar.girName);
           }
         } else {
           const handle = handleParameter(
@@ -880,6 +956,7 @@ export function generateGtkScabiPackage(
             sourceParameters.push(
               `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
             );
+            sourceParameterTypes.push(handle.sourceType);
           }
         }
       }
@@ -891,16 +968,29 @@ export function generateGtkScabiPackage(
         `${path}/result`,
       );
       if (!valid || result === null) continue;
-      const declaration = `${class_.name}.${lowerCamel(callable.name)}`;
+      const sourceMember = propertyName === null
+        ? lowerCamel(callable.name)
+        : lowerCamel(propertyName);
+      const declaration = `${class_.name}.${sourceMember}`;
       const bindingId = callable.cIdentifier;
-      if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
+      const projectedKinds = projectedPropertyKinds.get(declaration);
+      if (
+        bindings[bindingId] !== undefined ||
+        (declarations.has(declaration) &&
+          (propertyKind === null || projectedKinds === undefined || projectedKinds.has(propertyKind)))
+      ) {
         diagnostics.push(diagnostic(path, "Generated method identity collides"));
         continue;
       }
       declarations.add(declaration);
+      if (propertyKind !== null) {
+        const kinds = projectedKinds ?? new Set<"getter" | "setter">();
+        kinds.add(propertyKind);
+        projectedPropertyKinds.set(declaration, kinds);
+      }
       bindings[bindingId] = callableBase({
         declaration,
-        kind: "method",
+        kind: propertyKind ?? "method",
         entryKind: "c-symbol",
         symbol: callable.cIdentifier,
         parameters: abiParameters,
@@ -919,9 +1009,20 @@ export function generateGtkScabiPackage(
             : callable.result.nullable
               ? "string | null"
               : "string";
-      classLines.push(
-        `  ${lowerCamel(callable.name)}(${sourceParameters.join(", ")}): ${sourceResult};`,
-      );
+      if (propertyKind === "getter") {
+        classLines.push(`  get ${sourceMember}(): ${sourceResult};`);
+      } else if (propertyKind === "setter") {
+        const valueType = sourceParameterTypes[0];
+        if (valueType === undefined || valueType.length === 0) {
+          diagnostics.push(diagnostic(path, "Generated property setter has no source value"));
+          continue;
+        }
+        classLines.push(`  set ${sourceMember}(value: ${valueType});`);
+      } else {
+        classLines.push(
+          `  ${sourceMember}(${sourceParameters.join(", ")}): ${sourceResult};`,
+        );
+      }
     }
     for (const callable of class_.signals) {
       const path = `${classPath}/signal/${callable.name}`;

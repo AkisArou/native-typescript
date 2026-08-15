@@ -223,7 +223,12 @@ export interface ScriptCNativeBinding {
     | { readonly kind: "function" }
     | { readonly kind: "constructor" }
     | { readonly kind: "method"; readonly receiverArgument: number }
-    | { readonly kind: "getter"; readonly receiverArgument: number };
+    | { readonly kind: "getter"; readonly receiverArgument: number }
+    | {
+        readonly kind: "setter";
+        readonly receiverArgument: number;
+        readonly valueArgument: number;
+      };
   /** Failure detection is explicit Native IR data. Backends must snapshot
    * errno immediately after observing the exact failure sentinel. */
   readonly error: ScriptCNativeErrorContract;
@@ -349,6 +354,15 @@ function declarationKey(declaration: ScriptCNativeDeclaration): string {
   return `${declaration.module}\u0000${declaration.name}`;
 }
 
+function bindingDeclarationKey(binding: ScriptCNativeBinding): string {
+  const role = binding.sourceCall.kind === "getter"
+    ? "read"
+    : binding.sourceCall.kind === "setter"
+      ? "write"
+      : "call";
+  return `${declarationKey(binding.declaration)}\u0000${role}`;
+}
+
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -425,7 +439,7 @@ export function composeScriptCNativePrograms(
       addExact(bindings, binding.id, binding, path, "binding id");
       addExact(
         bindingsByDeclaration,
-        declarationKey(binding.declaration),
+        bindingDeclarationKey(binding),
         binding,
         path,
         "binding declaration",
@@ -636,7 +650,7 @@ function supportedBorrowedStringResult(
     (parameter) => parameter.name === anchorName,
   );
   if (
-    binding.kind !== "method" ||
+    (binding.kind !== "method" && binding.kind !== "getter") ||
     binding.signature.parameters[0]?.name !== anchorName ||
     anchor === undefined ||
     manifest.types[anchor.type]?.kind !== "handle" ||
@@ -1132,14 +1146,14 @@ function bindingUnsupported(
   bindingId: string,
   binding: CallableBinding,
 ): string | null {
-  if (!["function", "constructor", "factory", "method", "getter"].includes(binding.kind)) {
+  if (!["function", "constructor", "factory", "method", "getter", "setter"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
   }
   if (binding.kind === "constructor" && binding.declaration.name.includes(".")) {
     return "constructor declaration identity must name its constructed type";
   }
   if (
-    (binding.kind === "method" || binding.kind === "getter") &&
+    (binding.kind === "method" || binding.kind === "getter" || binding.kind === "setter") &&
     !binding.declaration.name.includes(".")
   ) {
     return `${binding.kind} declaration identity must name its containing type and member`;
@@ -2148,6 +2162,12 @@ export function translateScabiNativeProgram(
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : binding.kind === "getter"
             ? Object.freeze({ kind: "getter", receiverArgument: 0 } as const)
+            : binding.kind === "setter"
+              ? Object.freeze({
+                  kind: "setter",
+                  receiverArgument: 0,
+                  valueArgument: 1,
+                } as const)
           : binding.kind === "constructor"
             ? Object.freeze({ kind: "constructor" } as const)
             : Object.freeze({ kind: "function" } as const),

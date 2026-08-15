@@ -229,8 +229,8 @@ enters the real application compilation: TypeScript constructs, reads, updates,
 changes visibility, activates, and disposes a real Widget/Button/Window
 hierarchy through both backends. It also passes branded exact dimensions to
 `Window.setDefaultSize()` and feeds `Widget.getWidth()` into a second native
-call. Exact opacity also round-trips through `Widget.setOpacity()` and
-`Widget.getOpacity()`, with generated adapters linked as explicit artifacts.
+call. Exact opacity also round-trips through the generated `Widget.opacity`
+getter/setter pair, with generated adapters linked as explicit artifacts.
 
 Multi-package Native IR inputs now have a first-class canonical composition
 boundary. Generated toolkit bindings and target-runtime support can enter one

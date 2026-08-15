@@ -165,8 +165,17 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
     "gtk_button_release",
   ]);
   assert.match(generated.declarations, /export declare class Button/u);
-  assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
-  assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
+  assert.match(generated.declarations, /get label\(\): string \| null;/u);
+  assert.match(generated.declarations, /set label\(value: string\);/u);
+  assert.doesNotMatch(generated.declarations, /getLabel|setLabel/u);
+  const labelGetter = generated.manifest.bindings.gtk_button_get_label;
+  assert.ok(labelGetter && labelGetter.kind !== "constant");
+  assert.equal(labelGetter.kind, "getter");
+  assert.equal(labelGetter.declaration.name, "Button.label");
+  const labelSetter = generated.manifest.bindings.gtk_button_set_label;
+  assert.ok(labelSetter && labelSetter.kind !== "constant");
+  assert.equal(labelSetter.kind, "setter");
+  assert.equal(labelSetter.declaration.name, "Button.label");
   assert.match(
     generated.declarations,
     /static withLabel\(label: string\): Button;/u,

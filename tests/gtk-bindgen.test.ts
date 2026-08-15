@@ -266,14 +266,16 @@ test(
         generated.declarations,
         /static withLabel\(label: string\): Button;/u,
       );
-      assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
-      assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
+      assert.match(generated.declarations, /set label\(value: string\);/u);
+      assert.match(generated.declarations, /get label\(\): string \| null;/u);
+      assert.doesNotMatch(generated.declarations, /getLabel|setLabel/u);
       assert.match(generated.declarations, /class Button extends Widget/u);
       assert.match(generated.declarations, /class Window extends Widget/u);
       assert.match(generated.declarations, /activate\(\): boolean;/u);
-      assert.match(generated.declarations, /getOpacity\(\): gdouble;/u);
+      assert.match(generated.declarations, /get opacity\(\): gdouble;/u);
       assert.match(generated.declarations, /getWidth\(\): gint;/u);
-      assert.match(generated.declarations, /setOpacity\(opacity: gdouble\): void;/u);
+      assert.match(generated.declarations, /set opacity\(value: gdouble\);/u);
+      assert.doesNotMatch(generated.declarations, /getOpacity|setOpacity/u);
       assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
@@ -417,6 +419,10 @@ test(
       const getOpacity = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_get_opacity",
       );
+      assert.deepEqual(getOpacity?.sourceCall, {
+        kind: "getter",
+        receiverArgument: 0,
+      });
       assert.deepEqual(getOpacity?.result, {
         type: { kind: "nativeScalar", scalar: "f64" },
         passMode: "value",
@@ -426,6 +432,11 @@ test(
       const setOpacity = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_set_opacity",
       );
+      assert.deepEqual(setOpacity?.sourceCall, {
+        kind: "setter",
+        receiverArgument: 0,
+        valueArgument: 1,
+      });
       assert.deepEqual(setOpacity?.arguments[1], {
         name: "opacity",
         type: { kind: "nativeScalar", scalar: "f64" },
