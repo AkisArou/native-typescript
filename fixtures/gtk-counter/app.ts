@@ -5,14 +5,21 @@ import {
   runtimeStart,
   type i32,
 } from "@native-typescript/gtk-counter-fixture";
-import { createButtonWithLabel } from "@native-typescript/gtk4";
+import {
+  createButtonWithLabel,
+  createWindow,
+} from "@native-typescript/gtk4";
 
-function exerciseGeneratedButton(): i32 {
+function exerciseGeneratedGtk(): i32 {
+  const window = createWindow();
   const button = createButtonWithLabel("Generated: initial");
+  window.setChild(button);
   const initial = button.getLabel();
   button.setLabel("Generated: updated");
   const updated = button.getLabel();
+  window.destroy();
   button.dispose();
+  window.dispose();
   if (initial === "Generated: initial" && updated === "Generated: updated") {
     return 41 as i32;
   }
@@ -20,7 +27,7 @@ function exerciseGeneratedButton(): i32 {
 }
 
 runtimeStart();
-const generatedResult = exerciseGeneratedButton();
+const generatedResult = exerciseGeneratedGtk();
 
 let observed = 0 as i32;
 const counter = createCounter((count): void => {

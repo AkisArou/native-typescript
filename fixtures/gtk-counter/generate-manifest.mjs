@@ -238,6 +238,7 @@ const manifest = {
       kind: "handle",
       nativeName: "NtsGtkCounter",
       threadSafety: "confined",
+      upcasts: [],
     },
     i32: { bits: 32, kind: "integer", signed: true },
     void: { kind: "void" },

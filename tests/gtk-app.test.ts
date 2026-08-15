@@ -132,7 +132,7 @@ function literalArguments(values: readonly string[]): readonly ArtifactActionArg
 }
 
 test(
-  "compiled TypeScript composes generated Gtk.Button bindings with a real GTK window loop",
+  "compiled TypeScript composes a generated GTK hierarchy with a real window loop",
   {
     skip:
       process.platform !== "linux" ||
@@ -209,11 +209,19 @@ test(
       const gtkSnapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
         logicalPath: "system-sdk/gir/Gtk-4.0.gir",
         namespace: { name: "Gtk", version: "4.0" },
-        classes: [{
-          name: "Button",
-          constructors: ["new_with_label"],
-          methods: ["get_label", "set_label"],
-        }],
+        classes: [
+          {
+            name: "Button",
+            constructors: ["new_with_label"],
+            methods: ["get_label", "set_label"],
+          },
+          { name: "Widget" },
+          {
+            name: "Window",
+            constructors: ["new"],
+            methods: ["destroy", "set_child"],
+          },
+        ],
       });
       const gtkProbe = generateGirClangFunctionProbe(gtkSnapshot);
       const gtkProbePlan = planClangFunctionProbe({
@@ -324,6 +332,9 @@ test(
           "gtk_button_get_label",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_window_destroy",
+          "gtk_window_new",
+          "gtk_window_set_child",
         ],
         exports: [],
       });

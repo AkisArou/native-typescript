@@ -153,6 +153,13 @@ validated SCABI manifest. Equivalent unordered target inputs produce identical
 output. Any reached signal or parameter/result form outside that closed algebra
 is an error instead of a guessed projection.
 
+Opaque handles declare their direct upcast edges explicitly. The first edge
+kind is `identity`: source and target share the exact foreign-pointer
+representation and the same thread-safety and identity contracts. This is the
+correct rule for GObject class ancestry, but is intentionally not inferred for
+all native hierarchies; C++ adjusted bases, COM interface queries, and similar
+conversions require a future adapter-backed edge.
+
 Selected GObject constructors also produce a generated ownership adapter after
 their direct C signature has been accepted. GIR supplies the explicit `none` or
 `full` result-transfer fact; the adapter queries actual floating state when

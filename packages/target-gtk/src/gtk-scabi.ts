@@ -89,6 +89,14 @@ function lowerCamel(value: string): string {
   return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
 }
 
+function handleTypeId(namespace: string, class_: GirClass): string {
+  return `${namespace.toLowerCase()}_${class_.cSymbolPrefix}`;
+}
+
+function handleBrand(className: string): string {
+  return `nativeResource${upperCamel(className)}`;
+}
+
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -272,6 +280,50 @@ function cStringParameter(
   });
 }
 
+function handleParameter(
+  parameter: GirParameter,
+  classByName: ReadonlyMap<string, GirClass>,
+  typeIdByClass: ReadonlyMap<string, string>,
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): { readonly abi: AbiParameter; readonly sourceType: string } | null {
+  const className = parameter.type.kind === "named" ? parameter.type.name : null;
+  const class_ = className === null ? undefined : classByName.get(className);
+  const typeId = className === null ? undefined : typeIdByClass.get(className);
+  if (
+    parameter.kind !== "parameter" ||
+    class_ === undefined ||
+    typeId === undefined ||
+    parameter.type.kind !== "named" ||
+    parameter.type.cType !== `${class_.cType}*` ||
+    parameter.direction !== "in" ||
+    parameter.transferOwnership !== "none" ||
+    parameter.optional ||
+    parameter.callerAllocates ||
+    parameter.skip ||
+    parameter.scope !== null ||
+    parameter.closureParameter !== null ||
+    parameter.destroyParameter !== null
+  ) {
+    diagnostics.push(
+      diagnostic(path, "Only selected borrowed GObject handle inputs are implemented"),
+    );
+    return null;
+  }
+  return Object.freeze({
+    abi: Object.freeze({
+      name: parameter.name,
+      type: typeId,
+      passMode: "pointer",
+      // A nullable C parameter safely admits this generated non-null source
+      // subset. Null exposure needs nullable managed-handle IR of its own.
+      nullable: false,
+      ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+    }),
+    sourceType: class_.name,
+  });
+}
+
 function methodResult(
   callable: GirCallable,
   receiverName: string,
@@ -404,8 +456,15 @@ export function generateGtkScabiPackage(
   };
   const bindings: Record<string, NativeBinding> = {};
   const declarationTypes: Record<string, { readonly module: "."; readonly name: string }> = {};
+  const classByName = new Map(options.snapshot.classes.map((class_) => [class_.name, class_]));
+  const typeIdByClass = new Map(options.snapshot.classes.map((class_) => [
+    class_.name,
+    handleTypeId(options.snapshot.namespace.name, class_),
+  ]));
   const declarationLines = [
-    "declare const nativeResource: unique symbol;",
+    ...options.snapshot.classes.map((class_) =>
+      `declare const ${handleBrand(class_.name)}: unique symbol;`
+    ),
     "",
   ];
   const adapterBindings: string[] = [];
@@ -425,20 +484,14 @@ export function generateGtkScabiPackage(
         diagnostic(`${classPath}/signals`, "Signal declaration generation is not implemented"),
       );
     }
-    if (class_.constructors.length === 0) {
-      diagnostics.push(
-        diagnostic(`${classPath}/constructors`, "The first GObject handle slice requires a constructor"),
-      );
-      continue;
-    }
-    const typeId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}`;
+    const typeId = typeIdByClass.get(class_.name)!;
     const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
     const releaseDeclaration = `${class_.name}.dispose`;
     if (
       types[typeId] !== undefined ||
       declarationTypes[typeId] !== undefined ||
-      bindings[releaseId] !== undefined ||
-      declarations.has(releaseDeclaration)
+      (class_.constructors.length > 0 &&
+        (bindings[releaseId] !== undefined || declarations.has(releaseDeclaration)))
     ) {
       diagnostics.push(diagnostic(classPath, "Generated GObject class identity collides"));
       continue;
@@ -448,43 +501,54 @@ export function generateGtkScabiPackage(
       nativeName: class_.cType,
       threadSafety: "confined",
       identity: "platform",
+      upcasts: Object.freeze(
+        class_.parent !== null && typeIdByClass.has(class_.parent)
+          ? [Object.freeze({
+              kind: "identity" as const,
+              target: typeIdByClass.get(class_.parent)!,
+            })]
+          : [],
+      ),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: class_.name });
-    const firstAdapter = adapterByConstructor.get(
-      `${class_.name}.constructor.${class_.constructors[0]!.name}`,
-    );
-    if (firstAdapter === undefined) {
-      diagnostics.push(
-        diagnostic(`${classPath}/constructors`, "GObject ownership adapter is missing this class"),
+    if (class_.constructors.length > 0) {
+      const firstAdapter = adapterByConstructor.get(
+        `${class_.name}.constructor.${class_.constructors[0]!.name}`,
       );
-      continue;
+      if (firstAdapter === undefined) {
+        diagnostics.push(
+          diagnostic(`${classPath}/constructors`, "GObject ownership adapter is missing this class"),
+        );
+        continue;
+      }
+      bindings[releaseId] = callableBase({
+        declaration: releaseDeclaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: firstAdapter.releaseSymbol,
+        parameters: [Object.freeze({
+          name: lowerCamel(class_.name),
+          type: typeId,
+          passMode: "pointer",
+          nullable: true,
+          ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
+        })],
+        result: Object.freeze({
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+      });
+      declarations.add(releaseDeclaration);
+      adapterBindings.push(releaseId);
     }
-    bindings[releaseId] = callableBase({
-      declaration: releaseDeclaration,
-      kind: "method",
-      entryKind: "adapter-symbol",
-      symbol: firstAdapter.releaseSymbol,
-      parameters: [Object.freeze({
-        name: lowerCamel(class_.name),
-        type: typeId,
-        passMode: "pointer",
-        nullable: true,
-        ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
-      })],
-      result: Object.freeze({
-        type: "void",
-        passMode: "value",
-        nullable: false,
-        ownership: Object.freeze({ kind: "value" }),
-      }),
-      dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
-    });
-    declarations.add(releaseDeclaration);
-    adapterBindings.push(releaseId);
 
+    const parent = class_.parent === null ? undefined : classByName.get(class_.parent);
     const interfaceLines = [
-      `export interface ${class_.name} {`,
-      `  readonly [nativeResource]: "${options.snapshot.namespace.name}.${class_.name}";`,
+      `export interface ${class_.name}${parent === undefined ? "" : ` extends ${parent.name}`} {`,
+      `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
     for (const callable of class_.methods) {
       const path = `${classPath}/method/${callable.name}`;
@@ -507,17 +571,34 @@ export function generateGtkScabiPackage(
       })];
       let valid = true;
       for (const [index, parameter] of callable.parameters.slice(1).entries()) {
-        const abi = cStringParameter(
-          parameter,
-          "const_utf8",
-          `${path}/parameters/${index + 1}`,
-          diagnostics,
-        );
-        if (abi === null) {
-          valid = false;
+        const parameterPath = `${path}/parameters/${index + 1}`;
+        if (
+          parameter.type.kind === "named" &&
+          parameter.type.name === "utf8"
+        ) {
+          const abi = cStringParameter(parameter, "const_utf8", parameterPath, diagnostics);
+          if (abi === null) {
+            valid = false;
+          } else {
+            abiParameters.push(abi);
+            sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
+          }
         } else {
-          abiParameters.push(abi);
-          sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
+          const handle = handleParameter(
+            parameter,
+            classByName,
+            typeIdByClass,
+            parameterPath,
+            diagnostics,
+          );
+          if (handle === null) {
+            valid = false;
+          } else {
+            abiParameters.push(handle.abi);
+            sourceParameters.push(
+              `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
+            );
+          }
         }
       }
       const result = methodResult(
@@ -554,7 +635,8 @@ export function generateGtkScabiPackage(
         `  ${lowerCamel(callable.name)}(${sourceParameters.join(", ")}): ${sourceResult};`,
       );
     }
-    interfaceLines.push("  dispose(): void;", "}", "");
+    if (class_.constructors.length > 0) interfaceLines.push("  dispose(): void;");
+    interfaceLines.push("}", "");
     declarationLines.push(...interfaceLines);
 
     for (const callable of class_.constructors) {

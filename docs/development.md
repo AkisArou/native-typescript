@@ -122,7 +122,9 @@ also exercises a receiver-borrowed nullable C-string result, including copying
 before a temporary handle is released, and translates the synchronous
 call-scoped exact-scalar callback and its
 trailing context parameter, plus exact integer `errno` and nullable owned-handle
-failures. It resolves their TypeScript declaration symbols
+failures. A three-level native-handle hierarchy verifies that a derived value
+reaches a base-typed native call through the same managed cell. It resolves
+their TypeScript declaration symbols
 and links the resulting source-lowered programs against the permanent C fixture
 through both ScriptC backends:
 
@@ -170,7 +172,7 @@ node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```
 
 The C binding tests compile a canonical selected-function probe, reject a
-deliberate header mismatch, and reconcile the real `Gtk.Button` direct-call
+deliberate header mismatch, and reconcile the real `Gtk.Button`/`Gtk.Window` direct-call
 surface against Clang. The SCABI test turns the verified selection and exact
 GObject adapter into canonical declarations and a validated manifest, while
 rejecting tampered provenance and unsupported reached metadata. The GIR test
@@ -178,14 +180,15 @@ validates the compact selected-metadata
 contract and, when the system file exists, parses the real `Gtk-4.0.gir`
 `Gtk.Button` surface. The runtime test compiles the GLib adapter in plain,
 ASan/UBSan, and TSan modes.
-The application test builds the ScriptC compiler, regenerates the selected
-`Gtk.Button` declarations, SCABI, and ownership adapter from installed GIR plus
+The application test builds the ScriptC compiler, regenerates selected Widget,
+Button, and Window declarations, SCABI, and ownership adapters from installed GIR plus
 sandboxed Clang evidence, composes that package with the canonical GTK runtime
 fixture, and emits C and LLVM programs. It captures ScriptC's exact native
 driver request, resolves compile inputs and the system-library closure from
 `pkg-config`, materializes the runtime, wrapper, generated ownership adapter,
-and final executable through sandboxed graphs, then runs both against a real
-GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,
+and final executable through sandboxed graphs, then proves
+`Window.setChild(button)` through generated handle ancestry and runs both
+backends against a real GTK/Xvfb event loop. It skips only when the required Linux x64, GTK 4, Clang,
 Bubblewrap, GIR, or Xvfb inputs are unavailable.
 
 Run the workspace checks:

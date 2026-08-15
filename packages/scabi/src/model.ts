@@ -141,11 +141,20 @@ export interface OpaqueValueType extends NativeLayout {
   readonly nativeName: string;
 }
 
+/** A direct, representation-preserving conversion to another opaque handle
+ * type. Casts that adjust or query the foreign pointer require an adapter
+ * binding and are deliberately not described as identity upcasts. */
+export interface IdentityHandleUpcast {
+  readonly kind: "identity";
+  readonly target: NativeTypeId;
+}
+
 export interface HandleType {
   readonly kind: "handle";
   readonly nativeName: string;
   readonly threadSafety: "confined" | "sendable" | "shared";
   readonly identity: "none" | "pointer" | "binding" | "platform";
+  readonly upcasts: readonly IdentityHandleUpcast[];
 }
 
 export interface CallbackContext {

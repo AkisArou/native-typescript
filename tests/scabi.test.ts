@@ -84,12 +84,58 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:d4adb770fb5bc471c43fc587a282f0bdcb9d881abed538c6b6d4a15516bf8436",
+    "sha256:79bae0d6ea968e5e973b2179dc9d473cf7aeca73efc17421753aa9dd6d2d98ab",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
   assert.equal(Object.isFrozen(manifest.bindings.counter_label), true);
   assert.equal(Object.isFrozen(manifest.types.padded), true);
+});
+
+test("SCABI handle upcasts are explicit, canonical, and representation-safe", () => {
+  const hierarchy = structuredClone(manifest);
+  Object.assign(hierarchy.types, {
+    base_handle: {
+      kind: "handle" as const,
+      nativeName: "BaseHandle",
+      threadSafety: "confined" as const,
+      identity: "pointer" as const,
+      upcasts: [],
+    },
+    derived_handle: {
+      kind: "handle" as const,
+      nativeName: "DerivedHandle",
+      threadSafety: "confined" as const,
+      identity: "pointer" as const,
+      upcasts: [{ kind: "identity" as const, target: "base_handle" }],
+    },
+  });
+  assert.equal(validateScabiManifest(hierarchy).ok, true);
+
+  const wrongKind = structuredClone(hierarchy);
+  const wrongKindDerived = wrongKind.types.derived_handle;
+  assert.equal(wrongKindDerived?.kind, "handle");
+  if (wrongKindDerived?.kind !== "handle") return;
+  Object.assign(wrongKindDerived, {
+    upcasts: [{ kind: "identity" as const, target: "i32" }],
+  });
+  assert.deepEqual(validationCodes(wrongKind), ["NTS2021"]);
+
+  const incompatible = structuredClone(hierarchy);
+  const incompatibleBase = incompatible.types.base_handle;
+  assert.equal(incompatibleBase?.kind, "handle");
+  if (incompatibleBase?.kind !== "handle") return;
+  Object.assign(incompatibleBase, { identity: "platform" as const });
+  assert.deepEqual(validationCodes(incompatible), ["NTS2021"]);
+
+  const cyclic = structuredClone(hierarchy);
+  const cyclicBase = cyclic.types.base_handle;
+  assert.equal(cyclicBase?.kind, "handle");
+  if (cyclicBase?.kind !== "handle") return;
+  Object.assign(cyclicBase, {
+    upcasts: [{ kind: "identity" as const, target: "derived_handle" }],
+  });
+  assert.deepEqual(validationCodes(cyclic), ["NTS2021"]);
 });
 
 test("SCABI fixture provenance matches declarations and header", () => {

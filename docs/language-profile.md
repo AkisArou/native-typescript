@@ -236,6 +236,12 @@ transfer an owned, non-null C pointer and name its exact destructor. ScriptC
 aliases share one reference-counted runtime cell. A binding-declared method
 borrows the checked pointer for the duration of its direct call; a wrong-type
 or disposed handle throws a catchable `TypeError` before native code runs.
+SCABI may declare a direct identity upcast when source and target use the same
+foreign-pointer representation, thread-safety contract, and identity policy.
+ScriptC then permits derived-to-base coercion without allocating or changing
+the managed cell, including through transitive edges; undeclared conversions
+remain errors. Pointer-adjusting and query-based native conversions require
+separate adapter-backed operations and are not identity upcasts.
 An owned receiver operation such as `dispose()` clears the cell and invokes
 the destructor synchronously and idempotently. Releasing the final alias does
 the same automatically if explicit disposal has not occurred.

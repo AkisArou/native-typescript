@@ -179,6 +179,10 @@ export interface ScriptCNativeHandleDefinition {
    * by the ScriptC runtime thread even when native code shares the resource. */
   readonly threadSafety: "confined" | "shared";
   readonly identity: "none" | "pointer" | "binding" | "platform";
+  readonly upcasts: readonly {
+    readonly kind: "identity";
+    readonly target: string;
+  }[];
 }
 
 export type ScriptCNativeTypeDefinition =
@@ -1167,6 +1171,14 @@ export function translateScabiNativeProgram(
       const id = `${manifest.package.instance}#type:${typeId}`;
       const type = Object.freeze({ kind: "nativeHandle", typeId: id } as const);
       if (nativeTypes.has(typeId)) return type;
+      if (activeTypes.has(typeId)) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Native handle '${typeId}' has a recursive upcast graph`,
+        ));
+        return null;
+      }
       const declaration = manifest.declarations.types[typeId];
       if (declaration === undefined) {
         diagnostics.push(
@@ -1178,6 +1190,26 @@ export function translateScabiNativeProgram(
         );
         return null;
       }
+      activeTypes.add(typeId);
+      const upcasts: ScriptCNativeHandleDefinition["upcasts"][number][] = [];
+      let valid = true;
+      for (const [index, upcast] of nativeType.upcasts.entries()) {
+        const target = lowerType(upcast.target, `${path}/upcasts/${index}/target`);
+        if (target === null || target.kind !== "nativeHandle") {
+          if (target !== null) {
+            diagnostics.push(diagnostic(
+              "NTS3002",
+              `${path}/upcasts/${index}/target`,
+              `Native handle upcast target '${upcast.target}' is not a handle`,
+            ));
+          }
+          valid = false;
+        } else {
+          upcasts.push(Object.freeze({ kind: "identity", target: target.typeId }));
+        }
+      }
+      activeTypes.delete(typeId);
+      if (!valid) return null;
       const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
       nativeTypes.set(typeId, Object.freeze({
         kind: "handle",
@@ -1186,6 +1218,7 @@ export function translateScabiNativeProgram(
         nativeName: nativeType.nativeName,
         threadSafety: nativeType.threadSafety,
         identity: nativeType.identity,
+        upcasts: Object.freeze(upcasts),
       }));
       if (!visitedSourceTypes.has(typeId)) {
         visitedSourceTypes.add(typeId);

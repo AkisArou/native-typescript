@@ -86,6 +86,12 @@ test(
           methods: ["get_label", "set_label"],
           signals: ["clicked"],
         },
+        { name: "Widget" },
+        {
+          name: "Window",
+          constructors: ["new"],
+          methods: ["destroy", "set_child"],
+        },
       ],
     });
     const probe = generateGirClangFunctionProbe(snapshot);
@@ -93,6 +99,9 @@ test(
       "gtk_button_new_with_label",
       "gtk_button_get_label",
       "gtk_button_set_label",
+      "gtk_window_new",
+      "gtk_window_destroy",
+      "gtk_window_set_child",
     ]);
     assert.equal(probe.source.includes("clicked"), false);
 
@@ -151,6 +160,9 @@ test(
         "gtk_button_new_with_label",
         "gtk_button_get_label",
         "gtk_button_set_label",
+        "gtk_window_new",
+        "gtk_window_destroy",
+        "gtk_window_set_child",
       ]);
       assert.match(evidence.semanticDigest, /^sha256:[0-9a-f]{64}$/u);
 
@@ -162,6 +174,12 @@ test(
             name: "Button",
             constructors: ["new_with_label"],
             methods: ["get_label", "set_label"],
+          },
+          { name: "Widget" },
+          {
+            name: "Window",
+            constructors: ["new"],
+            methods: ["destroy", "set_child"],
           },
         ],
       });
@@ -207,6 +225,10 @@ test(
         "gtk_button_new_with_label",
         "gtk_button_release",
         "gtk_button_set_label",
+        "gtk_window_destroy",
+        "gtk_window_new",
+        "gtk_window_release",
+        "gtk_window_set_child",
       ]);
       assert.match(
         generated.declarations,
@@ -214,6 +236,27 @@ test(
       );
       assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
       assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
+      assert.match(generated.declarations, /interface Button extends Widget/u);
+      assert.match(generated.declarations, /interface Window extends Widget/u);
+      assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
+      assert.match(
+        generated.declarations,
+        /export declare function createWindow\(\): Window;/u,
+      );
+      assert.deepEqual(generated.manifest.types.gtk_button, {
+        kind: "handle",
+        nativeName: "GtkButton",
+        threadSafety: "confined",
+        identity: "platform",
+        upcasts: [{ kind: "identity", target: "gtk_widget" }],
+      });
+      assert.deepEqual(generated.manifest.types.gtk_window, {
+        kind: "handle",
+        nativeName: "GtkWindow",
+        threadSafety: "confined",
+        identity: "platform",
+        upcasts: [{ kind: "identity", target: "gtk_widget" }],
+      });
       const constructor = generated.manifest.bindings.gtk_button_new_with_label;
       assert.ok(constructor && constructor.kind !== "constant");
       assert.deepEqual(constructor.entry, {
@@ -225,10 +268,26 @@ test(
           "gtk_button_get_label",
           "gtk_button_new_with_label",
           "gtk_button_set_label",
+          "gtk_window_destroy",
+          "gtk_window_new",
+          "gtk_window_set_child",
         ],
         exports: [],
       });
       assert.equal(translated.ok, true);
+      if (!translated.ok) return;
+      const buttonType = translated.input.types.find(
+        ({ id }) => id.endsWith("#type:gtk_button"),
+      );
+      const widgetType = translated.input.types.find(
+        ({ id }) => id.endsWith("#type:gtk_widget"),
+      );
+      assert.equal(buttonType?.kind, "handle");
+      assert.equal(widgetType?.kind, "handle");
+      if (buttonType?.kind !== "handle" || widgetType?.kind !== "handle") return;
+      assert.deepEqual(buttonType.upcasts, [
+        { kind: "identity", target: widgetType.id },
+      ]);
       assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
         "gtk4.gobject-constructors",
       ]);

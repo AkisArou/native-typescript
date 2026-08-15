@@ -37,6 +37,7 @@ export type {
   FunctionSignature,
   GeneratorIdentity,
   HandleType,
+  IdentityHandleUpcast,
   IntegerType,
   LinkInput,
   LinkInputId,

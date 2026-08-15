@@ -141,7 +141,11 @@ LLVM emits the target's `byval`/`sret` contract. The padded-struct fixture passe
 through both backends, including statically typed field reads from returned
 values. Owned, owner-confined opaque handles now use a runtime-private managed
 cell with alias-safe explicit disposal, automatic exact destruction, and
-checked borrowed method ingress. Borrowed UTF-8 input is also implemented as
+checked borrowed method ingress. Direct, representation-preserving handle
+upcasts are explicit in SCABI and Native IR, close over transitive ancestors,
+and preserve the same managed cell in both backends. The runtime accepts a
+derived handle at a declared base call while continuing to reject undeclared
+nominal conversions. Borrowed UTF-8 input is also implemented as
 one source string evaluated once and projected without copying into const data
 and byte-length ABI slots; Unicode and embedded NUL behavior passes both
 backends. Conventional C strings use a separate one-pointer projection over
@@ -210,24 +214,27 @@ emission itself and implicit system toolchain/library trees are not graph
 actions yet, so the GTK native actions remain deliberately non-cacheable. Only
 reached bindings and native types enter emitted IR or the link. The GTK target
 now also turns an explicit namespace/class/member selection from GIR into a
-content-addressed immutable snapshot. Real `Gtk.Button` ingestion preserves C
-and GType identity, ownership, nullability, receivers, and signals while
+content-addressed immutable snapshot. Real `Gtk.Widget`, `Gtk.Button`, and
+`Gtk.Window` ingestion preserves C and GType identity, class ancestry,
+ownership, nullability, receivers, and signals while
 rejecting malformed or unsupported reached metadata. A target-neutral C binding
 package now converts the selected direct-call signatures into a structured,
 content-addressed probe. Sandboxed Clang checks the candidate types against the
 real headers and emits selected AST evidence as a graph artifact; correct
-`Gtk.Button` constructor/getter/setter signatures pass and a deliberate const
+Button and Window constructor/method signatures pass and a deliberate const
 mismatch fails in Clang. The first generator consumes that evidence together
 with the exact selected GIR snapshot and ownership-adapter source, then emits
 canonical TypeScript declarations and a validated SCABI package for managed
-`Gtk.Button` construction, disposal, and label access. Reached metadata outside
-the implemented handle/void/NUL-terminated UTF-8 algebra fails generation.
+Widget ancestry, Button and Window construction/disposal, label access, and
+borrowed handle parameters. Reached metadata outside the implemented
+handle/void/NUL-terminated UTF-8 algebra fails generation.
 The application gate now regenerates that package from installed GIR plus
 sandboxed Clang evidence, composes it with the target-runtime package, compiles
 both ScriptC backends, and executes constructor, nullable label getter, setter,
-and disposal against real GTK. The hand-authored wrapper remains only for the
-broader Window/signal lifecycle not yet generated. Record layout, broader type
-lowering, and GObject identity and weak-reference policy remain. Selected
+`Window.setChild(button)` through the declared Widget upcast, destruction, and
+disposal against real GTK. The hand-authored wrapper remains for the
+signal-driven counter/event-loop fixture. Record layout, broader type lowering,
+and GObject identity and weak-reference policy remain. Selected
 constructors now also generate a
 content-addressed ownership adapter: GIR `none` and `full` results become one
 strong, non-floating reference, the object is compiled through the artifact

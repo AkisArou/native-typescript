@@ -366,12 +366,25 @@
     "handleType": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "nativeName", "threadSafety", "identity"],
+      "required": ["kind", "nativeName", "threadSafety", "identity", "upcasts"],
       "properties": {
         "kind": { "const": "handle" },
         "nativeName": { "$ref": "#/$defs/nonEmptyString" },
         "threadSafety": { "enum": ["confined", "sendable", "shared"] },
-        "identity": { "enum": ["none", "pointer", "binding", "platform"] }
+        "identity": { "enum": ["none", "pointer", "binding", "platform"] },
+        "upcasts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/identityHandleUpcast" }
+        }
+      }
+    },
+    "identityHandleUpcast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "identity" },
+        "target": { "$ref": "#/$defs/id" }
       }
     },
     "callbackContext": {

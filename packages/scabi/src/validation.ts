@@ -120,10 +120,11 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
     case "void":
     case "integer":
     case "float":
-    case "handle":
     case "opaque-value":
     case "platform-object":
       return [];
+    case "handle":
+      return type.upcasts.map(({ target }) => target);
     case "boolean":
       return [type.storage];
     case "enum":
@@ -149,6 +150,79 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
         ...(type.context.type === undefined ? [] : [type.context.type]),
       ];
   }
+}
+
+function validateHandleUpcasts(
+  manifest: ScabiManifest,
+  diagnostics: ScabiDiagnostic[],
+): void {
+  for (const [id, type] of Object.entries(manifest.types)) {
+    if (type.kind !== "handle") continue;
+    const targets = new Set<string>();
+    let previous = "";
+    type.upcasts.forEach((upcast, index) => {
+      const path = `/types/${id}/upcasts/${index}/target`;
+      if (targets.has(upcast.target)) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          path,
+          `Handle upcast target ${upcast.target} is repeated`,
+        ));
+      }
+      targets.add(upcast.target);
+      if (index > 0 && previous >= upcast.target) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          path,
+          "Handle upcast targets must be in ascending canonical order",
+        ));
+      }
+      previous = upcast.target;
+      if (upcast.target === id) {
+        diagnostics.push(diagnostic("NTS2021", path, "A handle cannot upcast to itself"));
+        return;
+      }
+      const target = manifest.types[upcast.target];
+      if (target === undefined) return;
+      if (target.kind !== "handle") {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          path,
+          `Handle upcast target ${upcast.target} is not a handle`,
+        ));
+        return;
+      }
+      if (target.threadSafety !== type.threadSafety || target.identity !== type.identity) {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          path,
+          "Identity-upcast handles must have identical thread-safety and identity contracts",
+        ));
+      }
+    });
+  }
+
+  const state = new Map<string, "active" | "complete">();
+  const visit = (id: string): void => {
+    const type = manifest.types[id];
+    if (type?.kind !== "handle" || state.get(id) === "complete") return;
+    state.set(id, "active");
+    type.upcasts.forEach((upcast, index) => {
+      const target = manifest.types[upcast.target];
+      if (target?.kind !== "handle") return;
+      if (state.get(upcast.target) === "active") {
+        diagnostics.push(diagnostic(
+          "NTS2021",
+          `/types/${id}/upcasts/${index}/target`,
+          `Handle upcast graph contains a cycle through ${upcast.target}`,
+        ));
+      } else {
+        visit(upcast.target);
+      }
+    });
+    state.set(id, "complete");
+  };
+  for (const id of Object.keys(manifest.types).sort()) visit(id);
 }
 
 function validateTypeReferences(
@@ -1128,6 +1202,7 @@ function validateSemantics(
 ): readonly ScabiDiagnostic[] {
   const diagnostics: ScabiDiagnostic[] = [];
   validateTypeReferences(manifest, diagnostics);
+  validateHandleUpcasts(manifest, diagnostics);
   validateTypes(manifest, diagnostics);
   validateUniqueInputIds(manifest, diagnostics);
   validateDependencies(manifest, diagnostics);
