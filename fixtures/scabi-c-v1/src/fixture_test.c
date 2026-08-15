@@ -49,6 +49,11 @@ int main(void) {
   assert(output.value == input.value);
   assert(output.ratio == input.ratio);
 
+  NtsPair32 pair = {.first = 40, .second = 2};
+  NtsPair32 transformed = nts_pair32_transform(pair);
+  assert(transformed.first == 2);
+  assert(transformed.second == 42);
+
   const char text[] = "native\0typescript";
   const uint8_t bytes[] = {0x6e, 0x61, 0x74, 0x69, 0x76, 0x65};
   assert(nts_hash_utf8(text, sizeof(text) - 1) != 0);

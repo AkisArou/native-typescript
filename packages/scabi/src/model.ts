@@ -109,20 +109,52 @@ export interface NativeField {
   };
 }
 
+export type NativePhysicalAbiType =
+  | { readonly kind: "void" }
+  | { readonly kind: "integer"; readonly bits: number }
+  | {
+      readonly kind: "float";
+      readonly format: "half" | "bfloat" | "float" | "double" | "fp128" | "x86_fp80";
+    }
+  | { readonly kind: "pointer"; readonly addressSpace: number }
+  | { readonly kind: "array"; readonly count: number; readonly element: NativePhysicalAbiType }
+  | {
+      readonly kind: "vector";
+      readonly count: number;
+      readonly scalable: boolean;
+      readonly element: NativePhysicalAbiType;
+    }
+  | {
+      readonly kind: "struct";
+      readonly packed: boolean;
+      readonly fields: readonly NativePhysicalAbiType[];
+    }
+  | { readonly kind: "aggregate" };
+
+export interface NativePhysicalAbiValue {
+  readonly type: NativePhysicalAbiType;
+  readonly alignment: number | null;
+  readonly stackAlignment: number | null;
+  readonly extension: "sign" | "zero" | null;
+  readonly inRegister: boolean;
+  readonly byValue: boolean;
+  readonly structureReturn: boolean;
+}
+
+export interface NativeAggregateAbiPassing {
+  readonly result: NativePhysicalAbiValue;
+  readonly parameters: readonly NativePhysicalAbiValue[];
+}
+
 export interface NativeLayout {
   readonly size: number;
   readonly alignment: number;
   readonly packing: "default" | number;
   readonly triviallyCopyable: boolean;
   readonly destruction: "trivial" | "binding";
-  /** Authoritative by-value ABI lowering. `indirect` means parameters are
-   * copied into ABI-owned argument storage and results use caller-provided
-   * return storage. Layout alone is deliberately not used to rediscover a
-   * platform ABI's register-classification rules. */
-  readonly abiPassing?: {
-    readonly kind: "indirect";
-    readonly alignment: number;
-  };
+  /** Authoritative target-compiler classification of an identity function
+   * that returns and accepts this nominal aggregate by value. */
+  readonly abiPassing?: NativeAggregateAbiPassing;
 }
 
 export interface StructType extends NativeLayout {

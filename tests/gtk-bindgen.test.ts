@@ -326,6 +326,10 @@ test(
       assert.doesNotMatch(generated.declarations, /getLabel|setLabel/u);
       assert.match(generated.declarations, /class Button extends Widget/u);
       assert.match(generated.declarations, /class Window extends Widget/u);
+      assert.match(
+        generated.declarations,
+        /interface Requisition \{[^}]*readonly width: gint;[^}]*readonly height: gint;/su,
+      );
       assert.match(generated.declarations, /activate\(\): boolean;/u);
       assert.match(generated.declarations, /get opacity\(\): gdouble;/u);
       assert.match(generated.declarations, /getWidth\(\): gint;/u);
@@ -347,6 +351,7 @@ test(
         gdouble: { module: ".", name: "gdouble" },
         gint: { module: ".", name: "gint" },
         gtk_button: { module: ".", name: "Button" },
+        gtk_requisition: { module: ".", name: "Requisition" },
         gtk_signal_connection: {
           module: ".",
           name: "SignalConnection",

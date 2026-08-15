@@ -10,6 +10,8 @@ import type {
   CallableBinding,
   NativeBindingId,
   NativeLayout,
+  NativePhysicalAbiType,
+  NativePhysicalAbiValue,
   NativeType,
   NativeTypeId,
   OwnershipContract,
@@ -405,19 +407,108 @@ function validateLayout(
       ),
     );
   }
-  if (
-    layout.abiPassing !== undefined &&
-    (!Number.isSafeInteger(layout.abiPassing.alignment) ||
-      !isPowerOfTwo(layout.abiPassing.alignment) ||
-      layout.abiPassing.alignment > layout.alignment)
-  ) {
-    diagnostics.push(
-      diagnostic(
-        "NTS2020",
-        `/types/${id}/abiPassing/alignment`,
-        "Indirect ABI alignment must be a power-of-two safe integer no greater than the aggregate alignment",
-      ),
+  if (layout.abiPassing !== undefined) {
+    const validatePhysicalType = (
+      type: NativePhysicalAbiType,
+      path: string,
+      allowVoid: boolean,
+      depth = 0,
+    ): void => {
+      if (depth > 16) {
+        diagnostics.push(diagnostic("NTS2020", path, "Physical ABI type nesting exceeds 16 levels"));
+        return;
+      }
+      if (type.kind === "void") {
+        if (!allowVoid) diagnostics.push(diagnostic("NTS2020", path, "void is valid only as the physical result"));
+        return;
+      }
+      if (type.kind === "integer") {
+        if (!Number.isSafeInteger(type.bits) || type.bits < 1) {
+          diagnostics.push(diagnostic("NTS2020", `${path}/bits`, "Integer ABI width must be a positive safe integer"));
+        }
+        return;
+      }
+      if (type.kind === "pointer") {
+        if (!Number.isSafeInteger(type.addressSpace) || type.addressSpace < 0) {
+          diagnostics.push(diagnostic("NTS2020", `${path}/addressSpace`, "Pointer address space must be a non-negative safe integer"));
+        }
+        return;
+      }
+      if (type.kind === "array" || type.kind === "vector") {
+        if (!Number.isSafeInteger(type.count) || type.count < 1) {
+          diagnostics.push(diagnostic("NTS2020", `${path}/count`, "ABI element count must be a positive safe integer"));
+        }
+        validatePhysicalType(type.element, `${path}/element`, false, depth + 1);
+        return;
+      }
+      if (type.kind === "struct") {
+        for (const [index, field] of type.fields.entries()) {
+          validatePhysicalType(field, `${path}/fields/${index}`, false, depth + 1);
+        }
+      }
+    };
+    const validateValue = (
+      value: NativePhysicalAbiValue,
+      path: string,
+      allowVoid: boolean,
+    ): void => {
+      validatePhysicalType(value.type, `${path}/type`, allowVoid);
+      for (const [name, alignment] of [
+        ["alignment", value.alignment],
+        ["stackAlignment", value.stackAlignment],
+      ] as const) {
+        if (
+          alignment !== null &&
+          (!Number.isSafeInteger(alignment) || !isPowerOfTwo(alignment))
+        ) {
+          diagnostics.push(
+            diagnostic("NTS2020", `${path}/${name}`, "ABI alignment must be a power-of-two safe integer or null"),
+          );
+        }
+      }
+      if (value.extension !== null && value.type.kind !== "integer") {
+        diagnostics.push(diagnostic("NTS2020", `${path}/extension`, "ABI extension requires an integer physical type"));
+      }
+      if ((value.byValue || value.structureReturn) && value.type.kind !== "pointer") {
+        diagnostics.push(diagnostic("NTS2020", path, "byValue and structureReturn require a physical pointer"));
+      }
+      if (value.byValue && value.structureReturn) {
+        diagnostics.push(diagnostic("NTS2020", path, "A physical ABI value cannot be both byValue and structureReturn"));
+      }
+    };
+    validateValue(layout.abiPassing.result, `/types/${id}/abiPassing/result`, true);
+    for (const [index, parameter] of layout.abiPassing.parameters.entries()) {
+      validateValue(parameter, `/types/${id}/abiPassing/parameters/${index}`, false);
+    }
+    const structureReturns = layout.abiPassing.parameters
+      .map((parameter, index) => ({ parameter, index }))
+      .filter(({ parameter }) => parameter.structureReturn);
+    if (
+      layout.abiPassing.result.type.kind === "void"
+        ? structureReturns.length !== 1 || structureReturns[0]?.index !== 0
+        : structureReturns.length !== 0
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2020",
+          `/types/${id}/abiPassing`,
+          "A void aggregate result requires exactly one leading structureReturn parameter; a direct result forbids one",
+        ),
+      );
+    }
+    if (layout.abiPassing.result.byValue || layout.abiPassing.result.structureReturn) {
+      diagnostics.push(
+        diagnostic("NTS2020", `/types/${id}/abiPassing/result`, "Result attributes belong on physical parameters"),
+      );
+    }
+    const sourceParameters = layout.abiPassing.parameters.slice(
+      structureReturns.length === 1 ? 1 : 0,
     );
+    if (sourceParameters.length === 0) {
+      diagnostics.push(
+        diagnostic("NTS2020", `/types/${id}/abiPassing/parameters`, "Aggregate identity classification requires an input representation"),
+      );
+    }
   }
 }
 

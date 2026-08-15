@@ -938,7 +938,37 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
       packing: "default",
       triviallyCopyable: true,
       destruction: "trivial",
-      abi: { kind: "indirect", alignment: 8 },
+      abi: {
+        result: {
+          type: { kind: "void" },
+          alignment: null,
+          stackAlignment: null,
+          extension: null,
+          inRegister: false,
+          byValue: false,
+          structureReturn: false,
+        },
+        parameters: [
+          {
+            type: { kind: "pointer", addressSpace: 0 },
+            alignment: 8,
+            stackAlignment: null,
+            extension: null,
+            inRegister: false,
+            byValue: false,
+            structureReturn: true,
+          },
+          {
+            type: { kind: "pointer", addressSpace: 0 },
+            alignment: 8,
+            stackAlignment: null,
+            extension: null,
+            inRegister: false,
+            byValue: true,
+            structureReturn: false,
+          },
+        ],
+      },
       fields: [
         { name: "tag", type: { kind: "nativeScalar", scalar: "u8" }, offset: 0 },
         { name: "value", type: { kind: "nativeScalar", scalar: "u64" }, offset: 8 },
@@ -965,6 +995,55 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
       projection: { kind: "direct" },
     },
   });
+});
+
+test("SCABI preserves a target-Clang direct-register aggregate signature", () => {
+  const result = translateScabiNativeProgram(manifest, selectImports(["pair32_transform"]));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const typeId = "native-typescript.fixture.c-v1@0.0.0#type:pair32";
+  assert.deepEqual(result.input.types, [{
+    kind: "struct",
+    id: typeId,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: "Pair32",
+    },
+    size: 8,
+    alignment: 4,
+    packing: "default",
+    triviallyCopyable: true,
+    destruction: "trivial",
+    abi: {
+      result: {
+        type: { kind: "integer", bits: 64 },
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: false,
+        structureReturn: false,
+      },
+      parameters: [{
+        type: { kind: "integer", bits: 64 },
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: false,
+        structureReturn: false,
+      }],
+    },
+    fields: [
+      { name: "first", type: { kind: "nativeScalar", scalar: "i32" }, offset: 0 },
+      { name: "second", type: { kind: "nativeScalar", scalar: "i32" }, offset: 4 },
+    ],
+  }]);
+  assert.equal(
+    result.input.bindings[0]?.id,
+    "native-typescript.fixture.c-v1@0.0.0#pair32_transform",
+  );
 });
 
 test("SCABI closes owned handle factories over their exact destructor", () => {

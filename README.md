@@ -359,12 +359,17 @@ already carrying that native type; pointer-sized ranges come from SCABI target
 metadata and are checked against the selected backend. This does not claim
 general JavaScript BigInt support. The same permanent path now supports nominal,
 default-packed, trivially copyable native structs whose fields are exact scalars
-and whose SCABI metadata explicitly selects indirect by-value passing. A direct
+and whose SCABI metadata carries target Clang's complete physical calling
+signature. Direct registers, expanded parameters, ordinary indirect pointers,
+`byval`, and `sret` lower without platform size heuristics. A direct
 object-literal assertion constructs aggregate storage without reinterpreting a
 JavaScript object; C verifies size, alignment, and offsets at compile time, while
-LLVM emits the target's `byval`/`sret` contract. The padded-struct fixture passes
-through both backends, including statically typed field reads from returned
-values. Owned, owner-confined opaque handles now use a runtime-private managed
+LLVM emits the target's recorded physical signature. Direct-`i64`, expanded
+two-`double`, and padded indirect fixtures pass through both backends, including
+statically typed field reads from returned values. GTK generation now exposes
+the Clang-proven `Requisition` layout and direct classification as a public
+nominal declaration and SCABI type. Owned, owner-confined opaque handles now use
+a runtime-private managed
 cell with alias-safe explicit disposal, automatic exact destruction, and
 checked borrowed method ingress. Direct, representation-preserving handle
 upcasts are explicit in SCABI and Native IR, close over transitive ancestors,
@@ -470,8 +475,9 @@ The same evidence path selects the transparent `Gtk.Requisition` GIR record and
 has target Clang prove its size, alignment, field types, offsets, sizes, and
 alignments plus its direct x86-64 SysV `i64` parameter/result ABI. Cross-target
 fixtures also pin expanded AArch64/SysV forms and indirect Windows/SysV forms.
-It remains evidence-only until SCABI and ScriptC consume that closed physical
-classification algebra; the public API does not guess an ABI from layout.
+The generated package publishes that layout as `Requisition`, SCABI carries the
+closed physical signature, and ScriptC consumes it without guessing an ABI from
+layout.
 The native application never contains that Node build tool. The generated
 surface covers managed Widget ancestry, class-based `new Window()` and
 `Button.withLabel(...)` construction, automatic release, native properties,

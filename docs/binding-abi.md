@@ -167,10 +167,11 @@ algebra is an error instead of a guessed projection.
 Selected transparent GIR records also enter that probe. The permanent GTK gate
 selects `Gtk.Requisition` and preserves its field metadata, while target Clang
 proves its 8-byte size, 4-byte alignment, two exact `int` field layouts, and
-direct `i64` parameter/result classification on x86-64 SysV. That evidence is
-validated and packaged but is not yet emitted as a public SCABI aggregate:
-SCABI and ScriptC must first consume the new closed classification algebra for
-direct and expanded values as well as the already implemented indirect form.
+direct `i64` parameter/result classification on x86-64 SysV. The generated
+package emits that record as the public nominal `Requisition` interface and as
+a SCABI struct with the exact target classification. ScriptC consumes the same
+closed algebra for direct, expanded, `byval`, and `sret` forms; neither layer
+chooses a calling convention from aggregate size.
 
 The source projection is distinct from ABI identity. Selected GObject types
 are emitted as named TypeScript classes with their proven inheritance.
@@ -281,10 +282,20 @@ The generator computes layout using the authoritative platform compiler or
 metadata system. The Native TypeScript compiler verifies internal consistency
 but does not recreate target ABI layout heuristics from declarations.
 
-For the first aggregate slice, `abiPassing: { kind: "indirect", alignment }`
-means value parameters use ABI-owned copied argument storage and results use
-caller-provided return storage. This is an executable contract consumed by the
-backends, not a descriptive target-name string.
+`abiPassing` is the physical identity-function signature produced by target
+Clang: one result, zero or more expanded source parameters, and any leading
+hidden return-storage parameter. Its recursive types cover integers, floats,
+pointers and address spaces, arrays, vectors, literal structs, and the nominal
+aggregate itself. Per-value attributes preserve extension, `inreg`, alignment,
+stack alignment, `byval`, and `sret` facts. This is executable backend input,
+not a descriptive target-name string.
+
+The C backend expresses the nominal C type and lets the selected C compiler
+apply that contract. The LLVM backend explicitly reinterprets logical aggregate
+storage into the recorded direct or expanded values, supplies copied indirect
+storage where required, and reconstructs logical results from direct values or
+hidden result storage. Direct `i64`, expanded two-`double`, and indirect
+`byval`/`sret` fixtures run through both backends.
 
 For C and Objective-C headers, the authoritative generator uses Clang AST and
 target layout information. Text parsing is not an accepted ABI source.

@@ -269,13 +269,116 @@
         "bitField": { "$ref": "#/$defs/bitField" }
       }
     },
+    "nativePhysicalAbiType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "void" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "bits"],
+          "properties": {
+            "kind": { "const": "integer" },
+            "bits": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "format"],
+          "properties": {
+            "kind": { "const": "float" },
+            "format": { "enum": ["half", "bfloat", "float", "double", "fp128", "x86_fp80"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "addressSpace"],
+          "properties": {
+            "kind": { "const": "pointer" },
+            "addressSpace": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "count", "element"],
+          "properties": {
+            "kind": { "const": "array" },
+            "count": { "type": "integer", "minimum": 1 },
+            "element": { "$ref": "#/$defs/nativePhysicalAbiType" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "count", "scalable", "element"],
+          "properties": {
+            "kind": { "const": "vector" },
+            "count": { "type": "integer", "minimum": 1 },
+            "scalable": { "type": "boolean" },
+            "element": { "$ref": "#/$defs/nativePhysicalAbiType" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "packed", "fields"],
+          "properties": {
+            "kind": { "const": "struct" },
+            "packed": { "type": "boolean" },
+            "fields": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nativePhysicalAbiType" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "aggregate" } }
+        }
+      ]
+    },
+    "nativePhysicalAbiValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "alignment",
+        "stackAlignment",
+        "extension",
+        "inRegister",
+        "byValue",
+        "structureReturn"
+      ],
+      "properties": {
+        "type": { "$ref": "#/$defs/nativePhysicalAbiType" },
+        "alignment": { "type": ["integer", "null"], "minimum": 1 },
+        "stackAlignment": { "type": ["integer", "null"], "minimum": 1 },
+        "extension": { "enum": ["sign", "zero", null] },
+        "inRegister": { "type": "boolean" },
+        "byValue": { "type": "boolean" },
+        "structureReturn": { "type": "boolean" }
+      }
+    },
     "aggregateAbiPassing": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "alignment"],
+      "required": ["result", "parameters"],
       "properties": {
-        "kind": { "const": "indirect" },
-        "alignment": { "type": "integer", "minimum": 1 }
+        "result": { "$ref": "#/$defs/nativePhysicalAbiValue" },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativePhysicalAbiValue" },
+          "minItems": 1
+        }
       }
     },
     "structType": {

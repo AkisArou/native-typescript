@@ -7,6 +7,8 @@ import {
 import type {
   CBindgenDiagnostic,
   ClangAbiEvidenceSnapshot,
+  ClangAbiType,
+  ClangAbiValue,
 } from "@native-typescript/bindgen-c";
 import {
   canonicalizeJson,
@@ -20,6 +22,8 @@ import type {
   CallableBinding,
   LinkInput,
   NativeBinding,
+  NativePhysicalAbiType,
+  NativePhysicalAbiValue,
   NativeType,
   PackageIdentity,
   ScabiManifest,
@@ -113,6 +117,40 @@ function upperCamel(value: string): string {
 function lowerCamel(value: string): string {
   const upper = upperCamel(value);
   return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
+}
+
+function snakeCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/gu, "$1_$2")
+    .replace(/[-\s]+/gu, "_")
+    .toLowerCase();
+}
+
+function physicalAbiType(type: ClangAbiType): NativePhysicalAbiType {
+  switch (type.kind) {
+    case "array":
+      return Object.freeze({ ...type, element: physicalAbiType(type.element) });
+    case "vector":
+      return Object.freeze({ ...type, element: physicalAbiType(type.element) });
+    case "struct":
+      return Object.freeze({ ...type, fields: Object.freeze(type.fields.map(physicalAbiType)) });
+    case "named":
+      return Object.freeze({ kind: "aggregate" });
+    default:
+      return Object.freeze({ ...type });
+  }
+}
+
+function physicalAbiValue(value: ClangAbiValue): NativePhysicalAbiValue {
+  return Object.freeze({
+    type: physicalAbiType(value.type),
+    alignment: value.alignment,
+    stackAlignment: value.stackAlignment,
+    extension: value.extension,
+    inRegister: value.inRegister,
+    byValue: value.byValue !== null,
+    structureReturn: value.structureReturn !== null,
+  });
 }
 
 function handleTypeId(namespace: string, class_: GirClass): string {
@@ -645,6 +683,8 @@ export function generateGtkScabiPackage(
           sourceScalarType(parameter.type)?.abiType === scalar.abiType
         )
       )
+    ) || options.snapshot.records.some((record) =>
+      record.fields.some((field) => sourceScalarType(field.type)?.abiType === scalar.abiType)
     )
   );
   for (const scalar of usedSourceScalars) {
@@ -697,6 +737,64 @@ export function generateGtkScabiPackage(
     options.gobjectAdapter.signals.map((signal) => [signal.id, signal]),
   );
   const declarations = new Set<string>();
+  for (const [recordIndex, record] of options.snapshot.records.entries()) {
+    const path = `${options.snapshot.namespace.name}/${record.name}`;
+    const evidence = options.evidence.records[recordIndex];
+    const typeId = `${namespacePrefix}_${record.cSymbolPrefix ?? snakeCase(record.name)}`;
+    const fields = record.fields.map((field, fieldIndex) => {
+      const scalar = sourceScalarType(field.type);
+      if (scalar === undefined) {
+        diagnostics.push(diagnostic(
+          `${path}/fields/${fieldIndex}`,
+          "Selected record field is outside the exact scalar projection",
+        ));
+        return null;
+      }
+      const fieldEvidence = evidence?.fields[fieldIndex];
+      if (fieldEvidence === undefined) return null;
+      return Object.freeze({
+        name: field.name,
+        type: scalar.abiType,
+        offset: fieldEvidence.offset,
+      });
+    });
+    if (
+      evidence === undefined ||
+      fields.some((field) => field === null) ||
+      types[typeId] !== undefined ||
+      declarationTypes[typeId] !== undefined
+    ) {
+      if (evidence !== undefined && fields.every((field) => field !== null)) {
+        diagnostics.push(diagnostic(path, "Generated record identity collides"));
+      }
+      continue;
+    }
+    types[typeId] = Object.freeze({
+      kind: "struct",
+      size: evidence.size,
+      alignment: evidence.alignment,
+      packing: "default",
+      triviallyCopyable: true,
+      destruction: "trivial",
+      abiPassing: Object.freeze({
+        result: physicalAbiValue(evidence.callingConvention.result),
+        parameters: Object.freeze(
+          evidence.callingConvention.parameters.map(physicalAbiValue),
+        ),
+      }),
+      fields: Object.freeze(fields.filter((field) => field !== null)),
+    });
+    declarationTypes[typeId] = Object.freeze({ module: ".", name: record.name });
+    declarationLines.push(
+      `export interface ${record.name} {`,
+      ...record.fields.map((field) => {
+        const scalar = sourceScalarType(field.type);
+        return `  readonly ${lowerCamel(field.name)}: ${scalar?.girName ?? "never"};`;
+      }),
+      "}",
+      "",
+    );
+  }
   let signalConnectionReady = !hasSignals;
   if (hasSignals) {
     const connection = options.gobjectAdapter.signalConnection;

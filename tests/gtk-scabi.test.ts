@@ -229,13 +229,51 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
     clang: options().evidence.semanticDigest,
   })));
   assert.deepEqual(generated.manifest.declarations.types, {
+    gint: { module: ".", name: "gint" },
     gtk_button: { module: ".", name: "Button" },
+    gtk_requisition: { module: ".", name: "Requisition" },
+  });
+  assert.deepEqual(generated.manifest.types.gtk_requisition, {
+    kind: "struct",
+    size: 8,
+    alignment: 4,
+    packing: "default",
+    triviallyCopyable: true,
+    destruction: "trivial",
+    abiPassing: {
+      result: {
+        type: { kind: "integer", bits: 64 },
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: false,
+        structureReturn: false,
+      },
+      parameters: [{
+        type: { kind: "integer", bits: 64 },
+        alignment: null,
+        stackAlignment: null,
+        extension: null,
+        inRegister: false,
+        byValue: false,
+        structureReturn: false,
+      }],
+    },
+    fields: [
+      { name: "width", type: "gint", offset: 0 },
+      { name: "height", type: "gint", offset: 4 },
+    ],
   });
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_new_with_label",
     "gtk_button_release",
   ]);
   assert.match(generated.declarations, /export declare class Button/u);
+  assert.match(
+    generated.declarations,
+    /export interface Requisition \{\n  readonly width: gint;\n  readonly height: gint;\n\}/u,
+  );
   assert.match(generated.declarations, /get label\(\): string \| null;/u);
   assert.match(generated.declarations, /set label\(value: string\);/u);
   assert.doesNotMatch(generated.declarations, /getLabel|setLabel/u);

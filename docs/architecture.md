@@ -236,10 +236,12 @@ reaches target-dependent Native IR records the validated ABI facts needed to
 interpret generic operations. For example, `isize` and `usize` remain distinct
 Native IR types while the module's pointer width determines their bounds and
 backend representation. Nominal aggregate definitions carry authoritative
-size, alignment, field offsets, and an explicit passing classification; the
-initial indirect classification maps to copied `byval` parameters and hidden
-`sret` result storage. The compiler rejects disagreement between those facts
-and the selected code-generation target.
+size, alignment, field offsets, and the target compiler's complete physical
+identity-function signature. ScriptC therefore lowers direct registers,
+expanded values, ordinary indirect pointers, copied `byval` parameters, and
+hidden `sret` storage without reproducing platform size heuristics. The
+compiler rejects disagreement between those facts and the selected
+code-generation target.
 
 ### Artifact graph
 

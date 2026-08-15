@@ -49,6 +49,14 @@ int32_t nts_boolean_true(void) { return 1; }
 
 NtsPadded nts_padded_roundtrip(NtsPadded value) { return value; }
 
+NtsPair32 nts_pair32_transform(NtsPair32 value) {
+  if (value.first != 40 || value.second != 2) {
+    abort();
+  }
+  NtsPair32 result = {value.second, value.first + 2};
+  return result;
+}
+
 static uint64_t nts_hash(const uint8_t *data, size_t length) {
   uint64_t hash = UINT64_C(14695981039346656037);
   for (size_t index = 0; index < length; index += 1) {

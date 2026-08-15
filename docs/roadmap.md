@@ -88,7 +88,7 @@ The fixture remains the cross-backend and sanitizer regression suite.
 ### Current implementation boundary
 
 The permanent fixture and Native IR path currently cover exact integers,
-indirect padded structs, borrowed UTF-8 spans, checked NUL-terminated C-string
+direct-register, expanded, and indirect structs, borrowed UTF-8 spans, checked NUL-terminated C-string
 inputs, receiver-borrowed nullable C-string results, byte views, owned owner-confined
 opaque handles, and synchronous call-scoped callbacks with exact scalar values
 and trailing context. Exact integer `errno` sentinels now snapshot the calling
@@ -232,8 +232,10 @@ emits deterministic connect/disconnect adapters and
 result-owned retained-callback contracts. Transparent selected GIR records now
 enter the same evidence path: the real `Gtk.Requisition` gate preserves its two
 fields and Clang proves its exact target layout and direct x86-64 SysV
-classification. Public SCABI aggregate projection still
-awaits ScriptC consumption of direct/expanded classifications. Broader
+classification. The generated package now publishes `Requisition` as a nominal
+TypeScript declaration and SCABI struct, while ScriptC consumes direct,
+expanded, plain-indirect, `byval`, and `sret` classifications through C and
+LLVM. Broader
 type/result and non-scalar signal-payload/result lowering, and GObject identity,
 weak-handle, and invalidation policy remain before broader selected metadata can
 drive application compilation.
@@ -300,7 +302,7 @@ presentation, activation, exact size/opacity input/output, the `clicked`
 connection, copied `resize` payloads, and deterministic disposal. The remaining
 hand-authored fixture provides host-loop control, completion observation, and the independent
 counter event used to prove turn composition; it no longer owns the application
-widget or signal API. GIR-to-SCABI aggregate projection, broader generated methods and
+widget or signal API. Aggregate pointer/out-parameter projection, broader generated methods and
 non-scalar signal payloads/results, general GObject identity/weak-reference
 rules, graphing compiler emission itself, cacheability for the complete native toolchain, full
 application lifecycle, resources, CLI orchestration, and GTK packaging remain
@@ -581,8 +583,9 @@ that establishes a permanent seam:
    through C and LLVM without adding general BigInt (**implemented**);
 8. define pointer-width identity and lower `isize`/`usize` using explicit
    target ABI facts (**implemented**);
-9. lower nominal padded structs, typed field reads, and authoritative indirect
-   by-value ABI passing through C and LLVM (**implemented**);
+9. lower nominal structs, typed field reads, and authoritative direct,
+   expanded, plain-indirect, `byval`, and `sret` ABI passing through C and LLVM
+   (**implemented**);
 10. lower nominal owned opaque handles, method receiver bindings, checked
     borrowed calls, alias-safe explicit disposal, and automatic exact-once
     destruction through C and LLVM (**implemented**);

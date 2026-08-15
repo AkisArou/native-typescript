@@ -22,6 +22,8 @@ export {
   type ScriptCNativeScalar,
   type ScriptCNativeSourceType,
   type ScriptCNativeStructDefinition,
+  type ScriptCNativePhysicalAbiType,
+  type ScriptCNativePhysicalAbiValue,
   type ScriptCNativeTypeDefinition,
   type ScriptCNativeTranslationDiagnostic,
   type ScriptCNativeTranslationResult,

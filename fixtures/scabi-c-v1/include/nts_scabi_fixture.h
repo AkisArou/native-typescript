@@ -20,6 +20,11 @@ typedef struct NtsPadded {
   double ratio;
 } NtsPadded;
 
+typedef struct NtsPair32 {
+  int32_t first;
+  int32_t second;
+} NtsPair32;
+
 typedef int32_t (*NtsCallCallback)(int32_t value, void *context);
 typedef void (*NtsRetainedCallback)(int32_t value, void *context);
 typedef struct NtsSubscription NtsSubscription;
@@ -42,6 +47,7 @@ NTS_SCABI_EXPORT int32_t nts_boolean_not(int32_t value);
 NTS_SCABI_EXPORT int32_t nts_boolean_true(void);
 
 NTS_SCABI_EXPORT NtsPadded nts_padded_roundtrip(NtsPadded value);
+NTS_SCABI_EXPORT NtsPair32 nts_pair32_transform(NtsPair32 value);
 NTS_SCABI_EXPORT uint64_t nts_hash_utf8(const char *data, size_t length);
 NTS_SCABI_EXPORT void nts_c_string_observe(const char *data);
 NTS_SCABI_EXPORT uint64_t nts_hash_bytes(const uint8_t *data, size_t length);

@@ -8,6 +8,8 @@ import type {
   LinkInput,
   NativeTypeId,
   NativeType,
+  NativePhysicalAbiType,
+  NativePhysicalAbiValue,
   ScabiManifest,
 } from "@native-typescript/scabi";
 
@@ -163,6 +165,51 @@ export type ScriptCNativeResultAbiType =
   | ScriptCNativePointerType
   | { readonly kind: "void" };
 
+export type ScriptCNativePhysicalAbiType =
+  | { readonly kind: "void" }
+  | { readonly kind: "integer"; readonly bits: number }
+  | {
+      readonly kind: "float";
+      readonly format: "half" | "bfloat" | "float" | "double" | "fp128" | "x86_fp80";
+    }
+  | { readonly kind: "pointer"; readonly addressSpace: number }
+  | { readonly kind: "array"; readonly count: number; readonly element: ScriptCNativePhysicalAbiType }
+  | {
+      readonly kind: "vector";
+      readonly count: number;
+      readonly scalable: boolean;
+      readonly element: ScriptCNativePhysicalAbiType;
+    }
+  | { readonly kind: "struct"; readonly packed: boolean; readonly fields: readonly ScriptCNativePhysicalAbiType[] }
+  | { readonly kind: "aggregate" };
+
+export interface ScriptCNativePhysicalAbiValue {
+  readonly type: ScriptCNativePhysicalAbiType;
+  readonly alignment: number | null;
+  readonly stackAlignment: number | null;
+  readonly extension: "sign" | "zero" | null;
+  readonly inRegister: boolean;
+  readonly byValue: boolean;
+  readonly structureReturn: boolean;
+}
+
+function freezePhysicalAbiType(type: NativePhysicalAbiType): ScriptCNativePhysicalAbiType {
+  switch (type.kind) {
+    case "array":
+      return Object.freeze({ ...type, element: freezePhysicalAbiType(type.element) });
+    case "vector":
+      return Object.freeze({ ...type, element: freezePhysicalAbiType(type.element) });
+    case "struct":
+      return Object.freeze({ ...type, fields: Object.freeze(type.fields.map(freezePhysicalAbiType)) });
+    default:
+      return Object.freeze({ ...type });
+  }
+}
+
+function freezePhysicalAbiValue(value: NativePhysicalAbiValue): ScriptCNativePhysicalAbiValue {
+  return Object.freeze({ ...value, type: freezePhysicalAbiType(value.type) });
+}
+
 export type ScriptCNativeErrorContract =
   | { readonly kind: "no-fail" }
   | { readonly kind: "errno"; readonly failureValue: string }
@@ -183,8 +230,8 @@ export interface ScriptCNativeStructDefinition {
   readonly triviallyCopyable: true;
   readonly destruction: "trivial";
   readonly abi: {
-    readonly kind: "indirect";
-    readonly alignment: number;
+    readonly result: ScriptCNativePhysicalAbiValue;
+    readonly parameters: readonly ScriptCNativePhysicalAbiValue[];
   };
   readonly fields: readonly {
     readonly name: string;
@@ -1403,13 +1450,13 @@ export function translateScabiNativeProgram(
       nativeType.packing !== "default" ||
       !nativeType.triviallyCopyable ||
       nativeType.destruction !== "trivial" ||
-      nativeType.abiPassing?.kind !== "indirect"
+      nativeType.abiPassing === undefined
     ) {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           path,
-          `Native struct '${typeId}' requires default packing, trivial value semantics, and authoritative indirect ABI passing`,
+          `Native struct '${typeId}' requires default packing, trivial value semantics, and authoritative ABI passing`,
         ),
       );
       return null;
@@ -1465,8 +1512,8 @@ export function translateScabiNativeProgram(
       triviallyCopyable: true,
       destruction: "trivial",
       abi: Object.freeze({
-        kind: "indirect",
-        alignment: nativeType.abiPassing.alignment,
+        result: freezePhysicalAbiValue(nativeType.abiPassing.result),
+        parameters: Object.freeze(nativeType.abiPassing.parameters.map(freezePhysicalAbiValue)),
       }),
       fields: Object.freeze(fields),
     }));
