@@ -8,6 +8,7 @@ import {
 import {
   createButtonWithLabel,
   createWindow,
+  type gdouble,
   type gint,
 } from "@native-typescript/gtk4";
 
@@ -34,6 +35,8 @@ const initial = button.getLabel();
 button.setLabel("Generated: updated");
 button.setVisible(false);
 button.setVisible(true);
+button.setOpacity(0.75 as gdouble);
+button.setOpacity(button.getOpacity());
 window.setChild(button);
 window.setDefaultSize(640 as gint, 480 as gint);
 window.present();

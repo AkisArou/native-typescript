@@ -31,6 +31,7 @@ import type {
   GirClass,
   GirParameter,
   GirSnapshot,
+  GirTypeReference,
 } from "./gir-model.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
@@ -67,6 +68,20 @@ export interface GtkScabiPackage {
 
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
+const sourceScalarTypes = Object.freeze([
+  Object.freeze({ girName: "gdouble", cType: "double", abiType: "gdouble" }),
+  Object.freeze({ girName: "gint", cType: "int", abiType: "gint" }),
+]);
+
+function sourceScalarType(
+  type: GirTypeReference,
+): (typeof sourceScalarTypes)[number] | undefined {
+  return type.kind === "named"
+    ? sourceScalarTypes.find(
+        (scalar) => scalar.girName === type.name && scalar.cType === type.cType,
+      )
+    : undefined;
+}
 
 function sha256(value: string): Sha256Digest {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
@@ -412,10 +427,9 @@ function methodResult(
       ownership: Object.freeze({ kind: "value" }),
     });
   }
+  const scalarType = sourceScalarType(result.type);
   if (
-    result.type.kind === "named" &&
-    result.type.name === "gint" &&
-    result.type.cType === "int" &&
+    scalarType !== undefined &&
     result.transferOwnership === "none" &&
     !result.nullable &&
     result.scope === null &&
@@ -423,7 +437,7 @@ function methodResult(
     result.destroyParameter === null
   ) {
     return Object.freeze({
-      type: "gint",
+      type: scalarType.abiType,
       passMode: "value",
       nullable: false,
       ownership: Object.freeze({ kind: "value" }),
@@ -458,7 +472,7 @@ function methodResult(
   }
   diagnostics.push(diagnostic(
     path,
-    "Method result is outside the void/boolean/gint/borrowed-UTF-8 slice",
+    "Method result is outside the void/boolean/exact-scalar/borrowed-UTF-8 slice",
   ));
   return null;
 }
@@ -526,6 +540,7 @@ export function generateGtkScabiPackage(
       nullable: false,
       addressSpace: 0,
     }),
+    gdouble: Object.freeze({ kind: "float", bits: 64 }),
     i8: Object.freeze({ kind: "integer", signed: true, bits: 8 }),
     gint: Object.freeze({ kind: "integer", signed: true, bits: 32 }),
     gboolean: Object.freeze({
@@ -545,16 +560,21 @@ export function generateGtkScabiPackage(
   };
   const bindings: Record<string, NativeBinding> = {};
   const declarationTypes: Record<string, { readonly module: "."; readonly name: string }> = {};
-  const usesGint = options.snapshot.classes.some((class_) =>
-    class_.methods.some((method) =>
-      (method.result.type.kind === "named" && method.result.type.name === "gint") ||
-      method.parameters.some((parameter) =>
-        parameter.type.kind === "named" && parameter.type.name === "gint"
+  const usedSourceScalars = sourceScalarTypes.filter((scalar) =>
+    options.snapshot.classes.some((class_) =>
+      class_.methods.some((method) =>
+        sourceScalarType(method.result.type)?.abiType === scalar.abiType ||
+        method.parameters.some((parameter) =>
+          sourceScalarType(parameter.type)?.abiType === scalar.abiType
+        )
       )
     )
   );
-  if (usesGint) {
-    declarationTypes.gint = Object.freeze({ module: ".", name: "gint" });
+  for (const scalar of usedSourceScalars) {
+    declarationTypes[scalar.abiType] = Object.freeze({
+      module: ".",
+      name: scalar.girName,
+    });
   }
   const classByName = new Map(options.snapshot.classes.map((class_) => [class_.name, class_]));
   const typeIdByClass = new Map(options.snapshot.classes.map((class_) => [
@@ -562,7 +582,9 @@ export function generateGtkScabiPackage(
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
   const declarationLines = [
-    ...(usesGint ? ["declare const nativeScalar: unique symbol;"] : []),
+    ...(usedSourceScalars.length > 0
+      ? ["declare const nativeScalar: unique symbol;"]
+      : []),
     ...options.snapshot.classes.map((class_) =>
       `declare const ${handleBrand(class_.name)}: unique symbol;`
     ),
@@ -570,8 +592,13 @@ export function generateGtkScabiPackage(
       `declare const ${signalSubscriptionBrand(class_.name, signal.name)}: unique symbol;`
     )),
     "",
-    ...(usesGint
-      ? ["export type gint = number & { readonly [nativeScalar]: \"gint\" };", ""]
+    ...(usedSourceScalars.length > 0
+      ? [
+          ...usedSourceScalars.map((scalar) =>
+            `export type ${scalar.girName} = number & { readonly [nativeScalar]: "${scalar.girName}" };`
+          ),
+          "",
+        ]
       : []),
   ];
   const adapterBindings: string[] = [];
@@ -677,6 +704,7 @@ export function generateGtkScabiPackage(
       let valid = true;
       for (const [index, parameter] of callable.parameters.slice(1).entries()) {
         const parameterPath = `${path}/parameters/${index + 1}`;
+        const scalar = sourceScalarType(parameter.type);
         if (
           parameter.type.kind === "named" &&
           parameter.type.name === "utf8"
@@ -704,13 +732,10 @@ export function generateGtkScabiPackage(
             abiParameters.push(abi);
             sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
           }
-        } else if (
-          parameter.type.kind === "named" &&
-          parameter.type.name === "gint"
-        ) {
+        } else if (scalar !== undefined) {
           const abi = requiredValueParameter(
             parameter,
-            { girName: "gint", cType: "int", abiType: "gint" },
+            scalar,
             parameterPath,
             diagnostics,
           );
@@ -718,7 +743,9 @@ export function generateGtkScabiPackage(
             valid = false;
           } else {
             abiParameters.push(abi);
-            sourceParameters.push(`${lowerCamel(parameter.name)}: gint`);
+            sourceParameters.push(
+              `${lowerCamel(parameter.name)}: ${scalar.girName}`,
+            );
           }
         } else {
           const handle = handleParameter(
@@ -763,14 +790,14 @@ export function generateGtkScabiPackage(
         dependencies: dependencies({ links: linkIds }),
         availability: availability(class_, callable),
       });
+      const scalarResult = sourceScalarType(callable.result.type);
       const sourceResult = callable.result.type.cType === "void"
         ? "void"
         : callable.result.type.kind === "named" &&
             callable.result.type.name === "gboolean"
           ? "boolean"
-          : callable.result.type.kind === "named" &&
-              callable.result.type.name === "gint"
-            ? "gint"
+          : scalarResult !== undefined
+            ? scalarResult.girName
             : callable.result.nullable
               ? "string | null"
               : "string";

@@ -85,13 +85,13 @@ f32  f64
 The exact package name is finalized with the first public API, but symbol
 identity and semantics are fixed by this specification.
 
-The implemented scalar direct-call conformance slice currently covers `i8`, `u8`,
-`i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `isize`, and `usize`. Fixed 64-bit
-and pointer-sized types use decimal BigInt literals as construction syntax and
-remain exact Native IR values; this does not introduce a general JavaScript
-BigInt representation. A finite numeric literal can construct exact `f64` for
-the implemented native-aggregate boundary, but general exact floating-point
-operations still await their rounding-operation contract.
+The implemented scalar direct-call conformance slice currently covers `i8`,
+`u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `isize`, `usize`, and `f64`.
+Fixed 64-bit and pointer-sized types use decimal BigInt literals as construction
+syntax and remain exact Native IR values; this does not introduce a general
+JavaScript BigInt representation. A finite numeric literal can construct exact
+`f64` for native aggregate and direct-call boundaries, but general exact
+floating-point operations still await their rounding-operation contract.
 
 ### Representation
 

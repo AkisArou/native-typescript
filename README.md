@@ -232,24 +232,24 @@ with the exact selected GIR snapshot and GObject-adapter source, then emits
 canonical TypeScript declarations and a validated SCABI package for managed
 Widget ancestry, Button and Window construction/disposal, label access, and
 borrowed handle parameters. It also generates exact `gboolean` methods, branded
-`gint` parameters/results, and deterministic result-owned subscriptions for
-non-detailed zero-payload `void` signals. The adapter strongly retains the
-signal instance, disconnects by its
-handler ID, and composes with ScriptC's retained callback lifecycle so no
-callback runs after disposal. Reached metadata outside the implemented
-handle/void/boolean/exact-integer/NUL-terminated UTF-8/zero-payload-signal
-algebra fails
-generation.
+`gint`/`gdouble` parameters and results, and deterministic result-owned
+subscriptions for non-detailed zero-payload `void` signals. The adapter strongly
+retains the signal instance, disconnects by its handler ID, and composes with
+ScriptC's retained callback lifecycle so no callback runs after disposal.
+Reached metadata outside the implemented
+handle/void/boolean/exact-scalar/NUL-terminated UTF-8/zero-payload-signal
+algebra fails generation.
 The application gate now regenerates that package from installed GIR plus
 sandboxed Clang evidence, composes it with the target-runtime package, compiles
 both ScriptC backends, and executes constructor, nullable label getter, setter,
 `Window.setChild(button)` through the declared Widget upcast, destruction, and
 disposal against real GTK. It passes both boolean representations through
 generated `Widget.setVisible(boolean)`, sets `Window` dimensions with exact
-`gint` values, feeds `Widget.getWidth()` back into a native call, calls
+`gint` values, feeds `Widget.getWidth()` back into a native call, round-trips
+exact `gdouble` through `Widget.setOpacity()`/`getOpacity()`, then calls
 `Widget.activate()`, projects its native boolean result, and receives the
-resulting real `Button.clicked` through
-the generated retained subscription. The remaining hand-authored fixture is
+resulting real `Button.clicked` through the generated retained subscription.
+The remaining hand-authored fixture is
 limited to host-loop/completion control and an independent counter turn. Record
 layout, broader type and signal-payload lowering, and GObject identity and
 weak-reference policy remain. Selected

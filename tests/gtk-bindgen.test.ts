@@ -86,7 +86,10 @@ test(
           methods: ["get_label", "set_label"],
           signals: ["clicked"],
         },
-        { name: "Widget", methods: ["activate", "get_width", "set_visible"] },
+        {
+          name: "Widget",
+          methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
+        },
         {
           name: "Window",
           constructors: ["new"],
@@ -100,7 +103,9 @@ test(
       "gtk_button_get_label",
       "gtk_button_set_label",
       "gtk_widget_activate",
+      "gtk_widget_get_opacity",
       "gtk_widget_get_width",
+      "gtk_widget_set_opacity",
       "gtk_widget_set_visible",
       "gtk_window_new",
       "gtk_window_destroy",
@@ -166,7 +171,9 @@ test(
         "gtk_button_get_label",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_get_opacity",
         "gtk_widget_get_width",
+        "gtk_widget_set_opacity",
         "gtk_widget_set_visible",
         "gtk_window_new",
         "gtk_window_destroy",
@@ -186,7 +193,10 @@ test(
             methods: ["get_label", "set_label"],
             signals: ["clicked"],
           },
-          { name: "Widget", methods: ["activate", "get_width", "set_visible"] },
+          {
+            name: "Widget",
+            methods: ["activate", "get_opacity", "get_width", "set_opacity", "set_visible"],
+          },
           {
             name: "Window",
             constructors: ["new"],
@@ -239,7 +249,9 @@ test(
         "gtk_button_release",
         "gtk_button_set_label",
         "gtk_widget_activate",
+        "gtk_widget_get_opacity",
         "gtk_widget_get_width",
+        "gtk_widget_set_opacity",
         "gtk_widget_set_visible",
         "gtk_window_destroy",
         "gtk_window_new",
@@ -257,7 +269,9 @@ test(
       assert.match(generated.declarations, /interface Button extends Widget/u);
       assert.match(generated.declarations, /interface Window extends Widget/u);
       assert.match(generated.declarations, /activate\(\): boolean;/u);
+      assert.match(generated.declarations, /getOpacity\(\): gdouble;/u);
       assert.match(generated.declarations, /getWidth\(\): gint;/u);
+      assert.match(generated.declarations, /setOpacity\(opacity: gdouble\): void;/u);
       assert.match(generated.declarations, /setVisible\(visible: boolean\): void;/u);
       assert.match(
         generated.declarations,
@@ -268,9 +282,16 @@ test(
         generated.declarations,
         /setDefaultSize\(width: gint, height: gint\): void;/u,
       );
-      assert.deepEqual(generated.manifest.declarations.types.gint, {
-        module: ".",
-        name: "gint",
+      assert.deepEqual(generated.manifest.declarations.types, {
+        gdouble: { module: ".", name: "gdouble" },
+        gint: { module: ".", name: "gint" },
+        gtk_button: { module: ".", name: "Button" },
+        gtk_button_clicked_subscription: {
+          module: ".",
+          name: "ButtonClickedSubscription",
+        },
+        gtk_widget: { module: ".", name: "Widget" },
+        gtk_window: { module: ".", name: "Window" },
       });
       assert.match(
         generated.declarations,
@@ -303,7 +324,9 @@ test(
           "gtk_button_new_with_label",
           "gtk_button_set_label",
           "gtk_widget_activate",
+          "gtk_widget_get_opacity",
           "gtk_widget_get_width",
+          "gtk_widget_set_opacity",
           "gtk_widget_set_visible",
           "gtk_window_destroy",
           "gtk_window_new",
@@ -316,13 +339,19 @@ test(
       assert.equal(translated.ok, true);
       if (!translated.ok) return;
       assert.deepEqual(
-        translated.input.sourceTypes.find(
-          ({ declaration }) => declaration.name === "gint",
+        translated.input.sourceTypes.filter(
+          ({ declaration }) => declaration.name === "gdouble" || declaration.name === "gint",
         ),
-        {
-          declaration: { module: "@native-typescript/gtk4", name: "gint" },
-          type: { kind: "nativeScalar", scalar: "i32" },
-        },
+        [
+          {
+            declaration: { module: "@native-typescript/gtk4", name: "gdouble" },
+            type: { kind: "nativeScalar", scalar: "f64" },
+          },
+          {
+            declaration: { module: "@native-typescript/gtk4", name: "gint" },
+            type: { kind: "nativeScalar", scalar: "i32" },
+          },
+        ],
       );
       const buttonType = translated.input.types.find(
         ({ id }) => id.endsWith("#type:gtk_button"),
@@ -363,6 +392,29 @@ test(
           falseValue: "0",
           trueValue: "1",
         },
+      });
+      const getOpacity = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_widget_get_opacity",
+      );
+      assert.deepEqual(getOpacity?.result, {
+        type: { kind: "nativeScalar", scalar: "f64" },
+        passMode: "value",
+        ownership: { kind: "value" },
+        projection: { kind: "direct" },
+      });
+      const setOpacity = translated.input.bindings.find(
+        ({ entry }) => entry.symbol === "gtk_widget_set_opacity",
+      );
+      assert.deepEqual(setOpacity?.arguments[1], {
+        name: "opacity",
+        type: { kind: "nativeScalar", scalar: "f64" },
+      });
+      assert.deepEqual(setOpacity?.parameters[1], {
+        name: "opacity",
+        type: { kind: "nativeScalar", scalar: "f64" },
+        passMode: "value",
+        ownership: { kind: "value" },
+        projection: { kind: "argument", argument: 1 },
       });
       const getWidth = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_get_width",
