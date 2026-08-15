@@ -1,0 +1,271 @@
+# GTK TypeScript API
+
+Status: normative direction; generated subset under implementation  
+Last revised: 2026-08-15
+
+This document defines the source-level API generated from supported GTK,
+GDK, GLib, GObject, Gio, and related introspection namespaces. GIR and the
+matching C headers determine what exists and how it reaches native code; this
+projection determines how that surface reads in TypeScript.
+
+The public API is not a transliteration of C and it is not a compatibility
+clone of GJS. It is an idiomatic, statically checkable TypeScript view over the
+same native libraries. SCABI retains the exact ABI names, ownership, native
+types, and adapter entries beneath this view.
+
+## Modules and imports
+
+Each GIR namespace/version is an ordinary ESM package with named exports:
+
+```ts
+import { Application, ApplicationWindow } from "@native-typescript/gtk4";
+import { SimpleAction } from "@native-typescript/gio2";
+```
+
+A namespace import is the standard ESM spelling over the same declarations,
+not a different compatibility layer:
+
+```ts
+import * as Gtk from "@native-typescript/gtk4";
+
+const button = Gtk.Button.withLabel("Count: 0");
+```
+
+Applications may mix named and namespace imports. Reachability determines
+which bindings, adapters, and link edges enter the artifact; it does not make
+unreached declarations disappear from editor completion.
+
+A published or locally generated package contains declarations for its entire
+supported SDK surface. Unsupported metadata produces an explicit generation
+diagnostic. It is never omitted merely because the current application does
+not use it.
+
+## Naming
+
+- GIR namespaces become package boundaries.
+- Classes, interfaces, records, enums, and flags use `UpperCamelCase`.
+- Methods, properties, parameters, and functions use `lowerCamelCase`.
+- Acronyms are treated as words, so `URI` becomes `Uri` in a compound name.
+- The original GIR and C identities remain in SCABI and provenance; source
+  spelling is not used to infer an ABI symbol.
+- Names that collide with TypeScript syntax or with another projected member
+  are resolved by deterministic, documented generator rules. An unresolved
+  collision is an error.
+
+Free native functions remain named exports when there is no semantic receiver
+or constructed class. A C prefix alone is not evidence that a function belongs
+on a class.
+
+## Objects and construction
+
+GObject classes project as TypeScript classes with their declared inheritance.
+The class is a compile-time native declaration identity, not a JavaScript
+constructor object materialized at runtime.
+
+The canonical zero-configuration GIR constructor becomes `new Class()`.
+Additional named constructors become static methods after removing the
+`new_` prefix:
+
+```ts
+export declare class Widget {
+  protected constructor();
+}
+
+export declare class Button extends Widget {
+  constructor();
+  static withLabel(label: string): Button;
+}
+```
+
+Therefore `gtk_button_new()` and `gtk_button_new_with_label()` are used as:
+
+```ts
+const plain = new Button();
+const labelled = Button.withLabel("Count: 0");
+```
+
+If no unambiguous canonical constructor exists, the class has no public
+constructor. Static named constructors remain available. A nullable native
+constructor is exposed only through a source contract that represents failure
+explicitly; `new` never silently produces `null`.
+
+Constructor property bags are a later projection over authoritative writable
+GObject property metadata. They must not be guessed from setter names, and they
+must preserve construction-only and required-property rules.
+
+## Methods and properties
+
+Ordinary instance operations become methods. A getter/setter pair becomes a
+property only when GIR property metadata or a proven generator rule establishes
+one coherent property contract:
+
+```ts
+export declare class Button extends Widget {
+  get label(): string;
+  set label(value: string);
+
+  setChild(child: Widget | null): void;
+}
+```
+
+The generator does not hide semantically distinct operations behind a
+property. When a getter can fail, is asynchronous, has observable side effects,
+requires additional parameters, or disagrees with the setter type, methods are
+kept instead.
+
+Exact C integers and flags remain exact in SCABI. The public GTK API uses
+ordinary `number`, `boolean`, or generated enum/flag types only where a checked
+projection proves the value is lossless and within the declared range. Values
+that cannot be represented exactly keep an explicit native scalar type.
+
+## Signals
+
+Signals become typed `onSignalName` methods. The callback receives the emitter
+as its first argument followed by the projected signal payload. Passing the
+emitter makes the common callback independent of an outer capture:
+
+```ts
+export interface SignalConnection {
+  readonly connected: boolean;
+  disconnect(): void;
+}
+
+export declare class Button extends Widget {
+  onClicked(callback: (button: Button) => void): SignalConnection;
+}
+```
+
+The returned connection is an optional, non-owning cancellation capability.
+Dropping or ignoring it does not disconnect the signal. `disconnect()` is
+idempotent and exists for early cancellation:
+
+```ts
+button.onClicked((source) => {
+  source.label = "Clicked";
+});
+
+const temporary = button.onClicked(showTemporaryState);
+temporary.disconnect();
+```
+
+The emitter owns the registration. Destroying or invalidating the emitter
+closes callback admission, disconnects the native handler, drains or discards
+already admitted work according to SCABI, and releases the closure exactly
+once. Application shutdown performs the same operation before stopping the
+runtime.
+
+The ownership edge participates in ScriptC cycle collection. In particular, a
+callback that captures its own emitter must not leak merely because the signal
+registration retains the callback. Bindings cannot claim receiver ownership
+until the runtime and target adapter expose that edge to the collector and pass
+the corresponding cycle, cancellation-race, and shutdown tests.
+
+Cross-thread signals use the same source shape when their payload can be
+transported safely. Foreign threads may enqueue copied or natively retained
+payloads through the owner gateway, but they never execute TypeScript or touch
+the ScriptC heap directly. A signal requiring a synchronous cross-thread return
+is unsupported until a separate deadlock and reentrancy contract exists.
+
+## Resource release
+
+Ordinary GObject code does not call `dispose()` after every use. Managed handle
+aliases share one native ownership entry, and normal last-reference release is
+deterministic under ScriptC reference counting and cycle collection.
+
+An API exposes explicit release only when early release is semantically useful:
+
+- a domain operation such as `close()`, `destroy()`, or `cancel()` when that is
+  the native API's behavior;
+- `SignalConnection.disconnect()` for early signal cancellation;
+- a standard disposable protocol once that protocol is supported by the
+  static language profile.
+
+The generator does not add a public `dispose()` method to every GObject class
+merely because the internal handle has a release binding. Internal destructors
+remain compiler-visible SCABI dependencies.
+
+## Representative declaration surface
+
+```ts
+// @native-typescript/gtk4
+export declare class Application {
+  constructor(applicationId: string);
+  onActivate(callback: (application: Application) => void): SignalConnection;
+  run(args?: readonly string[]): number;
+}
+
+export declare class Widget {
+  protected constructor();
+  visible: boolean;
+}
+
+export declare class Window extends Widget {
+  title: string | null;
+  present(): void;
+}
+
+export declare class ApplicationWindow extends Window {
+  constructor(options: { application: Application });
+  setChild(child: Widget | null): void;
+}
+
+export declare class Button extends Widget {
+  constructor();
+  static withLabel(label: string): Button;
+  label: string;
+  onClicked(callback: (button: Button) => void): SignalConnection;
+}
+```
+
+This example describes the intended projection, not the current generated
+coverage. Each declaration is emitted only after its GIR semantics, C ABI,
+ownership, nullability, executor, and lifecycle contracts are proven.
+
+## Counter application
+
+```ts
+import {
+  Application,
+  ApplicationWindow,
+  Button,
+} from "@native-typescript/gtk4";
+
+const app = new Application("dev.native_typescript.Counter");
+
+app.onActivate((application) => {
+  let count = 0;
+  const button = Button.withLabel(`Count: ${count}`);
+
+  button.onClicked((source) => {
+    count += 1;
+    source.label = `Count: ${count}`;
+  });
+
+  const window = new ApplicationWindow({ application });
+  window.title = "Native TypeScript";
+  window.setChild(button);
+  window.present();
+});
+
+app.run();
+```
+
+No signal handle or GObject release call is required in the ordinary path.
+
+## Current migration boundary
+
+The implemented GTK slice now emits class declarations, canonical
+`new Class()` construction, and named static constructors. It still emits
+method-shaped accessors, per-signal result-owned subscription handles, and
+public `dispose()` methods. Those remaining declarations accurately describe
+the current runtime but are not the final public contract.
+
+The migration is intentionally one-way:
+
+1. add receiver-owned callback registrations and cycle-collector edges;
+2. change signals to optional non-owning `SignalConnection` handles and remove
+   routine object `dispose()` declarations;
+3. project proven GObject properties and broader signal payloads.
+
+No deprecated aliases or duplicate compatibility surface remains after each
+contract becomes implemented.

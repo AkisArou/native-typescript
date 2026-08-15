@@ -209,6 +209,7 @@ export interface ScriptCNativeBinding {
   readonly variadic: false;
   readonly sourceCall:
     | { readonly kind: "function" }
+    | { readonly kind: "constructor" }
     | { readonly kind: "method"; readonly receiverArgument: number };
   /** Failure detection is explicit Native IR data. Backends must snapshot
    * errno immediately after observing the exact failure sentinel. */
@@ -1006,8 +1007,11 @@ function bindingUnsupported(
   bindingId: string,
   binding: CallableBinding,
 ): string | null {
-  if (!["function", "factory", "method"].includes(binding.kind)) {
+  if (!["function", "constructor", "factory", "method"].includes(binding.kind)) {
     return `binding kind '${binding.kind}'`;
+  }
+  if (binding.kind === "constructor" && binding.declaration.name.includes(".")) {
+    return "constructor declaration identity must name its constructed type";
   }
   if (binding.kind === "method" && !binding.declaration.name.includes(".")) {
     return "method declaration identity must name its containing type and member";
@@ -1918,7 +1922,9 @@ export function translateScabiNativeProgram(
         variadic: false,
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
-          : Object.freeze({ kind: "function" } as const),
+          : binding.kind === "constructor"
+            ? Object.freeze({ kind: "constructor" } as const)
+            : Object.freeze({ kind: "function" } as const),
         error: binding.error.kind === "errno"
           ? Object.freeze({
               kind: "errno",

@@ -164,13 +164,17 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
     "gtk_button_new_with_label",
     "gtk_button_release",
   ]);
-  assert.match(generated.declarations, /export interface Button/u);
+  assert.match(generated.declarations, /export declare class Button/u);
   assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
   assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
   assert.match(
     generated.declarations,
-    /createButtonWithLabel\(label: string\): Button;/u,
+    /static withLabel\(label: string\): Button;/u,
   );
+  const constructor = generated.manifest.bindings.gtk_button_new_with_label;
+  assert.ok(constructor && constructor.kind !== "constant");
+  assert.equal(constructor.kind, "factory");
+  assert.deepEqual(constructor.declaration, { module: ".", name: "Button.withLabel" });
   assertDeepFrozen(generated);
   assert.deepEqual(generateGtkScabiPackage(options()), generated);
 });

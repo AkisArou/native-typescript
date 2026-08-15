@@ -6,8 +6,8 @@ import {
   type i32,
 } from "@native-typescript/gtk-counter-fixture";
 import {
-  createButtonWithLabel,
-  createWindow,
+  Button,
+  Window,
   type gdouble,
   type gint,
 } from "@native-typescript/gtk4";
@@ -29,8 +29,8 @@ function finishIfReady(): void {
   }
 }
 
-const window = createWindow();
-const button = createButtonWithLabel("Generated: initial");
+const window = new Window();
+const button = Button.withLabel("Generated: initial");
 const initial = button.getLabel();
 button.setLabel("Generated: updated");
 button.setVisible(false);

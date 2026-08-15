@@ -218,6 +218,17 @@ explicit disposal is therefore the deterministic operation that breaks the
 cycle. A `weak` lifetime uses a different non-rooting entry and must not be
 implemented by silently weakening this contract.
 
+For a receiver-owned registration, the receiver handle carries the native
+cancellation edge and the registration carries the rooted closure. Native
+invalidation, receiver destruction, and runtime shutdown all close admission
+before disconnecting and releasing that root. This managed-to-native-to-managed
+edge must be visible to ScriptC's cycle collector. A closure that captures its
+receiver is otherwise a real cycle, not evidence that the receiver remains
+application-reachable. A target cannot advertise automatic receiver-owned
+cleanup until this edge is traceable and tested. A returned connection value is
+a non-owning cancellation capability: dropping it does not cancel, while an
+explicit disconnect races through the same idempotent state machine.
+
 The implemented table already enforces the root's transport lifetime: it owns
 the anchor through active and closing states and releases it only after native
 cancellation has completed and every admitted invocation lease has finished.

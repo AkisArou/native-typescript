@@ -67,6 +67,8 @@ These documents are normative for implementation:
   becoming compiler forks.
 - [Binding ABI](docs/binding-abi.md) defines the versioned SCABI package and its
   validation rules.
+- [GTK TypeScript API](docs/gtk-api.md) defines the final source projection,
+  construction, properties, signals, and automatic lifecycle rules.
 - [Runtime and threading](docs/runtime-and-threading.md) defines runtime
   instances, scheduling, callbacks, shutdown, and error boundaries.
 - [Ownership](docs/ownership.md) defines native handles, borrows, retention,
@@ -240,9 +242,9 @@ immutable package directory containing TypeScript declarations, validated
 SCABI, adapter metadata/source, and package provenance. A second build root
 reuses that package from the local action cache.
 The native application never contains that Node build tool. The generated
-surface covers managed Widget ancestry, Button and Window
-construction/disposal, label access, borrowed handle parameters, exact
-`gboolean` methods, branded
+surface covers managed Widget ancestry, class-based `new Window()` and
+`Button.withLabel(...)` construction, disposal, label access, borrowed handle
+parameters, exact `gboolean` methods, branded
 `gint`/`gdouble` parameters and results, and deterministic result-owned
 subscriptions for non-detailed zero-payload `void` signals. The adapter strongly
 retains the signal instance, disconnects by its handler ID, and composes with

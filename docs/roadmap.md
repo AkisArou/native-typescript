@@ -208,9 +208,12 @@ content-addressed package directory containing
 canonical TypeScript declarations, validated SCABI, adapter source/metadata,
 and provenance for the narrow managed-handle,
 `void`, exact `gboolean`, branded exact `gint`/`gdouble`, NUL-terminated UTF-8,
-and non-detailed zero-payload signal surface. Signals remain semantic GIR
-metadata rather than invented direct C functions: the generator emits
-deterministic connect/disconnect adapters and
+and non-detailed zero-payload signal surface. GObject handles now project as
+named TypeScript classes: canonical GIR constructors use `new Class()` and
+additional constructors use static named factories, with exact declaration
+symbols lowered by ScriptC rather than runtime class objects. Signals remain
+semantic GIR metadata rather than invented direct C functions: the generator
+emits deterministic connect/disconnect adapters and
 result-owned retained-callback contracts. Aggregate layout evidence, broader
 type/result and signal-payload lowering, and GObject identity, weak-handle, and
 invalidation policy remain before broader selected metadata can drive

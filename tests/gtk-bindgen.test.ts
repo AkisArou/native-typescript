@@ -262,12 +262,12 @@ test(
       ]);
       assert.match(
         generated.declarations,
-        /export declare function createButtonWithLabel\(label: string\): Button;/u,
+        /static withLabel\(label: string\): Button;/u,
       );
       assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
       assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
-      assert.match(generated.declarations, /interface Button extends Widget/u);
-      assert.match(generated.declarations, /interface Window extends Widget/u);
+      assert.match(generated.declarations, /class Button extends Widget/u);
+      assert.match(generated.declarations, /class Window extends Widget/u);
       assert.match(generated.declarations, /activate\(\): boolean;/u);
       assert.match(generated.declarations, /getOpacity\(\): gdouble;/u);
       assert.match(generated.declarations, /getWidth\(\): gint;/u);
@@ -295,7 +295,7 @@ test(
       });
       assert.match(
         generated.declarations,
-        /export declare function createWindow\(\): Window;/u,
+        /class Window extends Widget \{[^}]*constructor\(\);/su,
       );
       assert.deepEqual(generated.manifest.types.gtk_button, {
         kind: "handle",
@@ -313,6 +313,11 @@ test(
       });
       const constructor = generated.manifest.bindings.gtk_button_new_with_label;
       assert.ok(constructor && constructor.kind !== "constant");
+      assert.equal(constructor.kind, "factory");
+      assert.deepEqual(constructor.declaration, {
+        module: ".",
+        name: "Button.withLabel",
+      });
       assert.deepEqual(constructor.entry, {
         kind: "adapter-symbol",
         symbol: "nts_gobject_adopt_gtk_button_new_with_label",
@@ -338,6 +343,18 @@ test(
       });
       assert.equal(translated.ok, true);
       if (!translated.ok) return;
+      assert.deepEqual(
+        translated.input.bindings.find(
+          ({ entry }) => entry.symbol === "nts_gobject_adopt_gtk_button_new_with_label",
+        )?.sourceCall,
+        { kind: "function" },
+      );
+      assert.deepEqual(
+        translated.input.bindings.find(
+          ({ entry }) => entry.symbol === "nts_gobject_adopt_gtk_window_new",
+        )?.sourceCall,
+        { kind: "constructor" },
+      );
       assert.deepEqual(
         translated.input.sourceTypes.filter(
           ({ declaration }) => declaration.name === "gdouble" || declaration.name === "gint",

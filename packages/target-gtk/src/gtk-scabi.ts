@@ -128,13 +128,25 @@ function orderedText(values: readonly string[]): readonly string[] {
   return Object.freeze([...values].sort(compareText));
 }
 
-function constructorDeclaration(className: string, callableName: string): string {
-  const suffix = callableName === "new"
-    ? ""
-    : callableName.startsWith("new_")
-      ? upperCamel(callableName.slice(4))
-      : upperCamel(callableName);
-  return `create${className}${suffix}`;
+function constructorProjection(
+  className: string,
+  callableName: string,
+): {
+  readonly declaration: string;
+  readonly kind: "constructor" | "factory";
+  readonly member: string;
+} {
+  if (callableName === "new") {
+    return Object.freeze({ declaration: className, kind: "constructor", member: "constructor" });
+  }
+  const member = lowerCamel(
+    callableName.startsWith("new_") ? callableName.slice(4) : callableName,
+  );
+  return Object.freeze({
+    declaration: `${className}.${member}`,
+    kind: "factory",
+    member,
+  });
 }
 
 function availability(
@@ -678,10 +690,11 @@ export function generateGtkScabiPackage(
     }
 
     const parent = class_.parent === null ? undefined : classByName.get(class_.parent);
-    const interfaceLines = [
-      `export interface ${class_.name}${parent === undefined ? "" : ` extends ${parent.name}`} {`,
+    const classLines = [
+      `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${parent === undefined ? "" : ` extends ${parent.name}`} {`,
       `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
+    const constructorLines: string[] = [];
     for (const callable of class_.methods) {
       const path = `${classPath}/method/${callable.name}`;
       if (callable.cIdentifier === null || callable.throws || callable.result.skip) {
@@ -801,7 +814,7 @@ export function generateGtkScabiPackage(
             : callable.result.nullable
               ? "string | null"
               : "string";
-      interfaceLines.push(
+      classLines.push(
         `  ${lowerCamel(callable.name)}(${sourceParameters.join(", ")}): ${sourceResult};`,
       );
     }
@@ -959,7 +972,7 @@ export function generateGtkScabiPackage(
       declarations.add(declaration);
       declarations.add(disconnectDeclaration);
       adapterBindings.push(connectId, disconnectId);
-      interfaceLines.push(
+      classLines.push(
         `  on${upperCamel(callable.name)}(callback: () => void): ${subscriptionName};`,
       );
       declarationLines.push(
@@ -970,10 +983,7 @@ export function generateGtkScabiPackage(
         "",
       );
     }
-    if (class_.constructors.length > 0) interfaceLines.push("  dispose(): void;");
-    interfaceLines.push("}", "");
-    declarationLines.push(...interfaceLines);
-
+    let hasCanonicalConstructor = false;
     for (const callable of class_.constructors) {
       const path = `${classPath}/constructor/${callable.name}`;
       if (callable.cIdentifier === null || callable.throws || callable.result.skip) {
@@ -1012,21 +1022,21 @@ export function generateGtkScabiPackage(
           sourceParameters.push(`${lowerCamel(parameter.name)}: string`);
         }
       }
-      const declaration = constructorDeclaration(class_.name, callable.name);
-      if (!identifierPattern.test(declaration) || declarations.has(declaration)) {
+      const projection = constructorProjection(class_.name, callable.name);
+      if (!identifierPattern.test(projection.member) || declarations.has(projection.declaration)) {
         diagnostics.push(diagnostic(path, "Generated constructor declaration identity collides"));
         valid = false;
       }
       if (!valid) continue;
-      declarations.add(declaration);
+      declarations.add(projection.declaration);
       const bindingId = callable.cIdentifier;
       if (bindings[bindingId] !== undefined) {
         diagnostics.push(diagnostic(path, "Generated constructor binding identity collides"));
         continue;
       }
       bindings[bindingId] = callableBase({
-        declaration,
-        kind: "factory",
+        declaration: projection.declaration,
+        kind: projection.kind,
         entryKind: "adapter-symbol",
         symbol: adapter.adapterSymbol,
         parameters,
@@ -1051,11 +1061,24 @@ export function generateGtkScabiPackage(
         availability: availability(class_, callable),
       });
       adapterBindings.push(bindingId);
-      declarationLines.push(
-        `export declare function ${declaration}(${sourceParameters.join(", ")}): ${class_.name};`,
+      if (projection.kind === "constructor") {
+        hasCanonicalConstructor = true;
+        constructorLines.push(`  constructor(${sourceParameters.join(", ")});`);
+      } else {
+        constructorLines.push(
+          `  static ${projection.member}(${sourceParameters.join(", ")}): ${class_.name};`,
+        );
+      }
+    }
+    if (!hasCanonicalConstructor) {
+      constructorLines.unshift(
+        `  ${class_.final ? "private" : "protected"} constructor();`,
       );
     }
-    declarationLines.push("");
+    classLines.splice(2, 0, ...constructorLines);
+    if (class_.constructors.length > 0) classLines.push("  dispose(): void;");
+    classLines.push("}", "");
+    declarationLines.push(...classLines);
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 

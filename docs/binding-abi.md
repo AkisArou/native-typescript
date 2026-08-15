@@ -156,6 +156,14 @@ are adapter entries rather than invented direct C functions. Any reached signal
 or parameter/result form outside that closed algebra is an error instead of a
 guessed projection.
 
+The source projection is distinct from ABI identity. Selected GObject types
+are emitted as named TypeScript classes with their proven inheritance.
+Canonical GIR `new` constructors use `new Class(...)`; additional `new_*`
+constructors use named static factories such as `Button.withLabel(...)`.
+SCABI continues to identify the exact constructor or adapter symbol, and
+ScriptC lowers the declaration identity directly. No JavaScript constructor
+object or C-name inference is involved at runtime.
+
 Opaque handles declare their direct upcast edges explicitly. The first edge
 kind is `identity`: source and target share the exact foreign-pointer
 representation and the same thread-safety and identity contracts. This is the
@@ -349,6 +357,15 @@ admission before its destructor, and completes only after the native disconnect
 returns and admitted leases drain. Other retained ownership modes, borrowed or
 aggregate payloads, synchronous foreign-thread results, and callbacks without
 an enforceable cancellation edge remain rejected.
+
+An active entry in the implemented callback table is an explicit external
+root, and the current native-handle cell does not expose collector-traced
+children. Consequently, receiver-owned registrations are not a metadata-only
+variation of the result-owned contract. They require a ScriptC primitive that
+makes the receiver-to-registration-to-closure path visible to cycle collection,
+including transactional connection, cancellation races, native invalidation,
+and shutdown. Targets must keep emitting result-owned subscriptions until that
+primitive passes those gates.
 
 ## Error contract
 
