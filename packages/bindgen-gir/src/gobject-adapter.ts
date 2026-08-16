@@ -96,6 +96,29 @@ export interface GObjectErrorSupportAdapter {
  * The wrapped call's own result is discarded, so this is limited to members
  * whose result carries no information beyond success.
  */
+/** The function that drops the reference a handle holds. */
+export interface GObjectClassReleaseAdapter {
+  readonly className: string;
+  readonly releaseSymbol: string;
+}
+
+/**
+ * A method whose result is an object the callee keeps owning.
+ *
+ * GIR calls it `transfer-ownership="none"`: the caller may read the object but
+ * holds no reference, so it may be finalised at any moment afterwards. The
+ * adapter takes one, which makes the result an ordinary owned handle. When the
+ * object already has a managed cell the reference is surplus, and the
+ * runtime's identity map is what notices and gives it back.
+ */
+export interface GObjectRetainedResultMethodAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly resultClassName: string;
+  readonly sourceSymbol: string;
+  readonly adapterSymbol: string;
+}
+
 export interface GObjectThrowingMethodAdapter {
   readonly id: string;
   readonly className: string;
@@ -105,7 +128,7 @@ export interface GObjectThrowingMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 7;
+  readonly schemaVersion: 8;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -113,6 +136,8 @@ export interface GObjectAdapterSource {
   readonly signals: readonly GObjectSignalAdapter[];
   readonly valueMethods: readonly GObjectValueMethodAdapter[];
   readonly errorSupport: GObjectErrorSupportAdapter | null;
+  readonly classReleases: readonly GObjectClassReleaseAdapter[];
+  readonly retainedResultMethods: readonly GObjectRetainedResultMethodAdapter[];
   readonly throwingMethods: readonly GObjectThrowingMethodAdapter[];
 }
 
@@ -672,6 +697,91 @@ function generateThrowingMethod(
   });
 }
 
+/**
+ * The class a method hands back without a reference, or undefined.
+ *
+ * Shared with the SCABI projection so both agree on which methods take this
+ * path — a class given a destructor nothing names is refused, and a class
+ * denied one a projection needs cannot bind.
+ */
+export function borrowedResultClass(
+  callable: GirCallable,
+  classByName: ReadonlyMap<string, GirClass>,
+): GirClass | undefined {
+  if (
+    callable.throws ||
+    callable.cIdentifier === null ||
+    callable.result.transferOwnership !== "none" ||
+    callable.result.skip ||
+    callable.result.scope !== null ||
+    callable.result.closureParameter !== null ||
+    callable.result.destroyParameter !== null ||
+    callable.result.type.kind !== "named"
+  ) {
+    return undefined;
+  }
+  const resultClass = classByName.get(callable.result.type.name);
+  return resultClass !== undefined &&
+      callable.result.type.cType === `${resultClass.cType}*`
+    ? resultClass
+    : undefined;
+}
+
+function generateRetainedResultMethod(
+  class_: GirClass,
+  callable: GirCallable,
+  resultClass: GirClass,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectRetainedResultMethodAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/${callable.kind}/${callable.name}`;
+  const receiver = callable.parameters[0];
+  if (
+    receiver?.kind !== "instance" ||
+    receiver.type.cType !== `${class_.cType}*`
+  ) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/receiver`,
+      message:
+        "A method returning a borrowed object needs its own class as the receiver",
+    });
+    return null;
+  }
+  const parameters = callable.parameters.slice(1).map((parameter, index) =>
+    physicalType(parameter.type.cType, `${path}/parameters/${index}`, diagnostics)
+  );
+  if (parameters.some((parameter) => parameter === null)) return null;
+  const names = parameters.map(
+    (_, index) => `parameter_${index.toString().padStart(4, "0")}`,
+  );
+  const declarations = parameters.map(
+    (parameter, index) => `${renderCType(parameter!)} ${names[index]}`,
+  );
+  const adapterSymbol = `nts_gobject_ref_${callable.cIdentifier!}`;
+  return Object.freeze({
+    adapter: Object.freeze({
+      id: `${class_.name}.${callable.kind}.${callable.name}`,
+      className: class_.name,
+      resultClassName: resultClass.name,
+      sourceSymbol: callable.cIdentifier!,
+      adapterSymbol,
+    }),
+    lines: Object.freeze([
+      `${resultClass.cType} *${adapterSymbol}(${[`${class_.cType} *instance`, ...declarations].join(", ")}) {`,
+      `  ${resultClass.cType} *value = ${callable.cIdentifier}(${["instance", ...names].join(", ")});`,
+      "  /* The caller was given no reference, so one is taken here: a managed",
+      "   * cell has to outlive whatever the library does next. */",
+      "  return value == NULL ? NULL : g_object_ref(value);",
+      "}",
+      "",
+    ]),
+  });
+}
+
 export function generateGObjectAdapterSource(
   snapshot: GirSnapshot,
 ): GObjectAdapterSource {
@@ -739,6 +849,8 @@ export function generateGObjectAdapterSource(
         ]),
   ];
   const throwingMethods: GObjectThrowingMethodAdapter[] = [];
+  const classReleases: GObjectClassReleaseAdapter[] = [];
+  const retainedResultMethods: GObjectRetainedResultMethodAdapter[] = [];
   const hasThrowingMethods = snapshot.classes.some((class_) =>
     class_.methods.some((callable) => callable.throws)
   );
@@ -763,6 +875,22 @@ export function generateGObjectAdapterSource(
     );
   }
   const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
+  const classByName = new Map(snapshot.classes.map((class_) => [class_.name, class_]));
+  /* A class needs a release when something destroys one: it was constructed
+   * here, or a method hands it back without a reference and the adapter takes
+   * one. Emitting a release nobody names is refused downstream, so the set is
+   * computed rather than assumed. */
+  const releasedClasses = new Set<string>(
+    snapshot.classes
+      .filter((class_) => class_.constructors.length > 0)
+      .map((class_) => class_.name),
+  );
+  for (const class_ of snapshot.classes) {
+    for (const callable of class_.methods) {
+      const resultClass = borrowedResultClass(callable, classByName);
+      if (resultClass !== undefined) releasedClasses.add(resultClass.name);
+    }
+  }
   for (const class_ of snapshot.classes) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {
@@ -777,10 +905,17 @@ export function generateGObjectAdapterSource(
       constructors.push(generated.adapter);
       lines.push(...generated.lines);
     }
-    if (classConstructors.length > 0) {
-      const first = classConstructors[0]!;
+    if (releasedClasses.has(class_.name)) {
+      /* Qualified by namespace: a class name is unique only within one, and
+       * Gio.Application and Gtk.Application link into the same executable. */
+      const releaseSymbol =
+        `nts_gobject_release_${namespacePart}_${class_.cSymbolPrefix}`;
+      classReleases.push(Object.freeze({
+        className: class_.name,
+        releaseSymbol,
+      }));
       lines.push(
-        `void ${first.releaseSymbol}(${first.nativeType} *value) {`,
+        `void ${releaseSymbol}(${class_.cType} *value) {`,
         "  if (value != NULL) g_object_unref(value);",
         "}",
         "",
@@ -805,6 +940,19 @@ export function generateGObjectAdapterSource(
         if (generated === null) continue;
         throwingMethods.push(generated.adapter);
         lines.push(...generated.lines);
+        continue;
+      }
+      const resultClass = borrowedResultClass(callable, classByName);
+      if (resultClass !== undefined) {
+        const referenced = generateRetainedResultMethod(
+          class_,
+          callable,
+          resultClass,
+          diagnostics,
+        );
+        if (referenced === null) continue;
+        retainedResultMethods.push(referenced.adapter);
+        lines.push(...referenced.lines);
         continue;
       }
       const generated = generateValueMethod(
@@ -839,7 +987,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 7,
+    schemaVersion: 8,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
@@ -847,6 +995,8 @@ export function generateGObjectAdapterSource(
     signals: Object.freeze(signals),
     valueMethods: Object.freeze(valueMethods),
     errorSupport,
+    classReleases: Object.freeze(classReleases),
+    retainedResultMethods: Object.freeze(retainedResultMethods),
     throwingMethods: Object.freeze(throwingMethods),
   });
 }

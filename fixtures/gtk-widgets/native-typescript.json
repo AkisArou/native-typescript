@@ -111,14 +111,15 @@
             "new"
           ],
           "methods": [
-            "set_title",
-            "get_title",
-            "set_default_size",
-            "present",
-            "destroy",
-            "set_child",
             "close",
-            "set_resizable"
+            "destroy",
+            "get_child",
+            "get_title",
+            "present",
+            "set_child",
+            "set_default_size",
+            "set_resizable",
+            "set_title"
           ]
         },
         {
@@ -252,9 +253,10 @@
             "new"
           ],
           "methods": [
-            "set_child",
+            "get_child",
             "get_index",
-            "set_activatable"
+            "set_activatable",
+            "set_child"
           ]
         },
         {

@@ -208,6 +208,22 @@ const clicked = action.onClicked((sender): void => {
   check_(!notes.editable, "the text view is editable");
   check_(content.spacing === (12 as gint), "the box spacing is wrong");
   check_(window.visible, "the window is not visible");
+  /* Objects this program never constructed. GTK owns them; the adapter takes a
+   * reference so the handle can outlive whatever GTK does next, and the
+   * runtime interns it so repeated reads name one managed cell.
+   *
+   * A container with no child throws rather than answering null, because a
+   * nullable owned handle lowers as an error — the same rule a nullable
+   * constructor result follows. */
+  window.getChild().visible = true;
+  alpha.getChild().visible = true;
+  let absentReported = false;
+  try {
+    new ListBoxRow().getChild();
+  } catch {
+    absentReported = true;
+  }
+  check_(absentReported, "an empty row invented a child");
   check_(content.sensitive, "the content is not sensitive");
   /* An exact native scalar is constructed from a literal, never from an
    * arbitrary number: the compiler has to prove the value is in range. */

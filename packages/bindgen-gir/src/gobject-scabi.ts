@@ -42,7 +42,10 @@ import type {
   GirParameter,
   GirSnapshot,
 } from "./gir-model.ts";
-import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
+import {
+  borrowedResultClass,
+  generateGObjectAdapterSource,
+} from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
 /**
@@ -964,6 +967,18 @@ export function generateGObjectScabiPackage(
 
   const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
+  const releaseByClass = new Map(
+    options.gobjectAdapter.classReleases.map((release) => [
+      release.className,
+      release,
+    ]),
+  );
+  const adapterByRetainedResult = new Map(
+    options.gobjectAdapter.retainedResultMethods.map((method) => [
+      method.id,
+      method,
+    ]),
+  );
   const adapterByThrowingMethod = new Map(
     options.gobjectAdapter.throwingMethods.map((method) => [method.id, method]),
   );
@@ -1457,7 +1472,7 @@ export function generateGObjectScabiPackage(
     if (
       types[typeId] !== undefined ||
       declarationTypes[typeId] !== undefined ||
-      (class_.constructors.length > 0 &&
+      (releaseByClass.has(class_.name) &&
         (bindings[releaseId] !== undefined || declarations.has(releaseDeclaration)))
     ) {
       diagnostics.push(diagnostic(classPath, "Generated GObject class identity collides"));
@@ -1492,21 +1507,17 @@ export function generateGObjectScabiPackage(
       ),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: class_.name });
-    if (class_.constructors.length > 0) {
-      const firstAdapter = adapterByConstructor.get(
-        `${class_.name}.constructor.${class_.constructors[0]!.name}`,
-      );
-      if (firstAdapter === undefined) {
-        diagnostics.push(
-          diagnostic(`${classPath}/constructors`, "GObject ownership adapter is missing this class"),
-        );
-        continue;
-      }
+    /* Exactly the classes something destroys: constructed here, or handed back
+     * without a reference by a method whose adapter takes one. A release
+     * nothing names is refused as an ownership-consuming call outside the
+     * destructor slice, so the adapter computes the set and this follows it. */
+    const classRelease = releaseByClass.get(class_.name);
+    if (classRelease !== undefined) {
       bindings[releaseId] = callableBase({
         declaration: releaseDeclaration,
         kind: "method",
         entryKind: "adapter-symbol",
-        symbol: firstAdapter.releaseSymbol,
+        symbol: classRelease.releaseSymbol,
         parameters: [Object.freeze({
           name: class_.cSymbolPrefix,
           type: typeId,
@@ -1617,7 +1628,14 @@ export function generateGObjectScabiPackage(
         );
         invalidPropertyMethods.add(accessors.getter);
         invalidPropertyMethods.add(accessors.setter);
-      } else if (!reportsAbsentString(accessors.getter)) {
+      } else if (
+        !reportsAbsentString(accessors.getter) &&
+        borrowedResultClass(accessors.getter, classByName) === undefined
+      ) {
+        /* A getter handing back an object is a call whose answer can change,
+         * and the object it names has a lifetime of its own. Both are reasons
+         * a property is the wrong shape, the same reason a nullable string
+         * getter is one. */
         projectedPropertyMethods.add(accessors.getter);
         projectedPropertyMethods.add(accessors.setter);
       }
@@ -1634,6 +1652,107 @@ export function generateGObjectScabiPackage(
       const propertyName = propertyKind === null
         ? null
         : callable.glibGetProperty ?? callable.glibSetProperty;
+      /* A method handing back an object it keeps owning reaches the boundary
+       * through an adapter that took a reference, which makes the result an
+       * ordinary owned handle. The runtime's identity map decides whether that
+       * reference is surplus: two projections of one object are one cell, so
+       * equality answers about the object rather than about the call. */
+      const borrowedResult = borrowedResultClass(callable, classByName);
+      if (borrowedResult !== undefined) {
+        const retained = adapterByRetainedResult.get(
+          `${class_.name}.method.${callable.name}`,
+        );
+        const resultTypeId = typeIdByClass.get(borrowedResult.name);
+        const resultRelease = releaseByClass.get(borrowedResult.name);
+        if (
+          retained === undefined ||
+          resultTypeId === undefined ||
+          resultRelease === undefined
+        ) {
+          diagnostics.push(diagnostic(
+            path,
+            "GObject adapter is missing this borrowed object result",
+          ));
+          continue;
+        }
+        const receiver = callable.parameters[0];
+        if (!isExactInstanceReceiver(receiver, class_)) {
+          diagnostics.push(diagnostic(
+            `${path}/receiver`,
+            "Method receiver does not match its GObject class",
+          ));
+          continue;
+        }
+        const retainedParameters: AbiParameter[] = [Object.freeze({
+          name: "instance",
+          type: typeId,
+          passMode: "pointer",
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        })];
+        const retainedSourceParameters: string[] = [];
+        let retainedValid = true;
+        for (const [index, parameter] of callable.parameters.slice(1).entries()) {
+          const handle = handleParameter(
+            parameter,
+            classByName,
+            typeIdByClass,
+            `${path}/parameters/${index}`,
+            diagnostics,
+          );
+          if (handle === null) {
+            retainedValid = false;
+            continue;
+          }
+          retainedParameters.push(handle.abi);
+          retainedSourceParameters.push(
+            `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
+          );
+        }
+        if (!retainedValid) continue;
+        const sourceMember = lowerCamel(callable.name);
+        const declaration = `${class_.name}.${sourceMember}`;
+        const bindingId =
+          `${namespacePrefix}_${class_.cSymbolPrefix}_${snakeCase(callable.name)}`;
+        const resultReleaseId =
+          `${namespacePrefix}_${borrowedResult.cSymbolPrefix}_release`;
+        if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
+          diagnostics.push(diagnostic(path, "Generated method identity collides"));
+          continue;
+        }
+        bindings[bindingId] = callableBase({
+          declaration,
+          kind: "method",
+          entryKind: "adapter-symbol",
+          symbol: retained.adapterSymbol,
+          parameters: retainedParameters,
+          result: Object.freeze({
+            type: resultTypeId,
+            passMode: "pointer",
+            nullable: true,
+            ownership: Object.freeze({
+              kind: "owned",
+              transfer: "to-runtime",
+              destructor: resultReleaseId,
+            }),
+          }),
+          error: Object.freeze({ kind: "nullable" }),
+          dependencies: dependencies({
+            bindings: [resultReleaseId],
+            links: linkIds,
+            adapter: options.adapterInput.id,
+          }),
+          availability: availability(class_, callable),
+        });
+        declarations.add(declaration);
+        adapterBindings.push(bindingId);
+        classLines.push(
+          `  ${sourceMember}(${retainedSourceParameters.join(", ")}): ${
+            borrowedResult.name
+          };`,
+        );
+        continue;
+      }
       if (callable.throws) {
         // A GError-reporting member reaches the boundary through the adapter
         // that absorbed its out-parameter, so it binds an adapter symbol whose
