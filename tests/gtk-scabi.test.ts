@@ -18,7 +18,10 @@ import {
   canonicalizeJson,
   digestScabiManifest,
 } from "@native-typescript/scabi";
-import { translateScabiNativeProgram } from "@native-typescript/scriptc";
+import {
+  composeScriptCNativePrograms,
+  translateScabiNativeProgram,
+} from "@native-typescript/scriptc";
 import {
   defineGirBindingPackageRequest,
   generateGObjectAdapterSource,
@@ -395,6 +398,108 @@ test(
     assert.match(
       generated.declarations,
       /export declare class Application extends GioApplication \{/u,
+    );
+  },
+);
+
+test(
+  "two generated packages compose into one program across the namespace edge",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGioGir) },
+  () => {
+    // The whole chain: generate gio2, generate gtk4 importing from it,
+    // translate both, and compose. Composition is the only stage that sees
+    // both manifests, so this is where the imported handle has to resolve.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Application", methods: ["quit"], signals: ["activate"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Window", constructors: ["new"] },
+        // remove_window is void over two handles, so reaching it reaches
+        // Gtk.Application and therefore its imported ancestry.
+        { name: "Application", methods: ["remove_window"] },
+      ],
+    });
+
+    const gioGenerated = generateGObjectScabiPackage({
+      ...options(gio),
+      package: gio2Package,
+      sdk: {
+        vendor: "GNOME",
+        name: "GLib",
+        version: "2.0",
+        deploymentTarget: "x86_64-unknown-linux-gnu",
+        modules: ["gio-2.0"],
+      },
+      linkInputs: [
+        { id: "gio-2.0", kind: "system-library", name: "gio-2.0", order: 0 },
+      ],
+      adapterInput: { id: "gio2.gobject-adapters", output: "gobject-adapters.o" },
+    });
+    const gtkGenerated = generateGObjectScabiPackage({
+      ...options(gtk),
+      importedNamespaces: [{ snapshot: gio, package: gio2Package }],
+    });
+
+    const gioProgram = translateScabiNativeProgram(gioGenerated.manifest, {
+      imports: ["gio_application_connect_activate"],
+      exports: [],
+    });
+    const gtkProgram = translateScabiNativeProgram(gtkGenerated.manifest, {
+      imports: ["gtk_application_remove_window", "gtk_window_new"],
+      exports: [],
+    });
+    assert.equal(
+      gioProgram.ok,
+      true,
+      gioProgram.ok ? undefined : JSON.stringify(gioProgram.diagnostics),
+    );
+    assert.equal(
+      gtkProgram.ok,
+      true,
+      gtkProgram.ok ? undefined : JSON.stringify(gtkProgram.diagnostics),
+    );
+    if (!gioProgram.ok || !gtkProgram.ok) return;
+
+    const composed = composeScriptCNativePrograms([gtkProgram, gioProgram]);
+    assert.equal(
+      composed.ok,
+      true,
+      composed.ok ? undefined : JSON.stringify(composed.diagnostics),
+    );
+    if (!composed.ok) return;
+
+    // One program now holds both packages' handles, joined by the upcast.
+    const application = composed.input.types.find(
+      ({ id }) => id === "native-typescript.gtk4@0.0.0#type:gtk_application",
+    );
+    assert.ok(application && application.kind === "handle");
+    if (!application || application.kind !== "handle") return;
+    assert.deepEqual(application.upcasts, [
+      {
+        kind: "identity",
+        target: "native-typescript.gio2@0.0.0#type:gio_application",
+      },
+    ]);
+    assert.equal(
+      composed.input.types.some(
+        ({ id }) => id === "native-typescript.gio2@0.0.0#type:gio_application",
+      ),
+      true,
+    );
+
+    // Without gio2 the gtk4 program has a handle ancestry it cannot satisfy.
+    const alone = composeScriptCNativePrograms([gtkProgram]);
+    assert.equal(alone.ok, false);
+    if (alone.ok) return;
+    assert.match(
+      alone.diagnostics.map(({ message }) => message).join("\n"),
+      /is not provided by any composed package/u,
     );
   },
 );
