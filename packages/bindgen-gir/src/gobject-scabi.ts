@@ -878,20 +878,26 @@ export function generateGObjectScabiPackage(
    * GIR name for a foreign enumeration because it is imported under a
    * namespace-qualified alias.
    */
-  const enumerations = new Map<string, EnumerationProjection>(
-    options.snapshot.enumerations.map((enum_) => [
-      enum_.name,
-      Object.freeze({
-        girName: enum_.name,
-        sourceName: enum_.name,
-        cType: enum_.cType,
-        typeId: enumerationTypeId(options.snapshot.namespace.name, enum_.name),
-        enumeration: enum_,
-        namespace: options.snapshot.namespace.name,
-        owner: undefined,
-      }),
-    ]),
-  );
+  const enumerations = new Map<string, EnumerationProjection>();
+  for (const enum_ of options.snapshot.enumerations) {
+    const projection = Object.freeze({
+      girName: enum_.name,
+      sourceName: enum_.name,
+      cType: enum_.cType,
+      typeId: enumerationTypeId(options.snapshot.namespace.name, enum_.name),
+      enumeration: enum_,
+      namespace: options.snapshot.namespace.name,
+      owner: undefined,
+    });
+    enumerations.set(enum_.name, projection);
+    // GIR normally spells a same-namespace reference bare, but a
+    // self-qualified spelling names the same declaration and resolves here
+    // rather than being mistaken for another namespace's type.
+    enumerations.set(`${options.snapshot.namespace.name}.${enum_.name}`, {
+      ...projection,
+      girName: `${options.snapshot.namespace.name}.${enum_.name}`,
+    });
+  }
   // An enumeration another namespace owns joins the same lookup under its
   // qualified GIR name. Only reached ones are projected, matching the probe
   // exactly, so evidence and declarations cover the same set.

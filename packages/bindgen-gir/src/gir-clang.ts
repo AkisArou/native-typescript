@@ -99,12 +99,17 @@ function enumCandidate(
  */
 export function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<string> {
   const names = new Set<string>();
+  const ownPrefix = `${snapshot.namespace.name}.`;
   function visit(type: GirTypeReference): void {
     if (type.kind === "array") {
       visit(type.element);
       return;
     }
-    if (type.name.includes(".")) names.add(type.name);
+    // A reference qualified with this snapshot's own namespace names something
+    // local, so it is not foreign however GIR chose to spell it.
+    if (type.name.includes(".") && !type.name.startsWith(ownPrefix)) {
+      names.add(type.name);
+    }
     for (const argument of type.arguments) visit(argument);
   }
   for (const class_ of snapshot.classes) {
@@ -116,6 +121,9 @@ export function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<stri
       visit(callable.result.type);
       for (const parameter of callable.parameters) visit(parameter.type);
     }
+  }
+  for (const record of snapshot.records) {
+    for (const field of record.fields) visit(field.type);
   }
   return names;
 }
