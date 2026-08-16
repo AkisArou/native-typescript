@@ -36,7 +36,6 @@ export type {
   ScriptCExternalCcArgument,
   ScriptCExternalCcPlan,
   ScriptCExternalBuild,
-  ScriptCExternalCcPlanResolution,
   ScriptCExternalRuntimeObject,
 } from "./external-build.ts";
 

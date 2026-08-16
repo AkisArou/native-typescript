@@ -19,13 +19,6 @@ export interface ScriptCExternalCcPlan {
   readonly arguments: readonly ScriptCExternalCcArgument[];
 }
 
-export interface ScriptCExternalCcPlanResolution {
-  readonly plan: ScriptCExternalCcPlan;
-  readonly bindings: {
-    readonly runtimeDirectory: string;
-  };
-}
-
 /** One compiled ScriptC runtime object, named so a build can declare it. */
 export interface ScriptCExternalRuntimeObject {
   readonly id: string;

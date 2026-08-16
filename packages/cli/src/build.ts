@@ -20,7 +20,7 @@ import {
 
 export const projectFileName = "native-typescript.json";
 
-export interface BuildOptions {
+interface BuildOptions {
   readonly projectRoot: string;
   readonly outputDirectory: string;
   readonly backend: "c" | "llvm";
@@ -51,7 +51,7 @@ const requiredTools = [
   ["sandbox", "bwrap", "bubblewrap, which isolates every build action"],
 ] as const;
 
-export function parseBuildOptions(
+function parseBuildOptions(
   argv: readonly string[],
 ): BuildOptions | string {
   let projectRoot = process.cwd();
