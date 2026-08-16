@@ -693,7 +693,7 @@ test(
         "directory",
       );
       const targetObjects = planGtkTargetObjects({
-        adapter: gobjectAdapter,
+        adapters: [{ slug: "gtk4", adapter: gobjectAdapter }],
         glibRuntimeSourceTreeDigest: runtimeTreeContent.digest,
         scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
         sdkArguments: gtkSdk.compileArguments,
@@ -702,7 +702,7 @@ test(
         target: nativeTarget,
       });
       const runtimeObject = targetObjects.runtime;
-      const gobjectAdapterObject = targetObjects.adapters;
+      const gobjectAdapterObject = targetObjects.adapters[0]!.plan;
       const counterArguments: readonly ArtifactActionArgument[] = [
         ...baseArguments,
         { kind: "literal", value: "-I" },

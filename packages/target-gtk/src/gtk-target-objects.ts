@@ -18,9 +18,22 @@ import type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
 export const gtkTargetObjectArtifactIds = Object.freeze({
   glibRuntimeSourceTree: glibRuntimeArtifactIds.sourceTree,
   glibRuntimeObject: glibRuntimeArtifactIds.object,
-  adapterSource: "source/gtk4/gobject-adapters",
-  adapterObject: "object/gtk4/gobject-adapters",
 });
+
+/**
+ * Adapter artifact identities for one binding package, derived from its
+ * package slug so several namespaces can contribute objects to one link
+ * without colliding.
+ */
+export function gtkAdapterObjectArtifactIds(slug: string): {
+  readonly source: string;
+  readonly object: string;
+} {
+  return Object.freeze({
+    source: `source/${slug}/gobject-adapters`,
+    object: `object/${slug}/gobject-adapters`,
+  });
+}
 
 /* The GLib runtime adapter is ordinary portable C and is held to the strictest
  * dialect the target package compiles. The generated GObject adapters instead
@@ -34,9 +47,14 @@ const glibRuntimeCompilePrologue: readonly ArtifactActionInputArgument[] =
     ),
   );
 
+export interface GtkAdapterObject {
+  readonly slug: string;
+  readonly plan: GObjectAdapterObjectPlan;
+}
+
 export interface GtkTargetObjectsPlan {
   readonly runtime: GlibRuntimeObjectPlan;
-  readonly adapters: GObjectAdapterObjectPlan;
+  readonly adapters: readonly GtkAdapterObject[];
   readonly artifacts: readonly ArtifactDefinition[];
   readonly actions: readonly ArtifactActionDefinition[];
 }
@@ -52,7 +70,15 @@ export interface GtkTargetObjectsPlan {
  * inconsistently.
  */
 export function planGtkTargetObjects(input: {
-  readonly adapter: GObjectAdapterSource;
+  /**
+   * One entry per generated binding package, keyed by its package slug. An
+   * application can reach several namespaces, and each contributes its own
+   * adapter object to the link.
+   */
+  readonly adapters: readonly {
+    readonly slug: string;
+    readonly adapter: GObjectAdapterSource;
+  }[];
   readonly glibRuntimeSourceTreeDigest: string;
   readonly scriptcRuntimeHeaders: ArtifactInputPath;
   readonly sdkArguments: readonly ArtifactActionInputArgument[];
@@ -69,28 +95,41 @@ export function planGtkTargetObjects(input: {
     target: input.target,
   });
 
-  const adapters = planGObjectAdapterObject({
-    adapter: input.adapter,
-    sourceArtifactId: gtkTargetObjectArtifactIds.adapterSource,
-    objectArtifactId: gtkTargetObjectArtifactIds.adapterObject,
-    actionId: "compile/gtk4/gobject-adapters",
-    logicalPath: "generated/gtk4/gobject-adapters.c",
-    artifactFileName: "gobject-adapters.o",
-    arguments: input.sdkArguments,
-    tool: input.tool,
-    executionPlatform: input.executionPlatform,
-    target: input.target,
+  const slugs = new Set<string>();
+  const adapters = input.adapters.map(({ slug, adapter }): GtkAdapterObject => {
+    if (slugs.has(slug)) {
+      throw new Error(`GTK target objects declare package slug '${slug}' twice`);
+    }
+    slugs.add(slug);
+    const ids = gtkAdapterObjectArtifactIds(slug);
+    return Object.freeze({
+      slug,
+      plan: planGObjectAdapterObject({
+        adapter,
+        sourceArtifactId: ids.source,
+        objectArtifactId: ids.object,
+        actionId: `compile/${slug}/gobject-adapters`,
+        logicalPath: `generated/${slug}/gobject-adapters.c`,
+        artifactFileName: "gobject-adapters.o",
+        arguments: input.sdkArguments,
+        tool: input.tool,
+        executionPlatform: input.executionPlatform,
+        target: input.target,
+      }),
+    });
   });
 
   return Object.freeze({
     runtime,
-    adapters,
+    adapters: Object.freeze(adapters),
     artifacts: Object.freeze([
       runtime.sourceTree,
       runtime.object,
-      adapters.source,
-      adapters.object,
+      ...adapters.flatMap(({ plan }) => [plan.source, plan.object]),
     ]),
-    actions: Object.freeze([runtime.action, adapters.action]),
+    actions: Object.freeze([
+      runtime.action,
+      ...adapters.map(({ plan }) => plan.action),
+    ]),
   });
 }

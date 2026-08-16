@@ -224,8 +224,11 @@ target application.
 
 The native objects a target contributes to the application link follow the same
 rule. `planGtkTargetObjects()` returns one immutable fragment containing the
-target-owned GLib owner-runtime object and the generated GObject adapter
-object, together with their artifact and action definitions. Artifact
+target-owned GLib owner-runtime object and one generated GObject adapter object
+per binding package, together with their artifact and action definitions. An
+application can reach several GIR namespaces, and each contributes its own
+adapter object keyed by package slug, so two namespaces cannot collide on one
+artifact identity. Artifact
 identities, per-object dialect policy, and dependency edges belong to the
 target package: the GLib runtime is portable C compiled under the strict
 dialect, while the generated adapters reach GNU extensions through the GTK

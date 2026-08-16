@@ -102,7 +102,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
     { kind: "input-path", artifact: "sdk/gtk4/include" },
   ] as const;
   const plan = planGtkTargetObjects({
-    adapter: {
+    adapters: [{ slug: "gtk4", adapter: {
       schema: "native-typescript.gobject-adapter-source",
       schemaVersion: 6,
       source: "/* generated */\n",
@@ -111,7 +111,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
       signalConnection: null,
       signals: [],
       valueMethods: [],
-    },
+    } }],
     glibRuntimeSourceTreeDigest: `sha256:${"1".repeat(64)}`,
     scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
     sdkArguments,
@@ -125,8 +125,8 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
   });
 
   assert.equal(plan.runtime.object.id, gtkTargetObjectArtifactIds.glibRuntimeObject);
-  assert.equal(plan.adapters.source.id, gtkTargetObjectArtifactIds.adapterSource);
-  assert.equal(plan.adapters.object.id, gtkTargetObjectArtifactIds.adapterObject);
+  assert.equal(plan.adapters[0]?.plan.source.id, "source/gtk4/gobject-adapters");
+  assert.equal(plan.adapters[0]?.plan.object.id, "object/gtk4/gobject-adapters");
 
   // The GLib runtime is portable C held to the strict dialect; the generated
   // GObject adapters reach GNU extensions through the GTK headers.
@@ -142,7 +142,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
     "-Werror",
     "-pedantic",
   ]);
-  assert.deepEqual(literals(plan.adapters.action).slice(0, 4), [
+  assert.deepEqual(literals(plan.adapters[0]!.plan.action).slice(0, 4), [
     "-std=gnu11",
     "-Wall",
     "-Wextra",
@@ -150,7 +150,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
   ]);
 
   // Every object sees the SDK include tree, and the fragment declares it.
-  for (const action of [plan.runtime.action, plan.adapters.action]) {
+  for (const action of [plan.runtime.action, plan.adapters[0]!.plan.action]) {
     assert.equal(action.inputs.includes("sdk/gtk4/include"), true);
   }
 
@@ -159,11 +159,11 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
     [
       gtkTargetObjectArtifactIds.glibRuntimeSourceTree,
       gtkTargetObjectArtifactIds.glibRuntimeObject,
-      gtkTargetObjectArtifactIds.adapterSource,
-      gtkTargetObjectArtifactIds.adapterObject,
+      "source/gtk4/gobject-adapters",
+      "object/gtk4/gobject-adapters",
     ],
   );
-  assert.deepEqual(plan.actions, [plan.runtime.action, plan.adapters.action]);
+  assert.deepEqual(plan.actions, [plan.runtime.action, plan.adapters[0]!.plan.action]);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.artifacts), true);
   assert.equal(Object.isFrozen(plan.actions), true);

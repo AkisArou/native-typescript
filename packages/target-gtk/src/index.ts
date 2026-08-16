@@ -10,10 +10,14 @@ export {
 } from "./glib-runtime-object.ts";
 export type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
 export {
+  gtkAdapterObjectArtifactIds,
   gtkTargetObjectArtifactIds,
   planGtkTargetObjects,
 } from "./gtk-target-objects.ts";
-export type { GtkTargetObjectsPlan } from "./gtk-target-objects.ts";
+export type {
+  GtkAdapterObject,
+  GtkTargetObjectsPlan,
+} from "./gtk-target-objects.ts";
 
 export const glibRuntimeProvider = defineProvider({
   descriptor: {
