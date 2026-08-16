@@ -14,6 +14,7 @@ import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type { GirSnapshot } from "./gir-model.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import { generateGObjectScabiPackage } from "./gobject-scabi.ts";
+import type { GObjectImportedNamespace } from "./gobject-scabi.ts";
 
 async function readInputs(
   snapshotPath: string,
@@ -56,21 +57,64 @@ async function normalizeEvidence(
   await writeFile(outputPath, canonicalizeJson(evidence));
 }
 
+async function readImportedNamespaces(
+  request: GirBindingPackageRequest,
+  snapshotPaths: readonly string[],
+): Promise<readonly GObjectImportedNamespace[]> {
+  const declared = request.importedNamespaces ?? [];
+  if (declared.length !== snapshotPaths.length) {
+    throw new Error(
+      `Expected ${declared.length} imported GIR snapshot(s), received ${snapshotPaths.length}`,
+    );
+  }
+  const imported: GObjectImportedNamespace[] = [];
+  for (const [index, entry] of declared.entries()) {
+    const snapshot = JSON.parse(
+      await readFile(snapshotPaths[index]!, "utf8"),
+    ) as GirSnapshot;
+    if (
+      snapshot.schema !== "native-typescript.gir-snapshot" ||
+      snapshot.schemaVersion !== 3
+    ) {
+      throw new Error("Unsupported imported GIR snapshot schema");
+    }
+    // Inputs are positional, so the snapshot must be the one the request says
+    // it is rather than whatever the planner happened to wire up.
+    if (
+      snapshot.namespace.name !== entry.namespace.name ||
+      snapshot.namespace.version !== entry.namespace.version
+    ) {
+      throw new Error(
+        `Imported snapshot ${snapshot.namespace.name}-${snapshot.namespace.version} ` +
+          `does not match declared ${entry.namespace.name}-${entry.namespace.version}`,
+      );
+    }
+    imported.push({ snapshot, package: entry.package });
+  }
+  return imported;
+}
+
 async function generatePackage(
   snapshotPath: string,
   evidencePath: string,
   requestPath: string,
   outputPath: string,
+  importedSnapshotPaths: readonly string[],
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
   const evidence = JSON.parse(
     await readFile(evidencePath, "utf8"),
   ) as ClangAbiEvidenceSnapshot;
   const gobjectAdapter = generateGObjectAdapterSource(snapshot);
+  const importedNamespaces = await readImportedNamespaces(
+    request,
+    importedSnapshotPaths,
+  );
   const generated = generateGObjectScabiPackage({
     snapshot,
     evidence,
     gobjectAdapter,
+    importedNamespaces,
     ...request.generation,
   });
   const descriptor: GirBindingPackageDescriptor = {
@@ -128,16 +172,22 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "generate-package") {
-    if (arguments_.length !== 4) {
+    if (arguments_.length < 4) {
       throw new Error(
-        "usage: gtk-binding-tool-cli generate-package " +
-          "<snapshot.json> <evidence.json> <request.json> <output>",
+        "usage: gir-binding-tool-cli generate-package " +
+          "<snapshot.json> <evidence.json> <request.json> <output> [imported-snapshot.json...]",
       );
     }
-    await generatePackage(arguments_[0]!, arguments_[1]!, arguments_[2]!, arguments_[3]!);
+    await generatePackage(
+      arguments_[0]!,
+      arguments_[1]!,
+      arguments_[2]!,
+      arguments_[3]!,
+      arguments_.slice(4),
+    );
     return;
   }
-  throw new Error(`Unknown GTK binding tool command '${command}'`);
+  throw new Error(`Unknown GIR binding tool command '${command}'`);
 }
 
 await main();

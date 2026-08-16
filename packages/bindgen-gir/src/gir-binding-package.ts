@@ -4,6 +4,7 @@ import type {
   ArtifactDefinition,
 } from "@native-typescript/core";
 import { canonicalizeJson } from "@native-typescript/scabi";
+import type { PackageIdentity } from "@native-typescript/scabi";
 import type { GObjectScabiGenerationOptions } from "./gobject-scabi.ts";
 
 export const girBindingToolFile = "gir-binding-tool-cli.mjs";
@@ -45,10 +46,22 @@ export interface GirBindingPackageRequest {
     readonly name: string;
     readonly version: string;
   };
+  /**
+   * Namespaces whose generated packages this one may reference, in canonical
+   * order. Generation receives one snapshot per entry in the same order, so
+   * the request alone fixes how many inputs the action consumes.
+   */
+  readonly importedNamespaces?: readonly {
+    readonly namespace: {
+      readonly name: string;
+      readonly version: string;
+    };
+    readonly package: PackageIdentity;
+  }[];
   readonly clang: ClangAbiEvidenceSnapshot["clang"];
   readonly generation: Omit<
     GObjectScabiGenerationOptions,
-    "snapshot" | "evidence" | "gobjectAdapter"
+    "snapshot" | "evidence" | "gobjectAdapter" | "importedNamespaces"
   >;
 }
 
@@ -114,6 +127,21 @@ export function validateGirBindingPackageRequest(
     !girNamespaceVersionPattern.test(request.namespace.version)
   ) {
     throw new Error("GIR binding-package request is incomplete");
+  }
+  const importedNames = (request.importedNamespaces ?? []).map(
+    ({ namespace }) => namespace.name,
+  );
+  for (const [index, name] of importedNames.entries()) {
+    if (name === request.namespace.name) {
+      throw new Error(
+        `GIR binding request imports its own namespace ${name}`,
+      );
+    }
+    if (index > 0 && importedNames[index - 1]! >= name) {
+      throw new Error(
+        "GIR binding request imported namespaces must be unique and in canonical order",
+      );
+    }
   }
   if (request.clang.target !== request.generation.target.triple) {
     throw new Error(
@@ -245,6 +273,12 @@ export function planGirBindingPackage(input: {
   readonly snapshotArtifact: string;
   readonly normalizedEvidenceArtifact: string;
   readonly generatorArtifact: string;
+  /**
+   * One snapshot artifact per entry in `request.importedNamespaces`, in the
+   * same order. The request fixes the count, so a missing or extra input is a
+   * planning error rather than a mismatch discovered inside the sandbox.
+   */
+  readonly importedSnapshotArtifacts?: readonly string[];
   readonly artifactId: string;
   readonly actionId: string;
   readonly tool: ArtifactActionDefinition["tool"];
@@ -252,6 +286,14 @@ export function planGirBindingPackage(input: {
   readonly target: string;
 }): GirBindingPackageArtifactPlan {
   validatePlannerInput(input);
+  const importedSnapshots = input.importedSnapshotArtifacts ?? [];
+  const importedNamespaces = input.request.importedNamespaces ?? [];
+  if (importedSnapshots.length !== importedNamespaces.length) {
+    throw new Error(
+      `GIR binding generation declares ${importedNamespaces.length} imported ` +
+        `namespace(s) but received ${importedSnapshots.length} snapshot input(s)`,
+    );
+  }
   return Object.freeze({
     artifact: Object.freeze({
       id: input.artifactId,
@@ -296,6 +338,9 @@ export function planGirBindingPackage(input: {
           kind: "output-path" as const,
           artifact: input.artifactId,
         }),
+        ...importedSnapshots.map((artifact) =>
+          Object.freeze({ kind: "input-path" as const, artifact })
+        ),
       ]),
       environment: Object.freeze([]),
       inputs: Object.freeze([
@@ -303,6 +348,7 @@ export function planGirBindingPackage(input: {
         input.snapshotArtifact,
         input.normalizedEvidenceArtifact,
         input.requestArtifact,
+        ...importedSnapshots,
       ]),
       outputs: Object.freeze([input.artifactId]),
       standardOutput: Object.freeze({ kind: "report" as const }),

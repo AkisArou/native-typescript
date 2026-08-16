@@ -66,6 +66,12 @@ export function planGirBindingAnalysis(input: {
   readonly snapshotArtifact: string;
   readonly requestArtifact: string;
   readonly generatorArtifact: string;
+  /**
+   * One snapshot artifact per entry in `request.importedNamespaces`, in the
+   * same order, so a class whose parent lives in another namespace can be
+   * projected across the package boundary.
+   */
+  readonly importedSnapshotArtifacts?: readonly string[];
   readonly clangArguments: readonly ArtifactActionInputArgument[];
   readonly clangTool: ArtifactActionDefinition["tool"];
   readonly nodeTool: ArtifactActionDefinition["tool"];
@@ -141,6 +147,7 @@ export function planGirBindingAnalysis(input: {
     snapshotArtifact: input.snapshotArtifact,
     normalizedEvidenceArtifact: evidence.artifact.id,
     generatorArtifact: input.generatorArtifact,
+    importedSnapshotArtifacts: input.importedSnapshotArtifacts,
     artifactId: artifactIds.bindings,
     actionId: `generate/${slug}/binding-package`,
     tool: input.nodeTool,

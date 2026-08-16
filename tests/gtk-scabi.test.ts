@@ -504,6 +504,86 @@ test(
   },
 );
 
+test("imported namespaces are declared inputs of the generation action", () => {
+  const request = defineGirBindingPackageRequest({
+    namespace: { name: "Gtk", version: "4.0" },
+    importedNamespaces: [
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+    ],
+    clang: options().evidence.clang,
+    generation: {
+      package: options().package,
+      target: options().target,
+      sdk: options().sdk,
+      linkInputs: options().linkInputs,
+      adapterInput: options().adapterInput,
+    },
+  });
+  const plan = planGirBindingPackage({
+    request,
+    requestArtifact: "metadata/gtk4/request",
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    normalizedEvidenceArtifact: "metadata/gtk4/evidence",
+    generatorArtifact: "tool-input/gir/generator",
+    importedSnapshotArtifacts: ["metadata/gio2/snapshot"],
+    artifactId: "package/gtk4/bindings",
+    actionId: "generate/gtk4/binding-package",
+    tool: { id: "tool/node", version: "24", digest: `sha256:${"c".repeat(64)}` },
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+
+  // The imported snapshot is a content-verified input, so changing it
+  // invalidates this package rather than silently reusing a cached result.
+  assert.equal(plan.action.inputs.includes("metadata/gio2/snapshot"), true);
+  assert.equal(
+    plan.action.arguments.some(
+      (argument) =>
+        argument.kind === "input-path" &&
+        argument.artifact === "metadata/gio2/snapshot",
+    ),
+    true,
+  );
+
+  // The request fixes how many snapshots the action consumes.
+  assert.throws(
+    () =>
+      planGirBindingPackage({
+        request,
+        requestArtifact: "metadata/gtk4/request",
+        snapshotArtifact: "metadata/gtk4/snapshot",
+        normalizedEvidenceArtifact: "metadata/gtk4/evidence",
+        generatorArtifact: "tool-input/gir/generator",
+        artifactId: "package/gtk4/bindings",
+        actionId: "generate/gtk4/binding-package",
+        tool: { id: "tool/node", version: "24", digest: `sha256:${"c".repeat(64)}` },
+        executionPlatform: "x86_64-linux",
+        target: "x86_64-unknown-linux-gnu",
+      }),
+    /declares 1 imported namespace\(s\) but received 0/u,
+  );
+
+  // A namespace cannot import itself, and order is canonical.
+  assert.throws(
+    () =>
+      defineGirBindingPackageRequest({
+        namespace: { name: "Gtk", version: "4.0" },
+        importedNamespaces: [
+          { namespace: { name: "Gtk", version: "4.0" }, package: gio2Package },
+        ],
+        clang: options().evidence.clang,
+        generation: {
+          package: options().package,
+          target: options().target,
+          sdk: options().sdk,
+          linkInputs: options().linkInputs,
+          adapterInput: options().adapterInput,
+        },
+      }),
+    /imports its own namespace/u,
+  );
+});
+
 test(
   "an unsupplied parent namespace leaves the hierarchy rooted here",
   { skip: !existsSync(systemGtkGir) },

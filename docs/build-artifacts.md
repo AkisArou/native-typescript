@@ -204,7 +204,16 @@ them to canonical selected ABI evidence. Function types, selected record layout,
 and physical calling classifications share one probe contract.
 `planGirBindingAnalysis()` owns this composition and returns the complete
 immutable target subgraph; callers supply source and tool bindings but do not
-reconstruct its dependency edges. The binding-package action consumes that stable
+reconstruct its dependency edges.
+
+A package that projects a class whose parent lives in another namespace
+declares that namespace in its generation request and receives one snapshot
+input per declared entry, in the same canonical order. Those snapshots are
+ordinary content-verified action inputs, so changing an imported namespace
+invalidates the dependent package instead of silently reusing a cached result.
+The request fixes the count, so a missing or extra input fails during planning
+rather than inside the sandbox, and the tool re-checks that each snapshot is
+the namespace the request named. The binding-package action consumes that stable
 evidence, the canonical selected-GIR snapshot, an immutable generation request,
 and a content-addressed self-contained host generator. Its single
 directory output contains declarations, SCABI, GObject adapter source/metadata,
