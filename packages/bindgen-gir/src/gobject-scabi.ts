@@ -35,6 +35,7 @@ import { generateGirClangAbiProbe } from "./gir-clang.ts";
 import type {
   GirCallable,
   GirClass,
+  GirEnumeration,
   GirParameter,
   GirSnapshot,
   GirTypeReference,
@@ -174,6 +175,23 @@ function physicalAbiValue(value: ClangAbiValue): NativePhysicalAbiValue {
 
 function handleTypeId(namespace: string, class_: GirClass): string {
   return `${namespace.toLowerCase()}_${class_.cSymbolPrefix}`;
+}
+
+function enumerationTypeId(namespace: string, name: string): string {
+  return `${namespace.toLowerCase()}_${snakeCase(name)}`;
+}
+
+interface EnumerationProjection {
+  /** The spelling a GIR type reference uses, qualified when foreign. */
+  readonly girName: string;
+  /** The spelling the declaration file uses, aliased when foreign. */
+  readonly sourceName: string;
+  readonly cType: string;
+  readonly typeId: string;
+  readonly enumeration: GirEnumeration;
+  readonly namespace: string;
+  /** Absent for an enumeration this package owns. */
+  readonly owner: PackageIdentity | undefined;
 }
 
 function handleBrand(className: string): string {
@@ -526,10 +544,7 @@ function methodResult(
   callable: GirCallable,
   receiverName: string,
   nullableUtf8Type: string,
-  enumerationTypeIds: ReadonlyMap<string, {
-    readonly cType: string;
-    readonly typeId: string;
-  }>,
+  enumerations: ReadonlyMap<string, EnumerationProjection>,
   diagnostics: CBindgenDiagnostic[],
   path: string,
 ): AbiResult | null {
@@ -586,7 +601,7 @@ function methodResult(
     });
   }
   const enumeration = result.type.kind === "named"
-    ? enumerationTypeIds.get(result.type.name)
+    ? enumerations.get(result.type.name)
     : undefined;
   if (
     enumeration !== undefined &&
@@ -828,21 +843,27 @@ export function generateGObjectScabiPackage(
     return Object.freeze({ typeId: imported.typeId, alias: imported.alias });
   }
 
-  const enumerationByName = new Map(
-    options.snapshot.enumerations.map((enum_) => [enum_.name, enum_]),
-  );
-  const typeIdByEnumeration = new Map(
-    options.snapshot.enumerations.map((enum_) => [
-      enum_.name,
-      `${options.snapshot.namespace.name.toLowerCase()}_${snakeCase(enum_.name)}`,
-    ]),
-  );
-  const enumerationTypeIds = new Map(
+  /**
+   * Every enumeration this package projects, keyed by the GIR name a type
+   * reference uses. A same-namespace reference is bare (`Orientation`) and a
+   * cross-namespace one is qualified (`Gio.ApplicationFlags`), so one map
+   * keyed that way resolves both without a second lookup path.
+   *
+   * `sourceName` is what the declaration file writes, which differs from the
+   * GIR name for a foreign enumeration because it is imported under a
+   * namespace-qualified alias.
+   */
+  const enumerations = new Map<string, EnumerationProjection>(
     options.snapshot.enumerations.map((enum_) => [
       enum_.name,
       Object.freeze({
+        girName: enum_.name,
+        sourceName: enum_.name,
         cType: enum_.cType,
-        typeId: typeIdByEnumeration.get(enum_.name)!,
+        typeId: enumerationTypeId(options.snapshot.namespace.name, enum_.name),
+        enumeration: enum_,
+        namespace: options.snapshot.namespace.name,
+        owner: undefined,
       }),
     ]),
   );
@@ -905,7 +926,7 @@ export function generateGObjectScabiPackage(
     const evidence = enumEvidenceById.get(
       `${options.snapshot.namespace.name}.${enum_.name}.${enum_.kind}`,
     );
-    const typeId = `${namespacePrefix}_${snakeCase(enum_.name)}`;
+    const typeId = enumerationTypeId(options.snapshot.namespace.name, enum_.name);
     const storageId = `${typeId}_storage`;
     const bits = evidence === undefined ? 0 : evidence.size * 8;
     if (
@@ -1442,7 +1463,7 @@ export function generateGObjectScabiPackage(
         const parameterPath = `${path}/parameters/${index + 1}`;
         const scalar = sourceScalarType(parameter.type);
         const enumeration = parameter.type.kind === "named"
-          ? enumerationByName.get(parameter.type.name)
+          ? enumerations.get(parameter.type.name)
           : undefined;
         if (
           parameter.type.kind === "named" &&
@@ -1480,11 +1501,11 @@ export function generateGObjectScabiPackage(
             sourceParameterTypes.push("boolean");
           }
         } else if (enumeration !== undefined) {
-          const enumerationTypeId = typeIdByEnumeration.get(enumeration.name)!;
+          const enumerationTypeId = enumeration.typeId;
           const abi = requiredValueParameter(
             parameter,
             {
-              girName: enumeration.name,
+              girName: enumeration.girName,
               cTypes: [enumeration.cType],
               abiType: enumerationTypeId,
             },
@@ -1496,9 +1517,9 @@ export function generateGObjectScabiPackage(
           } else {
             abiParameters.push(abi);
             sourceParameters.push(
-              `${lowerCamel(parameter.name)}: ${enumeration.name}`,
+              `${lowerCamel(parameter.name)}: ${enumeration.sourceName}`,
             );
-            sourceParameterTypes.push(enumeration.name);
+            sourceParameterTypes.push(enumeration.sourceName);
           }
         } else if (scalar !== undefined) {
           const abi = requiredValueParameter(
@@ -1539,7 +1560,7 @@ export function generateGObjectScabiPackage(
         callable,
         receiver.name,
         callable.result.nullable ? "nullable_const_utf8" : "const_utf8",
-        enumerationTypeIds,
+        enumerations,
         diagnostics,
         `${path}/result`,
       );
@@ -1576,7 +1597,7 @@ export function generateGObjectScabiPackage(
       });
       const scalarResult = sourceScalarType(callable.result.type);
       const enumerationResult = callable.result.type.kind === "named"
-        ? enumerationByName.get(callable.result.type.name)
+        ? enumerations.get(callable.result.type.name)
         : undefined;
       const sourceResult = callable.result.type.cType === "void"
         ? "void"
@@ -1586,7 +1607,7 @@ export function generateGObjectScabiPackage(
           : scalarResult !== undefined
             ? scalarResult.girName
             : enumerationResult !== undefined
-              ? enumerationResult.name
+              ? enumerationResult.sourceName
             : callable.result.nullable
               ? "string | null"
               : "string";
@@ -1804,7 +1825,7 @@ export function generateGObjectScabiPackage(
         const parameterPath = `${path}/parameters/${index}`;
         const scalar = sourceScalarType(parameter.type);
         const enumeration = parameter.type.kind === "named"
-          ? enumerationByName.get(parameter.type.name)
+          ? enumerations.get(parameter.type.name)
           : undefined;
         let abi: AbiParameter | null;
         let sourceType: string;
@@ -1828,14 +1849,14 @@ export function generateGObjectScabiPackage(
           abi = requiredValueParameter(
             parameter,
             {
-              girName: enumeration.name,
+              girName: enumeration.girName,
               cTypes: [enumeration.cType],
-              abiType: typeIdByEnumeration.get(enumeration.name)!,
+              abiType: enumeration.typeId,
             },
             parameterPath,
             diagnostics,
           );
-          sourceType = enumeration.name;
+          sourceType = enumeration.sourceName;
         } else if (scalar !== undefined) {
           abi = requiredValueParameter(parameter, scalar, parameterPath, diagnostics);
           sourceType = scalar.girName;
