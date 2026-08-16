@@ -159,34 +159,30 @@ borrowed same-namespace object and every one is refused, which is why an
 application can only touch objects it constructed itself. The 19 signal
 payloads carrying a GObject are the same gap from the other side.
 
-The projection is nearly free. A `transfer=none` result becomes an owned one at
-the adapter boundary — `return value == NULL ? NULL : g_object_ref(value)` —
-and an owned result with a declared destructor already projects, using the
-release function the adapter generates today. No new IR shape is needed for the
-value itself.
+The runtime half is done. Handles whose binding declares pointer identity are
+interned, both backends consult the map before committing a cell, and GObject
+handles declare it — so two projections of one widget will be one managed cell
+rather than two that disagree about equality.
 
-What is not free is identity, and it cannot be skipped.
-[Ownership](ownership.md) declares GObject identity to follow the underlying
-object reference, so two projections of one object must be one managed cell.
-Without a map they are two, and `===` answers false about the same widget —
-silently, which is the one failure mode this project does not accept. Shipping
-the projection alone would trade a precise refusal for a wrong answer.
+The generation half is a chain, and building it turned up three couplings that
+reading did not:
 
-The map is a runtime facility keyed by handle tag and foreign pointer, because
-the cell is created by emitted code rather than by the adapter:
+- A borrowed result needs a destructor to name, and the release binding is
+  generated only for a class with constructors. `Widget` has none and is the
+  most common borrowed result there is.
+- The release *symbol* comes from the constructor ownership adapter, so a class
+  without constructors has no release function emitted in C either. Both the
+  adapter and the projection have to stop treating release as a thing
+  constructors bring.
+- Giving every selected class a release binding gives every class a `dispose()`,
+  including abstract ones that deliberately have none today. That is defensible
+  — disposing a handle drops the reference this program took, not the object —
+  but it is a visible change to the generated surface rather than an addition.
 
-- a small table in `scr_native_handle.c`, which today has no registry;
-- registration in `scr_native_handle_commit`, for types that declare identity;
-- removal on final release and on native invalidation, per the ownership rule;
-- an identity flag on `ScrNativeHandleType`, carried from SCABI's existing
-  `identity: "pointer"` through the IR handle definition;
-- lookup before `prepare` in both emitters, reusing an existing cell with a
-  retain rather than committing a second one;
-- adapters that ref a borrowed result, and a GIR projection that admits
-  `transfer=none` object results once the above holds.
-
-Sequenced after everything else because it is the one change that touches the
-commit and release path every handle already depends on.
+With those settled the projection itself is small: an adapter that returns
+`value == NULL ? NULL : g_object_ref(value)` makes the result owned, and an
+owned handle result already projects. The surplus reference is released by the
+identity map when the object already has a cell.
 
 **Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
 7.2 s build because it is one Clang invocation compiling 19 runtime sources and

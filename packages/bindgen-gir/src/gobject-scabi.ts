@@ -1470,7 +1470,13 @@ export function generateGObjectScabiPackage(
       kind: "handle",
       nativeName: class_.cType,
       threadSafety: "confined",
-      identity: "platform",
+      /* A GObject's identity is its pointer for as long as a reference is
+       * held, which is what ownership.md means by identity following the
+       * underlying object reference. Declaring it lets the runtime intern the
+       * handle, so two projections of one widget are one managed cell and
+       * equality answers about the widget rather than about which call
+       * produced the reference. */
+      identity: "pointer",
       upcasts: Object.freeze(
         class_.parent?.kind === "internal"
           ? [Object.freeze({

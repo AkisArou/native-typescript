@@ -424,7 +424,7 @@ test(
         kind: "handle",
         nativeName: "GtkButton",
         threadSafety: "confined",
-        identity: "platform",
+        identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
       });
       assert.deepEqual(generated.manifest.types.gtk_orientation_storage, {
@@ -441,7 +441,7 @@ test(
         kind: "handle",
         nativeName: "GtkWindow",
         threadSafety: "confined",
-        identity: "platform",
+        identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
       });
       const constructor = generated.manifest.bindings.gtk_button_new_with_label;
