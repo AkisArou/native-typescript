@@ -148,7 +148,11 @@
             "set_label",
             "get_label",
             "set_wrap",
-            "set_selectable"
+            "set_selectable",
+            "set_xalign",
+            "get_xalign",
+            "set_yalign",
+            "get_yalign"
           ]
         },
         {

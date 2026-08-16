@@ -11,8 +11,7 @@ import type { GirTypeReference } from "./gir-model.ts";
  *
  * Widths are fixed and unambiguous. `glong`, `gsize`, and friends vary by
  * platform and are deliberately absent until the probe's evidence, rather than
- * a table, decides their width. `gfloat` is absent because ScriptC has no
- * 32-bit float: admitting it here would silently widen every value.
+ * a table, decides their width.
  */
 export interface SourceScalarType {
   readonly girName: string;
@@ -54,6 +53,19 @@ export const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
     cTypes: Object.freeze(["double", "gdouble"]),
     abiType: "gdouble",
     nativeType: Object.freeze({ kind: "float", bits: 64 }),
+    carrier: "number",
+    conversion: "number",
+  }) as SourceScalarType,
+  /* A 32-bit float is an ABI carrier only: the compiler admits it in a slot
+   * and nowhere else, so it declares the JavaScript-number conversion like
+   * every other numeric type here. Its crossing is the one that is not exact
+   * — reading is lossless, writing rounds to nearest float — which is what a
+   * 32-bit slot means and what `gtk_label_set_xalign` has always done. */
+  Object.freeze({
+    girName: "gfloat",
+    cTypes: Object.freeze(["float", "gfloat"]),
+    abiType: "gfloat",
+    nativeType: Object.freeze({ kind: "float", bits: 32 }),
     carrier: "number",
     conversion: "number",
   }) as SourceScalarType,

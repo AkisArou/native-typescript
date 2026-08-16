@@ -85,10 +85,11 @@ reason.
 
 ### Checked JavaScript-number boundaries
 
-A binding position over a 64-bit float, or over an integer of at most 32
-bits, may declare that its source carrier is an ordinary `number`. A float
-slot converts nothing — the double is the value — while an integer slot is
-checked in and widened out. Arguments and aggregate constructions
+A binding position over a float, or over an integer of at most 32 bits, may
+declare that its source carrier is an ordinary `number`. A 64-bit float slot
+converts nothing — the double is the value; an integer slot is checked in and
+widened out; a 32-bit float slot widens out exactly and rounds in, which is
+the one lossy crossing in the family and the only thing its width can mean. Arguments and aggregate constructions
 are checked at the boundary — finite, integral, in range, or a catchable
 `TypeError` raised before the call — and results, aggregate fields, and both
 callback trampolines widen exactly on the way out. The physical slot stays the
@@ -468,6 +469,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Exact `gboolean` methods | both representations |
 | GLib integers ≤32 bits | `gint`, `guint`, and every fixed width up to 32 bits, as plain `number` over their exact slots — checked in, widened out |
 | `gdouble` | plain `number`: the slot is the double, so the crossing converts nothing |
+| `gfloat` | plain `number` over a 32-bit slot: reads exactly, writes by rounding to nearest float |
 | Branded 64-bit integers | `gint64`, `guint64`, exact with BigInt carriers |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
@@ -647,9 +649,18 @@ These are deliberate, not oversights. Each is a named future slice.
 
 - **Detailed signals and non-void signal results** fail generation, as do
   broader value-method input/output families.
-- **`gfloat` does not project.** ScriptC's float slice is exactly `f64`, so
-  admitting a 32-bit float would silently widen every value. Members taking one
-  are refused by name.
+- **`gfloat` is the one crossing that is not exact.** It projects as a plain
+  `number`, because a 32-bit float in a foreign signature is a slot rather
+  than a second precision to compute in: reading one is lossless, since every
+  float is a double, and writing one rounds to nearest float, which is the
+  only thing storing a double in 32 bits can mean. `Label.xalign = 0.25`
+  round-trips untouched; `= 0.1` comes back as the float nearest to it. The
+  widget gate asserts both, so the rounding is a stated property rather than
+  a discovery.
+
+  There is no `f32` in the language: no literal, no arithmetic, no declared
+  type. The compiler admits the scalar in a slot carrying the number
+  conversion and refuses it everywhere else, per position.
 - **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
   table on purpose: their width should come from probe evidence rather than
   from a table that assumes an ABI.

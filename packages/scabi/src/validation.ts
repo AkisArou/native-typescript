@@ -784,12 +784,12 @@ function validateTypes(
           fieldNames.add(field.name);
           if (field.conversion !== undefined) {
             const fieldType = manifest.types[field.type];
-            if (fieldType === undefined || !carriesNumberExactly(fieldType)) {
+            if (fieldType === undefined || !carriesNumber(fieldType)) {
               diagnostics.push(
                 diagnostic(
                   "NTS2021",
                   `/types/${id}/fields/${index}/conversion`,
-                  "A number conversion requires a 64-bit float field or an integer field of at most 32 bits; a double cannot carry wider values injectively",
+                  "A number conversion requires a 32- or 64-bit float field or an integer field of at most 32 bits; a double cannot carry wider integers injectively",
                 ),
               );
             }
@@ -1187,11 +1187,15 @@ function validatePositionOwnership(
  * of the native type injectively and nothing else already reinterprets the
  * position. Everything wider than 32 bits, and every position that is a
  * pointer, a resource, or a marshalled buffer, keeps its own representation. */
-/** The native types a JavaScript number carries exactly, in both
- * directions: the double itself, where the crossing converts nothing, and
- * the integer widths a double holds injectively. */
-function carriesNumberExactly(type: NativeType): boolean {
-  if (type.kind === "float") return type.bits === 64;
+/** The native types a JavaScript number can carry, and what the crossing
+ * means for each. A 64-bit float is the identity — the slot IS the double.
+ * The integer widths up to 32 bits are the ones a double holds injectively,
+ * so reading is lossless and writing is checked. A 32-bit float reads
+ * losslessly and writes by rounding to nearest float, which is the one lossy
+ * crossing in the family and the only thing a 32-bit slot can mean; the slot
+ * type is what declares it, since no other carrier would be more honest. */
+function carriesNumber(type: NativeType): boolean {
+  if (type.kind === "float") return type.bits === 32 || type.bits === 64;
   return type.kind === "integer" &&
     (type.bits === 8 || type.bits === 16 || type.bits === 32);
 }
@@ -1209,12 +1213,12 @@ function validateConversion(
   if (type === undefined) {
     return;
   }
-  if (!carriesNumberExactly(type)) {
+  if (!carriesNumber(type)) {
     diagnostics.push(
       diagnostic(
         "NTS2021",
         `${path}/conversion`,
-        "A number conversion requires a 64-bit float or an integer of at most 32 bits; a double cannot carry wider values injectively",
+        "A number conversion requires a 32- or 64-bit float or an integer of at most 32 bits; a double cannot carry wider integers injectively",
       ),
     );
     return;

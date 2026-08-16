@@ -961,6 +961,45 @@ test(
 );
 
 test(
+  "a 32-bit float projects as a plain number over its own width",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `gtk_label_set_xalign` takes a gfloat. The slot stays 32 bits and the
+     * declaration is a plain number, because a float in a foreign signature
+     * is a slot rather than a second precision to compute in — the crossing
+     * reads exactly and writes by rounding, which is what its width means. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        {
+          name: "Label",
+          constructors: ["new"],
+          methods: ["set_xalign", "get_xalign"],
+        },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    assert.deepEqual(generated.manifest.types["gfloat"], {
+      kind: "float",
+      bits: 32,
+    });
+    assert.match(generated.declarations, /export type gfloat = number;\n/u);
+    /* A property, because the getter and setter agree and neither can fail. */
+    assert.match(generated.declarations, /get xalign\(\): gfloat;\n {2}set xalign\(value: gfloat\);/u);
+    const setter = generated.manifest.bindings.gtk_label_set_xalign;
+    assert.equal(
+      setter?.kind === "constant"
+        ? undefined
+        : setter?.signature.parameters[1]?.conversion,
+      "number",
+    );
+  },
+);
+
+test(
   "a branded GLib scalar declares the operations no operator can carry",
   { skip: !existsSync(systemGtkGir) },
   () => {
@@ -1000,15 +1039,16 @@ test(
   "a parameter outside the slice is not reported as a GObject handle",
   { skip: !existsSync(systemGtkGir) },
   () => {
-    /* gfloat has no ScriptC counterpart, so Label.set_xalign cannot project.
-     * Naming the type is the whole value of the diagnostic: blaming handle
-     * inputs sends the reader looking for a class never involved. */
+    /* A Pango attribute list is a boxed record from another namespace, so
+     * Label.set_attributes cannot project. Naming the type is the whole value
+     * of the diagnostic: blaming handle inputs sends the reader looking for a
+     * class never involved. */
     const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
       namespace: { name: "Gtk", version: "4.0" },
       classes: [
         { name: "Widget" },
-        { name: "Label", constructors: ["new"], methods: ["set_xalign"] },
+        { name: "Label", constructors: ["new"], methods: ["set_attributes"] },
       ],
     });
     const error = generationError(() =>
@@ -1017,7 +1057,7 @@ test(
     assert.equal(error.diagnostics.length, 1);
     assert.match(
       error.diagnostics[0]?.message ?? "",
-      /Parameter type 'gfloat' is outside the implemented slice/u,
+      /Parameter type 'Pango.AttrList' is outside the implemented slice/u,
     );
   },
 );

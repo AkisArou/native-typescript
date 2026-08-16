@@ -30,7 +30,11 @@ export type ScriptCNativeIntegerScalar =
   | "isize"
   | "usize";
 
-export type ScriptCNativeScalar = ScriptCNativeIntegerScalar | "f64";
+/** `f32` is an ABI carrier with no source form: it appears only in a slot
+ * that declares the number conversion, never as a value the source can name,
+ * because a second float precision in the language would mean specifying
+ * rounding at every operation. */
+export type ScriptCNativeScalar = ScriptCNativeIntegerScalar | "f32" | "f64";
 
 export type ScriptCNativeValueType =
   | {
@@ -1028,9 +1032,9 @@ function scalarOperations(
  * and 64-bit integer slots are absent by construction: this is the fence,
  * not an omission. */
 function widensToNumber(scalar: ScriptCNativeScalar): boolean {
-  return scalar === "f64" || scalar === "i8" || scalar === "u8" ||
-    scalar === "i16" || scalar === "u16" || scalar === "i32" ||
-    scalar === "u32";
+  return scalar === "f32" || scalar === "f64" || scalar === "i8" ||
+    scalar === "u8" || scalar === "i16" || scalar === "u16" ||
+    scalar === "i32" || scalar === "u32";
 }
 
 type SupportedCallbackPair = {
@@ -1763,7 +1767,10 @@ export function translateScabiNativeProgram(
     if (nativeType.kind === "enum" || nativeType.kind === "flags") {
       const type = lowerType(nativeType.underlying, `${path}/underlying`, false);
       if (type === null) return null;
-      if (type.kind !== "nativeScalar" || type.scalar === "f64") {
+      if (
+        type.kind !== "nativeScalar" ||
+        type.scalar === "f64" || type.scalar === "f32"
+      ) {
         diagnostics.push(diagnostic(
           "NTS3002",
           path,
@@ -1814,6 +1821,14 @@ export function translateScabiNativeProgram(
       return type;
     }
     if (nativeType.kind === "integer" || nativeType.kind === "float") {
+      /* A 32-bit float is an ABI carrier with no source form: the compiler
+       * admits it in a slot under the number conversion and nowhere else, so
+       * it is lowered only where the position is not source-visible. Asking
+       * for one as a source type would be asking for a second float
+       * precision in the language, which is a different question. */
+      if (nativeType.kind === "float" && nativeType.bits === 32 && !sourceVisible) {
+        return Object.freeze({ kind: "nativeScalar", scalar: "f32" } as const);
+      }
       if (nativeType.kind === "float" && nativeType.bits !== 64) {
         diagnostics.push(
           diagnostic(

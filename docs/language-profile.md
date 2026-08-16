@@ -199,23 +199,39 @@ JavaScript-number conversion policy.
 
 ### The JavaScript-number conversion policy
 
-A binding position whose native type is a **64-bit float** or an integer of
-**at most 32 bits** may declare that its source-visible carrier is an ordinary
-`number`. Exactness in both directions is the whole rule: the float case
-converts nothing at all, since the slot is the double the source already
-holds, and a double represents every value of a ≤32-bit integer injectively,
-so that round trip is lossless too. A 64-bit or pointer-width integer may not
-declare it, and no analysis or heuristic may infer the policy — the manifest
-declares it or the position is exact.
+A binding position whose native type is a **float** or an integer of **at most
+32 bits** may declare that its source-visible carrier is an ordinary `number`.
+A 64-bit or pointer-width integer may not declare it, and no analysis or
+heuristic may infer the policy — the manifest declares it or the position is
+exact.
 
-- **Ingress** (arguments, aggregate construction) into an integer slot is
-  *checked*. The value must be finite, integral, and within the native type's
-  range. A value that is not raises a catchable `TypeError` at the boundary,
-  through the same pending-check mechanism the native boolean projection uses,
-  before the call happens. Negative zero converts to zero: it is integral and
-  in range, and `-0` and `0` denote the same integer. Ingress into a float
-  slot is the identity and cannot fail — every `number`, NaN and the
-  infinities included, is a value that slot holds.
+The slot's type decides what the crossing means, and the manifest shows the
+slot, so nothing is hidden:
+
+| Slot | Ingress | Egress |
+| --- | --- | --- |
+| 64-bit float | identity; every number is a value of the slot | identity |
+| integer ≤32 bits | checked: finite, integral, in range, or a `TypeError` | exact widening |
+| 32-bit float | rounds to nearest float | exact widening |
+
+The 32-bit float is the only lossy crossing, and it is lossy in the direction
+and by the amount its width requires: `0.25` survives, `0.1` becomes the float
+nearest to it. A checked ingress is not available there, because it would
+reject most decimals a caller can write, and an exact carrier is not either,
+because a second float precision in the language would mean specifying
+rounding at every operation. What the profile requires instead is that the
+width be visible — which it is, in the declaration the caller reads.
+
+- **Ingress** into an integer slot is *checked*: the value must be finite,
+  integral, and within the native type's range, or it raises a catchable
+  `TypeError` at the boundary, through the same pending-check mechanism the
+  native boolean projection uses, before the call happens. Negative zero
+  converts to zero — it is integral and in range, and `-0` and `0` denote the
+  same integer. Ingress into a float slot cannot fail: a 64-bit slot takes
+  every `number` unchanged, NaN and the infinities included, and a 32-bit slot
+  takes every `number` rounded to nearest float, with a magnitude past the
+  float range becoming an infinity as IEEE says rather than as C's undefined
+  conversion would leave to the target.
 - **Egress** (results, aggregate fields, callback payloads) is *exact
   widening*. It cannot fail and has no failure arm.
 - A crossing the compiler can decide is decided at compile time. A literal is

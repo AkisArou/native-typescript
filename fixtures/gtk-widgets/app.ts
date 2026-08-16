@@ -66,6 +66,12 @@ const heading = new Label(null);
 heading.setText("Native TypeScript");
 heading.setWrap(true);
 heading.setSelectable(false);
+/* A 32-bit float property. It reads and writes as a plain number, and the
+ * write rounds to the nearest float — which is what a 32-bit slot means, and
+ * why the read-back below is checked against a tolerance rather than for
+ * equality. */
+heading.xalign = 0.25;
+heading.yalign = 0.1;
 content.append(heading);
 
 const entry = new Entry();
@@ -299,6 +305,16 @@ const clicked = action.onClicked((sender): void => {
     "the standard library would not take a GLib integer",
   );
   check_(`${alpha.getIndex()}` === "0", "a row index would not print");
+  /* A gfloat crosses as a plain number in both directions. 0.25 is a float,
+   * so it survives the write untouched; 0.1 is not, so it comes back as the
+   * float nearest to it — visibly different, and by no more than binary32
+   * allows. Naming that is the point: the slot is 32 bits and says so. */
+  check_(heading.xalign === 0.25, "an exact float property did not round-trip");
+  check_(heading.yalign !== 0.1, "a rounded float property claimed to be exact");
+  check_(
+    heading.yalign > 0.09999999 && heading.yalign < 0.10000001,
+    "a float property rounded further than binary32 allows",
+  );
   /* A gdouble is a double in both worlds, so it crosses as itself: the
    * projection converts nothing, and the value divides and orders like the
    * number it is. */

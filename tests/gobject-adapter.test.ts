@@ -481,10 +481,10 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
 });
 
 test("unsupported GObject signal payloads fail at the exact parameter", () => {
-  /* `gfloat` is refused everywhere it appears: ScriptC's float slice is exactly
-   * f64, so admitting a 32-bit payload would widen every value it carries. The
-   * point here is that the refusal names the parameter rather than the
-   * signal. */
+  /* `gsize` is absent from the scalar table on purpose — its width should
+   * come from probe evidence rather than from a table that assumes an ABI —
+   * so a payload carrying one is outside the slice. The point here is that
+   * the refusal names the parameter rather than the signal. */
   const source = girSource.replace(
     `<return-value transfer-ownership="none">
           <type name="none" c:type="void"/>
@@ -495,7 +495,7 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
         </return-value>
         <parameters>
           <parameter name="fraction" transfer-ownership="none">
-            <type name="gfloat" c:type="gfloat"/>
+            <type name="gsize" c:type="gsize"/>
           </parameter>
         </parameters>
       </glib:signal>`,
