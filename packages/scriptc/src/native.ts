@@ -397,16 +397,43 @@ export interface ScriptCNativeExport {
   };
 }
 
-export interface ScriptCNativeOperation {
-  readonly id: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly kind: "integer-reduce";
-  readonly operator: "&" | "|" | "^";
-  readonly type: {
-    readonly kind: "nativeScalar";
-    readonly scalar: ScriptCNativeIntegerScalar;
-  };
-}
+/** A source-level operation on an exact scalar. None is a native symbol: the
+ * frontend resolves the declaration identity and lowers a reached call
+ * straight to Native IR.
+ *
+ * A conversion is an operation because no syntax names a direction, and a
+ * named one because JavaScript's own conversions mean something else at an
+ * exact width. Arithmetic is not here at all: it is an operator expression
+ * inside the construction that names its exact type. */
+export type ScriptCNativeOperation =
+  | {
+      readonly id: string;
+      readonly declaration: ScriptCNativeDeclaration;
+      readonly kind: "integer-reduce";
+      readonly operator: "&" | "|" | "^";
+      readonly type: {
+        readonly kind: "nativeScalar";
+        readonly scalar: ScriptCNativeIntegerScalar;
+      };
+    }
+  | {
+      readonly id: string;
+      readonly declaration: ScriptCNativeDeclaration;
+      readonly kind: "to-number";
+      readonly type: {
+        readonly kind: "nativeScalar";
+        readonly scalar: ScriptCNativeScalar;
+      };
+    }
+  | {
+      readonly id: string;
+      readonly declaration: ScriptCNativeDeclaration;
+      readonly kind: "from-number";
+      readonly type: {
+        readonly kind: "nativeScalar";
+        readonly scalar: ScriptCNativeScalar;
+      };
+    };
 
 /** The application-level roots for one compiler invocation. Imports are
  * reached native declarations called by TypeScript. Exports pair one SCABI
@@ -965,6 +992,34 @@ function supportedBorrowedStringResult(
     nullable: result.nullable,
     anchor: anchorName,
   };
+}
+
+/** The conversions one exact scalar declares.
+ *
+ * Only the conversions: every arithmetic operation, the trapping ones
+ * included, is an ordinary operator expression inside the construction that
+ * names its exact type. A conversion has no operator to be — nothing in the
+ * syntax names a direction — and it cannot borrow JavaScript's `Number(v)`
+ * or `BigInt(n)`, which mean something else here: one rounds silently where
+ * this refuses, and the other is arbitrary precision where this slot has a
+ * width. */
+function scalarOperations(
+  manifest: ScabiManifest,
+  typeId: NativeTypeId,
+  declaration: ScriptCNativeDeclaration,
+  type: { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar },
+): readonly ScriptCNativeOperation[] {
+  const identity = (member: string) => ({
+    id: `${manifest.package.instance}#source-operation/${typeId}/${member}`,
+    declaration: Object.freeze({
+      module: declaration.module,
+      name: `${declaration.name}.${member}`,
+    }),
+  });
+  return Object.freeze([
+    Object.freeze({ ...identity("toNumber"), kind: "to-number" as const, type }),
+    Object.freeze({ ...identity("fromNumber"), kind: "from-number" as const, type }),
+  ]);
 }
 
 /** The exact scalars a double carries injectively, so a widening loses
@@ -1667,7 +1722,9 @@ export function translateScabiNativeProgram(
 ): ScriptCNativeTranslationResult {
   const diagnostics: ScriptCNativeTranslationDiagnostic[] = [];
   const constants: ScriptCNativeConstant[] = [];
-  const operations = new Map<NativeTypeId, ScriptCNativeOperation>();
+  /* Keyed by operation id. A flags combine keys on its type because there is
+   * exactly one; a scalar's operations key on their own ids. */
+  const operations = new Map<string, ScriptCNativeOperation>();
   const bindings: ScriptCNativeBinding[] = [];
   const exports: ScriptCNativeExport[] = [];
   const sourceTypes = new Map<NativeTypeId, ScriptCNativeSourceType>();
@@ -1787,13 +1844,24 @@ export function translateScabiNativeProgram(
             ),
           );
         } else {
+          const normalizedDeclaration = normalizeDeclaration(manifest, declaration);
           sourceTypes.set(
             typeId,
             Object.freeze({
-              declaration: normalizeDeclaration(manifest, declaration),
+              declaration: normalizedDeclaration,
               type,
             }),
           );
+          /* An exact scalar the source can name also gets the operations no
+           * operator expression can carry. They belong to whoever declares
+           * the type: synthesising them for a type another package owns
+           * would have two packages declaring one member, which composition
+           * rejects — the same rule the flags combine follows. */
+          if (normalizedDeclaration.module === manifest.package.name) {
+            for (const operation of scalarOperations(manifest, typeId, normalizedDeclaration, type)) {
+              operations.set(operation.id, operation);
+            }
+          }
         }
       }
       return type;

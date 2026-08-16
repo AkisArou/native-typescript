@@ -19,6 +19,43 @@ export type usize = NativeScalar<"usize", bigint>;
 export type f32 = NativeScalar<"f32", number>;
 export type f64 = NativeScalar<"f64", number>;
 
+/* The conversions between an exact scalar and an ordinary number. The
+ * translator synthesizes one pair for every exact type a manifest reaches;
+ * declaring them is what makes them callable. They are operations because no
+ * syntax names a direction, and named rather than spelled `Number(v)` and
+ * `BigInt(n)` because JavaScript's conversions mean something else at an
+ * exact width: one rounds silently where this refuses, and the other is
+ * arbitrary precision where this slot is 64 bits wide.
+ *
+ * `fromNumber` throws a TypeError on a value the slot cannot hold; `toNumber`
+ * throws a RangeError past 32 bits when the double would not denote the same
+ * integer. Arithmetic needs nothing here: `(a / b) as i32` is an ordinary
+ * operator expression inside its construction. */
+export declare namespace i32 {
+  function toNumber(value: i32): number;
+  function fromNumber(value: number): i32;
+}
+
+export declare namespace u32 {
+  function toNumber(value: u32): number;
+  function fromNumber(value: number): u32;
+}
+
+export declare namespace i64 {
+  function toNumber(value: i64): number;
+  function fromNumber(value: number): i64;
+}
+
+export declare namespace u64 {
+  function toNumber(value: u64): number;
+  function fromNumber(value: number): u64;
+}
+
+export declare namespace f64 {
+  function toNumber(value: f64): number;
+  function fromNumber(value: number): f64;
+}
+
 export interface Padded {
   readonly tag: u8;
   readonly value: u64;

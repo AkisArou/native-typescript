@@ -124,9 +124,16 @@ The implemented arithmetic slice covers same-type exact integer addition,
 subtraction, multiplication, and the three bitwise operations through the
 frontend, Native IR, C, and LLVM. The C lowering computes in the corresponding
 unsigned representation and reconstructs signed bits without signed-overflow
-undefined behavior. Division, remainder, shifts, and the explicit helper
-families remain future slices and are not silently lowered as ordinary
-JavaScript-number operations.
+undefined behavior.
+
+Division, remainder, and the two shifts are implemented with the operators
+JavaScript already spells them with, inside the construction that names the
+exact type: `(a / b) as i64`, `(a << b) as i64`. Each throws where its width
+has no answer: a zero divisor, a signed minimum over `-1`, and a shift count
+outside `[0, width)`, which is never masked. A signed minimum's remainder over
+`-1` does not throw, because 0 is the mathematically correct answer and it
+fits. The explicit checked, saturating, and wrapping helper families remain a
+future slice.
 
 Comparison is implemented, ordering included: `===`, `!==`, `<`, `<=`, `>`,
 and `>=` over two operands of one exact type compare in that type's own
@@ -153,7 +160,36 @@ because its result is `boolean` either way.
   is representable in the destination.
 - Narrowing, signedness changes, float-to-integer conversion, and integer-to-
   float conversion use explicit compiler intrinsics.
-- Conversion APIs name their behavior: checked, truncating, or wrapping.
+- Conversion APIs name their behavior. The unqualified name is the checked
+  one — `i64.toNumber(v)` and `i64.fromNumber(n)` answer exactly or throw —
+  and every lossy conversion must name its loss instead (`…Truncating`,
+  `…Wrapping`, `…Saturating`). Making the exact form the plain one is
+  deliberate: a rule that suffixed it would leave the lossy conversions with
+  the shorter names, which is the wrong default for a boundary.
+- A checked conversion answers whenever the value survives the round trip,
+  not merely when it falls inside ±(2^53 − 1). 2^60 IS exactly a double, and
+  refusing it would be refusing an exact answer; 2^60 + 1 is not, and
+  answering with a number one away from the truth is what a checked
+  conversion exists to prevent.
+- The two failure kinds are distinct and both catchable. A value that cannot
+  cross into a slot raises a `TypeError`, because the kind of the value is
+  wrong for the destination — the same answer the checked boundary gives. An
+  operation with no answer raises a `RangeError`, because the operands have
+  the type it asked for and it is their values that leave nothing to return,
+  which is what JavaScript itself reports for BigInt division by zero.
+- A conversion is a declared operation rather than an operator because
+  nothing in the syntax names a direction, and it is named rather than
+  spelled with JavaScript's own `Number(v)` and `BigInt(n)` because those
+  mean something else at an exact width: `Number` rounds silently where this
+  refuses, and `BigInt` is arbitrary precision where the slot has a width.
+  Borrowing a familiar name for unfamiliar behavior would be worse than
+  introducing one.
+- Arithmetic is not a declared operation. It is written with the operators
+  JavaScript uses, inside the construction that names the exact type — the
+  same shape addition has always had. The cast is not the compiler asking for
+  help: TypeScript types arithmetic over a branded number as a plain number,
+  so the assertion is what makes the expression well typed before it is what
+  supplies the target type.
 
 ### ABI use
 

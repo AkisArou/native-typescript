@@ -1059,6 +1059,21 @@ export function generateGObjectScabiPackage(
             `export type ${scalar.girName} = ${scalar.carrier} & { readonly [nativeScalar]: "${scalar.girName}" };`
           ),
           "",
+          /* A branded scalar keeps its exact representation, so its value
+           * cannot be printed or measured without saying so. Its arithmetic
+           * needs no declaration — `(a / b) as gint64` is an ordinary
+           * operator expression inside the construction that names the exact
+           * type — but a conversion has no operator to be, and cannot borrow
+           * `Number(v)`, which rounds silently where this one refuses. The
+           * compiler lowers these to one Native IR node each: no symbol, no
+           * runtime object. */
+          ...brandedSourceScalars.flatMap((scalar) => [
+            `export declare namespace ${scalar.girName} {`,
+            `  function toNumber(value: ${scalar.girName}): number;`,
+            `  function fromNumber(value: number): ${scalar.girName};`,
+            "}",
+            "",
+          ]),
         ]
       : []),
   ];

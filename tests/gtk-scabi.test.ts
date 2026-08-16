@@ -961,6 +961,42 @@ test(
 );
 
 test(
+  "a branded GLib scalar declares the operations no operator can carry",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `GtkMediaStream.get_duration()` answers in microseconds as a gint64,
+     * which is the one GLib numeric family a double cannot carry
+     * injectively, so it keeps an exact BigInt carrier — and with it the
+     * inability to reach a plain number without saying so. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Grid", constructors: ["new"] },
+        { name: "MediaStream", methods: ["get_duration"] },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    assert.match(
+      generated.declarations,
+      /export type gint64 = bigint & \{ readonly \[nativeScalar\]: "gint64" \};/u,
+    );
+    /* Only the conversions: `(a / b) as gint64` is an ordinary operator
+     * expression, so arithmetic has nothing to declare. */
+    assert.match(
+      generated.declarations,
+      /export declare namespace gint64 \{\n {2}function toNumber\(value: gint64\): number;\n {2}function fromNumber\(value: number\): gint64;\n\}/u,
+    );
+    assert.match(generated.declarations, /getDuration\(\): gint64;/u);
+    /* A converted scalar has nothing to declare: it is a plain number and
+     * every operator already works on one. */
+    assert.doesNotMatch(generated.declarations, /namespace gint \{/u);
+  },
+);
+
+test(
   "a parameter outside the slice is not reported as a GObject handle",
   { skip: !existsSync(systemGtkGir) },
   () => {

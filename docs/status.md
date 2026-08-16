@@ -56,7 +56,32 @@ is not general JavaScript BigInt support.
 
 Exact same-type `+`, `-`, and `*` wrap at their declared width without C
 undefined behavior. `&`, `|`, and `^` operate at exact native width without
-routing through JavaScript's `ToInt32`.
+routing through JavaScript's `ToInt32`. All four orderings compare at the
+declared width and signedness.
+
+### Division, remainder, shifts, and the conversions
+
+Division, remainder, and the two shifts are written with the operators
+JavaScript spells them with, inside the construction that names the exact
+type: `(a / b) as i64`. Each answers where it can and throws a catchable
+`RangeError` where it cannot — a zero divisor, a signed minimum over `-1`, and
+a shift count outside `[0, width)`, which is never masked. A signed minimum's
+remainder over `-1` is 0, which fits, so it answers. The trapping family lives
+out of line in the runtime, so both backends reach one definition of which
+cases throw.
+
+The conversions are the only declared operations: `i64.toNumber(v)` and
+`i64.fromNumber(n)`, resolved by declaration identity and lowered straight to
+Native IR with no symbol, module object, or runtime lookup. They are
+operations because no syntax names a direction, and they are named rather than
+spelled `Number(v)` and `BigInt(n)` because JavaScript's conversions mean
+something else at an exact width — one rounds silently where this refuses, and
+the other is arbitrary precision where the slot has a width.
+
+Egress is a cast up to 32 bits and a checked round trip past it: 2^60 crosses
+because it is exactly a double, 2^60 + 1 does not. Ingress is the same check
+the boundary performs and raises a `TypeError`, the same answer for the same
+reason.
 
 ### Checked JavaScript-number boundaries
 
@@ -567,29 +592,32 @@ These are deliberate, not oversights. Each is a named future slice.
   string getter does: it is a call whose answer can change, and the object it
   names has a lifetime of its own.
 
-- **An exact integer cannot be converted.** Addition, subtraction,
-  multiplication, the three bitwise operations, and all four orderings are
-  implemented for same-type operands, and a decimal literal constructs one
-  with a compile-time range check — `-5 as u32` is refused, not truncated.
-  Ordering compares at the declared width and signedness, so a `u32` whose
-  bits are all ones is the largest value of its type rather than −1. What is
-  missing is the rest of what [Language profile](language-profile.md)
-  specifies: division, remainder, shifts, the checked/saturating/wrapping
-  helper families, and the conversion intrinsics.
+- **An exact integer's helper families are unbuilt.** Everything else the
+  [Language profile](language-profile.md) specifies for it is implemented.
+  Addition, subtraction, multiplication, the three bitwise operations, and all
+  four orderings work on same-type operands; a decimal literal constructs one
+  with a compile-time range check — `-5 as u32` is refused, not truncated;
+  ordering compares at the declared width and signedness, so a `u32` whose
+  bits are all ones is the largest value of its type rather than −1. Division,
+  remainder, and the two shifts work the same way and throw where their width
+  has no answer, and the two conversions are declared operations —
+  `i64.toNumber(v)`, `i64.fromNumber(n)`. What remains is the checked,
+  saturating, and explicitly wrapping helper families.
 
-  Arithmetic is also only reachable inside a construction: `(a + b) as u32`
-  lowers, `a + b` does not. That is not a lowering seam to close — TypeScript
-  types `+` over two branded numbers as plain `number`, so the bare expression
-  does not typecheck against an exact declaration however the lowering would
-  treat it. The cast is what makes the expression well-typed at the source
-  level, and only then what supplies the target type.
+  All of the arithmetic is reachable only inside a construction: `(a + b) as
+  u32` and `(a / b) as u32` lower, the bare forms do not. That is not a
+  lowering seam to close — TypeScript types arithmetic over two branded
+  numbers as plain `number`, so the bare expression does not typecheck against
+  an exact declaration however the lowering would treat it. The cast is what
+  makes the expression well-typed at the source level, and only then what
+  supplies the target type.
 
   What this costs has narrowed sharply. Every GIR number now crosses as a
   plain `number` under the declared conversion policy, so ordering, printing,
-  arithmetic, and `Math` work on the whole GTK surface without any of those
-  intrinsics. The gap is confined to what is still exact by necessity: the
-  64-bit integers, and manifests that deliberately keep exact scalars, such as
-  the `scabi-c-v1` fixture.
+  arithmetic, and `Math` work on the whole GTK surface with no operation
+  needed at all. What remains exact by necessity — the 64-bit integers, and
+  manifests that deliberately keep exact scalars such as the `scabi-c-v1`
+  fixture — reaches the same capabilities by name.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars

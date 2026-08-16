@@ -22,6 +22,24 @@ function selectImports(imports: readonly string[]) {
   return { imports, exports: [] } as const;
 }
 
+/** The conversions the translator synthesizes for one exact scalar, in the
+ * identity order it sorts them into. Arithmetic contributes nothing: it is an
+ * operator expression inside a construction. */
+function exactScalarOperations(scalar: string) {
+  const type = { kind: "nativeScalar", scalar } as const;
+  const identity = (member: string) => ({
+    id: `native-typescript.fixture.c-v1@0.0.0#source-operation/${scalar}/${member}`,
+    declaration: {
+      module: "@native-typescript/scabi-c-v1-fixture",
+      name: `${scalar}.${member}`,
+    },
+  });
+  return [
+    { ...identity("fromNumber"), kind: "from-number", type },
+    { ...identity("toNumber"), kind: "to-number", type },
+  ];
+}
+
 type DirectNativeParameter = Omit<
   ScriptCNativeBinding["parameters"][number],
   "projection" | "type"
@@ -195,7 +213,10 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
       },
     ],
     constants: [],
-    operations: [],
+    /* Every exact scalar the source can name declares the operations no
+     * operator expression can carry, sorted by identity like every other
+     * translated list. */
+    operations: exactScalarOperations("i32"),
     types: [],
     bindings: [
       {
@@ -404,7 +425,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
       type: i32,
     }],
     constants: [],
-    operations: [],
+    operations: exactScalarOperations("i32"),
     types: [],
     bindings: [],
     exports: [{
