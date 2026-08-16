@@ -322,6 +322,25 @@ The owner runtime and the bootstrap share one source tree and one link, but not
 one dialect — the runtime is portable C under `-std=c11 -pedantic`, while the
 bootstrap reaches GNU extensions through the GTK headers.
 
+### Proven surface
+
+`fixtures/gtk-widgets` builds a window from 28 GTK classes — labels, entries,
+buttons, toggles, switches, adjustments, scales, spin buttons, progress bars,
+list boxes and rows, grids, frames, expanders, revealers, stacks, text views,
+scrolled windows, header bars, separators, images — and then reads its own
+state back. A shared adjustment really is shared between a scale and a spin
+button; a list row really knows its index. The gate exists for breadth: a
+member that stops projecting fails there rather than being found by whoever
+first tried to use it.
+
+Two things a project author meets immediately, both deliberate:
+
+- An exact native scalar is constructed from a literal, never from an arbitrary
+  number, because the compiler proves the value is in range.
+- Indexing an array under `noUncheckedIndexedAccess` yields `T | undefined`,
+  and a union carrying an exact native scalar has no representation in the
+  emitted C yet. Naming the values avoids it.
+
 ### Executed lifecycle
 
 An application drives the whole GTK lifecycle from TypeScript with no

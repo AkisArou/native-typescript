@@ -18,6 +18,7 @@ const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-application");
 const windowFixtureRoot = join(workspace, "fixtures/gtk-window");
 const payloadFixtureRoot = join(workspace, "fixtures/gtk-signal-payload");
+const widgetsFixtureRoot = join(workspace, "fixtures/gtk-widgets");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
@@ -278,6 +279,65 @@ test(
         stderr: "",
       }, backend);
       }
+    } finally {
+      rmSync(scratch, { force: true, recursive: true });
+    }
+  },
+);
+
+test(
+  "a realistic widget surface generates, links, and reports its own state",
+  { skip: unavailable || !existsSync(bindingToolPath) },
+  async () => {
+    /* Breadth rather than depth. Twenty-eight GTK classes are constructed,
+     * wired into one window, and then read back, so a member that stopped
+     * projecting — or projected and returned the wrong value — fails here
+     * instead of being found by whoever first tried to use it.
+     *
+     * The application asserts against live GTK state: a shared adjustment
+     * really is shared, a list row really knows its index. */
+    execFileSync(pnpm, [
+      "--dir",
+      scriptcRoot,
+      "--filter",
+      "@scriptc/compiler",
+      "build",
+    ]);
+    const project = parseGtkApplicationProject(
+      readFileSync(join(widgetsFixtureRoot, "native-typescript.json"), "utf8"),
+    );
+    assert.equal(project.namespaces[1]?.classes.length, 28);
+
+    const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-widgets-"));
+    try {
+      const built = await buildGtkApplication({
+        projectRoot: widgetsFixtureRoot,
+        project,
+        scratch,
+        backend: "c",
+        tools: {
+          clang: executable("clang"),
+          node: process.execPath,
+          pkgConfig: executable("pkg-config"),
+          sandbox: executable("bwrap"),
+        },
+      });
+      const declarations = readFileSync(
+        join(built.generatedPackages[1]!.path, "package.d.ts"),
+        "utf8",
+      );
+      // Ancestry crosses several levels, and one class comes from gio2.
+      assert.match(declarations, /class Scale extends Range/u);
+      assert.match(declarations, /class ToggleButton extends Button/u);
+      assert.match(declarations, /class ApplicationWindow extends Window/u);
+      assert.match(declarations, /class Application extends GioApplication/u);
+
+      assert.deepEqual(runApplication(built.productPath), {
+        status: 0,
+        signal: null,
+        stdout: "widgets ok\n",
+        stderr: "",
+      });
     } finally {
       rmSync(scratch, { force: true, recursive: true });
     }
