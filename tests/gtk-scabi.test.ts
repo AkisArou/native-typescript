@@ -687,6 +687,17 @@ test(
       generated.declarations,
       /constructor\(applicationId: string \| null, flags: GioApplicationFlags\);/u,
     );
+
+    // Both import mechanisms are in play at once here, and they are different:
+    // the parent is an imported SCABI type with a cross-package identity,
+    // while the flags are defined locally and only named foreign.
+    assert.match(
+      generated.declarations,
+      /export declare class Application extends GioApplication \{/u,
+    );
+    assert.deepEqual(generated.manifest.imports, {
+      gio_application: { package: gio2Package, type: "gio_application" },
+    });
   },
 );
 
