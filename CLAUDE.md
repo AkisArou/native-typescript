@@ -15,15 +15,26 @@ file records how to work within them.
 
 ## Verify with the full suite
 
+From a fresh clone:
+
 ```bash
+git submodule update --init --recursive
+pnpm install
+pnpm scriptc:install
 pnpm build
 pnpm test
 ```
 
 `pnpm test` is the real gate. It shells out to Clang, runs actions inside a
-Bubblewrap sandbox, and compiles a TypeScript GTK application through **both**
-the C and LLVM backends into a native executable that opens a real window.
-Roughly 25s. Run it before every commit; a green subset is not evidence.
+Bubblewrap sandbox, and compiles several TypeScript GTK applications through
+**both** the C and LLVM backends into native executables that open real
+windows. Roughly 80 seconds with a warm action cache, longer cold. Run it
+before every commit; a green subset is not evidence.
+
+The pinned compiler is built by the gates that need it, not by `pnpm build`, so
+nothing in the workspace may import its `dist` by path — that would make a
+clean checkout fail to typecheck before anything has been built. Reach it
+through `loadScriptCExecutablePlanners()` instead.
 
 Host requirements: `clang`, `pkg-config`, `bwrap`, `xvfb-run`, GTK 4, and the
 GObject-introspection GIRs in `/usr/share/gir-1.0`. Tests skip cleanly when a

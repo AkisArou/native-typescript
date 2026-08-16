@@ -29,6 +29,7 @@ import {
 } from "@native-typescript/scabi";
 import {
   composeScriptCNativePrograms,
+  loadScriptCExecutablePlanners,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
 import type { ScriptCNativeTypeDefinition } from "@native-typescript/scriptc";
@@ -713,12 +714,11 @@ test(
         pnpm,
         ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"],
       );
-      const {
-        planExecutableCompilation,
-        planExecutableExternalCBuild,
-      } = await import(
-        "../third_party/scriptc/packages/compiler/dist/index.js"
-      );
+      /* Through the loader rather than a path: importing the built compiler
+       * directly makes the workspace fail to typecheck until the submodule has
+       * been built, which a clean checkout has not. */
+      const { planExecutableCompilation, planExecutableExternalCBuild } =
+        await loadScriptCExecutablePlanners();
       const compilerEmitterPath = join(scriptcRoot, "packages/compiler/dist");
       const compilerEmitter = await sourceArtifact({
         id: "tool-input/scriptc/emitter",
