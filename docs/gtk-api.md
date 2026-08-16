@@ -115,10 +115,30 @@ snapshot records it as an external reference naming the other namespace, and
 generation stops there. `Gtk.Widget` therefore roots the projected hierarchy
 even though GIR declares it as extending `GObject.InitiallyUnowned`.
 
-Resolving an external reference into a second generated package is what
-namespace composition will add. Until then the boundary is explicit data rather
-than an inferred truncation, so a class whose parent lives in another namespace
-cannot be projected by accident.
+An external parent is resolved only when the owning namespace is supplied to
+generation. Importing is opt-in, so omitting it truncates deliberately, which
+is how `Gtk.Widget` roots its hierarchy despite extending
+`GObject.InitiallyUnowned`.
+
+When the owning namespace is supplied, the parent projects across the package
+boundary:
+
+```ts
+import type { Application as GioApplication } from "@native-typescript/gio2";
+
+export declare class Application extends GioApplication {
+  // ...
+}
+```
+
+SCABI records the same edge as an imported type owned by `gio2`, and the
+generated handle carries an identity upcast to it. The importing package never
+defines the type. Composition proves the owning package is present; see
+[Binding ABI](binding-abi.md).
+
+Imported type identities are derived by the same function that produced them in
+the owning package, so the two agree by construction rather than by a hand-kept
+table.
 
 ## Methods and properties
 

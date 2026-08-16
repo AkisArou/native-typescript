@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
@@ -325,6 +325,101 @@ function options(selected = snapshot()): GObjectScabiGenerationOptions {
     },
   };
 }
+
+const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
+const systemGioGir = "/usr/share/gir-1.0/Gio-2.0.gir";
+const gio2Package = {
+  name: "@native-typescript/gio2",
+  version: "0.0.0",
+  namespace: "native-typescript.gio2",
+  instance: "native-typescript.gio2@0.0.0",
+} as const;
+
+test(
+  "a class whose parent is in another namespace projects across the package boundary",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGioGir) },
+  () => {
+    // Gtk.Application extends Gio.Application. GIR namespaces are package
+    // boundaries, so the ancestry has to cross from gtk4 into gio2.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Application" }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      // Window carries a constructor so the adapter has work to do;
+      // Application contributes only its cross-namespace ancestry.
+      classes: [
+        { name: "Widget" },
+        { name: "Window", constructors: ["new"] },
+        { name: "Application" },
+      ],
+    });
+    const gtkApplication = gtk.classes.find(({ name }) => name === "Application");
+    assert.deepEqual(gtkApplication?.parent, {
+      kind: "external",
+      namespace: "Gio",
+      name: "Application",
+    });
+
+    const generated = generateGObjectScabiPackage({
+      ...options(gtk),
+      importedNamespaces: [{ snapshot: gio, package: gio2Package }],
+    });
+
+    // The ABI side names the owning package and the type inside it.
+    assert.deepEqual(generated.manifest.imports, {
+      gio_application: { package: gio2Package, type: "gio_application" },
+    });
+    // The TypeScript side names the module it is imported from.
+    assert.deepEqual(
+      generated.manifest.declarations.types.gio_application,
+      { module: "@native-typescript/gio2", name: "Application" },
+    );
+    // gtk4 must not define a type gio2 owns.
+    assert.equal(generated.manifest.types.gio_application, undefined);
+
+    const application = generated.manifest.types.gtk_application;
+    assert.ok(application && application.kind === "handle");
+    if (!application || application.kind !== "handle") return;
+    assert.deepEqual(application.upcasts, [
+      { kind: "identity", target: "gio_application" },
+    ]);
+
+    assert.match(
+      generated.declarations,
+      /^import type \{ Application as GioApplication \} from "@native-typescript\/gio2";$/mu,
+    );
+    assert.match(
+      generated.declarations,
+      /export declare class Application extends GioApplication \{/u,
+    );
+  },
+);
+
+test(
+  "an unsupplied parent namespace leaves the hierarchy rooted here",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    // Gtk.Widget extends GObject.InitiallyUnowned, which is deliberately
+    // outside the generated surface. Importing is opt-in, so omitting the
+    // namespace truncates rather than failing.
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Widget" }, { name: "Window", constructors: ["new"] }],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+    assert.equal(generated.manifest.imports, undefined);
+    const widget = generated.manifest.types.gtk_widget;
+    assert.ok(widget && widget.kind === "handle");
+    if (!widget || widget.kind !== "handle") return;
+    assert.deepEqual(widget.upcasts, []);
+    assert.doesNotMatch(generated.declarations, /^import /mu);
+  },
+);
 
 function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;

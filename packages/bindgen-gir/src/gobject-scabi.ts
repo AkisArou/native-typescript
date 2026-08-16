@@ -42,10 +42,28 @@ import type {
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
+/**
+ * Another namespace's generated package, made available so this package can
+ * project a class whose parent lives there.
+ *
+ * The whole snapshot is supplied rather than a précis of it, so imported type
+ * identities are derived by the same function that produced them in the owning
+ * package. An import table assembled by hand could disagree; this cannot.
+ *
+ * Supplying a namespace is opt-in. An external parent with no matching entry
+ * stays the deliberate edge of the generated surface, which is how
+ * `Gtk.Widget` roots its hierarchy despite extending `GObject.InitiallyUnowned`.
+ */
+export interface GObjectImportedNamespace {
+  readonly snapshot: GirSnapshot;
+  readonly package: PackageIdentity;
+}
+
 export interface GObjectScabiGenerationOptions {
   readonly snapshot: GirSnapshot;
   readonly evidence: ClangAbiEvidenceSnapshot;
   readonly gobjectAdapter: GObjectAdapterSource;
+  readonly importedNamespaces?: readonly GObjectImportedNamespace[];
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: {
@@ -702,7 +720,12 @@ export function generateGObjectScabiPackage(
     void: Object.freeze({ kind: "void" }),
   };
   const bindings: Record<string, NativeBinding> = {};
-  const declarationTypes: Record<string, { readonly module: "."; readonly name: string }> = {};
+  // `module` is "." for a type this package defines and the owning package's
+  // name for an imported one.
+  const declarationTypes: Record<
+    string,
+    { readonly module: string; readonly name: string }
+  > = {};
   const usedSourceScalars = sourceScalarTypes.filter((scalar) =>
     options.snapshot.classes.some((class_) =>
       class_.constructors.some((constructor) =>
@@ -730,11 +753,81 @@ export function generateGObjectScabiPackage(
       name: scalar.girName,
     });
   }
+  // Classes reachable in another package, keyed by their qualified GIR name.
+  // Type identities use handleTypeId(), the same derivation the owning
+  // package's generation used, so the two agree by construction.
+  const importedClasses = new Map<string, {
+    readonly typeId: string;
+    readonly package: PackageIdentity;
+    readonly name: string;
+    readonly alias: string;
+  }>();
+  for (const imported of options.importedNamespaces ?? []) {
+    const namespace = imported.snapshot.namespace.name;
+    if (namespace === options.snapshot.namespace.name) {
+      diagnostics.push(diagnostic(
+        namespace,
+        "An imported namespace cannot be the namespace being generated",
+      ));
+      continue;
+    }
+    for (const class_ of imported.snapshot.classes) {
+      importedClasses.set(`${namespace}.${class_.name}`, Object.freeze({
+        typeId: handleTypeId(namespace, class_),
+        package: imported.package,
+        name: class_.name,
+        alias: `${namespace}${class_.name}`,
+      }));
+    }
+  }
+  const typeImports: Record<string, {
+    readonly package: PackageIdentity;
+    readonly type: string;
+  }> = {};
+  const importedDeclarationLines: string[] = [];
+
   const classByName = new Map(options.snapshot.classes.map((class_) => [class_.name, class_]));
   const typeIdByClass = new Map(options.snapshot.classes.map((class_) => [
     class_.name,
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
+  /**
+   * Resolves a class's cross-namespace parent to an imported type, recording
+   * the manifest import and the declaration-file import the first time it is
+   * reached. Returns undefined when the parent's namespace was not supplied,
+   * which leaves the hierarchy deliberately rooted here.
+   */
+  function resolveImportedParent(
+    class_: GirClass,
+    path: string,
+  ): { readonly typeId: string; readonly alias: string } | undefined {
+    if (class_.parent?.kind !== "external") return undefined;
+    const key = `${class_.parent.namespace}.${class_.parent.name}`;
+    const imported = importedClasses.get(key);
+    if (imported === undefined) return undefined;
+    if (classByName.has(imported.alias) || declarations.has(imported.alias)) {
+      diagnostics.push(diagnostic(
+        path,
+        `Imported class ${key} aliases as ${imported.alias}, which collides with a generated declaration`,
+      ));
+      return undefined;
+    }
+    if (typeImports[imported.typeId] === undefined) {
+      typeImports[imported.typeId] = Object.freeze({
+        package: imported.package,
+        type: imported.typeId,
+      });
+      declarationTypes[imported.typeId] = Object.freeze({
+        module: imported.package.name,
+        name: imported.name,
+      });
+      importedDeclarationLines.push(
+        `import type { ${imported.name} as ${imported.alias} } from "${imported.package.name}";`,
+      );
+    }
+    return Object.freeze({ typeId: imported.typeId, alias: imported.alias });
+  }
+
   const enumerationByName = new Map(
     options.snapshot.enumerations.map((enum_) => [enum_.name, enum_]),
   );
@@ -1111,6 +1204,7 @@ export function generateGObjectScabiPackage(
   for (const class_ of options.snapshot.classes) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
+    const importedParent = resolveImportedParent(class_, classPath);
     const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
     const releaseDeclaration = `${class_.name}.dispose`;
     if (
@@ -1133,7 +1227,12 @@ export function generateGObjectScabiPackage(
               kind: "identity" as const,
               target: typeIdByClass.get(class_.parent.name)!,
             })]
-          : [],
+          : importedParent === undefined
+            ? []
+            : [Object.freeze({
+                kind: "identity" as const,
+                target: importedParent.typeId,
+              })],
       ),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: class_.name });
@@ -1177,8 +1276,9 @@ export function generateGObjectScabiPackage(
       class_.parent?.kind === "internal"
         ? classByName.get(class_.parent.name)
         : undefined;
+    const extendsName = parent?.name ?? importedParent?.alias;
     const classLines = [
-      `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${parent === undefined ? "" : ` extends ${parent.name}`} {`,
+      `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${extendsName === undefined ? "" : ` extends ${extendsName}`} {`,
       `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
     const constructorLines: string[] = [];
@@ -1801,7 +1901,11 @@ export function generateGObjectScabiPackage(
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
-  const declarationSource = `${declarationLines.join("\n").trimEnd()}\n`;
+  const declarationSource = `${[
+    ...[...importedDeclarationLines].sort(compareText),
+    ...(importedDeclarationLines.length > 0 ? [""] : []),
+    ...declarationLines,
+  ].join("\n").trimEnd()}\n`;
   const declarationsDigest = sha256(declarationSource);
   const metadataDigest = sha256(canonicalizeJson({
     gir: options.snapshot.source.digest,
@@ -1849,6 +1953,9 @@ export function generateGObjectScabiPackage(
       digest: declarationsDigest,
       types: declarationTypes,
     },
+    // Omitted entirely when nothing is imported, so an ordinary single-package
+    // manifest keeps its existing canonical form and digest.
+    ...(Object.keys(typeImports).length > 0 ? { imports: typeImports } : {}),
     types,
     bindings,
     linkInputs: orderedLinkInputs,
