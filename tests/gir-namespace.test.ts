@@ -195,6 +195,9 @@ const gioLifecycleMethods = [
   "get_is_remote",
   "hold",
   "quit",
+  // Reports failure through a GError, so it reaches the boundary through the
+  // adapter that absorbed its out-parameter.
+  "register",
   "release",
   "set_application_id",
 ] as const;
@@ -223,6 +226,8 @@ async function planTwoNamespaceAnalysis(options: {
     // The whole non-throwing lifecycle surface. Only register() is missing,
     // and only because it is throws=1.
     classes: [
+      // register() takes a GCancellable, so its class is part of the selection.
+      { name: "Cancellable", constructors: ["new"] },
       {
         name: "Application",
         constructors: ["new"],
@@ -430,6 +435,9 @@ test(
         "hold(): void;",
         "release(): void;",
         "getIsRemote(): boolean;",
+        // A nullable C handle still projects as the non-null source subset;
+        // exposing null needs nullable managed-handle IR of its own.
+        "register(cancellable: Cancellable): void;",
         "onActivate(callback: (application: Application) => void): SignalConnection;",
       ]) {
         assert.equal(

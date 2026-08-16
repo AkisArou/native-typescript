@@ -807,49 +807,57 @@ test("a namespace cannot be supplied as its own import", () => {
 });
 
 test(
-  "a throwing member names GError as the reason it cannot be projected",
+  "a throwing member whose own result carries information is refused",
   { skip: !existsSync(systemGioGir) },
   () => {
-    // g_application_register() is throws=1. Someone selecting it should learn
-    // which contract is missing, not just that something is unsupported.
+    // The adapter discards the wrapped call's result, which is only sound when
+    // that result says nothing beyond success. g_application_register() returns
+    // gboolean and projects; a member returning a value must not silently lose
+    // it.
     const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gio-2.0.gir",
       namespace: { name: "Gio", version: "2.0" },
       classes: [
-        { name: "Application", constructors: ["new"], methods: ["register"] },
+        {
+          name: "Credentials",
+          constructors: ["new"],
+          // throws=1 and returns a uid_t, which is a value rather than a
+          // status, so discarding it would lose information.
+          methods: ["get_unix_user"],
+        },
       ],
-      enumerations: [{ name: "ApplicationFlags", members: ["default_flags"] }],
     });
-    const failure = generationError(() =>
-      generateGObjectScabiPackage({
-        ...options(gio),
-        package: gio2Package,
-        sdk: {
-          vendor: "GNOME",
-          name: "GLib",
-          version: "2.0",
-          deploymentTarget: "x86_64-unknown-linux-gnu",
-          modules: ["gio-2.0"],
-        },
-        linkInputs: [
-          { id: "gio-2.0", kind: "system-library", name: "gio-2.0", order: 0 },
-        ],
-        adapterInput: {
-          id: "gio2.gobject-adapters",
-          output: "gobject-adapters.o",
-        },
-      })
-    );
-    assert.deepEqual(
-      failure.diagnostics
-        .filter(({ path }) => path.endsWith("/method/register"))
-        .map(({ message }) => message),
-      [
-        "Method reports failure through GError, which is not an implemented error contract",
-      ],
+    const throwing = gio.classes[0]?.methods[0];
+    assert.ok(throwing?.throws);
+    if (!throwing?.throws) return;
+    const failure = generationError(() => generateGObjectAdapterSource(gio));
+    assert.equal(
+      failure.diagnostics.some(({ message }) =>
+        message.includes("gboolean or void")
+      ),
+      true,
+      failure.diagnostics.map(({ message }) => message).join("\n"),
     );
   },
 );
+
+test("a namespace cannot be supplied as its own import", () => {
+  // Easy to reach by wiring a build's imported namespaces carelessly, and
+  // meaningless: a package's own declarations are not foreign to it.
+  const selected = snapshot();
+  const failure = generationError(() =>
+    generateGObjectScabiPackage(
+      options(selected, [{ snapshot: selected, package: options().package }]),
+    )
+  );
+  assert.equal(
+    failure.diagnostics.some(({ message }) =>
+      message.includes("cannot be the namespace being generated")
+    ),
+    true,
+    failure.diagnostics.map(({ message }) => message).join("\n"),
+  );
+});
 
 test(
   "an unsupplied parent namespace leaves the hierarchy rooted here",

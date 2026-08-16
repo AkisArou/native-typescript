@@ -940,6 +940,15 @@ export function generateGObjectScabiPackage(
 
   const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
+  const adapterByThrowingMethod = new Map(
+    options.gobjectAdapter.throwingMethods.map((method) => [method.id, method]),
+  );
+  // One opaque error type and one accessor pair per namespace, emitted only
+  // when a selected member reports failure through a GError. They are bindings
+  // so they carry provenance, but they are never callable from TypeScript.
+  const errorObjectTypeId = `${namespacePrefix}_error_object`;
+  const errorMessageBindingId = `${namespacePrefix}_error_message`;
+  const errorReleaseBindingId = `${namespacePrefix}_error_free`;
   const signalConnectionTypeId = `${namespacePrefix}_signal_connection`;
   const signalDisconnectId = `${namespacePrefix}_signal_connection_disconnect`;
   const signalConnectedId = `${namespacePrefix}_signal_connection_connected`;
@@ -1367,6 +1376,55 @@ export function generateGObjectScabiPackage(
     }
   }
 
+  if (options.gobjectAdapter.errorSupport !== null) {
+    const support = options.gobjectAdapter.errorSupport;
+    types[errorObjectTypeId] = Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
+      nullable: true,
+      addressSpace: 0,
+    });
+    const errorParameter: AbiParameter = Object.freeze({
+      name: "error",
+      type: errorObjectTypeId,
+      passMode: "pointer",
+      nullable: false,
+      ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+    });
+    bindings[errorMessageBindingId] = callableBase({
+      declaration: "NativeError.message",
+      kind: "getter",
+      entryKind: "adapter-symbol",
+      symbol: support.messageSymbol,
+      parameters: [errorParameter],
+      result: Object.freeze({
+        type: "const_utf8",
+        passMode: "pointer",
+        nullable: false,
+        ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+      }),
+      dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+    });
+    bindings[errorReleaseBindingId] = callableBase({
+      declaration: "NativeError.__release",
+      kind: "method",
+      entryKind: "adapter-symbol",
+      symbol: support.releaseSymbol,
+      parameters: [errorParameter],
+      result: Object.freeze({
+        type: "void",
+        passMode: "value",
+        nullable: false,
+        ownership: Object.freeze({ kind: "value" }),
+      }),
+      dependencies: dependencies({ links: linkIds, adapter: options.adapterInput.id }),
+    });
+    declarations.add("NativeError.message");
+    declarations.add("NativeError.__release");
+    adapterBindings.push(errorMessageBindingId, errorReleaseBindingId);
+  }
+
   for (const class_ of options.snapshot.classes) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
@@ -1524,6 +1582,88 @@ export function generateGObjectScabiPackage(
       const propertyName = propertyKind === null
         ? null
         : callable.glibGetProperty ?? callable.glibSetProperty;
+      if (callable.throws) {
+        // A GError-reporting member reaches the boundary through the adapter
+        // that absorbed its out-parameter, so it binds an adapter symbol whose
+        // pointer result is the error channel rather than a source value.
+        const throwing = adapterByThrowingMethod.get(
+          `${class_.name}.method.${callable.name}`,
+        );
+        const support = options.gobjectAdapter.errorSupport;
+        if (throwing === undefined || support === null) {
+          diagnostics.push(diagnostic(path, "GObject adapter is missing this throwing method"));
+          continue;
+        }
+        const receiver = callable.parameters[0];
+        if (!isExactInstanceReceiver(receiver, class_)) {
+          diagnostics.push(diagnostic(`${path}/receiver`, "Method receiver does not match its GObject class"));
+          continue;
+        }
+        const throwingParameters: AbiParameter[] = [Object.freeze({
+          name: "instance",
+          type: typeId,
+          passMode: "pointer",
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        })];
+        const throwingSourceParameters: string[] = [];
+        let throwingValid = true;
+        for (const [index, parameter] of callable.parameters.slice(1).entries()) {
+          const handle = handleParameter(
+            parameter,
+            classByName,
+            typeIdByClass,
+            `${path}/parameters/${index}`,
+            diagnostics,
+          );
+          if (handle === null) {
+            throwingValid = false;
+            continue;
+          }
+          throwingParameters.push(handle.abi);
+          throwingSourceParameters.push(
+            `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
+          );
+        }
+        if (!throwingValid) continue;
+        const sourceMember = lowerCamel(callable.name);
+        const declaration = `${class_.name}.${sourceMember}`;
+        const bindingId = `${namespacePrefix}_${class_.cSymbolPrefix}_${snakeCase(callable.name)}`;
+        if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
+          diagnostics.push(diagnostic(path, "Generated method identity collides"));
+          continue;
+        }
+        bindings[bindingId] = callableBase({
+          declaration,
+          kind: "method",
+          entryKind: "adapter-symbol",
+          symbol: throwing.adapterSymbol,
+          parameters: throwingParameters,
+          result: Object.freeze({
+            type: errorObjectTypeId,
+            passMode: "pointer",
+            nullable: true,
+            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+          }),
+          error: Object.freeze({
+            kind: "error-handle",
+            message: errorMessageBindingId,
+            release: errorReleaseBindingId,
+          }),
+          dependencies: dependencies({
+            links: linkIds,
+            adapter: options.adapterInput.id,
+            bindings: [errorMessageBindingId, errorReleaseBindingId],
+          }),
+          availability: availability(class_, callable),
+        });
+        declarations.add(declaration);
+        adapterBindings.push(bindingId);
+        classLines.push(
+          `  ${sourceMember}(${throwingSourceParameters.join(", ")}): void;`,
+        );
+        continue;
+      }
       const methodRefusal = directEntryRefusal(callable);
       if (methodRefusal !== null || callable.cIdentifier === null) {
         diagnostics.push(

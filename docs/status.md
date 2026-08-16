@@ -28,7 +28,7 @@ The repository is not yet an application framework or a production compiler.
 | C ABI evidence (Clang-proven) | implemented |
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
 | GTK target runtime provider | implemented |
-| GTK application lifecycle | specified, not generated |
+| GTK application lifecycle | generated |
 | Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
@@ -267,10 +267,16 @@ and compose them into one program in which `gtk_application` upcasts to
 analysis subgraphs with real Clang in the sandbox, and both packages' adapter
 objects compile and link into one executable.
 
-The whole non-throwing GApplication lifecycle projects:
-`new Application(id, flags)`, `activate()`, `quit()`, `hold()`, `release()`,
-`getIsRemote()`, `getApplicationId()`, `setApplicationId()`, and
-`onActivate()`. `gtk_application_new()` projects as
+The whole GApplication lifecycle projects: `new Application(id, flags)`,
+`activate()`, `quit()`, `hold()`, `release()`, `getIsRemote()`,
+`getApplicationId()`, `setApplicationId()`, `onActivate()`, and `register()`.
+
+`register()` reports failure through a GError, so a generated adapter absorbs
+its `GError **` and the boundary sees a pointer that is null on success. One
+accessor pair per namespace reads the message and releases the object. The
+adapter discards the wrapped call's own result, so this is limited to members
+returning `gboolean` or `void`; a member whose result carries information is
+refused rather than silently losing it. `gtk_application_new()` projects as
 `constructor(applicationId: string | null, flags: GioApplicationFlags)`.
 
 A metadata C spelling is an untrusted candidate that the probe proves, so
@@ -339,14 +345,11 @@ tool.
 
 These are deliberate, not oversights. Each is a named future slice.
 
-- **The GTK application lifecycle** is specified in [gtk-api.md](gtk-api.md)
-  and needs target-side generation only. Every member of it generates except
-  `g_application_register()`, which is `throws=1`; the error-object contract
-  that covers it is implemented and proven on both backends, so what remains is
-  generating the adapter that absorbs its `GError **`, generating the message
-  accessor, and selecting the contract for a `throws=1` callable. The fixture
-  still starts the GLib runtime and requests its stop through hand-authored C
-  until that lands.
+- **The GTK application lifecycle generates, but the fixture has not been
+  retired.** Every member projects, `register()` included. The executable
+  fixture still starts the GLib runtime and requests its stop through
+  hand-authored C; replacing that entry point with the generated `Application`
+  is the remaining step.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader

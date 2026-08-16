@@ -550,8 +550,10 @@ rather than degrading.
 
 The migration is intentionally one-way:
 
-1. generate the non-blocking `Application` lifecycle and retire the fixture's
-   hand-authored runtime entry point;
+1. retire the fixture's hand-authored runtime entry point in favour of the
+   generated `Application` lifecycle, which now projects `register()` too: a
+   generated adapter absorbs its `GError **` so the boundary sees a pointer
+   that is null on success;
 2. broaden proven GObject property types, value-method input/output families,
    and non-scalar signal payloads/results.
 

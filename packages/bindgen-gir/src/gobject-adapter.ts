@@ -75,15 +75,43 @@ export interface GObjectValueMethodAdapter {
   readonly outputs: readonly GObjectValueMethodOutputAdapter[];
 }
 
+/**
+ * The pair of entries that read and release a GError, emitted once per
+ * namespace when any selected member reports failure through one. They take
+ * `void *` because the error object never becomes a source value: the compiler
+ * calls them through the error contract, not TypeScript.
+ */
+export interface GObjectErrorSupportAdapter {
+  readonly messageSymbol: string;
+  readonly releaseSymbol: string;
+}
+
+/**
+ * A selected member that reports failure through a GError. The adapter absorbs
+ * the trailing `GError **` so the boundary sees a pointer that is null on
+ * success, which is the shape the error-object contract describes.
+ *
+ * The wrapped call's own result is discarded, so this is limited to members
+ * whose result carries no information beyond success.
+ */
+export interface GObjectThrowingMethodAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly sourceSymbol: string;
+  readonly adapterSymbol: string;
+}
+
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 6;
+  readonly schemaVersion: 7;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
   readonly signalConnection: GObjectSignalConnectionAdapter | null;
   readonly signals: readonly GObjectSignalAdapter[];
   readonly valueMethods: readonly GObjectValueMethodAdapter[];
+  readonly errorSupport: GObjectErrorSupportAdapter | null;
+  readonly throwingMethods: readonly GObjectThrowingMethodAdapter[];
 }
 
 export interface GObjectAdapterObjectPlan {
@@ -525,6 +553,88 @@ function generateValueMethod(
   });
 }
 
+/**
+ * Wraps a member that reports failure through a GError so the trailing
+ * `GError **` never crosses the ABI. The adapter returns the error object, or
+ * null on success.
+ *
+ * The wrapped result is discarded, so only members whose result carries no
+ * information beyond success are projected. `gboolean` and `void` qualify;
+ * anything else keeps failing precisely rather than silently losing a value.
+ */
+function generateThrowingMethod(
+  class_: GirClass,
+  callable: GirCallable,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectThrowingMethodAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/${callable.kind}/${callable.name}`;
+  const resultCType = callable.result.type.cType;
+  if (resultCType !== "gboolean" && resultCType !== "void") {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/result`,
+      message:
+        "A GError-reporting member is projected only when its own result is gboolean or void",
+    });
+    return null;
+  }
+  if (callable.cIdentifier === null) return null;
+  const receiver = callable.parameters[0];
+  if (
+    receiver?.kind !== "instance" ||
+    receiver.type.cType !== `${class_.cType}*`
+  ) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/receiver`,
+      message: "A GError-reporting member needs its own class as the receiver",
+    });
+    return null;
+  }
+  const parameters = callable.parameters.slice(1).map((parameter, index) =>
+    physicalType(
+      parameter.type.cType,
+      `${path}/parameters/${index}`,
+      diagnostics,
+    )
+  );
+  if (parameters.some((parameter) => parameter === null)) return null;
+
+  const adapterSymbol = `nts_gobject_try_${callable.cIdentifier}`;
+  const names = parameters.map(
+    (_, index) => `parameter_${index.toString().padStart(4, "0")}`,
+  );
+  const declarations = parameters.map(
+    (parameter, index) => `${renderCType(parameter!)} ${names[index]}`,
+  );
+  const call =
+    `${callable.cIdentifier}(instance` +
+    `${names.length > 0 ? `, ${names.join(", ")}` : ""}, &error)`;
+  return Object.freeze({
+    adapter: Object.freeze({
+      id: `${class_.name}.${callable.kind}.${callable.name}`,
+      className: class_.name,
+      sourceSymbol: callable.cIdentifier,
+      adapterSymbol,
+    }),
+    lines: Object.freeze([
+      `void *${adapterSymbol}(${[`${class_.cType} *instance`, ...declarations].join(", ")}) {`,
+      "  GError *error = NULL;",
+      ...(resultCType === "gboolean"
+        ? [`  if (${call}) return NULL;`]
+        : [`  ${call};`]),
+      "  return error;",
+      "}",
+      "",
+    ]),
+  });
+}
+
 export function generateGObjectAdapterSource(
   snapshot: GirSnapshot,
 ): GObjectAdapterSource {
@@ -582,6 +692,30 @@ export function generateGObjectAdapterSource(
           "",
         ]),
   ];
+  const throwingMethods: GObjectThrowingMethodAdapter[] = [];
+  const hasThrowingMethods = snapshot.classes.some((class_) =>
+    class_.methods.some((callable) => callable.throws)
+  );
+  const errorSupport: GObjectErrorSupportAdapter | null = hasThrowingMethods
+    ? Object.freeze({
+        messageSymbol: `nts_${namespacePart}_error_message`,
+        releaseSymbol: `nts_${namespacePart}_error_free`,
+      })
+    : null;
+  if (errorSupport !== null) {
+    // One pair per namespace. They take void * because the error object is
+    // never a source value: the compiler calls them through the contract.
+    lines.push(
+      `const char *${errorSupport.messageSymbol}(void *error) {`,
+      "  return ((GError *)error)->message;",
+      "}",
+      "",
+      `void ${errorSupport.releaseSymbol}(void *error) {`,
+      "  g_error_free((GError *)error);",
+      "}",
+      "",
+    );
+  }
   const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
   for (const class_ of snapshot.classes) {
     const classConstructors: GObjectConstructorAdapter[] = [];
@@ -619,6 +753,13 @@ export function generateGObjectAdapterSource(
       lines.push(...generated.lines);
     }
     for (const callable of class_.methods) {
+      if (callable.throws) {
+        const generated = generateThrowingMethod(class_, callable, diagnostics);
+        if (generated === null) continue;
+        throwingMethods.push(generated.adapter);
+        lines.push(...generated.lines);
+        continue;
+      }
       const generated = generateValueMethod(
         snapshot.namespace.name,
         class_,
@@ -635,13 +776,15 @@ export function generateGObjectAdapterSource(
     constructors.length === 0 &&
     signals.length === 0 &&
     valueMethods.length === 0 &&
+    throwingMethods.length === 0 &&
     diagnostics.length === 0
   ) {
     diagnostics.push({
       code: "NTS5001",
       severity: "error",
       path: "adapters",
-      message: "GObject adapter generation requires a selected constructor, signal, or value method",
+      message:
+        "GObject adapter generation requires a selected constructor, signal, or method it must wrap",
     });
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
@@ -649,13 +792,15 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 6,
+    schemaVersion: 7,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
     signalConnection,
     signals: Object.freeze(signals),
     valueMethods: Object.freeze(valueMethods),
+    errorSupport,
+    throwingMethods: Object.freeze(throwingMethods),
   });
 }
 

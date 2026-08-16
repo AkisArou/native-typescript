@@ -125,31 +125,20 @@ Recorded in [Implementation status](status.md).
 
 ### Next slices
 
-The foundation the application lifecycle was waiting on is in place. What is
-left is target-side generation.
+The application lifecycle generates. What is left is retiring the executable
+fixture's hand-authored entry point in favour of it.
 
-**A GError error convention.** The contract is implemented. An operation that
-returns an owned error object, null on success, now projects as a throwing
-`void` method: both backends read the message, throw unless a callback has
-already left an exception pending, and release on either path. The permanent
-fixture proves exactly-once release under AddressSanitizer.
+**A GError error convention.** Done, contract and generation both. A member
+that reports failure through a GError projects as a throwing method: a
+generated adapter absorbs the `GError **`, one accessor pair per namespace
+reads the message and releases the object, and both backends release on the
+throwing and already-pending paths alike.
 
-What remains is the GTK half: generate the adapter that absorbs
-`g_application_register()`'s `GError **`, generate the message accessor, and
-select the contract for a `throws=1` callable. No new compiler or SCABI work is
-needed for it.
-
-Two constraints found while scoping that half, both non-obvious:
-
-- A `throws=1` callable is no longer a direct probe candidate. GIR omits the
-  trailing `GError **`, so asserting its parameter list against the header is a
-  guaranteed ABI mismatch, and Clang reported that before generation could say
-  what was actually wrong. The generated adapter takes its place as the probed
-  entry, exactly as the ownership adapter does for a constructor.
-- The adapter discards the wrapped call's own result, which is only sound when
-  that result carries no information beyond success. Restrict the first slice
-  to `throws=1` callables returning `gboolean` or `void`, which covers
-  `g_application_register()`; anything else keeps failing precisely.
+Two constraints hold it to a sound subset. A `throws=1` callable is not a
+direct probe candidate, because GIR omits the trailing `GError **` and
+asserting its parameter list against the header is a guaranteed ABI mismatch;
+the adapter is the probed entry instead. And the adapter discards the wrapped
+call's own result, so only members returning `gboolean` or `void` project.
 
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`
