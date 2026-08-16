@@ -458,8 +458,24 @@ These are deliberate, not oversights. Each is a named future slice.
   nothing else, and the parser says so rather than pretending otherwise. The
   Target SPI stays descriptor-only until a second target exists to justify its
   shape.
-- **GObject identity, weak handles, and native invalidation** have no general
-  policy yet.
+- **Handle identity is specified and unimplemented.** [Ownership](ownership.md)
+  already decides it: GObject identity follows the underlying object reference,
+  and a binding that declares stable identity gets a target-owned identity map
+  so repeated projection reuses one managed entry, with entries removed on
+  native invalidation or final release. A SCABI handle already carries
+  `identity: "pointer"` to declare it. Nothing maintains the map, so nothing
+  can project an object the application did not construct.
+
+  This is the largest gap in the GTK surface, not a corner of it. Of GTK 4's
+  methods, **187 return a borrowed same-namespace object** — `get_child`,
+  `get_parent`, `get_row_at_index` — and every one is refused today. The 19
+  signal payloads carrying a GObject are the same gap seen from the other side.
+
+  Two pieces are missing rather than one: the map itself, and a result
+  projection for an object the callee already owns. The adapter is the natural
+  home for the map, because it already owns the release function where an entry
+  must be removed.
+- **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars
   of every width, selected enumerations, and UTF-8 strings project.
 
