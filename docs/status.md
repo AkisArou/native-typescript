@@ -485,41 +485,17 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
   table on purpose: their width should come from probe evidence rather than
   from a table that assumes an ABI.
-- **Nothing in a native build is reused between runs.** A warm build measures
-  the same as a cold one. Measured on the single-namespace fixture, 7.2 s total:
+- **The final link is still one action.** Everything before it is reused. The
+  ScriptC runtime compiles per source into its own cacheable objects, so an
+  application edit recompiles the program and relinks rather than rebuilding
+  twenty translation units. Measured on the single-namespace fixture: 6.7 s
+  cold, 2.9 s after an application edit, against 7.6 s for either before.
 
-  | action | time |
-  | --- | --- |
-  | `link/scriptc-executable` | 4253 ms |
-  | Clang ABI probes and binding generation | 731 ms |
-  | target and adapter object compiles | 567 ms |
-  | TypeScript frontend, planning, program emission | ~740 ms |
-
-  The link is 59% of the build because it is one Clang invocation that compiles
-  the emitted program *and the whole ScriptC runtime* every time. Caching it as
-  it stands would cache the program too, which is the one thing that changed.
-  The fix is to split the runtime into an artifact of its own — it depends on
-  the checkout and the toolchain, not on the application — so a rebuild
-  recompiles one file and relinks.
-
-  This is a stated invariant rather than a preference. [Architecture](architecture.md)
-  requires that "incremental builds reuse validated artifacts at the narrowest
-  sound boundary", and one action compiling twenty translation units is the
-  widest boundary available. Object compiles now meet it; the link does not.
-  The seams are mapped in the [roadmap](roadmap.md).
-
-  Object compiles now do cache. A cacheable C action asks Clang for the list of
-  files it read, and the entry records every one outside its own action root
-  with the digest it had. The key proves the declared inputs match; the list
-  proves the undeclared ones do. Anything that cannot be re-read counts as
-  changed, so a false negative costs a rebuild and a false positive cannot
-  happen.
-
-  One key holds one entry. When the files an entry recorded have changed, the
-  next run replaces it rather than leaving a result for a state that no longer
-  exists — without that the key would re-run every build and never repair
-  itself. Alternating between two toolchains therefore re-runs each time
-  instead of keeping both.
+  This is what [Architecture](architecture.md) asks for — an incremental build
+  reusing validated artifacts at the narrowest sound boundary — and the link is
+  where it stops. Its inputs include the program, so it re-runs whenever the
+  application changes, which is correct; what remains is that a link is not
+  itself cheap.
 
 - **Sandbox inputs are not hermetic.** The executor binds the host filesystem
   read-only, so undeclared system headers can still influence a result.

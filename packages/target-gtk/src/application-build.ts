@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,7 @@ import {
   nativeRuntimeServices,
   planScriptCExecutable,
   planScriptCProgramEmission,
+  planScriptCRuntimeObject,
   resolvePkgConfigSdk,
   resolveSourceArtifact,
 } from "@native-typescript/core";
@@ -385,15 +387,40 @@ export async function buildGtkApplication(input: {
     targetPlatform: "linux",
     target,
   });
+  /* The runtime compiles per source rather than inside the link. It depends on
+   * the pinned checkout and the toolchain, not on the application, so keeping
+   * it separate is what lets an application edit reuse it — and what meets the
+   * architecture's requirement that an incremental build reuse validated
+   * artifacts at the narrowest sound boundary. */
   const externalResult = await planExecutableExternalCBuild(planned.plan, {
     program: programId,
     runtime: scriptcRuntime.id,
     linkInputs,
     output: outputId,
+    runtimeObjectIdPrefix: "object/scriptc-runtime/",
   });
+  const linkPlan = externalResult.plans.at(-1);
+  if (linkPlan === undefined) {
+    throw new Error("ScriptC produced no link command for the application");
+  }
+  const runtimeObjectPlans = externalResult.plans
+    .slice(0, -1)
+    .map((plan, index) =>
+      planScriptCRuntimeObject({
+        actionId: `compile/scriptc-runtime/${
+          externalResult.runtimeObjects[index]!.fileName
+        }`,
+        plan,
+        artifactFileName: externalResult.runtimeObjects[index]!.fileName,
+        tool: clangTool,
+        driverPlatform: "linux",
+        executionPlatform,
+        target,
+      })
+    );
   const executablePlan = planScriptCExecutable({
     actionId: `link/scriptc-executable/${input.backend}`,
-    plan: externalResult.plan,
+    plan: linkPlan,
     artifactFileName: project.output,
     tool: clangTool,
     driverPlatform: "linux",
@@ -408,11 +435,13 @@ export async function buildGtkApplication(input: {
       planResolution.artifact,
       ...targetObjects.artifacts,
       emissionPlan.artifact,
+      ...runtimeObjectPlans.map(({ artifact }) => artifact),
       executablePlan.artifact,
     ],
     actions: [
       emissionPlan.action,
       ...targetObjects.actions,
+      ...runtimeObjectPlans.map(({ action }) => action),
       executablePlan.action,
     ],
   });
@@ -438,7 +467,9 @@ export async function buildGtkApplication(input: {
     tools,
     sandbox,
     ...(cache === undefined ? {} : { cache }),
-    maxConcurrency: input.maxConcurrency ?? 2,
+    /* The runtime objects are independent of each other, so the link phase is
+     * now wide rather than deep. One core is left for the build itself. */
+    maxConcurrency: input.maxConcurrency ?? Math.max(1, availableParallelism() - 1),
   });
   const product = report.artifacts.find(({ id }) => id === outputId);
   if (product === undefined) {

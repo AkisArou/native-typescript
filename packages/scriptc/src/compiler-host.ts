@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { locateScriptCCheckout } from "./checkout.ts";
 import type {
   ScriptCExecutableCompilationPlan,
-  ScriptCExternalCcPlanResolution,
+  ScriptCExternalBuild,
 } from "./external-build.ts";
 
 /**
@@ -31,7 +31,7 @@ export interface ScriptCExecutablePlanners {
   readonly planExecutableExternalCBuild: (
     plan: ScriptCExecutableCompilationPlan,
     options: Record<string, unknown>,
-  ) => Promise<ScriptCExternalCcPlanResolution>;
+  ) => Promise<ScriptCExternalBuild>;
 }
 
 export function scriptCCompilerDistribution(): string {

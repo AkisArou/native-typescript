@@ -806,9 +806,13 @@ test(
           externalResult.bindings.runtimeDirectory,
           scriptcRuntimeRoot,
         );
+        /* No runtime-object prefix, so the runtime still compiles inside the
+         * link. This gate keeps the combined command covered; the application
+         * pipeline takes the split path. */
+        assert.equal(externalResult.plans.length, 1);
         const executablePlan = planScriptCExecutable({
           actionId: `link/scriptc-executable/${backend}`,
-          plan: externalResult.plan,
+          plan: externalResult.plans[0]!,
           artifactFileName: "gtk-counter",
           tool: clangTool,
           driverPlatform: "linux",

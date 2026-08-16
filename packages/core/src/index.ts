@@ -5,6 +5,7 @@ import type { TargetDefinition } from "@native-typescript/target-api";
 export { planTarget, TargetPlanningError } from "./target-plan.ts";
 export {
   planScriptCExecutable,
+  planScriptCRuntimeObject,
   planScriptCProgramEmission,
 } from "./scriptc-build.ts";
 export type {

@@ -26,6 +26,29 @@ export interface ScriptCExternalCcPlanResolution {
   };
 }
 
+/** One compiled ScriptC runtime object, named so a build can declare it. */
+export interface ScriptCExternalRuntimeObject {
+  readonly id: string;
+  readonly fileName: string;
+}
+
+/**
+ * A native build as a sequence of driver commands.
+ *
+ * The runtime compiles per source and the program links against those objects,
+ * so the two are cached at their own boundaries: the runtime depends on the
+ * pinned checkout and the toolchain, the program on the application. Combining
+ * them in one command made an application edit invalidate the runtime as well.
+ */
+export interface ScriptCExternalBuild {
+  /** Runtime object compiles first, then the link that consumes them. */
+  readonly plans: readonly ScriptCExternalCcPlan[];
+  readonly runtimeObjects: readonly ScriptCExternalRuntimeObject[];
+  readonly bindings: {
+    readonly runtimeDirectory: string;
+  };
+}
+
 export interface ScriptCExecutableNativeBuildPlan {
   readonly cacheIdentity?: string;
   readonly sanitize?: boolean;
