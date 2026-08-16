@@ -92,8 +92,12 @@ test("GTK target contributes its GLib runtime as an artifact-graph fragment", ()
     "sdk/glib/include",
     "headers/scriptc/runtime",
   ]);
-  assert.deepEqual(plan.action.arguments.slice(-5), [
-    { kind: "input-path", artifact: "headers/scriptc/runtime" },
+  /* A cacheable compile also asks Clang for the list of files it read, which
+   * is what lets the entry be revalidated. */
+  assert.deepEqual(plan.action.arguments.slice(-7), [
+    { kind: "literal", value: "-MD" },
+    { kind: "literal", value: "-MF" },
+    { kind: "dependency-path" },
     { kind: "literal", value: "-c" },
     {
       kind: "input-path",
@@ -103,6 +107,8 @@ test("GTK target contributes its GLib runtime as an artifact-graph fragment", ()
     { kind: "literal", value: "-o" },
     { kind: "output-path", artifact: targetRuntimeArtifactIds.glibRuntimeObject },
   ]);
+  assert.equal(plan.action.recordsDependencies, true);
+  assert.equal(plan.action.cacheable, true);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.action.arguments), true);
 });

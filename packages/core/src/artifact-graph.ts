@@ -6,6 +6,7 @@ import {
   cp,
   copyFile,
   mkdir,
+  readFile,
   readdir,
   realpath,
   stat,
@@ -22,6 +23,7 @@ import {
 import { ArtifactExecutionError, digestArtifactPath } from "./artifact-io.ts";
 
 export { ArtifactExecutionError, digestArtifactPath } from "./artifact-io.ts";
+import type { UndeclaredDependency } from "./artifact-cache.ts";
 export type { ArtifactCacheBinding } from "./artifact-cache.ts";
 
 export type ArtifactKind =
@@ -68,7 +70,16 @@ export type ArtifactActionInputArgument =
 
 export type ArtifactActionArgument =
   | ArtifactActionInputArgument
-  | { readonly kind: "output-path"; readonly artifact: string };
+  | { readonly kind: "output-path"; readonly artifact: string }
+  /**
+   * Where the tool writes the list of files it actually read.
+   *
+   * An action's declared inputs say what the graph knows about; a compiler
+   * also reads system headers nobody declared. Recording them is what lets a
+   * cached result be trusted: the entry is only reused when every file the
+   * tool read is still exactly what it was.
+   */
+  | { readonly kind: "dependency-path" };
 
 export interface ArtifactActionEnvironment {
   readonly name: string;
@@ -101,6 +112,12 @@ export interface ArtifactActionDefinition {
   readonly target: string;
   readonly deterministic: boolean;
   readonly cacheable: boolean;
+  /**
+   * Whether this action writes a Make-style dependency list to its
+   * `dependency-path` argument. Required for a cacheable action that reads
+   * undeclared files, and meaningless without one.
+   */
+  readonly recordsDependencies?: boolean;
 }
 
 export interface ArtifactGraph {
@@ -264,6 +281,8 @@ function freezeAction(
     arguments: Object.freeze(
       action.arguments.map((argument) => argument.kind === "literal"
         ? Object.freeze({ kind: argument.kind, value: argument.value })
+        : argument.kind === "dependency-path"
+        ? Object.freeze({ kind: argument.kind })
         : argument.kind === "input-path" && argument.path !== undefined
           ? Object.freeze({
               kind: argument.kind,
@@ -297,6 +316,9 @@ function freezeAction(
     target: action.target,
     deterministic: action.deterministic,
     cacheable: action.cacheable,
+    ...(action.recordsDependencies === true
+      ? { recordsDependencies: true as const }
+      : {}),
   });
 }
 
@@ -469,6 +491,14 @@ function validateArtifactGraph(
           diagnostics.push(
             diagnostic("NTS2001", `${path}.arguments[${argumentIndex}]`, "Arguments cannot contain NUL"),
           );
+        }
+      } else if (argument.kind === "dependency-path") {
+        if (action.recordsDependencies !== true) {
+          diagnostics.push(diagnostic(
+            "NTS2008",
+            `${path}.arguments[${argumentIndex}]`,
+            "A dependency-path argument requires recordsDependencies",
+          ));
         }
       } else {
         const expected = argument.kind === "input-path" ? action.inputs : action.outputs;
@@ -948,8 +978,10 @@ async function executeAction(options: {
     inputPaths.set(inputId, inputPath);
   }
 
+  const dependencyPath = join(options.layout.temporaryRoot, "action.d");
   const commandArguments = action.arguments.map((argument) => {
     if (argument.kind === "literal") return argument.value;
+    if (argument.kind === "dependency-path") return dependencyPath;
     const artifactPath = argument.kind === "input-path"
       ? inputPaths.get(argument.artifact)
       : options.layout.outputPaths.get(argument.artifact);
@@ -1056,6 +1088,51 @@ async function executeAction(options: {
   });
 }
 
+/**
+ * The files a tool read that the graph never declared.
+ *
+ * A Make-style dependency list names everything the compiler opened. Paths
+ * under the action's own root are its declared inputs, already keyed by digest
+ * and gone once the action root is removed, so only what lies outside it is
+ * recorded — in practice the system headers and the toolchain's own.
+ */
+async function undeclaredDependencies(
+  dependencyPath: string,
+  actionRoot: string,
+): Promise<readonly UndeclaredDependency[] | null> {
+  let text: string;
+  try {
+    text = await readFile(dependencyPath, "utf8");
+  } catch {
+    /* No list means nothing can be validated later, so the action must not be
+     * published as reusable. */
+    return null;
+  }
+  const paths = new Set<string>();
+  for (const rule of text.replaceAll("\\\n", " ").split("\n")) {
+    const body = rule.slice(rule.indexOf(":") + 1);
+    if (!rule.includes(":")) continue;
+    for (const token of body.split(/\s+/u)) {
+      if (token.length === 0 || !isAbsolute(token)) continue;
+      if (token === actionRoot || token.startsWith(`${actionRoot}/`)) continue;
+      paths.add(token);
+    }
+  }
+  const recorded: UndeclaredDependency[] = [];
+  for (const path of [...paths].sort(compareText)) {
+    try {
+      const content = await digestArtifactPath(path, "file");
+      recorded.push(Object.freeze({ path, digest: content.digest }));
+    } catch {
+      /* A file that cannot be digested cannot be revalidated. Refusing to
+       * publish is the conservative direction: a miss costs time, a wrongly
+       * reused entry costs correctness. */
+      return null;
+    }
+  }
+  return Object.freeze(recorded);
+}
+
 async function executeOrRestoreAction(options: {
   readonly action: ArtifactActionDefinition;
   readonly artifactsById: ReadonlyMap<string, ArtifactDefinition>;
@@ -1105,14 +1182,23 @@ async function executeOrRestoreAction(options: {
     cacheKey,
   });
   if (options.cache !== null && cacheKey !== null) {
-    await publishActionToCache({
-      cache: options.cache,
-      context,
-      cacheKey,
-      stdout: report.stdout,
-      stderr: report.stderr,
-      outputs: report.outputs,
-    });
+    const dependencies = options.action.recordsDependencies === true
+      ? await undeclaredDependencies(
+          join(layout.temporaryRoot, "action.d"),
+          layout.actionRoot,
+        )
+      : Object.freeze([]);
+    if (dependencies !== null) {
+      await publishActionToCache({
+        cache: options.cache,
+        context,
+        cacheKey,
+        stdout: report.stdout,
+        stderr: report.stderr,
+        outputs: report.outputs,
+        dependencies,
+      });
+    }
   }
   return report;
 }

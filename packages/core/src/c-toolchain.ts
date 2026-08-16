@@ -30,6 +30,16 @@ export function planCObjectCompilation(input: {
     throw new Error("C object compiler arguments cannot predeclare output paths");
   }
   const arguments_: ArtifactActionArgument[] = [...input.arguments];
+  /* A C compile reads headers no graph declares. Recording them is what lets
+   * its result be cached at all: the entry is reused only when every file the
+   * compiler opened is still byte-for-byte what it was. */
+  if (input.cacheable) {
+    arguments_.push(
+      { kind: "literal", value: "-MD" },
+      { kind: "literal", value: "-MF" },
+      { kind: "dependency-path" },
+    );
+  }
   arguments_.push(
     { kind: "literal", value: "-c" },
     { kind: "input-path", ...input.source },
@@ -75,6 +85,7 @@ export function planCObjectCompilation(input: {
       target: input.target,
       deterministic: input.deterministic,
       cacheable: input.cacheable,
+      ...(input.cacheable ? { recordsDependencies: true } : {}),
     }),
   });
 }

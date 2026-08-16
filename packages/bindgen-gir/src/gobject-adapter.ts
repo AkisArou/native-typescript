@@ -893,8 +893,8 @@ export function planGObjectAdapterObject(input: {
     tool: input.tool,
     executionPlatform: input.executionPlatform,
     target: input.target,
-    deterministic: false,
-    cacheable: false,
+    deterministic: true,
+    cacheable: true,
   });
   return Object.freeze({
     source,

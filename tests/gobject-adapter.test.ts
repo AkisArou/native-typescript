@@ -433,7 +433,10 @@ test("generated GObject adapters are first-class artifact graph inputs", () => {
   assert.equal(plan.source.origin.digest, generated.sourceDigest);
   assert.deepEqual(plan.action.inputs, [plan.source.id]);
   assert.deepEqual(plan.action.outputs, [plan.object.id]);
-  assert.equal(plan.action.cacheable, false);
+  /* Cacheable because it records what it read: the generated adapter is a
+   * declared input, and the GTK headers behind it are validated per entry. */
+  assert.equal(plan.action.cacheable, true);
+  assert.equal(plan.action.recordsDependencies, true);
   assert.equal(JSON.stringify(graph).includes(repositoryRoot), false);
   assertDeepFrozen(plan);
 });

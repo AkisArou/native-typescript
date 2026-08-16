@@ -1037,3 +1037,198 @@ test("artifact executor rejects undeclared outputs", async () => {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+/**
+ * A graph whose action reads a file nobody declared and says so.
+ *
+ * The cache key covers declared inputs, and this action has none. What makes a
+ * cached result trustworthy is the dependency list: the action writes the path
+ * it read, and the entry is reused only while that file is unchanged.
+ */
+function undeclaredDependencyGraph(
+  shellPath: string,
+  headerPath: string,
+): ArtifactGraph {
+  const outputId = "generated/undeclared-copy";
+  return defineArtifactGraph({
+    artifacts: [
+      {
+        id: outputId,
+        kind: "generated-source",
+        entryType: "file",
+        mediaType: "text/plain",
+        target,
+        domain: "host",
+        cache: "local",
+        origin: {
+          kind: "action",
+          action: "copy/undeclared",
+          fileName: "copy.txt",
+        },
+      },
+    ],
+    actions: [
+      {
+        id: "copy/undeclared",
+        implementation: { id: "test/undeclared", version: "1" },
+        tool: { id: "tool/sh", version: "system", digest: digest(shellPath) },
+        arguments: [
+          { kind: "literal", value: "-c" },
+          {
+            kind: "literal",
+            value: 'cat "$1" > "$2"; printf "out: %s\\n" "$1" > "$3"',
+          },
+          { kind: "literal", value: "sh" },
+          { kind: "literal", value: headerPath },
+          { kind: "output-path", artifact: outputId },
+          { kind: "dependency-path" },
+        ],
+        environment: [],
+        inputs: [],
+        outputs: [outputId],
+        standardOutput: { kind: "report" },
+        workingDirectory: "isolated",
+        network: "denied",
+        executionPlatform,
+        target,
+        deterministic: true,
+        cacheable: true,
+        recordsDependencies: true,
+      },
+    ],
+  });
+}
+
+test(
+  "a cached action is reused only while the files it read are unchanged",
+  { skip: process.platform !== "linux" },
+  async () => {
+    const shellPath = executable("sh");
+    const sandboxPath = executable("bwrap");
+    const scratch = mkdtempSync(join(tmpdir(), "nts-undeclared-"));
+    try {
+      const headerPath = join(scratch, "undeclared.txt");
+      writeFileSync(headerPath, "first");
+      const graph = undeclaredDependencyGraph(shellPath, headerPath);
+      const bindings = {
+        sourcePaths: {},
+        tools: { "tool/sh": { path: shellPath } },
+        sandbox: { kind: "bubblewrap" as const, path: sandboxPath },
+        cache: { kind: "local" as const, path: join(scratch, "cache") },
+      };
+      const read = (report: Awaited<ReturnType<typeof executeArtifactGraph>>): string =>
+        readFileSync(
+          report.artifacts.find(({ id }) => id === "generated/undeclared-copy")!.path,
+          "utf8",
+        );
+
+      const first = await executeArtifactGraph(graph, {
+        ...bindings,
+        buildRoot: join(scratch, "build-1"),
+      });
+      assert.equal(first.actions[0]?.status, "executed");
+      assert.equal(read(first), "first");
+
+      // Nothing changed: the recorded file still matches, so the entry stands.
+      const second = await executeArtifactGraph(graph, {
+        ...bindings,
+        buildRoot: join(scratch, "build-2"),
+      });
+      assert.equal(second.actions[0]?.status, "cached");
+      assert.equal(read(second), "first");
+
+      /* The file the action read changed. No declared input did, so the cache
+       * key is identical — only the recorded dependency can tell. */
+      writeFileSync(headerPath, "second");
+      const third = await executeArtifactGraph(graph, {
+        ...bindings,
+        buildRoot: join(scratch, "build-3"),
+      });
+      assert.equal(third.actions[0]?.status, "executed");
+      assert.equal(read(third), "second");
+
+      // And the fresh result is what gets reused from then on.
+      const fourth = await executeArtifactGraph(graph, {
+        ...bindings,
+        buildRoot: join(scratch, "build-4"),
+      });
+      assert.equal(fourth.actions[0]?.status, "cached");
+      assert.equal(read(fourth), "second");
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "an action that records no dependencies is never published as reusable",
+  { skip: process.platform !== "linux" },
+  async () => {
+    /* The list is the whole basis for trusting the entry. A tool that promised
+     * one and wrote nothing has not earned a cache entry, so the action runs
+     * every time instead of being reused on a promise it did not keep. */
+    const shellPath = executable("sh");
+    const sandboxPath = executable("bwrap");
+    const scratch = mkdtempSync(join(tmpdir(), "nts-nodeps-"));
+    try {
+      const graph = defineArtifactGraph({
+        artifacts: [
+          {
+            id: "generated/silent",
+            kind: "generated-source",
+            entryType: "file",
+            mediaType: "text/plain",
+            target,
+            domain: "host",
+            cache: "local",
+            origin: {
+              kind: "action",
+              action: "generate/silent",
+              fileName: "silent.txt",
+            },
+          },
+        ],
+        actions: [
+          {
+            id: "generate/silent",
+            implementation: { id: "test/silent", version: "1" },
+            tool: { id: "tool/sh", version: "system", digest: digest(shellPath) },
+            arguments: [
+              { kind: "literal", value: "-c" },
+              { kind: "literal", value: 'printf "quiet" > "$1"' },
+              { kind: "literal", value: "sh" },
+              { kind: "output-path", artifact: "generated/silent" },
+              { kind: "dependency-path" },
+            ],
+            environment: [],
+            inputs: [],
+            outputs: ["generated/silent"],
+            standardOutput: { kind: "report" },
+            workingDirectory: "isolated",
+            network: "denied",
+            executionPlatform,
+            target,
+            deterministic: true,
+            cacheable: true,
+            recordsDependencies: true,
+          },
+        ],
+      });
+      const bindings = {
+        sourcePaths: {},
+        tools: { "tool/sh": { path: shellPath } },
+        sandbox: { kind: "bubblewrap" as const, path: sandboxPath },
+        cache: { kind: "local" as const, path: join(scratch, "cache") },
+      };
+      for (const run of [1, 2]) {
+        const report = await executeArtifactGraph(graph, {
+          ...bindings,
+          buildRoot: join(scratch, `build-${run}`),
+        });
+        assert.equal(report.actions[0]?.status, "executed", `run ${run}`);
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);

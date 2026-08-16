@@ -470,12 +470,18 @@ These are deliberate, not oversights. Each is a named future slice.
   the checkout and the toolchain, not on the application — so a rebuild
   recompiles one file and relinks.
 
-  Object compiles are separately non-cacheable for a different reason: they
-  read system headers that are not declared graph inputs, so a cached result
-  could outlive a toolchain change nothing recorded. Declaring `/usr/include`
-  is not the answer — digesting it every build would cost more than the 567 ms
-  it saves. Recording what each action actually read, from Clang's own `-MD`
-  output, and validating a cached entry against exactly those files, is.
+  Object compiles now do cache. A cacheable C action asks Clang for the list of
+  files it read, and the entry records every one outside its own action root
+  with the digest it had. The key proves the declared inputs match; the list
+  proves the undeclared ones do. Anything that cannot be re-read counts as
+  changed, so a false negative costs a rebuild and a false positive cannot
+  happen.
+
+  One key holds one entry. When the files an entry recorded have changed, the
+  next run replaces it rather than leaving a result for a state that no longer
+  exists — without that the key would re-run every build and never repair
+  itself. Alternating between two toolchains therefore re-runs each time
+  instead of keeping both.
 
 - **Sandbox inputs are not hermetic.** The executor binds the host filesystem
   read-only, so undeclared system headers can still influence a result.

@@ -98,8 +98,11 @@ function planTargetRuntimeObject(
     tool: input.tool,
     executionPlatform: input.executionPlatform,
     target: input.target,
-    deterministic: false,
-    cacheable: false,
+    /* Clang given the same sources and arguments produces the same object,
+     * and what it read beyond the declared inputs is recorded for the cache to
+     * check. */
+    deterministic: true,
+    cacheable: true,
   });
   return Object.freeze({
     object: compilation.artifact,

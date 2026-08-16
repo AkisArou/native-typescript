@@ -50,13 +50,28 @@ interface LocalCacheBlob {
   readonly size: number;
 }
 
+/**
+ * A file the action read that the graph did not declare, and the digest it had
+ * when the entry was published.
+ *
+ * The cache key covers declared inputs only. A compiler also reads system
+ * headers, so an entry keyed on declared inputs alone could survive a change
+ * it depended on. Recording them turns the key into a candidate and this list
+ * into the proof.
+ */
+export interface UndeclaredDependency {
+  readonly path: string;
+  readonly digest: string;
+}
+
 interface LocalCacheManifest {
   readonly schema: "native-typescript.local-action-cache";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly actionKey: string;
   readonly stdout: LocalCacheBlob;
   readonly stderr: LocalCacheBlob;
   readonly outputs: readonly LocalCacheOutput[];
+  readonly dependencies: readonly UndeclaredDependency[];
 }
 
 export interface RestoredActionCacheEntry {
@@ -133,9 +148,10 @@ function parseManifest(
   if (
     record === null ||
     record.schema !== "native-typescript.local-action-cache" ||
-    record.schemaVersion !== 1 ||
+    record.schemaVersion !== 2 ||
     record.actionKey !== cacheKey ||
-    !Array.isArray(record.outputs)
+    !Array.isArray(record.outputs) ||
+    !Array.isArray(record.dependencies)
   ) {
     throw corruptCacheError(action.id, cacheKey, "manifest schema or identity is invalid");
   }
@@ -174,13 +190,26 @@ function parseManifest(
       mode: output.mode,
     };
   });
+  const dependencies: UndeclaredDependency[] = record.dependencies.map((value) => {
+    const dependency = expectRecord(value);
+    if (
+      dependency === null ||
+      typeof dependency.path !== "string" ||
+      typeof dependency.digest !== "string" ||
+      !digestPattern.test(dependency.digest)
+    ) {
+      throw corruptCacheError(action.id, cacheKey, "manifest dependency is invalid");
+    }
+    return { path: dependency.path, digest: dependency.digest };
+  });
   return {
     schema: "native-typescript.local-action-cache",
-    schemaVersion: 1,
+    schemaVersion: 2,
     actionKey: cacheKey,
     stdout: parseBlob(record.stdout, action.id, cacheKey, "stdout"),
     stderr: parseBlob(record.stderr, action.id, cacheKey, "stderr"),
     outputs,
+    dependencies,
   };
 }
 
@@ -263,6 +292,26 @@ export function computeActionCacheKey(
   return `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
 }
 
+/**
+ * Whether every file an entry recorded is still exactly what it was.
+ *
+ * A file that cannot be read counts as changed. The bias is deliberate: a
+ * false negative costs a rebuild, a false positive ships the wrong bytes.
+ */
+async function dependenciesUnchanged(
+  dependencies: readonly UndeclaredDependency[],
+): Promise<boolean> {
+  for (const dependency of dependencies) {
+    try {
+      const { digest } = await digestArtifactPath(dependency.path, "file");
+      if (digest !== dependency.digest) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function restoreActionFromCache(options: {
   readonly cache: PreparedArtifactCache;
   readonly context: ArtifactActionCacheContext;
@@ -317,6 +366,10 @@ export async function restoreActionFromCache(options: {
     options.context.action,
     options.cacheKey,
   );
+  /* The key proves the declared inputs match. This proves the undeclared ones
+   * do. Anything that cannot be re-read is a miss, never a reuse: a miss costs
+   * time, and a wrongly reused entry costs correctness. */
+  if (!(await dependenciesUnchanged(manifest.dependencies))) return null;
   const readLog = async (
     name: "stdout" | "stderr",
     metadata: LocalCacheBlob,
@@ -417,16 +470,37 @@ export async function publishActionToCache(options: {
   readonly stdout: string;
   readonly stderr: string;
   readonly outputs: readonly MaterializedArtifact[];
+  readonly dependencies: readonly UndeclaredDependency[];
 }): Promise<void> {
   const finalRoot = entryRoot(options.cache, options.cacheKey);
   try {
     const existing = await lstat(finalRoot);
-    if (existing.isDirectory() && !existing.isSymbolicLink()) return;
-    throw corruptCacheError(
-      options.context.action.id,
-      options.cacheKey,
-      "publication target is not a directory",
-    );
+    if (existing.isDirectory() && !existing.isSymbolicLink()) {
+      /* One key, one entry. When the files an entry recorded have changed, the
+       * result it holds is for a state that no longer exists — keeping it
+       * would leave the key permanently unusable, re-running every build and
+       * never replacing what made it fail. Alternating between two states
+       * therefore re-runs each time rather than keeping both. */
+      let stale = false;
+      try {
+        const manifest = parseManifest(
+          await readFile(join(finalRoot, "manifest.json"), "utf8"),
+          options.context.action,
+          options.cacheKey,
+        );
+        stale = !(await dependenciesUnchanged(manifest.dependencies));
+      } catch {
+        stale = true;
+      }
+      if (!stale) return;
+      await rm(finalRoot, { recursive: true, force: true });
+    } else {
+      throw corruptCacheError(
+        options.context.action.id,
+        options.cacheKey,
+        "publication target is not a directory",
+      );
+    }
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") throw error;
   }
@@ -479,11 +553,14 @@ export async function publishActionToCache(options: {
     ]);
     const manifest: LocalCacheManifest = {
       schema: "native-typescript.local-action-cache",
-      schemaVersion: 1,
+      schemaVersion: 2,
       actionKey: options.cacheKey,
       stdout,
       stderr,
       outputs: manifestOutputs,
+      dependencies: [...options.dependencies].sort((left, right) =>
+        left.path < right.path ? -1 : left.path > right.path ? 1 : 0
+      ),
     };
     await writeFile(
       join(temporaryRoot, "manifest.json"),
