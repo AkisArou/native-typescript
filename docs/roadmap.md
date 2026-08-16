@@ -125,102 +125,19 @@ Recorded in [Implementation status](status.md).
 
 ### Next slices
 
-One contract still blocks the application lifecycle. It is foundation work
-that several later targets need, not GTK glue, so it belongs to its owning
-boundary rather than to the GTK package.
+The foundation the application lifecycle was waiting on is in place. What is
+left is target-side generation.
 
-**A GError error convention.** `g_application_register()` is `throws=1`. Only
-`errno` sentinels and nullable owned handles are implemented, so this is the
-one contract left. It unblocks a large fraction of Gio and GTK, not just the
-lifecycle.
+**A GError error convention.** The contract is implemented. An operation that
+returns an owned error object, null on success, now projects as a throwing
+`void` method: both backends read the message, throw unless a callback has
+already left an exception pending, and release on either path. The permanent
+fixture proves exactly-once release under AddressSanitizer.
 
-The obvious reading — that this needs out-parameters, foreign struct reads, and
-owned C-string results in Native IR — is not the cheapest correct one. A
-generated adapter can absorb the out-parameter, exactly as the caller-allocated
-record-output adapter already does for `gtk_widget_get_preferred_size()`:
-
-```c
-GError *nts_gio_application_register(GApplication *self, GCancellable *c) {
-  GError *error = NULL;
-  if (g_application_register(self, c, &error)) return NULL;
-  return error;
-}
-
-const char *nts_glib_error_message(GError *error) { return error->message; }
-```
-
-The `GError **` never crosses the ABI boundary. What does cross is a nullable
-owned handle whose destructor is `g_error_free`, and a borrowed
-receiver-anchored C string — both already implemented and proven. The message
-is borrowed from a handle the runtime owns, so owned string results are not
-required either.
-
-Two things are genuinely new:
-
-1. A result-position error contract that reads a handle: when the returned
-   handle is non-null, read its message, release the handle, and throw. Today a
-   nullable owned handle result throws *on* null, which is the opposite
-   polarity, so the contract has to own the interpretation rather than reusing
-   that rule.
-2. The SCABI `ErrorContract` member describing it, naming the error handle type
-   and the message binding.
-
-Both compose primitives that already pass their gates, rather than extending
-Native IR with a general out-parameter model before a second consumer needs
-one. Absorbing C out-parameters into a narrow, mechanical adapter is an
-established decision in this architecture, not a shortcut around it.
-
-If a later binding family needs true out-parameters at the boundary, that
-remains its own slice.
-
-The implementation follows the shape the `errno` contract already has, which is
-the closest analogue and is about twenty lines per backend:
-
-| Where | Change |
-| --- | --- |
-| `scriptc` runtime | a fourth throw helper beside `scr_native_throw_errno`, `_null`, and `_boolean`, taking the message and the operation |
-| `scriptc` IR | one more `error` variant carrying the message and release binding identities, plus its validation |
-| C and LLVM emitters | after the call, branch on a non-null result: read the message, throw unless an exception is pending, release the handle |
-| SCABI | the matching `ErrorContract` member and its validation |
-| `bindgen-gir` | generate the wrapper and message accessor, and select the contract for a `throws=1` callable |
-
-One design question inside that work is settled here rather than left open. A
-binding's result carries one ABI type and a projection, and the projection is
-what decides the source value: `utf8CString` yields a string, `boolean` yields
-a boolean, `direct` yields the ABI value. A GError result is a pointer that
-must yield *no* source value, since a foreign pointer may never become a
-TypeScript value.
-
-So the result needs a projection whose source type is void, paired with the
-error contract that consumes the physical pointer. Validation requires the two
-to appear together: the projection states that the source sees nothing, and the
-contract states what the physical value means.
-
-The alternative — calling it a discarded result — would misdescribe it. The
-pointer is not ignored; it is read for its message and released. The `errno`
-contract already sets the precedent that a contract inspects the physical
-result; GError differs only in returning nothing to the source.
-
-Three conventions in the existing emitters are worth knowing before writing
-this, because each is load-bearing and none is obvious from the contract alone:
-
-- `scr_throw_error_msg()` is the general throw primitive. The three
-  `scr_native_throw_*` helpers are thin wrappers that build a message and call
-  it, so a fourth follows the same dozen lines.
-- A contract must check `scr_exc_pending()` before throwing. A callback invoked
-  during the native call may already have thrown, and that exception wins.
-- A handle result is staged through prepare/commit/abandon so a runtime
-  allocation failure cannot strand the native resource. A GError result is
-  released rather than committed, and the release has to happen on both the
-  throwing and the already-pending paths.
-
-The last two are where this slice is easy to get nearly right: a happy-path
-test passes while an error raised during an in-flight exception leaks the
-GError or releases it twice. The sanitizer gate is the check that matters, not
-the functional one.
-
-Selecting a `throws=1` member already fails with a diagnostic naming GError, so
-the gap reports itself until this lands.
+What remains is the GTK half: generate the adapter that absorbs
+`g_application_register()`'s `GError **`, generate the message accessor, and
+select the contract for a `throws=1` callable. No new compiler or SCABI work is
+needed for it.
 
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`

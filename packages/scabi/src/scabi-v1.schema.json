@@ -1761,6 +1761,26 @@
               "$ref": "#/$defs/id"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "message",
+            "release"
+          ],
+          "properties": {
+            "kind": {
+              "const": "error-handle"
+            },
+            "message": {
+              "$ref": "#/$defs/id"
+            },
+            "release": {
+              "$ref": "#/$defs/id"
+            }
+          }
         }
       ]
     },

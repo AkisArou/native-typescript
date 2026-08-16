@@ -155,7 +155,11 @@ export type ScriptCNativeResultProjection =
       readonly falseValue: string;
       readonly trueValue: string;
     }
-  | { readonly kind: "utf8CString"; readonly nullable: boolean };
+  | { readonly kind: "utf8CString"; readonly nullable: boolean }
+  /** The physical result is the operation's error channel and yields no
+   * source value. Paired with the `errorHandle` contract that reads and
+   * releases it, so a foreign pointer never becomes a source value. */
+  | { readonly kind: "errorChannel" };
 
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
@@ -214,7 +218,12 @@ function freezePhysicalAbiValue(value: NativePhysicalAbiValue): ScriptCNativePhy
 export type ScriptCNativeErrorContract =
   | { readonly kind: "no-fail" }
   | { readonly kind: "errno"; readonly failureValue: string }
-  | { readonly kind: "nullable" };
+  | { readonly kind: "nullable" }
+  | {
+      readonly kind: "errorHandle";
+      readonly messageSymbol: string;
+      readonly releaseSymbol: string;
+    };
 
 export interface ScriptCNativeSourceType {
   readonly declaration: ScriptCNativeDeclaration;
@@ -1382,7 +1391,8 @@ function bindingUnsupported(
   if (
     binding.error.kind !== "no-fail" &&
     binding.error.kind !== "errno" &&
-    binding.error.kind !== "nullable"
+    binding.error.kind !== "nullable" &&
+    binding.error.kind !== "error-handle"
   ) {
     return `error contract '${binding.error.kind}'`;
   }
@@ -1808,6 +1818,12 @@ export function translateScabiNativeProgram(
   }
 
   const destructorIds = new Set<string>();
+  /** Bindings an error contract names for their symbols. They read and release
+   * a foreign error object, so they traffic in raw pointers and are never
+   * callable from TypeScript: the emitters declare and call them directly, and
+   * translating them as ordinary bindings would fail for the right reason at
+   * the wrong place. */
+  const errorEntryIds = new Set<string>();
   for (const bindingId of reachable) {
     const binding = manifest.bindings[bindingId];
     if (binding === undefined || binding.kind === "constant") continue;
@@ -1815,9 +1831,14 @@ export function translateScabiNativeProgram(
     if (ownership.kind === "owned" && ownership.transfer === "to-runtime") {
       destructorIds.add(ownership.destructor);
     }
+    if (binding.error.kind === "error-handle") {
+      errorEntryIds.add(binding.error.message);
+      errorEntryIds.add(binding.error.release);
+    }
   }
 
   for (const bindingId of [...reachable].sort()) {
+    if (errorEntryIds.has(bindingId)) continue;
     const path = `/bindings/${bindingId}`;
     const binding = manifest.bindings[bindingId];
     if (binding === undefined) {
@@ -2327,7 +2348,39 @@ export function translateScabiNativeProgram(
     let resultOwnership: ScriptCNativeBinding["result"]["ownership"] | null = null;
     let resultProjection: ScriptCNativeResultProjection | null = null;
     const declaredResultType = manifest.types[binding.signature.result.type];
-    if (binding.signature.result.marshal?.kind === "string") {
+    if (binding.error.kind === "error-handle") {
+      // The pointer is the error channel, not a source value, so the generic
+      // result path — which correctly refuses a source-visible pointer — must
+      // not see it.
+      const message = manifest.bindings[binding.error.message];
+      const release = manifest.bindings[binding.error.release];
+      if (
+        declaredResultType?.kind !== "pointer" ||
+        binding.signature.result.passMode !== "pointer" ||
+        binding.signature.result.marshal !== undefined ||
+        message === undefined ||
+        message.kind === "constant" ||
+        release === undefined ||
+        release.kind === "constant" ||
+        binding.error.message === binding.error.release
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/error`,
+          "error-handle requires a pointer result and distinct message and release bindings",
+        ));
+        valid = false;
+      } else {
+        resultType = Object.freeze({
+          kind: "nativePointer",
+          pointee: "i8",
+          const: false,
+          addressSpace: 0,
+        });
+        resultOwnership = Object.freeze({ kind: "value" });
+        resultProjection = Object.freeze({ kind: "errorChannel" });
+      }
+    } else if (binding.signature.result.marshal?.kind === "string") {
       const borrowed = supportedBorrowedStringResult(manifest, binding);
       if (typeof borrowed === "string") {
         diagnostics.push(diagnostic("NTS3002", resultPath, borrowed));
@@ -2503,7 +2556,19 @@ export function translateScabiNativeProgram(
             } as const)
           : binding.error.kind === "nullable"
             ? Object.freeze({ kind: "nullable" } as const)
-            : Object.freeze({ kind: "no-fail" } as const),
+            : binding.error.kind === "error-handle"
+              ? Object.freeze({
+                  kind: "errorHandle",
+                  // SCABI names bindings; Native IR carries the resolved
+                  // symbols the emitters call.
+                  messageSymbol: (
+                    manifest.bindings[binding.error.message] as CallableBinding
+                  ).entry.symbol,
+                  releaseSymbol: (
+                    manifest.bindings[binding.error.release] as CallableBinding
+                  ).entry.symbol,
+                } as const)
+              : Object.freeze({ kind: "no-fail" } as const),
         arguments: Object.freeze(sourceArguments),
         parameters: Object.freeze(parameters),
         result: Object.freeze({

@@ -339,22 +339,14 @@ tool.
 
 These are deliberate, not oversights. Each is a named future slice.
 
-- **GTK application lifecycle** is specified in [gtk-api.md](gtk-api.md) but
-  not generated. The fixture still starts the GLib runtime and requests its
-  stop through hand-authored C.
-- **One contract still blocks the GTK application lifecycle**, and it is
-  foundation work rather than target glue:
-  - `g_application_register()` is `throws=1`, and GError is not an implemented
-    native error convention. Only exact-integer `errno` sentinels and nullable
-    owned handle results are. It additionally needs owned C-string results:
-    Its `GCancellable` parameter is an ordinary nullable handle and needs
-    nothing new. The design in the [roadmap](roadmap.md) absorbs the
-    `GError **` out-parameter into a generated adapter, so the boundary sees
-    only a nullable owned handle and a borrowed receiver-anchored string, both
-    already proven.
-
-  Every other member of the lifecycle is generated already, so `start()` is the
-  only operation that cannot be expressed.
+- **The GTK application lifecycle** is specified in [gtk-api.md](gtk-api.md)
+  and needs target-side generation only. Every member of it generates except
+  `g_application_register()`, which is `throws=1`; the error-object contract
+  that covers it is implemented and proven on both backends, so what remains is
+  generating the adapter that absorbs its `GError **`, generating the message
+  accessor, and selecting the contract for a `throws=1` callable. The fixture
+  still starts the GLib runtime and requests its stop through hand-authored C
+  until that lands.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader

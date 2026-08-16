@@ -103,6 +103,9 @@ export declare function counterVerify(
   expectedDestroyed: i32,
 ): i32;
 export declare function failErrno(errorNumber: i32): never;
+/* Reports failure by returning an owned error object rather than a code. */
+export declare function errorHandleFail(code: i32): void;
+export declare function fixtureErrorsOutstanding(): i32;
 
 export interface FixtureLibraryExports {
   ntsTsAddI32(left: i32, right: i32): i32;

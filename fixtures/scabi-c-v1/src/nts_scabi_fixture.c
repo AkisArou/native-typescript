@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -288,3 +289,34 @@ int32_t nts_fail_errno(int32_t error_number) {
   errno = error_number;
   return -1;
 }
+
+struct NtsFixtureError {
+  char *message;
+};
+
+static int32_t nts_fixture_errors_live;
+
+NtsFixtureError *nts_error_handle_fail(int32_t code) {
+  if (code == 0) return NULL;
+  NtsFixtureError *error = malloc(sizeof *error);
+  if (error == NULL) abort();
+  static const char prefix[] = "fixture failure ";
+  size_t capacity = sizeof prefix + 16;
+  error->message = malloc(capacity);
+  if (error->message == NULL) abort();
+  snprintf(error->message, capacity, "%s%d", prefix, (int)code);
+  nts_fixture_errors_live += 1;
+  return error;
+}
+
+const char *nts_fixture_error_message(NtsFixtureError *error) {
+  return error->message;
+}
+
+void nts_fixture_error_free(NtsFixtureError *error) {
+  nts_fixture_errors_live -= 1;
+  free(error->message);
+  free(error);
+}
+
+int32_t nts_fixture_errors_outstanding(void) { return nts_fixture_errors_live; }

@@ -95,6 +95,16 @@ NTS_SCABI_EXPORT int32_t nts_counter_verify(
 
 NTS_SCABI_EXPORT int32_t nts_fail_errno(int32_t error_number);
 
+/* Reports failure by returning an owned error object rather than a code, the
+ * shape GLib's GError takes once a generated adapter has absorbed its
+ * out-parameter. NULL is success. */
+typedef struct NtsFixtureError NtsFixtureError;
+
+NTS_SCABI_EXPORT NtsFixtureError *nts_error_handle_fail(int32_t code);
+NTS_SCABI_EXPORT const char *nts_fixture_error_message(NtsFixtureError *error);
+NTS_SCABI_EXPORT void nts_fixture_error_free(NtsFixtureError *error);
+NTS_SCABI_EXPORT int32_t nts_fixture_errors_outstanding(void);
+
 /* Implemented by the generated Native TypeScript library, not this fixture. */
 NTS_SCABI_EXPORT int32_t nts_ts_add_i32(int32_t left, int32_t right);
 

@@ -328,6 +328,32 @@ some composed package, is a handle, and carries matching thread-safety and
 identity contracts. A package that imports a type it is not composed with fails
 there, because it cannot detect the omission on its own.
 
+### Error-object failures
+
+An operation may report failure by returning an owned error object rather than
+a code, with null meaning success. `errno` covers a sentinel plus thread-local
+state and `nullable` covers a null handle result; neither describes an object
+that carries its own message and must be released.
+
+GLib's GError is the motivating case. Once a generated adapter absorbs the
+`GError **` out-parameter, what crosses the ABI is a pointer that is null on
+success, and the same shape recurs well beyond GLib.
+
+The contract names two bindings — one reading the message, one releasing the
+object — rather than deriving their symbols from the operation's own. They are
+ordinary reachability dependencies, but they are never callable from
+TypeScript: they traffic in raw pointers, and the compiler declares and calls
+them directly.
+
+The result is a pointer whose source type is void. A foreign pointer must never
+become a source value, so the projection states that nothing reaches the source
+while the contract states what the pointer means. It is not a discarded result:
+the pointer is read for its message and released.
+
+Both backends read the message, throw unless a callback has already left an
+exception pending, and release on either path, so an in-flight exception cannot
+strand the object. The thrown message is copied before the release.
+
 A native boolean names an integer storage type plus distinct, canonical,
 in-range false and true values. Its source projection is an ordinary TypeScript
 `boolean`; the storage integer is ABI-only. Both backends compare the exact

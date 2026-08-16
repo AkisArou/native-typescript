@@ -354,6 +354,17 @@ export type ErrorContract =
   | { readonly kind: "nullable" }
   | { readonly kind: "sentinel"; readonly failureValue: string }
   | { readonly kind: "errno"; readonly failureValue: string }
+  /** The operation returns an owned error object, or null on success. The
+   * message is read through `message` and copied into the thrown error, then
+   * the object is released through `release` — including when a callback has
+   * already left an exception pending, so it is never stranded. Requires the
+   * `error-channel` result projection, which is what keeps the pointer from
+   * becoming a source value. */
+  | {
+      readonly kind: "error-handle";
+      readonly message: NativeBindingId;
+      readonly release: NativeBindingId;
+    }
   | { readonly kind: "status-code"; readonly successValues: readonly string[] }
   | { readonly kind: "hresult" }
   | { readonly kind: "jni-pending-exception" }

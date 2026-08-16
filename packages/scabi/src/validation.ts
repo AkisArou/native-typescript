@@ -1563,6 +1563,32 @@ function validateCallableBinding(
   diagnostics: ScabiDiagnostic[],
 ): void {
   const dependencies = new Set(binding.dependencies.bindings);
+  if (binding.error.kind === "error-handle") {
+    // The two entries are ordinary bindings, so they are reachability
+    // dependencies like a destructor rather than free-floating symbols.
+    for (const [role, reference] of [
+      ["message", binding.error.message],
+      ["release", binding.error.release],
+    ] as const) {
+      validateBindingReference(
+        manifest,
+        id,
+        dependencies,
+        reference,
+        `/bindings/${id}/error/${role}`,
+        diagnostics,
+      );
+    }
+    if (binding.error.message === binding.error.release) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `/bindings/${id}/error`,
+          "An error handle's message and release bindings must be distinct",
+        ),
+      );
+    }
+  }
   const parameterNames = new Set<string>();
   for (const [index, parameter] of binding.signature.parameters.entries()) {
     if (parameterNames.has(parameter.name)) {
