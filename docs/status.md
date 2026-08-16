@@ -68,10 +68,21 @@ callback trampolines widen exactly on the way out. The physical slot stays the
 exact scalar throughout, including in a queued callback invocation, where the
 widening happens when the delivery reads the stored payload.
 
-Literals are decided at compile time in both directions: a literal the emitter
-re-proves in place produces the constant with no check emitted at all, and a
-literal no value of the native type can hold is refused where it is written
-rather than deferred to a throw.
+Crossings the compiler can decide are decided at compile time. A literal the
+emitter re-proves in place produces the constant with no check emitted at all,
+and a literal no value of the native type can hold is refused where it is
+written rather than deferred to a throw.
+
+Inference carries that further. A flow-sensitive interval-and-wholeness
+analysis over the validated IR — the same domain the library lane uses for its
+declared i64/u64 slots, which is why it lives in `ir/number-facts.ts` rather
+than in either consumer — proves the crossings that need no check: a widened
+result fed straight back into the slot it came from, a number-projected field
+read, a callback payload passed on, a value a guard has bounded, a loop
+induction. Anything unmodeled reaches the top of the domain and keeps its
+check, and a crossing whose every admitted value is outside the slot becomes a
+diagnostic (SC5106). The sanitized lane re-enables every check, so a proof that
+was wrong throws there instead of converting a value the slot cannot hold.
 
 Pointer-width and 64-bit slots cannot declare it. A double carries at most 53
 bits of integer injectively, so the width fence is enforced structurally by IR

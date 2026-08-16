@@ -165,17 +165,22 @@ types remain, correctly, as distinct names for one proven ABI type.
 
 Two tracks remain, in this order.
 
-*Making the checked boundary free where it is provably unnecessary.* The
-emitters already elide the check for a literal. The next step is a facts pass
-— the abstract-value domain `int-infer` already implements, lifted out of the
-library path into the IR and run after validation — producing a certified
-side-table of call sites whose argument is provably whole and in range, which
-both backends consult. A widened egress value seeds those facts, so a
-round-trip such as `sender.setContentWidth(width)` inside a resize handler
-costs nothing. A provably failing site is promoted to a diagnostic the way a
-literal already is. After that, machine-integer specialization for the shapes
-where it pays: loop inductions, and guarded add/sub/mul through the overflow
-intrinsics with an f64 fallback.
+*Making the checked boundary free where it is provably unnecessary.* Done for
+the shapes that matter. The abstract-value domain `int-infer` implemented for
+the library lane now lives in `ir/number-facts.ts` and serves both consumers;
+a pass over validated IR certifies the crossings that need no check, and both
+backends consult it. A widened egress value seeds the facts, so a round-trip
+such as `sender.setContentWidth(width)` inside a resize handler costs nothing,
+and a provably failing crossing is a diagnostic rather than a call that can
+only throw.
+
+What remains on this side is machine-integer specialization: representing a
+provably-integer value as a machine integer inside compiled code, for the
+shapes where it pays — loop inductions, and guarded add/sub/mul through the
+overflow intrinsics with an f64 fallback. That is a Layer-1 optimization with
+no semantic content: `number` stays f64, byte-exact to Node. It needs a
+benchmark harness before it needs an implementation, because its whole
+justification is a measurement.
 
 *The exact family that remains.* [Language profile](language-profile.md)
 specifies a whole numeric contract for it — wrapping `+`/`-`/`*`, trapping

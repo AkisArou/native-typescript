@@ -172,10 +172,14 @@ infer the policy — the manifest declares it or the position is exact.
   `0` denote the same integer.
 - **Egress** (results, aggregate fields, callback payloads) is *exact
   widening*. It cannot fail and has no failure arm.
-- A literal argument is decided at compile time. When the compiler can prove
-  the literal converts, no check is emitted — the constant is the converted
-  value. When it can prove the literal cannot convert, the program is refused
-  where the literal is written, because the call has only one outcome.
+- A crossing the compiler can decide is decided at compile time. A literal is
+  the simplest case, and inference extends it: when the value is proven whole
+  and inside the slot on every path that reaches the boundary, no check is
+  emitted, because the check could only have agreed. When every value that can
+  reach the boundary is one the slot cannot hold, the program is refused where
+  the crossing is written, because the call has only one outcome. Both are
+  implementation freedoms over the same semantics — an elided check never
+  changes what a program computes, only what it spends deciding it.
 - A failing binding may not declare the policy on its result: a sentinel,
   errno, or status contract is read from the exact scalar the source never
   sees.
