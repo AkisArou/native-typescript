@@ -21,7 +21,6 @@ export type {
 
 export { defineCompiler, defineTarget } from "./target.ts";
 export type {
-  ApplicationModel,
   CompilerDescriptor,
   Endianness,
   ObjectFormat,

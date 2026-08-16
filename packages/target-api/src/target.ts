@@ -12,7 +12,6 @@ import type {
 export type PointerWidth = 32 | 64;
 export type Endianness = "little" | "big";
 export type ObjectFormat = "elf" | "macho" | "coff" | "wasm";
-export type ApplicationModel = "executable" | "library" | "hosted-app";
 
 export interface CompilerDescriptor {
   readonly id: string;
@@ -27,7 +26,6 @@ export interface TargetDescriptor {
   readonly pointerWidth: PointerWidth;
   readonly endianness: Endianness;
   readonly objectFormat: ObjectFormat;
-  readonly applicationModel: ApplicationModel;
   readonly requiredCompilerCapabilities: readonly CapabilityId[];
   readonly supportedBindingFamilies: readonly string[];
 }

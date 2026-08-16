@@ -63,7 +63,6 @@ function target(
       pointerWidth: 64,
       endianness: "little",
       objectFormat: "elf",
-      applicationModel: "executable",
       requiredCompilerCapabilities: [
         capabilities.nativeIrV1,
         capabilities.scabiV1,

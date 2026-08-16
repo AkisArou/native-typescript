@@ -123,6 +123,36 @@ stack.
 
 Recorded in [Implementation status](status.md).
 
+### Next slices
+
+Two contracts block the application lifecycle. Both are foundation work that
+several later targets need, not GTK glue, so both belong to their owning
+boundary rather than to the GTK package.
+
+**Cross-namespace value parameters.** `gtk_application_new()` takes a
+`Gio.ApplicationFlags`. No SCABI type import is involved: an enum or flags type
+lowers to a bare scalar with no instance-scoped identity, so only the
+TypeScript declaration is foreign. The importing package proves the storage
+with its own Clang probe, maps the type to the owning module in
+`declarations.types`, and imports the branded name in its declaration file.
+Composition already coalesces source types by declaration identity, so a
+disagreement about the underlying scalar fails there. The work is in
+generation: resolve a qualified GIR type reference in a parameter position, and
+admit a foreign enum as a probe candidate.
+
+**A GError error convention.** `g_application_register()` is `throws=1`.
+`ErrorContract` already reserves an out-parameter error family for this shape,
+but only `errno` sentinels and nullable owned handles are implemented. GError
+needs an out-parameter whose address is passed to native code, a read of the
+resulting foreign struct, and a cleanup call, so it extends Native IR rather
+than SCABI alone. It unblocks a large fraction of Gio and GTK, which makes it
+the higher-value of the two.
+
+Until both land the lifecycle cannot be constructed at all, so there is no
+partial version of it worth shipping. `g_application_activate()`,
+`g_application_quit()`, `g_application_get_is_remote()`, and the `activate`
+signal are already inside the implemented algebra and need no new contract.
+
 ### Acceptance application
 
 A native counter application:

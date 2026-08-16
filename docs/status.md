@@ -324,11 +324,17 @@ These are deliberate, not oversights. Each is a named future slice.
   - `g_application_register()` is `throws=1`, and GError is not an implemented
     native error convention. Only exact-integer `errno` sentinels and nullable
     owned handle results are.
-  - `gtk_application_new()` takes a `Gio.ApplicationFlags`, and imported types
-    are currently admitted only as handle upcast targets. A handle needs no
-    local structure because its representation is always a pointer; a flags
-    type needs its underlying scalar, so importing one requires carrying the
-    definition and having composition verify it against the owner.
+  - `gtk_application_new()` takes a `Gio.ApplicationFlags`, and generation
+    cannot yet project a parameter whose GIR type belongs to another
+    namespace. This needs no SCABI type import: an enum or flags type lowers
+    to a bare scalar with no instance-scoped identity, so only the TypeScript
+    declaration is foreign. The package proves the storage with its own Clang
+    probe, maps the type to the owning module in `declarations.types`, and
+    imports the branded name in its declaration file. Composition coalesces
+    source types by declaration identity, so a disagreement about the
+    underlying scalar fails there. The remaining work is in the generator:
+    resolving a qualified GIR type reference in a parameter, and admitting a
+    foreign enum as a probe candidate.
 
   `g_application_activate()`, `g_application_quit()`,
   `g_application_get_is_remote()`, and the `activate` signal are all inside the

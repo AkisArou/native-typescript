@@ -53,14 +53,18 @@ interface TargetDescriptor {
   readonly pointerWidth: 32 | 64;
   readonly endianness: "little" | "big";
   readonly objectFormat: "elf" | "macho" | "coff" | "wasm";
-  readonly applicationModel: "executable" | "library" | "hosted-app";
   readonly requiredCompilerCapabilities: readonly string[];
   readonly supportedBindingFamilies: readonly string[];
 }
 ```
 
 The final descriptor also records minimum OS/API versions and target feature
-flags. A target ID is stable and globally namespaced. Build configuration never
+flags.
+
+It does not record a product kind. One target produces executables, static and
+shared libraries, and eventually application bundles, so the product belongs to
+the build request rather than to target identity. Modelling it here would
+require a separate target definition per product for one triple. A target ID is stable and globally namespaced. Build configuration never
 selects a target by importing arbitrary executable configuration from a
 dependency.
 
