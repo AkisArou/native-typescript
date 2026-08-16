@@ -337,14 +337,23 @@ Two things a project author meets immediately, both deliberate:
 
 - An exact native scalar is constructed from a literal, never from an arbitrary
   number, because the compiler proves the value is in range.
-- **A generated property cannot be read back after a literal is assigned to
-  it.** `sender.label = "Count: 1"` narrows every later read of `label` to that
-  literal, and a native getter cannot honour a narrowing — the setter may
-  normalise the value and a nullable getter may still return null. This is the
-  first thing a newcomer hits, because set-then-read is the natural shape.
+- **A nullable string property cannot be read through a narrowing.** A native
+  getter returns what its declaration allows on every call, so a read narrowed
+  to `string` has nowhere to put a null the callee can still produce.
 
-  The trap belongs to the property projection specifically: a getter method is
-  never narrowed by a setter call. Properties read better and this is what they
+  Two ordinary shapes hit it, and they need different fixes. The common one is
+  the null-check idiom — `if (window.title !== null) use(window.title)` — where
+  the guard narrows the second read; reading once into a local and testing that
+  works. The other is assigning a literal and reading back, where the read is
+  already narrowed and the assigned value has to be widened instead. The
+  compiler names both at the call site.
+
+  Only nullable string getters are affected. Booleans, enumerations and branded
+  scalars survive set-then-read, and so do non-nullable strings, because none
+  of them requires an exact two-arm match.
+
+  It is the property projection that creates the exposure: a getter method is
+  never narrowed by anything. Properties read better and this is what they
   cost, which is worth revisiting if it proves to be the common case rather
   than the occasional one.
 - An array of exact native scalars is not implemented. `[0 as gint]` is

@@ -160,10 +160,13 @@ Which classes and members exist is the project's own decision — generation is
 closed over exactly what `native-typescript.json` selects, so an unlisted
 member is absent rather than merely unused.
 
-Reading a property back after assigning a literal to it does not compile. The
-assignment narrows every later read, and a native getter cannot honour a
-narrowing: the callee still returns whatever its declaration allows. The
-compiler says so by name at the call site.
+One rough edge is worth knowing before you meet it. A nullable string property
+cannot be read through a narrowing, because a native getter returns what its
+declaration allows on every call. `if (window.title !== null) use(window.title)`
+does not compile; reading once into a local and testing that does. The compiler
+explains this at the call site, and
+[Implementation status](docs/status.md) records why it is refused rather than
+accepted.
 
 ### Windows
 
