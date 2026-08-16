@@ -196,6 +196,28 @@ open, and smaller: converting between two exact widths without going through a
 number, which today costs a `toNumber`/`fromNumber` pair and a range check
 that a direct conversion would not need.
 
+**To reevaluate before building either: whether a declared namespace on the
+type is the right surface at all.** Both remaining items would add more
+members to `i64.…`, and that surface has been questioned once already and was
+half wrong when it was: division and the shifts were declared operations for
+one commit before it became clear they are ordinary operator expressions
+inside a construction, like every other exact operation. What survived the
+correction is a narrow claim — a *conversion* has no operator to be, and
+cannot borrow `Number(v)` or `BigInt(n)` because those mean something else at
+an exact width — and it is worth re-testing rather than extending on
+momentum. Three questions to answer with a written comparison, not by
+building:
+
+- Does an overflow policy belong on the operation (`i32.addChecked`) or on
+  the type, so that a manifest chooses wrapping or checked once and every
+  operator obeys it? The second is a smaller surface and a bigger change.
+- Is a width conversion a member of the source type, of the destination type,
+  or neither — a single `convert<T>` the checker resolves?
+- Would any of it be reached by a real binding, or only by this repository's
+  own fixtures? Nothing in the tree divides a `gint64` today. The numeric
+  model is complete for everything the project actually uses, so the cost of
+  guessing wrong here is paid in surface that never carries a caller.
+
 One thing is deliberately not on that list. The construction form
 `(a + b) as u32` stays, and the earlier claim that it was a mere lowering seam
 was wrong: TypeScript types arithmetic over two branded numbers as plain
