@@ -134,6 +134,13 @@ with the matching headers and target compiler's Clang AST/layout results before
 emitting SCABI. Missing ownership or a disagreement between GIR and the
 authoritative C view is an error; the generator does not guess.
 
+A metadata C spelling is an untrusted candidate, so equivalent spellings of one
+type are accepted and the probe decides. GLib declares `gchar` as a typedef for
+`char` and namespaces are inconsistent about which they write — `Gtk` spells a
+string parameter `const char*` while `Gio` spells the same parameter
+`const gchar*` — so both project as borrowed UTF-8 and Clang proves the real
+type either way.
+
 The implemented C evidence slice accepts named types, pointer composition, and
 explicitly selected typedef-named records and fields. It treats metadata C
 spellings as untrusted candidates and generates one content-addressed ABI probe.

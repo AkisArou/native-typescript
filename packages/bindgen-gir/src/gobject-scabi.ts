@@ -180,6 +180,20 @@ function handleTypeId(namespace: string, class_: GirClass): string {
   return `${namespace.toLowerCase()}_${class_.cSymbolPrefix}`;
 }
 
+/**
+ * C spellings GIR uses for a borrowed UTF-8 string.
+ *
+ * GLib declares `gchar` as a typedef for `char`, and namespaces are not
+ * consistent about which they write: Gtk spells `const char*` while Gio spells
+ * `const gchar*` for the same parameter. A metadata C spelling is an untrusted
+ * candidate either way — the Clang probe proves the real type against the
+ * headers — so accepting both here narrows nothing.
+ */
+const borrowedUtf8CTypes: ReadonlySet<string> = new Set([
+  "const char*",
+  "const gchar*",
+]);
+
 function enumerationTypeId(namespace: string, name: string): string {
   return `${namespace.toLowerCase()}_${snakeCase(name)}`;
 }
@@ -434,7 +448,8 @@ function cStringParameter(
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
     parameter.type.name !== "utf8" ||
-    parameter.type.cType !== "const char*" ||
+    parameter.type.cType === null ||
+    !borrowedUtf8CTypes.has(parameter.type.cType) ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
     parameter.optional ||
@@ -631,7 +646,8 @@ function methodResult(
   if (
     result.type.kind === "named" &&
     result.type.name === "utf8" &&
-    result.type.cType === "const char*" &&
+    result.type.cType !== null &&
+    borrowedUtf8CTypes.has(result.type.cType) &&
     result.transferOwnership === "none" &&
     result.scope === null &&
     result.closureParameter === null &&
