@@ -1237,7 +1237,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   });
   const connect = generated.manifest.bindings.gtk_button_connect_clicked;
   assert.ok(connect && connect.kind !== "constant");
-  assert.equal(connect.entry.symbol, "nts_gobject_connect_button_clicked");
+  assert.equal(connect.entry.symbol, "nts_gobject_connect_gtk_button_clicked");
   assert.deepEqual(connect.signature.parameters[1]?.ownership, {
     kind: "borrowed",
     scope: "registration",

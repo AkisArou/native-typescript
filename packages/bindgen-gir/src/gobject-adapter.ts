@@ -196,6 +196,7 @@ function signalParameter(
 }
 
 function generateConstructor(
+  namespace: string,
   class_: GirClass,
   callable: GirCallable,
   diagnostics: CBindgenDiagnostic[],
@@ -258,7 +259,9 @@ function generateConstructor(
   }
 
   const adapterSymbol = `nts_gobject_adopt_${callable.cIdentifier}`;
-  const releaseSymbol = `nts_gobject_release_${class_.cSymbolPrefix}`;
+  // Qualified by namespace: a class name is unique only within one namespace,
+  // and Gio.Application and Gtk.Application link into the same executable.
+  const releaseSymbol = `nts_gobject_release_${namespace}_${class_.cSymbolPrefix}`;
   const parameterDeclarations = validParameters.map(
     (parameter, index) => `${renderCType(parameter)} parameter_${index.toString().padStart(4, "0")}`,
   );
@@ -298,6 +301,7 @@ function generateConstructor(
 }
 
 function generateSignal(
+  namespace: string,
   class_: GirClass,
   callable: GirCallable,
   signalConnection: GObjectSignalConnectionAdapter,
@@ -341,11 +345,11 @@ function generateSignal(
   if (validParameters.length !== parameters.length) return null;
 
   const classPart = class_.cSymbolPrefix;
-  const typeStem = `NtsGObject${upperCamel(class_.name)}${upperCamel(callable.name)}`;
+  const typeStem = `NtsGObject${upperCamel(namespace)}${upperCamel(class_.name)}${upperCamel(callable.name)}`;
   const callbackType = `${typeStem}Callback`;
   const connectionType = `${typeStem}Connection`;
-  const connectSymbol = `nts_gobject_connect_${classPart}_${signalPart}`;
-  const dispatchSymbol = `nts_gobject_dispatch_${classPart}_${signalPart}`;
+  const connectSymbol = `nts_gobject_connect_${namespace}_${classPart}_${signalPart}`;
+  const dispatchSymbol = `nts_gobject_dispatch_${namespace}_${classPart}_${signalPart}`;
   const nativeClassPointer = `${renderCType(nativeClass)} *`;
   const callbackParameters = validParameters.map(
     (parameter, index) =>
@@ -582,7 +586,12 @@ export function generateGObjectAdapterSource(
   for (const class_ of snapshot.classes) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {
-      const generated = generateConstructor(class_, callable, diagnostics);
+      const generated = generateConstructor(
+        namespacePart,
+        class_,
+        callable,
+        diagnostics,
+      );
       if (generated === null) continue;
       classConstructors.push(generated.adapter);
       constructors.push(generated.adapter);
@@ -598,7 +607,13 @@ export function generateGObjectAdapterSource(
       );
     }
     for (const callable of class_.signals) {
-      const generated = generateSignal(class_, callable, signalConnection!, diagnostics);
+      const generated = generateSignal(
+        namespacePart,
+        class_,
+        callable,
+        signalConnection!,
+        diagnostics,
+      );
       if (generated === null) continue;
       signals.push(generated.adapter);
       lines.push(...generated.lines);

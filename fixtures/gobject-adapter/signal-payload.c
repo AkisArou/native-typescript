@@ -3,8 +3,8 @@
 typedef struct NtsGtkSignalConnection NtsGtkSignalConnection;
 
 GtkDrawingArea *nts_gobject_adopt_gtk_drawing_area_new(void);
-void nts_gobject_release_drawing_area(GtkDrawingArea *value);
-NtsGtkSignalConnection *nts_gobject_connect_drawing_area_resize(
+void nts_gobject_release_gtk_drawing_area(GtkDrawingArea *value);
+NtsGtkSignalConnection *nts_gobject_connect_gtk_drawing_area_resize(
     GtkDrawingArea *instance,
     void (*callback)(gint width, gint height, void *context),
     void *context);
@@ -31,7 +31,7 @@ int main(void) {
 
   PayloadObservation observation = {0};
   NtsGtkSignalConnection *connection =
-      nts_gobject_connect_drawing_area_resize(area, observe_resize, &observation);
+      nts_gobject_connect_gtk_drawing_area_resize(area, observe_resize, &observation);
   if (connection == NULL) return 11;
 
   g_signal_emit_by_name(area, "resize", 320, 180);
@@ -43,6 +43,6 @@ int main(void) {
   g_signal_emit_by_name(area, "resize", 640, 360);
   if (observation.calls != 1) return 13;
 
-  nts_gobject_release_drawing_area(area);
+  nts_gobject_release_gtk_drawing_area(area);
   return 0;
 }

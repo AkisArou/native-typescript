@@ -600,7 +600,7 @@ test(
         ],
       );
       const connect = translated.input.bindings.find(
-        ({ entry }) => entry.symbol === "nts_gobject_connect_button_clicked",
+        ({ entry }) => entry.symbol === "nts_gobject_connect_gtk_button_clicked",
       );
       assert.equal(connect?.arguments[1]?.type.kind, "func");
       assert.equal(connect?.arguments[1]?.callback?.lifetime, "until-cancelled");

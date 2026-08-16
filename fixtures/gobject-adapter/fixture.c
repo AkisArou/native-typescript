@@ -1,7 +1,7 @@
 #include <gtk/gtk.h>
 
 GtkButton *nts_gobject_adopt_gtk_button_new_with_label(const char *label);
-void nts_gobject_release_button(GtkButton *value);
+void nts_gobject_release_gtk_button(GtkButton *value);
 
 static int finalized = 0;
 
@@ -19,7 +19,7 @@ int main(void) {
   if (g_strcmp0(gtk_button_get_label(button), "native") != 0) return 12;
 
   g_object_weak_ref(G_OBJECT(button), on_finalized, NULL);
-  nts_gobject_release_button(button);
+  nts_gobject_release_gtk_button(button);
   if (finalized != 1) return 13;
   return 0;
 }

@@ -164,6 +164,14 @@ direct C functions. Exact scalar signal payloads are copied before owner
 delivery; any reached signal or parameter/result form outside that closed
 algebra is an error instead of a guessed projection.
 
+Generated adapter symbols are qualified by namespace wherever a class name
+would otherwise identify them. A class name is unique only inside its
+namespace, and two namespaces routinely project into one executable —
+`Gio.Application` and `Gtk.Application` are the motivating pair — so a symbol
+keyed by class name alone is a duplicate definition at link time. Symbols
+derived from a C identifier are already globally unique and are left as they
+are.
+
 Selected non-throwing instance methods whose remaining parameters are
 caller-allocated transparent-record outputs use a value adapter. The adapter
 allocates every output locally, calls the native method once, and returns one

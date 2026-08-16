@@ -40,6 +40,7 @@ const nativeSignalPayloadFixturePath = resolve(
   "fixtures/gobject-adapter/signal-payload.c",
 );
 const installedGtkGirPath = "/usr/share/gir-1.0/Gtk-4.0.gir";
+const installedGioGirPath = "/usr/share/gir-1.0/Gio-2.0.gir";
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
 const hasClang = spawnSync("clang", ["--version"]).status === 0;
 const hasXvfb = spawnSync("xvfb-run", ["--help"]).status === 0;
@@ -162,6 +163,46 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   }
 }
 
+test(
+  "adapters for same-named classes in two namespaces do not collide",
+  { skip: !existsSync(installedGtkGirPath) || !existsSync(installedGioGirPath) },
+  () => {
+    // Gio.Application and Gtk.Application link into one executable, and a
+    // class name is unique only inside its namespace. Symbols keyed by class
+    // name alone produced a duplicate definition at link time.
+    const gio = ingestGir(readFileSync(installedGioGirPath, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Application", constructors: ["new"], signals: ["activate"] }],
+    });
+    const gtk = ingestGir(readFileSync(installedGtkGirPath, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Application", constructors: ["new"] }],
+    });
+
+    function definedSymbols(source: string): readonly string[] {
+      return [
+        ...source.matchAll(
+          /^(?:static\s+)?[A-Za-z_][\w \t*]*?([A-Za-z_]\w*)\s*\([^;]*\)\s*\{/gmu,
+        ),
+      ].map((match) => match[1]!);
+    }
+
+    const gioSymbols = definedSymbols(generateGObjectAdapterSource(gio).source);
+    const gtkSymbols = definedSymbols(generateGObjectAdapterSource(gtk).source);
+    assert.ok(gioSymbols.length > 0 && gtkSymbols.length > 0);
+    assert.deepEqual(
+      gioSymbols.filter((symbol) => gtkSymbols.includes(symbol)),
+      [],
+    );
+
+    // The release adapter is the one that was keyed by class name alone.
+    assert.equal(gioSymbols.includes("nts_gobject_release_gio_application"), true);
+    assert.equal(gtkSymbols.includes("nts_gobject_release_gtk_application"), true);
+  },
+);
+
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
@@ -174,7 +215,7 @@ test("GObject constructors normalize borrowed floating results to one strong ref
       nativeType: "GtkButton",
       sourceSymbol: "gtk_button_new_with_label",
       adapterSymbol: "nts_gobject_adopt_gtk_button_new_with_label",
-      releaseSymbol: "nts_gobject_release_button",
+      releaseSymbol: "nts_gobject_release_gtk_button",
       sourceTransfer: "none",
       acquisition: "ref-sink",
       nullable: false,
@@ -190,7 +231,7 @@ test("GObject constructors normalize borrowed floating results to one strong ref
   assert.equal(generated.source.includes("g_object_is_floating"), false);
   assert.match(
     generated.source,
-    /void nts_gobject_release_button\(GtkButton \*value\)/u,
+    /void nts_gobject_release_gtk_button\(GtkButton \*value\)/u,
   );
   assertDeepFrozen(generated);
   assert.deepEqual(adapter(), generated);
@@ -209,15 +250,15 @@ test("zero-payload GObject signals share one deterministic connection ABI", () =
     className: "Button",
     nativeType: "GtkButton",
     signalName: "clicked",
-    connectSymbol: "nts_gobject_connect_button_clicked",
-    callbackType: "NtsGObjectButtonClickedCallback",
+    connectSymbol: "nts_gobject_connect_gtk_button_clicked",
+    callbackType: "NtsGObjectGtkButtonClickedCallback",
     parameters: [],
   }]);
   assert.match(
     generated.source,
-    /NtsGtkSignalConnection \*nts_gobject_connect_button_clicked/u,
+    /NtsGtkSignalConnection \*nts_gobject_connect_gtk_button_clicked/u,
   );
-  assert.match(generated.source, /typedef struct NtsGObjectButtonClickedConnection/u);
+  assert.match(generated.source, /typedef struct NtsGObjectGtkButtonClickedConnection/u);
   assert.match(
     generated.source,
     /void nts_gtk_signal_connection_disconnect\(NtsGtkSignalConnection \*connection\)/u,
@@ -273,8 +314,8 @@ test("GObject signal adapters forward exact scalar payloads", () => {
     className: "Button",
     nativeType: "GtkButton",
     signalName: "resized",
-    connectSymbol: "nts_gobject_connect_button_resized",
-    callbackType: "NtsGObjectButtonResizedCallback",
+    connectSymbol: "nts_gobject_connect_gtk_button_resized",
+    callbackType: "NtsGObjectGtkButtonResizedCallback",
     parameters: [
       { name: "width", nativeType: "gint", sourceType: "gint" },
       { name: "scale", nativeType: "gdouble", sourceType: "gdouble" },
@@ -282,7 +323,7 @@ test("GObject signal adapters forward exact scalar payloads", () => {
   }]);
   assert.match(
     generated.source,
-    /typedef void \(\*NtsGObjectButtonResizedCallback\)\(gint parameter_0000, gdouble parameter_0001, void \*context\);/u,
+    /typedef void \(\*NtsGObjectGtkButtonResizedCallback\)\(gint parameter_0000, gdouble parameter_0001, void \*context\);/u,
   );
   assert.match(
     generated.source,
