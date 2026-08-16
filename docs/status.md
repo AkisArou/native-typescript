@@ -401,10 +401,25 @@ delivered" from "signal delivered late" rather than hanging.
 | Nominal enums and flags | Clang-proven storage and member values |
 | Record outputs | `Widget.getPreferredSize()` as a nested value |
 | Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
+| Deprecated members | bind normally, marked `@deprecated` in the declaration |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
 `none` and `full` results become one strong, non-floating reference, and a real
 GTK weak-finalization gate proves exact release.
+
+A member the library has deprecated binds like any other. Deprecation is the
+library's opinion about its own API, not a fact about that API's ABI, and the
+Clang probe exists to read layout and calling convention from the real headers
+— which a deprecated function has. Refusing one would stop an application from
+calling a symbol that works, and GTK 4 deprecates enough (`gtk_widget_show`
+among them) that the refusal would arrive constantly. It arrived as Clang
+internals, at that: `-Werror` stopped inside a generated probe, naming a
+`__builtin_types_compatible_p` line rather than the member the project
+selected.
+
+The notice belongs where the caller decides instead, so a deprecated member's
+declaration carries `@deprecated` with the version GIR records, which
+TypeScript renders as a strikethrough at the call site.
 
 Signal connections share one `SignalConnection` capability. The adapter
 strongly retains the signal instance, disconnects by handler ID, and composes

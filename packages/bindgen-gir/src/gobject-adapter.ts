@@ -1077,6 +1077,12 @@ export function planGObjectAdapterObject(input: {
       { kind: "literal", value: "-Wall" },
       { kind: "literal", value: "-Wextra" },
       { kind: "literal", value: "-Werror" },
+      /* The adapter wraps whatever the application selected, including members
+       * the library has deprecated. Their deprecation is carried to the
+       * caller in the generated declaration; refusing to compile the wrapper
+       * would refuse the binding itself, and for a reason that says nothing
+       * about whether the call works. */
+      { kind: "literal", value: "-Wno-deprecated-declarations" },
       ...input.arguments,
     ],
     tool: input.tool,

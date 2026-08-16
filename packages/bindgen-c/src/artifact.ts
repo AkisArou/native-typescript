@@ -79,6 +79,15 @@ export function planClangAbiProbe(input: {
     { kind: "literal", value: "-Wall" },
     { kind: "literal", value: "-Wextra" },
     { kind: "literal", value: "-Werror" },
+    /* Deprecation is a library's opinion about its own API, not a fact about
+     * that API's ABI. A deprecated function has a layout and a calling
+     * convention like any other, and the probe exists to read exactly those
+     * from the real headers. Letting -Werror stop on one would mean an
+     * application could not bind a working symbol because the vendor would
+     * rather it did not — reported, at that, as Clang internals rather than as
+     * anything the caller could act on. The generated declaration carries the
+     * deprecation instead, which is where a caller can see it. */
+    { kind: "literal", value: "-Wno-deprecated-declarations" },
     { kind: "literal", value: "-fsyntax-only" },
     { kind: "literal", value: "-Xclang" },
     { kind: "literal", value: "-ast-dump=json" },

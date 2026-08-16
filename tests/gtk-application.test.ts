@@ -352,6 +352,14 @@ test(
         declarations,
         /onRowActivated\(callback: \(listBox: ListBox, row: ListBoxRow\) => void\)/u,
       );
+      /* A deprecated member binds like any other — the probe reads its ABI
+       * from the same headers — and the declaration is where the caller finds
+       * out. The application calls this one, so the gate covers compiling and
+       * linking a deprecated symbol, not only declaring it. */
+      assert.match(
+        declarations,
+        /@deprecated Deprecated by the library since version 4\.10\.[\s\S]{0,40}show\(\): void;/u,
+      );
 
       assert.deepEqual(runApplication(built.productPath), {
         status: 0,

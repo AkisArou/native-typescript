@@ -268,6 +268,11 @@ const clicked = action.onClicked((sender): void => {
 });
 if (!clicked.connected) throw new Error("clicked did not connect");
 
+/* A deprecated member still binds. GTK would rather this were
+ * `setVisible(true)`, and the generated declaration says so, but an
+ * application migrating off one has to be able to call it meanwhile. */
+heading.show();
+
 /* Emits row-activated, whose payload is the row itself. */
 alpha.activate();
 

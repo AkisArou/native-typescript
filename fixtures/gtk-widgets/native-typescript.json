@@ -83,7 +83,8 @@
             "set_sensitive",
             "set_size_request",
             "set_vexpand",
-            "set_visible"
+            "set_visible",
+            "show"
           ]
         },
         {

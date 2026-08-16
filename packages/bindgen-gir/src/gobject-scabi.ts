@@ -271,6 +271,27 @@ function availability(
       });
 }
 
+/**
+ * The JSDoc lines that carry a member's deprecation to whoever calls it.
+ *
+ * A deprecated member still binds: its ABI is a fact like any other, and an
+ * application migrating off one has to be able to call it meanwhile. What it
+ * must not do is bind silently, because then the only place the deprecation
+ * exists is a header the caller never reads. TypeScript renders `@deprecated`
+ * as a strikethrough at the call site, so this is the notice arriving where
+ * the decision is made.
+ */
+function deprecationDoc(
+  callable: { readonly deprecated: boolean; readonly deprecatedVersion: string | null },
+  indent: string,
+): readonly string[] {
+  if (!callable.deprecated) return [];
+  const since = callable.deprecatedVersion === null
+    ? ""
+    : ` since version ${callable.deprecatedVersion}`;
+  return [`${indent}/** @deprecated Deprecated by the library${since}. */`];
+}
+
 function dependencies(input: {
   readonly bindings?: readonly string[];
   readonly links: readonly string[];
@@ -1752,6 +1773,7 @@ export function generateGObjectScabiPackage(
         declarations.add(declaration);
         adapterBindings.push(bindingId);
         classLines.push(
+          ...deprecationDoc(callable, "  "),
           `  ${sourceMember}(${retainedSourceParameters.join(", ")}): ${
             borrowedResult.name
           }${callable.result.nullable ? " | null" : ""};`,
@@ -1836,6 +1858,7 @@ export function generateGObjectScabiPackage(
         declarations.add(declaration);
         adapterBindings.push(bindingId);
         classLines.push(
+          ...deprecationDoc(callable, "  "),
           `  ${sourceMember}(${throwingSourceParameters.join(", ")}): void;`,
         );
         continue;
@@ -1897,7 +1920,10 @@ export function generateGObjectScabiPackage(
           availability: availability(class_, callable),
         });
         adapterBindings.push(bindingId);
-        classLines.push(`  ${sourceMember}(): ${valueMethod.resultName};`);
+        classLines.push(
+          ...deprecationDoc(callable, "  "),
+          `  ${sourceMember}(): ${valueMethod.resultName};`,
+        );
         continue;
       }
       const sourceParameters: string[] = [];
@@ -2063,16 +2089,23 @@ export function generateGObjectScabiPackage(
               ? "string | null"
               : "string";
       if (propertyKind === "getter") {
-        classLines.push(`  get ${sourceMember}(): ${sourceResult};`);
+        classLines.push(
+          ...deprecationDoc(callable, "  "),
+          `  get ${sourceMember}(): ${sourceResult};`,
+        );
       } else if (propertyKind === "setter") {
         const valueType = sourceParameterTypes[0];
         if (valueType === undefined || valueType.length === 0) {
           diagnostics.push(diagnostic(path, "Generated property setter has no source value"));
           continue;
         }
-        classLines.push(`  set ${sourceMember}(value: ${valueType});`);
+        classLines.push(
+          ...deprecationDoc(callable, "  "),
+          `  set ${sourceMember}(value: ${valueType});`,
+        );
       } else {
         classLines.push(
+          ...deprecationDoc(callable, "  "),
           `  ${sourceMember}(${sourceParameters.join(", ")}): ${sourceResult};`,
         );
       }
@@ -2328,6 +2361,7 @@ export function generateGObjectScabiPackage(
       declarations.add(declaration);
       adapterBindings.push(connectId);
       classLines.push(
+        ...deprecationDoc(callable, "  "),
         `  on${upperCamel(callable.name)}(callback: (${[
           `${lowerCamel(class_.name)}: ${class_.name}`,
           ...sourceSignalParameters,
@@ -2463,9 +2497,13 @@ export function generateGObjectScabiPackage(
       adapterBindings.push(bindingId);
       if (projection.kind === "constructor") {
         hasCanonicalConstructor = true;
-        constructorLines.push(`  constructor(${sourceParameters.join(", ")});`);
+        constructorLines.push(
+          ...deprecationDoc(callable, "  "),
+          `  constructor(${sourceParameters.join(", ")});`,
+        );
       } else {
         constructorLines.push(
+          ...deprecationDoc(callable, "  "),
           `  static ${projection.member}(${sourceParameters.join(", ")}): ${class_.name};`,
         );
       }

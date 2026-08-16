@@ -1075,6 +1075,44 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
   assert.deepEqual(generateGObjectScabiPackage(options()), generated);
 });
 
+test("a deprecated member binds and says so at the call site", () => {
+  /* Deprecation is the library's opinion about its own API, not a fact about
+   * the API's ABI, so it must not decide whether a member binds: an
+   * application migrating off one still has to call it. What it does decide is
+   * that the caller is told, in the one place they will see it. */
+  const source = girSource.replace(
+    '<method name="set_label" c:identifier="gtk_button_set_label" glib:set-property="label">',
+    '<method name="set_label" c:identifier="gtk_button_set_label" ' +
+      'glib:set-property="label" deprecated="1" deprecated-version="4.10">',
+  );
+  const selected = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [
+      { name: "Widget" },
+      {
+        name: "Button",
+        constructors: ["new_with_label"],
+        methods: ["get_label", "set_label"],
+      },
+    ],
+    records: [{ name: "Requisition", fields: ["width", "height"] }],
+  });
+  const generated = generateGObjectScabiPackage(options(selected));
+  assert.match(
+    generated.declarations,
+    /\/\*\* @deprecated Deprecated by the library since version 4\.10\. \*\/\n\s*setLabel\(label: string\): void;/u,
+  );
+  /* The member it does not mark stays unannotated, so the notice means
+   * something rather than decorating everything. */
+  assert.match(generated.declarations, /\n\s*getLabel\(\): string \| null;/u);
+  assert.equal(
+    (generated.declarations.match(/@deprecated/gu) ?? []).length,
+    1,
+    "only the deprecated member is marked",
+  );
+});
+
 test("Clang-proven GTK enums become idiomatic exact constants", () => {
   const generated = generateGObjectScabiPackage(options(snapshot([], true)));
 
