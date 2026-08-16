@@ -194,6 +194,22 @@ const borrowedUtf8CTypes: ReadonlySet<string> = new Set([
   "const gchar*",
 ]);
 
+/**
+ * Why a callable cannot become a direct native binding, or null when it can.
+ *
+ * The three causes are reported apart because they mean different things to
+ * whoever selected the member: one is metadata that cannot be bound at all,
+ * one is a known missing contract, and one is an explicit instruction to skip.
+ */
+function directEntryRefusal(callable: GirCallable): string | null {
+  if (callable.cIdentifier === null) return "has no C identifier";
+  if (callable.throws) {
+    return "reports failure through GError, which is not an implemented error contract";
+  }
+  if (callable.result.skip) return "has a result marked skip";
+  return null;
+}
+
 function enumerationTypeId(namespace: string, name: string): string {
   return `${namespace.toLowerCase()}_${snakeCase(name)}`;
 }
@@ -1508,8 +1524,11 @@ export function generateGObjectScabiPackage(
       const propertyName = propertyKind === null
         ? null
         : callable.glibGetProperty ?? callable.glibSetProperty;
-      if (callable.cIdentifier === null || callable.throws || callable.result.skip) {
-        diagnostics.push(diagnostic(path, "Method needs a direct non-throwing C entry"));
+      const methodRefusal = directEntryRefusal(callable);
+      if (methodRefusal !== null || callable.cIdentifier === null) {
+        diagnostics.push(
+          diagnostic(path, `Method ${methodRefusal ?? "has no C identifier"}`),
+        );
         continue;
       }
       const receiver = callable.parameters[0];
@@ -1915,8 +1934,14 @@ export function generateGObjectScabiPackage(
     let hasCanonicalConstructor = false;
     for (const callable of class_.constructors) {
       const path = `${classPath}/constructor/${callable.name}`;
-      if (callable.cIdentifier === null || callable.throws || callable.result.skip) {
-        diagnostics.push(diagnostic(path, "Constructor needs a direct non-throwing C entry"));
+      const constructorRefusal = directEntryRefusal(callable);
+      if (constructorRefusal !== null || callable.cIdentifier === null) {
+        diagnostics.push(
+          diagnostic(
+            path,
+            `Constructor ${constructorRefusal ?? "has no C identifier"}`,
+          ),
+        );
         continue;
       }
       if (

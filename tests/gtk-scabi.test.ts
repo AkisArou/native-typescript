@@ -789,6 +789,51 @@ test(
 );
 
 test(
+  "a throwing member names GError as the reason it cannot be projected",
+  { skip: !existsSync(systemGioGir) },
+  () => {
+    // g_application_register() is throws=1. Someone selecting it should learn
+    // which contract is missing, not just that something is unsupported.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [
+        { name: "Application", constructors: ["new"], methods: ["register"] },
+      ],
+      enumerations: [{ name: "ApplicationFlags", members: ["default_flags"] }],
+    });
+    const failure = generationError(() =>
+      generateGObjectScabiPackage({
+        ...options(gio),
+        package: gio2Package,
+        sdk: {
+          vendor: "GNOME",
+          name: "GLib",
+          version: "2.0",
+          deploymentTarget: "x86_64-unknown-linux-gnu",
+          modules: ["gio-2.0"],
+        },
+        linkInputs: [
+          { id: "gio-2.0", kind: "system-library", name: "gio-2.0", order: 0 },
+        ],
+        adapterInput: {
+          id: "gio2.gobject-adapters",
+          output: "gobject-adapters.o",
+        },
+      })
+    );
+    assert.deepEqual(
+      failure.diagnostics
+        .filter(({ path }) => path.endsWith("/method/register"))
+        .map(({ message }) => message),
+      [
+        "Method reports failure through GError, which is not an implemented error contract",
+      ],
+    );
+  },
+);
+
+test(
   "an unsupplied parent namespace leaves the hierarchy rooted here",
   { skip: !existsSync(systemGtkGir) },
   () => {
