@@ -248,34 +248,19 @@ What remains is the same projection across a namespace boundary: 179 GTK
 methods return a Gio or Gdk object, and naming their destructor means
 referencing a binding in another package.
 
-**Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
-7.2 s build because it is one Clang invocation compiling 19 runtime sources and
-the emitted program together. Nothing about that command can be reused while
-the program changes, so the runtime has to become its own artifact: it depends
-on the pinned checkout and the toolchain, not on the application. The cache
-that makes the split pay off is built and proven — a native action records what
-it read and an entry survives only while those files do.
+**Splitting the ScriptC runtime out of the link.** Done. The runtime was
+4253 ms of a 7.2 s build because one Clang invocation compiled 19 runtime
+sources and the emitted program together, and nothing about that command could
+be reused while the program changed. `planExecutableExternalCBuild` now yields
+one compile plan per runtime source plus the link, each a cacheable action that
+records what it read, so the runtime depends on the pinned checkout and the
+toolchain rather than on the application. Measured on the single-namespace
+fixture: 6.7 s cold, 2.9 s after an application edit, against 7.6 s for either
+before.
 
-The seams all exist; the work is connecting them.
-
-`compileC` already compiles runtime objects separately on its own cached path,
-and `buildArgs(rt)` takes a mapper that substitutes a runtime source with a
-prebuilt object — that is how the cached path links against them. Calling
-`buildArgs` with a recording mapper yields exactly the sources a build
-compiles, which is how `rtInputs` is collected today. A per-object command is
-`[...cflags, "-c", src, "-o", obj]`, no more.
-
-What is missing is that the external path short-circuits before all of it:
-`if (opts.commandExecutor !== undefined) { await runClang(buildArgs((p) => p)); return; }`.
-Giving it an opt-in that emits one compile command per runtime source and then
-the link with the substituting mapper leaves the existing single-command path
-byte-identical, which is the right way to carry the risk.
-
-Two consequences for the embedder. `ExternalCcPlanResolution` becomes a list of
-plans rather than one, and the runtime objects join `linkInputs` so
-`planExternalCCommand` maps their paths instead of leaving physical paths in
-the command. Each object action is cacheable and records dependencies, so a
-rebuild after an application change recompiles one file and relinks.
+What remains is the link itself, which is one action by nature: its inputs
+include the program, so it re-runs whenever the application changes. That is
+correct, and it is also the whole remaining cost.
 
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a
