@@ -139,6 +139,18 @@ What remains is the GTK half: generate the adapter that absorbs
 select the contract for a `throws=1` callable. No new compiler or SCABI work is
 needed for it.
 
+Two constraints found while scoping that half, both non-obvious:
+
+- A `throws=1` callable is no longer a direct probe candidate. GIR omits the
+  trailing `GError **`, so asserting its parameter list against the header is a
+  guaranteed ABI mismatch, and Clang reported that before generation could say
+  what was actually wrong. The generated adapter takes its place as the probed
+  entry, exactly as the ownership adapter does for a constructor.
+- The adapter discards the wrapped call's own result, which is only sound when
+  that result carries no information beyond success. Restrict the first slice
+  to `throws=1` callables returning `gboolean` or `void`, which covers
+  `g_application_register()`; anything else keeps failing precisely.
+
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`
 signal are already inside the implemented algebra and need no new contract.

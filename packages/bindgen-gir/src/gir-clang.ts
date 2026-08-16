@@ -48,6 +48,13 @@ function functionCandidate(
   diagnostics: CBindgenDiagnostic[],
 ): CFunctionCandidate | null {
   const path = `${namespace}/${className}/${callable.kind}/${callable.name}`;
+  if (callable.throws) {
+    // GIR omits the trailing GError** from a throws=1 callable's parameters,
+    // so a direct candidate would assert an arity the header contradicts.
+    // Clang would report that as an ABI mismatch, hiding the real reason the
+    // member cannot be projected, which generation states precisely.
+    return null;
+  }
   if (callable.cIdentifier === null) {
     diagnostics.push({
       code: "NTS5001",

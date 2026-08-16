@@ -751,3 +751,33 @@ test(
     }
   },
 );
+
+test(
+  "a throwing callable is not a direct probe candidate",
+  { skip: !existsSync(systemGioGir) },
+  () => {
+    // GIR omits the trailing GError** from a throws=1 callable, so asserting
+    // its GIR parameter list against the header is a guaranteed ABI mismatch.
+    // Clang would report that first and bury the real reason, which generation
+    // states precisely.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [
+        { name: "Application", constructors: ["new"], methods: ["register"] },
+      ],
+      enumerations: [{ name: "ApplicationFlags", members: ["default_flags"] }],
+    });
+    const probe = generateGirClangAbiProbe(gio, generateGObjectAdapterSource(gio));
+    assert.equal(
+      probe.functions.some(({ symbol }) => symbol === "g_application_register"),
+      false,
+    );
+    // The constructor beside it still is one, so this excludes the throwing
+    // member rather than the class.
+    assert.equal(
+      probe.functions.some(({ symbol }) => symbol === "g_application_new"),
+      true,
+    );
+  },
+);
