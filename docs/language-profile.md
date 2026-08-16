@@ -124,15 +124,21 @@ The implemented arithmetic slice covers same-type exact integer addition,
 subtraction, multiplication, and the three bitwise operations through the
 frontend, Native IR, C, and LLVM. The C lowering computes in the corresponding
 unsigned representation and reconstructs signed bits without signed-overflow
-undefined behavior. Division, remainder, shifts, comparisons, and the explicit
-helper families remain future slices and are not silently lowered as ordinary
+undefined behavior. Division, remainder, shifts, and the explicit helper
+families remain future slices and are not silently lowered as ordinary
 JavaScript-number operations.
 
-The frontend reaches that slice only through a construction expression —
-`(a + b) as u32` lowers, `a + b` does not, because the general binary path is
-the JavaScript-number one and the cast is what names the exact target type.
-Nothing in this specification asks for the cast; it is a lowering seam to
-close, not a rule.
+Comparison is implemented, ordering included: `===`, `!==`, `<`, `<=`, `>`,
+and `>=` over two operands of one exact type compare in that type's own
+representation, so the declared width and signedness decide the answer.
+
+The frontend reaches the arithmetic slice only through a construction
+expression — `(a + b) as u32` lowers, `a + b` does not. That is a consequence
+of TypeScript rather than a rule of this profile: `+` over two branded numbers
+is typed `number`, so the bare form does not typecheck against an exact
+declaration in the first place, and the cast is what makes the expression
+well-typed before it is what names the target type. Comparison needs no cast
+because its result is `boolean` either way.
 
 ### Conversion
 
