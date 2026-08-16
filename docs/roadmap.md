@@ -164,25 +164,30 @@ interned, both backends consult the map before committing a cell, and GObject
 handles declare it — so two projections of one widget will be one managed cell
 rather than two that disagree about equality.
 
-The generation half is a chain, and building it turned up three couplings that
-reading did not:
+The generation half has to land in one change. Three attempts to stage it each
+ran into the next coupling, and the fourth is what forbids staging at all:
 
 - A borrowed result needs a destructor to name, and the release binding is
-  generated only for a class with constructors. `Widget` has none and is the
-  most common borrowed result there is.
-- The release *symbol* comes from the constructor ownership adapter, so a class
-  without constructors has no release function emitted in C either. Both the
-  adapter and the projection have to stop treating release as a thing
-  constructors bring.
-- Giving every selected class a release binding gives every class a `dispose()`,
-  including abstract ones that deliberately have none today. That is defensible
-  — disposing a handle drops the reference this program took, not the object —
-  but it is a visible change to the generated surface rather than an addition.
+  generated only for a class with constructors. `Widget` has none and is 78 of
+  the 187 on its own; 122 of them return a class with no constructor.
+- The release *symbol* comes from the constructor ownership adapter, so such a
+  class has no release function in C either. Both layers treat release as
+  something constructors bring.
+- Giving every class a release gives every class a `dispose()`, including
+  abstract ones that have none today. Defensible — disposing drops the
+  reference this program took, not the object — but a visible change to the
+  generated surface.
+- A release that nothing names as a destructor is refused: *general
+  ownership-consuming calls are outside the exact-destructor slice*. So a class
+  may not be given one speculatively. Releases have to be emitted for exactly
+  the classes something destroys — those with constructors, plus those returned
+  borrowed by a projected method — which means the release rule and the
+  projection decide each other and cannot be committed apart.
 
-With those settled the projection itself is small: an adapter that returns
-`value == NULL ? NULL : g_object_ref(value)` makes the result owned, and an
-owned handle result already projects. The surplus reference is released by the
-identity map when the object already has a cell.
+With that settled the projection itself is small: an adapter returning
+`value == NULL ? NULL : g_object_ref(value)` makes the result owned, an owned
+handle result already projects, and the identity map releases the surplus
+reference when the object already has a cell.
 
 **Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
 7.2 s build because it is one Clang invocation compiling 19 runtime sources and
