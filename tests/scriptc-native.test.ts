@@ -1472,6 +1472,25 @@ test("an imported handle resolves to the package that defines it", () => {
     unresolved.diagnostics.map(({ message }) => message).join("\n"),
     /is not provided by any composed package/u,
   );
+
+  // Composed with an owner that never reached the base handle is a different
+  // failure, and says so: the package is present but the type is not.
+  const ownerWithoutBase = translateScabiNativeProgram(
+    base,
+    selectImports(["i32_identity"]),
+  );
+  assert.equal(ownerWithoutBase.ok, true);
+  if (!ownerWithoutBase.ok) return;
+  const unreached = composeScriptCNativePrograms([
+    derivedProgram,
+    ownerWithoutBase,
+  ]);
+  assert.equal(unreached.ok, false);
+  if (unreached.ok) return;
+  assert.match(
+    unreached.diagnostics.map(({ message }) => message).join("\n"),
+    /is owned by composed package 'example\.base@1\.0\.0', which did not reach it/u,
+  );
 });
 
 test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () => {

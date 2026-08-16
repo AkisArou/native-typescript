@@ -156,9 +156,13 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
   }
 }
 
+/** Type IDs another package owns, which this manifest only references. */
+function importedTypeIds(manifest: ScabiManifest): ReadonlySet<string> {
+  return new Set(Object.keys(manifest.imports ?? {}));
+}
+
 /**
- * Type IDs this manifest references but does not define, because another
- * package owns them.
+ * Checks that every import is coherent on its own terms.
  *
  * Imports exist so one binding family can span several packages without
  * flattening them. `Gtk.Application` extends `Gio.Application`, and the two
@@ -170,15 +174,11 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
  * the package instance that defines it. Only the owning instance lets an
  * importer name the same type.
  *
- * Structural agreement cannot be checked here — only composition sees the
- * defining package — so this manifest checks that every import is declared,
- * not also defined, and used in a position that tolerates a locally opaque
- * type.
+ * Structural agreement is not checkable here, since only composition sees the
+ * defining package. What is checkable is that the import names another
+ * package, is not also defined locally, and carries the TypeScript declaration
+ * identity the projection imports from.
  */
-function importedTypeIds(manifest: ScabiManifest): ReadonlySet<string> {
-  return new Set(Object.keys(manifest.imports ?? {}));
-}
-
 function validateTypeImports(
   manifest: ScabiManifest,
   diagnostics: ScabiDiagnostic[],

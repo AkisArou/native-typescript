@@ -651,16 +651,40 @@ export function composeScriptCNativePrograms(
   // instance without ever seeing the definition. Composition is the first
   // stage that sees both, so it is where an unresolved or structurally
   // incompatible import has to fail.
+  // Every composed identity is `<package instance>#...`, so the set of
+  // instances present in the program can be recovered from its ids. A package
+  // that reached only a scalar binding still appears, which is what lets an
+  // unresolved import distinguish "package absent" from "type not reached".
+  const composedInstances = new Set(
+    [
+      ...types.keys(),
+      ...bindings.keys(),
+      ...constants.keys(),
+      ...operations.keys(),
+      ...exports.keys(),
+    ].flatMap((id) => {
+      const separator = id.indexOf("#");
+      return separator < 0 ? [] : [id.slice(0, separator)];
+    }),
+  );
   for (const type of types.values()) {
     if (type.kind !== "handle") continue;
     for (const [index, upcast] of type.upcasts.entries()) {
       const target = types.get(upcast.target);
       const path = `/input/types/${type.id}/upcasts/${index}/target`;
       if (target === undefined) {
+        // Distinguish an absent package from one that is composed but never
+        // reached the type. Only the owning package can pull its own type in,
+        // so an importer cannot tell these apart on its own.
+        const owner = upcast.target.split("#type:")[0] ?? "";
         diagnostics.push(diagnostic(
           "NTS3002",
           path,
-          `Native handle upcast target '${upcast.target}' is not provided by any composed package`,
+          composedInstances.has(owner)
+            ? `Native handle upcast target '${upcast.target}' is owned by composed ` +
+              `package '${owner}', which did not reach it. Select a binding that ` +
+              "reaches the base handle in that package."
+            : `Native handle upcast target '${upcast.target}' is not provided by any composed package`,
         ));
         continue;
       }

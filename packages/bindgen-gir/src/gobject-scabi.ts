@@ -1204,7 +1204,6 @@ export function generateGObjectScabiPackage(
   for (const class_ of options.snapshot.classes) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
-    const importedParent = resolveImportedParent(class_, classPath);
     const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
     const releaseDeclaration = `${class_.name}.dispose`;
     if (
@@ -1216,6 +1215,9 @@ export function generateGObjectScabiPackage(
       diagnostics.push(diagnostic(classPath, "Generated GObject class identity collides"));
       continue;
     }
+    // Resolved after the collision guard so a rejected class cannot leave an
+    // import behind it.
+    const importedParent = resolveImportedParent(class_, classPath);
     types[typeId] = Object.freeze({
       kind: "handle",
       nativeName: class_.cType,
