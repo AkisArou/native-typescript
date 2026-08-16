@@ -2111,6 +2111,46 @@ export function generateGObjectScabiPackage(
           cTypeOnDeclaration: true,
         });
         const adapterPayload = adapter.parameters[index];
+        /* An object payload arrives with a reference the dispatch took, so it
+         * is an owned handle whose destructor gives that reference back. The
+         * runtime interns it, so a row handed to a handler is the same cell
+         * the program already holds for that row. */
+        const payloadClass = parameter.type.kind === "named"
+          ? classByName.get(parameter.type.name)
+          : undefined;
+        if (payloadClass !== undefined) {
+          const payloadTypeId = typeIdByClass.get(payloadClass.name);
+          const payloadRelease = releaseByClass.get(payloadClass.name);
+          if (
+            payloadTypeId === undefined || payloadRelease === undefined ||
+            adapterPayload?.name !== parameter.name ||
+            adapterPayload.sourceType !== payloadClass.name ||
+            parameter.nullable
+          ) {
+            diagnostics.push(diagnostic(
+              parameterPath,
+              "A GObject signal payload must be a selected, non-null class the adapter references",
+            ));
+            signalValid = false;
+            continue;
+          }
+          signalParameters.push(Object.freeze({
+            name: parameter.name,
+            type: payloadTypeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "owned",
+              transfer: "to-runtime",
+              destructor:
+                `${namespacePrefix}_${payloadClass.cSymbolPrefix}_release`,
+            }),
+          }));
+          sourceSignalParameters.push(
+            `${lowerCamel(parameter.name)}: ${payloadClass.name}`,
+          );
+          continue;
+        }
         /* A UTF-8 payload is a borrowed C string the runtime copies when the
          * signal fires. Its ABI is the same pointer a borrowed string
          * parameter uses; what differs is only that delivery is queued, which

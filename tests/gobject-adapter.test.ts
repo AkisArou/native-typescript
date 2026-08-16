@@ -141,6 +141,32 @@ function scalarSignalAdapter() {
   return generateGObjectAdapterSource(snapshot);
 }
 
+function objectPayloadSignalAdapter() {
+  const source = girSource.replace(
+    `<glib:signal name="clicked" when="first" action="1">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>`,
+    `<glib:signal name="child-added" when="first">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <parameter name="child" transfer-ownership="none">
+            <type name="Widget"/>
+          </parameter>
+        </parameters>
+      </glib:signal>`,
+  );
+  const snapshot = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Widget" }, { name: "Button", signals: ["child-added"] }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
 function installedScalarSignalAdapter() {
   const snapshot = ingestGir(readFileSync(installedGtkGirPath, "utf8"), {
     logicalPath: "sdk/Gtk-4.0.gir",
@@ -333,6 +359,28 @@ test("GObject signal adapters forward exact scalar payloads", () => {
   assert.deepEqual(scalarSignalAdapter(), generated);
 });
 
+test("GObject signal adapters reference object payloads before queueing", () => {
+  const generated = objectPayloadSignalAdapter();
+  const signal = generated.signals.find(({ signalName }) => signalName === "child-added");
+  assert.ok(signal, "the object payload signal did not generate");
+  assert.deepEqual(signal.parameters, [{
+    name: "child",
+    nativeType: "GtkWidget *",
+    sourceType: "Widget",
+    retained: true,
+  }]);
+  /* Delivery is queued, so the emission's reference is gone by the time the
+   * callback runs. The dispatch takes one of its own, and a payload GIR
+   * promised is present fails by name rather than as an anonymous trap deeper
+   * in the runtime. */
+  assert.match(
+    generated.source,
+    /g_error\("Button::child-added delivered a NULL Widget payload, which its GIR annotation forbids"\);\n\s*\}\n\s*g_object_ref\(parameter_0000\);/u,
+  );
+  assertDeepFrozen(generated);
+  assert.deepEqual(objectPayloadSignalAdapter(), generated);
+});
+
 test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
   const detailedSource = girSource.replace(
     '<glib:signal name="clicked" when="first" action="1">',
@@ -351,7 +399,9 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
         code: "NTS5001",
         severity: "error",
         path: "Button/signal/clicked",
-        message: "Only non-detailed void GObject signals with exact scalar, enumeration, and UTF-8 payloads are implemented",
+        message:
+          "Only non-detailed void GObject signals with exact scalar, " +
+          "enumeration, UTF-8, and selected class payloads are implemented",
       }]);
       return true;
     },
@@ -359,10 +409,10 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
 });
 
 test("unsupported GObject signal payloads fail at the exact parameter", () => {
-  /* A GObject payload is the family that remains: it would have to become a
-   * managed cell from a raw pointer, captured when the signal fires and
-   * released if the delivery is dropped. Scalars, enumerations, and strings
-   * all project. */
+  /* `gfloat` is refused everywhere it appears: ScriptC's float slice is exactly
+   * f64, so admitting a 32-bit payload would widen every value it carries. The
+   * point here is that the refusal names the parameter rather than the
+   * signal. */
   const source = girSource.replace(
     `<return-value transfer-ownership="none">
           <type name="none" c:type="void"/>
@@ -372,8 +422,8 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
           <type name="none" c:type="void"/>
         </return-value>
         <parameters>
-          <parameter name="child" transfer-ownership="none">
-            <type name="Widget" c:type="GtkWidget*"/>
+          <parameter name="fraction" transfer-ownership="none">
+            <type name="gfloat" c:type="gfloat"/>
           </parameter>
         </parameters>
       </glib:signal>`,
@@ -392,7 +442,46 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
         severity: "error",
         path: "Button/signal/clicked/parameters/0",
         message:
-          "Only exact scalar, enumeration, and UTF-8 GObject signal payloads are implemented",
+          "Only exact scalar, enumeration, UTF-8, and selected class GObject signal payloads are implemented",
+      }]);
+      return true;
+    },
+  );
+});
+
+test("a nullable object payload is refused rather than silently non-null", () => {
+  /* Absence would have to reach TypeScript as a union arm, and a callback
+   * signature carries no union. Refusing is what keeps a `Widget` parameter
+   * from being a lie when GTK passes NULL. */
+  const source = girSource.replace(
+    `<return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>`,
+    `<return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <parameter name="child" transfer-ownership="none" nullable="1">
+            <type name="Widget"/>
+          </parameter>
+        </parameters>
+      </glib:signal>`,
+  );
+  const snapshot = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Widget" }, { name: "Button", signals: ["clicked"] }],
+  });
+  assert.throws(
+    () => generateGObjectAdapterSource(snapshot),
+    (error: unknown) => {
+      assert.ok(error instanceof CBindgenError);
+      assert.deepEqual(error.diagnostics, [{
+        code: "NTS5001",
+        severity: "error",
+        path: "Button/signal/clicked/parameters/0",
+        message: "GObject signal payloads must be required non-null input values",
       }]);
       return true;
     },

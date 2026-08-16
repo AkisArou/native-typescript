@@ -63,6 +63,7 @@ export interface ScriptCNativeCallbackSignature {
   readonly parameters: readonly (
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | ScriptCNativePointerType
+    | { readonly kind: "nativeHandle"; readonly typeId: string }
   )[];
   readonly result:
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
@@ -91,7 +92,13 @@ export type ScriptCNativeCallbackArgumentType = {
 };
 
 export type ScriptCNativeCallbackSourceArgument =
-  | { readonly kind: "callback-parameter"; readonly parameter: number }
+  | {
+      readonly kind: "callback-parameter";
+      readonly parameter: number;
+      /** Present when the payload is an owned handle: the binding that gives
+       * the reference back, whether the delivery runs or is dropped. */
+      readonly destructor?: string;
+    }
   | { readonly kind: "registration-owner" };
 
 export type ScriptCNativeCallbackContract =
@@ -960,7 +967,9 @@ type SupportedCallbackPair = {
          * is itself; a UTF-8 C string is copied, because a queued delivery
          * outlives the pointer the emitter handed over.
          */
-        readonly projection: "direct" | "utf8CString";
+        readonly projection: "direct" | "utf8CString" | "ownedHandle";
+        /** The binding that gives the reference back, for an owned handle. */
+        readonly destructor?: string;
       }
     | {
         readonly kind: "registration-owner";
@@ -998,11 +1007,21 @@ function supportedCallbackSourceArguments(
       const physical = callbackType.signature.parameters[parameter]!;
       const string = borrowedUtf8CString(manifest, physical);
       if (typeof string === "string") return string;
+      const ownership = physical.ownership;
+      const owned = manifest.types[physical.type]?.kind === "handle" &&
+          ownership.kind === "owned" && ownership.transfer === "to-runtime"
+        ? ownership.destructor
+        : undefined;
       result.push(Object.freeze({
         kind: "callback-parameter",
         parameter,
         typeId: physical.type,
-        projection: string === null ? "direct" : "utf8CString",
+        projection: owned !== undefined
+          ? "ownedHandle"
+          : string === null
+            ? "direct"
+            : "utf8CString",
+        ...(owned === undefined ? {} : { destructor: owned }),
       }));
       continue;
     }
@@ -1151,6 +1170,9 @@ function supportedCallScopedCallbackPair(
           ? Object.freeze({
               kind: "callback-parameter" as const,
               parameter: argument.parameter,
+              ...(argument.destructor === undefined
+                ? {}
+                : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
             })
           : Object.freeze({ kind: "registration-owner" as const })
       )),
@@ -1271,20 +1293,34 @@ function supportedRetainedCallbackPair(
       (!("callback" in position) || position.callback === undefined) &&
       (type?.kind === "integer" || (type?.kind === "float" && type.bits === 64));
   };
+  /* The emitter took a reference before queueing, so the invocation owns one
+   * and the destructor gives it back whether the delivery runs or is
+   * dropped. */
+  function ownedHandlePosition(position: AbiParameter): boolean {
+    return manifest.types[position.type]?.kind === "handle" &&
+      position.passMode === "pointer" &&
+      !position.nullable &&
+      position.marshal === undefined &&
+      position.callback === undefined &&
+      position.ownership.kind === "owned" &&
+      position.ownership.transfer === "to-runtime";
+  }
   /* A retained payload may also be a borrowed UTF-8 C string. Delivery is
    * queued, so the runtime copies it when the signal fires rather than holding
    * a pointer the emitter is free to reuse. */
-  const supportedRetainedPosition = (position: AbiParameter): boolean =>
-    supportedScalarPosition(position) ||
-    (typeof borrowedUtf8CString(manifest, position) === "object" &&
-      !position.nullable);
+  function supportedRetainedPosition(position: AbiParameter): boolean {
+    return supportedScalarPosition(position) ||
+      ownedHandlePosition(position) ||
+      (typeof borrowedUtf8CString(manifest, position) === "object" &&
+        !position.nullable);
+  }
   if (
     callbackType.signature.parameters.some(
       (position) => !supportedRetainedPosition(position),
     ) ||
     manifest.types[callbackType.signature.result.type]?.kind !== "void"
   ) {
-    return "retained callback parameters must be exact scalar values or borrowed UTF-8 strings, and its result must be void";
+    return "retained callback parameters must be exact scalar values, borrowed UTF-8 strings, or owned handles, and its result must be void";
   }
   if (
     contract.arguments.length !== callbackType.signature.parameters.length ||
@@ -1342,6 +1378,9 @@ function supportedRetainedCallbackPair(
           ? Object.freeze({
               kind: "callback-parameter" as const,
               parameter: argument.parameter,
+              ...(argument.destructor === undefined
+                ? {}
+                : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
             })
           : Object.freeze({ kind: "registration-owner" as const })
       )),
@@ -2235,6 +2274,8 @@ export function translateScabiNativeProgram(
           );
           const copiesString = physical?.kind === "callback-parameter" &&
             physical.projection === "utf8CString";
+          const ownsHandle = physical?.kind === "callback-parameter" &&
+            physical.projection === "ownedHandle";
           /* A pointer has no place in ScriptC's scalar-and-struct slice, so a
            * string payload's physical slot is described directly rather than
            * asked of a lowering that would refuse it. */
@@ -2244,7 +2285,15 @@ export function translateScabiNativeProgram(
                 typeId,
                 `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
               );
-          if (copiesString) {
+          if (ownsHandle) {
+            /* The slot carries the referenced pointer; the cell is made from
+             * it when the delivery runs. */
+            if (type?.kind !== "nativeHandle") {
+              callbackValid = false;
+              continue;
+            }
+            physicalCallbackParameters.push(type);
+          } else if (copiesString) {
             /* A string payload's physical slot is the pointer the emitter
              * passes; what crosses to the source is the copy made from it. */
             const pointer = manifest.types[typeId];
@@ -2279,6 +2328,21 @@ export function translateScabiNativeProgram(
             sourceArgument.projection === "utf8CString"
           ) {
             callbackParameters.push(Object.freeze({ kind: "string" } as const));
+            continue;
+          }
+          if (
+            sourceArgument.kind === "callback-parameter" &&
+            sourceArgument.projection === "ownedHandle"
+          ) {
+            const handle = lowerType(
+              sourceArgument.typeId,
+              `${parameterPath}/callback/sourceArguments/${callbackIndex}/type`,
+            );
+            if (handle?.kind !== "nativeHandle") {
+              callbackValid = false;
+              continue;
+            }
+            callbackParameters.push(handle);
             continue;
           }
           const type = lowerType(

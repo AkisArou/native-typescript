@@ -47,6 +47,8 @@ export interface GObjectSignalAdapter {
 
 export interface GObjectSignalParameterAdapter {
   readonly name: string;
+  /** True when the payload is an object the dispatch references for delivery. */
+  readonly retained?: boolean;
   readonly nativeType: string;
   /** The GIR type name the payload projects as: a scalar or an enumeration. */
   readonly sourceType: string;
@@ -201,7 +203,8 @@ function lowerCamel(value: string): string {
 /* One statement of what a payload may be. Two diagnostics quote it, and they
  * drifted apart once already: a message that lists what is supported has to
  * come from the same place the support does. */
-const signalPayloadFamilies = "exact scalar, enumeration, and UTF-8";
+const signalPayloadFamilies =
+  "exact scalar, enumeration, UTF-8, and selected class";
 
 function signalSymbolPart(value: string): string {
   return value.replaceAll("-", "_");
@@ -210,13 +213,16 @@ function signalSymbolPart(value: string): string {
 function signalParameter(
   parameter: GirCallable["parameters"][number],
   enumerationCTypes: ReadonlyMap<string, string>,
+  payloadClasses: ReadonlyMap<string, GirClass>,
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): GObjectSignalParameterAdapter | null {
-  /* A payload is an exact scalar, an enumeration, or a UTF-8 string. The first
-   * two are values; the third is copied when the signal fires. Handles and
-   * boxed records are refused: each would have to become a managed cell from a
-   * raw pointer, which nothing implements yet. */
+  /* A payload is an exact scalar, an enumeration, a UTF-8 string, or a
+   * selected class. The first two are values; the third is copied when the
+   * signal fires; the fourth is referenced. Boxed records are still refused:
+   * a GBoxed has no reference to take, so surviving a queued delivery would
+   * mean copying one, and its copy function is per-type metadata nothing
+   * reads yet. */
   const scalar = sourceScalarType(parameter.type);
   const enumerationCType = parameter.type.kind === "named"
     ? enumerationCTypes.get(parameter.type.name)
@@ -230,17 +236,26 @@ function signalParameter(
     (parameter.type.cType === "gchar*" || parameter.type.cType === "char*" ||
       parameter.type.cType === "const gchar*" ||
       parameter.type.cType === "const char*");
+  /* A GObject payload outlives the emission only if a reference is taken, and
+   * delivery is queued, so the dispatch takes one before it hands the pointer
+   * over. */
+  const payloadClass = parameter.type.kind === "named"
+    ? payloadClasses.get(parameter.type.name)
+    : undefined;
   const sourceType = scalar?.girName ??
     (isUtf8
       ? "utf8"
-      : enumerationCType === undefined || parameter.type.kind !== "named"
-        ? null
-        : parameter.type.name);
+      : payloadClass !== undefined && parameter.type.kind === "named"
+        ? parameter.type.name
+        : enumerationCType === undefined || parameter.type.kind !== "named"
+          ? null
+          : parameter.type.name);
   /* GIR gives a signal parameter no c:type — a signal is not a C function — so
    * an enumeration payload's spelling comes from the enumeration's own
    * declaration rather than from the parameter that names it. */
   const physical = physicalType(
-    parameter.type.cType ?? enumerationCType ?? null,
+    parameter.type.cType ?? enumerationCType ??
+      (payloadClass === undefined ? null : `${payloadClass.cType}*`),
     `${path}/type`,
     diagnostics,
   );
@@ -272,6 +287,7 @@ function signalParameter(
   }
   return Object.freeze({
     name: parameter.name,
+    ...(payloadClass === undefined ? {} : { retained: true }),
     nativeType: renderCType(physical),
     sourceType,
   });
@@ -388,6 +404,7 @@ function generateSignal(
   callable: GirCallable,
   signalConnection: GObjectSignalConnectionAdapter,
   enumerationCTypes: ReadonlyMap<string, string>,
+  payloadClasses: ReadonlyMap<string, GirClass>,
   diagnostics: CBindgenDiagnostic[],
 ): {
   readonly adapter: GObjectSignalAdapter;
@@ -401,6 +418,7 @@ function generateSignal(
     signalParameter(
       parameter,
       enumerationCTypes,
+      payloadClasses,
       `${path}/parameters/${index}`,
       diagnostics,
     )
@@ -459,6 +477,26 @@ function generateSignal(
     `static void ${dispatchSymbol}(${[`${nativeClassPointer}instance`, ...callbackParameters, "void *opaque"].join(", ")}) {`,
     "  (void)instance;",
     `  ${connectionType} *connection = opaque;`,
+    /* Delivery is queued, so an object payload has to survive the emission
+     * that produced it. The reference taken here is the one the invocation
+     * owns and the runtime gives back.
+     *
+     * A NULL would be refused downstream anyway — a handle cell cannot be
+     * committed over one — but it would be refused as an anonymous runtime
+     * trap. GIR promised this payload is present, so the failure says which
+     * signal broke that promise. */
+    ...validParameters.flatMap((parameter, index) => {
+      const slot = `parameter_${index.toString().padStart(4, "0")}`;
+      return parameter.retained
+        ? [
+            `  if (${slot} == NULL) {`,
+            `    g_error("${class_.name}::${callable.name} delivered a NULL ` +
+              `${parameter.sourceType} payload, which its GIR annotation forbids");`,
+            "  }",
+            `  g_object_ref(${slot});`,
+          ]
+        : [];
+    }),
     `  connection->callback(${[...callbackArguments, "connection->context"].join(", ")});`,
     "}",
     "",
@@ -928,6 +966,7 @@ export function generateGObjectAdapterSource(
         callable,
         signalConnection!,
         enumerationCTypes,
+        classByName,
         diagnostics,
       );
       if (generated === null) continue;

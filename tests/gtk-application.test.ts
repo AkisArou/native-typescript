@@ -326,7 +326,9 @@ test(
         projectRoot: widgetsFixtureRoot,
         project,
         scratch: join(scratch, backend),
-        /* The nullable handle result is emitted separately by each backend. */
+        /* The nullable handle result and the owned handle payload are emitted
+         * separately by each backend, and the payload trampoline is the one
+         * place a backend has to branch inside a callback. */
         backend,
         tools: {
           clang: executable("clang"),
@@ -344,6 +346,12 @@ test(
       assert.match(declarations, /class ToggleButton extends Button/u);
       assert.match(declarations, /class ApplicationWindow extends Window/u);
       assert.match(declarations, /class Application extends GioApplication/u);
+      /* A signal payload is an object the handler never constructed. It has to
+       * arrive as the class GIR names, not as an opaque pointer. */
+      assert.match(
+        declarations,
+        /onRowActivated\(callback: \(listBox: ListBox, row: ListBoxRow\) => void\)/u,
+      );
 
       assert.deepEqual(runApplication(built.productPath), {
         status: 0,

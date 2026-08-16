@@ -132,6 +132,20 @@ const alpha = listRow("alpha");
 const beta = listRow("beta");
 const gamma = listRow("gamma");
 
+let activatedRowIndex: gint | null = null;
+
+/* A payload the handler never constructed: GTK hands the row over, the
+ * dispatch references it so it survives a queued delivery, and the runtime
+ * interns it so the handler is given the very cell built above. */
+const rowActivated = list.onRowActivated((_sender, row): void => {
+  activatedRowIndex = row.getIndex();
+  /* Writing through the payload is what proves it is the row itself and not a
+   * reading of it: the assertion below observes the change on the handle this
+   * file constructed. */
+  row.selectable = false;
+});
+if (!rowActivated.connected) throw new Error("row-activated did not connect");
+
 const grid = new Grid();
 grid.setRowSpacing(4 as guint);
 grid.setColumnSpacing(8 as guint);
@@ -222,6 +236,11 @@ const clicked = action.onClicked((sender): void => {
   check_(new ListBoxRow().getChild() === null, "an empty row invented a child");
   const headingParent = heading.getParent();
   check_(headingParent !== null, "the heading lost its parent");
+  check_(
+    activatedRowIndex === (0 as gint),
+    "the activated row arrived with the wrong index",
+  );
+  check_(!alpha.selectable, "the payload did not reach the original row");
   /* GIR says a range always has one, so this reads as a plain Adjustment
    * rather than an optional — and it is the very adjustment constructed
    * above, which only interning can answer with. */
@@ -248,6 +267,9 @@ const clicked = action.onClicked((sender): void => {
   applicationQuit();
 });
 if (!clicked.connected) throw new Error("clicked did not connect");
+
+/* Emits row-activated, whose payload is the row itself. */
+alpha.activate();
 
 if (!action.activate()) {
   clearTimeout(deadline);

@@ -250,6 +250,9 @@
             "append",
             "remove",
             "set_show_separators"
+          ],
+          "signals": [
+            "row-activated"
           ]
         },
         {
@@ -260,8 +263,10 @@
           "methods": [
             "get_child",
             "get_index",
+            "get_selectable",
             "set_activatable",
-            "set_child"
+            "set_child",
+            "set_selectable"
           ]
         },
         {

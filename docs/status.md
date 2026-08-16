@@ -114,9 +114,16 @@ reentrancy, and callback exceptions pass both backends and the sanitizer/RC
 audit.
 
 **`until-cancelled`** callbacks are implemented for copied exact-scalar
-payloads. Generated C and LLVM thunks admit opaque tokens from same or foreign
-threads without touching the ScriptC heap, and the owner invokes the rooted
-closure.
+payloads, copied UTF-8 strings, and owned handles. Generated C and LLVM thunks
+admit opaque tokens from same or foreign threads without touching the ScriptC
+heap, and the owner invokes the rooted closure.
+
+An owned handle payload is the one case where the thunk allocates: the pointer
+arrives already referenced, and the thunk either finds the object's existing
+cell in the identity map and gives that reference back, or builds a cell for
+it. The invocation's slot is cleared once the reference moves into the cell, so
+a delivery dropped at shutdown releases exactly the references that never
+reached one.
 
 Broader payload families and ownership modes remain future slices.
 
@@ -393,7 +400,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Record outputs | `Widget.getPreferredSize()` as a nested value |
-| Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, or UTF-8 string |
+| Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
 `none` and `full` results become one strong, non-floating reference, and a real
@@ -404,8 +411,8 @@ strongly retains the signal instance, disconnects by handler ID, and composes
 with ScriptC's retained callback lifecycle so no callback runs after disposal.
 
 Reached metadata outside the implemented
-handle/`void`/boolean/exact-scalar/NUL-terminated-UTF-8/exact-scalar-signal
-algebra fails generation.
+handle/`void`/boolean/exact-scalar/NUL-terminated-UTF-8/signal-payload algebra
+fails generation.
 
 ### Acceptance application
 
@@ -484,10 +491,15 @@ These are deliberate, not oversights. Each is a named future slice.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars
-  of every width, selected enumerations, and UTF-8 strings project.
+  of every width, selected enumerations, UTF-8 strings, and selected classes
+  project.
 
-  Measured against GTK 4's 261 void non-detailed signals, **198 project**. What
-  remains is GObject and boxed payloads, worth +19 and +8 respectively.
+  Measured over every one of GTK 4's 330 declared signals, **198 project**, up
+  from 179: the 19 that gained one carry an object payload. Of the 132 still
+  refused, 69 are detailed or non-void signals, 59 name a payload type with no
+  C spelling — boxed records like `GtkTextIter`, and cross-namespace types — 3
+  name `gboolean`, which has two representations and no chosen one, and 1 is
+  nullable.
 
   Delivery is queued to the runtime owner, so a payload cannot be a pointer the
   emitter still owns: GTK may reuse a string the moment emission returns. A
@@ -495,10 +507,13 @@ These are deliberate, not oversights. Each is a named future slice.
   released whether the delivery runs or is dropped during shutdown — the same
   discipline the registration owner already used.
 
-  A GObject payload needs one thing more: a managed cell made from a raw
-  pointer. Retaining and releasing it is the pattern strings just established;
-  deciding what cell a bare `GtkWidget*` belongs to is not, because nothing
-  proves it is the same cell an existing handle already denotes.
+  An object payload is the same discipline over a reference rather than a copy.
+  The dispatch takes one before queueing; the trampoline turns it into a
+  managed cell, and the identity map answers the question that used to block
+  this — a bare `GtkListBoxRow*` gets the cell the application's own handle
+  already denotes, so writing through the payload is visible through the
+  handle. A payload GIR marks nullable is still refused, because absence would
+  have to become a union arm the callback signature does not carry.
 
 - **Detailed signals and non-void signal results** fail generation, as do
   broader value-method input/output families.
@@ -527,11 +542,5 @@ These are deliberate, not oversights. Each is a named future slice.
   `requires.compiler` is now load-bearing, but everything else about a target
   is still wired directly: providers cannot plan, and GTK is reached by name.
   The remaining shape waits on a second target to justify it.
-- **A GObject signal payload does not project.** The borrowed-result machinery
-  is most of what it needs — an adapter that takes a reference, and the
-  identity map — but a payload is captured when the signal fires rather than
-  returned, so the trampoline has to make a cell from a raw pointer and knows
-  no destructor for it. That is a field the IR does not carry.
-
 Platform UI and framework work begins only after the contracts above pass their
 conformance gates. See [Roadmap](roadmap.md) for sequencing and exit gates.

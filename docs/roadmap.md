@@ -154,40 +154,47 @@ The two objects share one source tree but not one dialect: the owner runtime is
 portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
 extensions through the GTK headers and compiles as `-std=gnu11`.
 
-**Projecting an object the callee already owns.** 187 GTK methods return a
-borrowed same-namespace object and every one is refused, which is why an
-application can only touch objects it constructed itself. The 19 signal
-payloads carrying a GObject are the same gap from the other side.
+**Projecting an object the callee already owns.** Done, from both sides. 187
+GTK methods return a borrowed same-namespace object and 19 signal payloads
+carry one; before this an application could only touch objects it had
+constructed itself.
 
-The runtime half is done. Handles whose binding declares pointer identity are
-interned, both backends consult the map before committing a cell, and GObject
-handles declare it — so two projections of one widget will be one managed cell
-rather than two that disagree about equality.
+Interning is what made either possible. Handles whose binding declares pointer
+identity are interned, both backends consult the map before committing a cell,
+and GObject handles declare it — so two projections of one widget are one
+managed cell rather than two that disagree about equality. Keying that map by
+pointer alone rather than by (type, pointer) is load-bearing: the same object
+reached as `Box` and as `Widget` must not get two cells.
 
-The generation half has to land in one change. Three attempts to stage it each
-ran into the next coupling, and the fourth is what forbids staging at all:
+Generation had to land in one change, because the release rule and the
+projection decide each other:
 
-- A borrowed result needs a destructor to name, and the release binding is
+- A borrowed result needs a destructor to name, and the release binding was
   generated only for a class with constructors. `Widget` has none and is 78 of
   the 187 on its own; 122 of them return a class with no constructor.
 - The release *symbol* comes from the constructor ownership adapter, so such a
-  class has no release function in C either. Both layers treat release as
+  class had no release function in C either. Both layers treated release as
   something constructors bring.
-- Giving every class a release gives every class a `dispose()`, including
-  abstract ones that have none today. Defensible — disposing drops the
-  reference this program took, not the object — but a visible change to the
-  generated surface.
 - A release that nothing names as a destructor is refused: *general
   ownership-consuming calls are outside the exact-destructor slice*. So a class
-  may not be given one speculatively. Releases have to be emitted for exactly
-  the classes something destroys — those with constructors, plus those returned
-  borrowed by a projected method — which means the release rule and the
-  projection decide each other and cannot be committed apart.
+  may not be given one speculatively. Releases are emitted for exactly the
+  classes something destroys — those with constructors, plus those returned
+  borrowed or delivered as a payload.
 
-With that settled the projection itself is small: an adapter returning
-`value == NULL ? NULL : g_object_ref(value)` makes the result owned, an owned
-handle result already projects, and the identity map releases the surplus
-reference when the object already has a cell.
+Giving those classes a release also gives them a `dispose()`, abstract ones
+included. That is the intended reading: disposing drops the reference this
+program took, not the object.
+
+With that settled each projection is small. A result binds an adapter
+returning `value == NULL ? NULL : g_object_ref(value)`, which makes it an owned
+handle. A payload is referenced by the signal dispatch before it is queued, and
+the trampoline turns that reference into a cell — reusing the interned one if
+the object already has it. Either way the identity map releases the surplus
+reference.
+
+What remains is the same projection across a namespace boundary: 179 GTK
+methods return a Gio or Gdk object, and naming their destructor means
+referencing a binding in another package.
 
 **Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
 7.2 s build because it is one Clang invocation compiling 19 runtime sources and
@@ -518,8 +525,8 @@ that establishes a permanent seam:
 13. add exact call-scoped callback projection and exception propagation
     (**implemented**);
 14. add `until-cancelled` retained callbacks with transactional result
-    ownership, foreign-thread ingress, copied exact-scalar payloads, and
-    one-turn owner dispatch (**implemented**);
+    ownership, foreign-thread ingress, copied exact-scalar and UTF-8 payloads,
+    owned handle payloads, and one-turn owner dispatch (**implemented**);
 15. attach the owner-turn contract to a real GLib main context without inline
     native-call reentrancy (**implemented**);
 16. materialize the runtime adapter and native products through the artifact
