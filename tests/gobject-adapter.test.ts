@@ -381,7 +381,7 @@ test("scalar outputs and forwarded inputs become one value-returning adapter", (
     adapterSymbol: "nts_gobject_value_gtk_widget_convert_coords",
     resultName: "WidgetConvertCoords",
     resultNativeType: "NtsGtkWidgetConvertCoords",
-    inputs: [{ parameterName: "scale", sourceName: "gdouble", nativeType: "gdouble" }],
+    inputs: [{ kind: "scalar", parameterName: "scale", sourceName: "gdouble", nativeType: "gdouble" }],
     outputs: [
       { kind: "scalar", parameterName: "out_x", fieldName: "outX", sourceName: "gint", nativeType: "gint" },
       { kind: "scalar", parameterName: "out_y", fieldName: "outY", sourceName: "gint", nativeType: "gint" },

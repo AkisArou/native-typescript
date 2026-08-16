@@ -360,6 +360,13 @@ test(
         /export interface WidgetSizeRequest \{\n  readonly width: gint;\n  readonly height: gint;\n\}/u,
       );
       assert.match(declarations, /getSizeRequest\(\): WidgetSizeRequest;/u);
+      /* An input crosses into a value-returning method as any other argument
+       * would: an enumeration by value, an object borrowed for the call. */
+      assert.match(
+        declarations,
+        /measure\(orientation: Orientation, forSize: gint\): WidgetMeasure;/u,
+      );
+      assert.match(declarations, /queryChild\(child: Widget\): GridQueryChild;/u);
       /* A deprecated member binds like any other — the probe reads its ABI
        * from the same headers — and the declaration is where the caller finds
        * out. The application calls this one, so the gate covers compiling and

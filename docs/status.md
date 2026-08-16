@@ -415,9 +415,13 @@ families project: a caller-allocated record, and an exact scalar — which GIR
 annotates `transfer-ownership="full"` because the value is copied out, an
 annotation that is correct and means nothing to release.
 
-Inputs are forwarded, so a method may both take values and hand several back.
-The wrapped call is rebuilt from the declared parameter order rather than by
-assuming outputs come last.
+Inputs are forwarded, so a method may both take values and hand several back:
+`Widget.measure(Orientation.Horizontal, -1)` gives all four measurements, and
+`Grid.queryChild(child)` gives a placement. An input may be an exact scalar, a
+selected enumeration, or a selected class — the families that already cross
+this boundary as a plain argument — and an object input is borrowed for the
+call, because the callee keeps no reference either. The wrapped call is rebuilt
+from the declared parameter order rather than by assuming outputs come last.
 
 A member the library has deprecated binds like any other. Deprecation is the
 library's opinion about its own API, not a fact about that API's ABI, and the

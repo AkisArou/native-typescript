@@ -1891,14 +1891,38 @@ export function generateGObjectScabiPackage(
         const declaration = `${class_.name}.${sourceMember}`;
         const bindingId = valueMethod.adapterSymbol;
         const resultTypeId = `${namespacePrefix}_${snakeCase(valueMethod.resultName)}`;
-        const inputTypes = valueMethod.inputs.map((input) =>
-          scalarAbiTypeByGirName.get(input.sourceName)
-        );
+        /* Each input family names a SCABI type by its own route, and each is
+         * already registered by whatever else in this package reached it. */
+        const inputProjections = valueMethod.inputs.map((input) => {
+          if (input.kind === "scalar") {
+            const type = scalarAbiTypeByGirName.get(input.sourceName);
+            return type === undefined
+              ? null
+              : { type, sourceName: input.sourceName, passMode: "value" as const };
+          }
+          if (input.kind === "enumeration") {
+            const enumeration = enumerations.get(input.sourceName);
+            return enumeration === undefined ? null : {
+              type: enumeration.typeId,
+              sourceName: enumeration.sourceName,
+              passMode: "value" as const,
+            };
+          }
+          const handle = typeIdByClass.get(input.sourceName);
+          return handle === undefined
+            ? null
+            : { type: handle, sourceName: input.sourceName, passMode: "pointer" as const };
+        });
         if (
           callable.parameters.length !==
             valueMethod.outputs.length + valueMethod.inputs.length + 1 ||
           types[resultTypeId]?.kind !== "struct" ||
-          inputTypes.some((type) => type === undefined || types[type] === undefined)
+          /* Membership in the projection tables is the test, not presence in
+           * `types`: a class's handle type is registered by this same loop, so
+           * a class declared later than its user is absent here and present by
+           * the end. A class that fails to register at all fails the whole
+           * package on its own collision diagnostic. */
+          inputProjections.some((input) => input === null)
         ) {
           diagnostics.push(diagnostic(path, "Value-return adapter result is incomplete"));
           continue;
@@ -1921,12 +1945,14 @@ export function generateGObjectScabiPackage(
               nullable: false,
               ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
             }),
-            ...valueMethod.inputs.map((input, index) => Object.freeze({
-              name: input.parameterName,
-              type: inputTypes[index]!,
-              passMode: "value" as const,
+            ...inputProjections.map((input, index) => Object.freeze({
+              name: valueMethod.inputs[index]!.parameterName,
+              type: input!.type,
+              passMode: input!.passMode,
               nullable: false,
-              ownership: Object.freeze({ kind: "value" as const }),
+              ownership: input!.passMode === "pointer"
+                ? Object.freeze({ kind: "borrowed" as const, scope: "call" as const })
+                : Object.freeze({ kind: "value" as const }),
             })),
           ],
           result: Object.freeze({
@@ -1944,8 +1970,8 @@ export function generateGObjectScabiPackage(
         adapterBindings.push(bindingId);
         classLines.push(
           ...deprecationDoc(callable, "  "),
-          `  ${sourceMember}(${valueMethod.inputs.map((input) =>
-            `${lowerCamel(input.parameterName)}: ${input.sourceName}`
+          `  ${sourceMember}(${inputProjections.map((input, index) =>
+            `${lowerCamel(valueMethod.inputs[index]!.parameterName)}: ${input!.sourceName}`
           ).join(", ")}): ${valueMethod.resultName};`,
         );
         continue;

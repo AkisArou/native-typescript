@@ -87,6 +87,7 @@ export interface GObjectValueMethodOutputAdapter {
  * `gtk_tree_view_convert_tree_to_widget_coords(view, x, y, &wx, &wy)`.
  */
 export interface GObjectValueMethodInputAdapter {
+  readonly kind: "scalar" | "enumeration" | "class";
   readonly parameterName: string;
   readonly sourceName: string;
   readonly nativeType: string;
@@ -563,6 +564,8 @@ function generateValueMethod(
   class_: GirClass,
   callable: GirCallable,
   recordsByName: ReadonlyMap<string, GirRecord>,
+  enumerationCTypes: ReadonlyMap<string, string>,
+  classByName: ReadonlyMap<string, GirClass>,
   diagnostics: CBindgenDiagnostic[],
 ): {
   readonly adapter: GObjectValueMethodAdapter;
@@ -670,36 +673,66 @@ function generateValueMethod(
   });
   /* An input is forwarded untouched, so it is limited to the families that
    * already cross this boundary as a plain argument. */
-  const inputs = inputParameters.map((parameter, index) => {
+  const inputs: readonly (GObjectValueMethodInputAdapter | null)[] =
+    inputParameters.map((parameter, index) => {
+    const named = parameter.type.kind === "named" ? parameter.type : null;
     const scalar = sourceScalarType(parameter.type);
-    if (
-      parameter.kind !== "parameter" ||
-      parameter.transferOwnership !== "none" ||
-      parameter.nullable ||
-      parameter.optional ||
-      parameter.callerAllocates ||
-      parameter.skip ||
-      parameter.scope !== null ||
-      parameter.closureParameter !== null ||
-      parameter.destroyParameter !== null ||
-      scalar === undefined ||
-      parameter.type.kind !== "named" ||
-      parameter.type.cType === null ||
-      !scalar.cTypes.includes(parameter.type.cType)
-    ) {
-      diagnostics.push({
-        code: "NTS5001",
-        severity: "error",
-        path: `${path}/parameters/${index + 1}`,
-        message: "Value-return adapter inputs must be exact scalars",
+    const enumerationCType = named === null
+      ? undefined
+      : enumerationCTypes.get(named.name);
+    const inputClass = named === null ? undefined : classByName.get(named.name);
+    const shared = parameter.kind === "parameter" &&
+      parameter.direction === "in" &&
+      parameter.transferOwnership === "none" &&
+      !parameter.nullable &&
+      !parameter.optional &&
+      !parameter.callerAllocates &&
+      !parameter.skip &&
+      parameter.scope === null &&
+      parameter.closureParameter === null &&
+      parameter.destroyParameter === null &&
+      named !== null;
+    if (shared && scalar !== undefined && named!.cType !== null &&
+      scalar.cTypes.includes(named!.cType)) {
+      return Object.freeze({
+        kind: "scalar" as const,
+        parameterName: parameter.name,
+        sourceName: scalar.girName,
+        nativeType: scalar.girName,
       });
-      return null;
     }
-    return Object.freeze({
-      parameterName: parameter.name,
-      sourceName: scalar.girName,
-      nativeType: scalar.girName,
+    /* GIR gives an enumeration parameter no c:type of its own often enough
+     * that the spelling comes from the enumeration's declaration, exactly as
+     * it does for a signal payload. */
+    if (shared && enumerationCType !== undefined &&
+      (named!.cType === null || named!.cType === enumerationCType)) {
+      return Object.freeze({
+        kind: "enumeration" as const,
+        parameterName: parameter.name,
+        sourceName: named!.name,
+        nativeType: enumerationCType,
+      });
+    }
+    /* An object input is borrowed for the duration of the call: the adapter
+     * forwards the pointer and takes no reference, because the callee does not
+     * keep one either. */
+    if (shared && inputClass !== undefined &&
+      named!.cType === `${inputClass.cType}*`) {
+      return Object.freeze({
+        kind: "class" as const,
+        parameterName: parameter.name,
+        sourceName: inputClass.name,
+        nativeType: `${inputClass.cType} *`,
+      });
+    }
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/parameters/${index + 1}`,
+      message:
+        "Value-return adapter inputs must be exact scalars, selected enumerations, or selected classes",
     });
+    return null;
   });
   if (
     callable.cIdentifier === null ||
@@ -1122,6 +1155,8 @@ export function generateGObjectAdapterSource(
         class_,
         callable,
         recordsByName,
+        enumerationCTypes,
+        classByName,
         diagnostics,
       );
       if (generated === null) continue;

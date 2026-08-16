@@ -152,6 +152,11 @@ grid.setColumnSpacing(8 as guint);
 grid.attach(new Label("row"), 0 as gint, 0 as gint, 1 as gint, 1 as gint);
 grid.attach(list, 1 as gint, 0 as gint, 1 as gint, 2 as gint);
 
+/* An object goes in and four values come back. The input is borrowed for the
+ * call: the grid already holds the child, and asking about it takes no
+ * reference of its own. */
+const listPlacement = grid.queryChild(list);
+
 const frame = new Frame("Items");
 frame.setChild(grid);
 
@@ -241,6 +246,18 @@ const clicked = action.onClicked((sender): void => {
     "the activated row arrived with the wrong index",
   );
   check_(!alpha.selectable, "the payload did not reach the original row");
+  /* An enumeration crosses as an input, and the four measurements come back
+   * as one value rather than four out-pointers. */
+  const width = heading.measure(Orientation.Horizontal, -1 as gint);
+  check_(
+    width.minimum === (220 as gint),
+    "the heading measured a width other than its request",
+  );
+  check_(
+    listPlacement.column === (1 as gint) && listPlacement.row === (0 as gint) &&
+      listPlacement.width === (1 as gint) && listPlacement.height === (2 as gint),
+    "the grid reported the wrong placement for its child",
+  );
   const requested = heading.getSizeRequest();
   check_(
     requested.width === (220 as gint) && requested.height === (40 as gint),

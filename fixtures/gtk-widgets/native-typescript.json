@@ -75,6 +75,7 @@
             "get_visible",
             "get_width",
             "grab_focus",
+            "measure",
             "queue_draw",
             "set_hexpand",
             "set_margin_bottom",
@@ -238,9 +239,10 @@
             "new"
           ],
           "methods": [
-            "set_row_spacing",
+            "attach",
+            "query_child",
             "set_column_spacing",
-            "attach"
+            "set_row_spacing"
           ]
         },
         {
