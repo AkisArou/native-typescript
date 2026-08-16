@@ -458,20 +458,20 @@ These are deliberate, not oversights. Each is a named future slice.
   nothing else, and the parser says so rather than pretending otherwise. The
   Target SPI stays descriptor-only until a second target exists to justify its
   shape.
-- **A borrowed object result throws when the object is absent.** A method that
-  hands back an object it keeps owning now projects: the adapter takes a
-  reference, which makes the result an ordinary owned handle, and the runtime
-  interns it so repeated reads of one object name one managed cell. 187 GTK
-  methods take this path, `get_child` and `get_parent` among them.
+- **Absence is a value, and only for the results GIR says can be absent.** A
+  method that hands back an object it keeps owning projects: the adapter takes
+  a reference, which makes the result an owned handle, and the runtime interns
+  it so repeated reads of one object name one managed cell. 187 GTK methods
+  take this path.
 
-  What is absent surfaces as a thrown error rather than as null, because a
-  nullable owned handle lowers as an error — the rule a nullable constructor
-  result already follows. `container.getChild()` on an empty container throws.
-  Nullable handle results as source values would fix it and do not exist.
+  132 of them can return nothing, and those read as `T | null`. The remaining
+  55 cannot, so a NULL from one would mean the library broke its own contract
+  and throws. The `error` contract carries that difference: `nullable` means
+  NULL is a failure, which is right for a constructor and wrong for a reader.
 
-  A getter returning an object projects as a method rather than a property, for
-  the reason a nullable string getter does: it is a call whose answer can
-  change, and the object it names has a lifetime of its own.
+  A getter returning an object projects as a method, for the reason a nullable
+  string getter does: it is a call whose answer can change, and the object it
+  names has a lifetime of its own.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars

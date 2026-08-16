@@ -310,11 +310,13 @@ test(
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-widgets-"));
     try {
+      for (const backend of ["c", "llvm"] as const) {
       const built = await buildGtkApplication({
         projectRoot: widgetsFixtureRoot,
         project,
-        scratch,
-        backend: "c",
+        scratch: join(scratch, backend),
+        /* The nullable handle result is emitted separately by each backend. */
+        backend,
         tools: {
           clang: executable("clang"),
           node: process.execPath,
@@ -337,7 +339,8 @@ test(
         signal: null,
         stdout: "widgets ok\n",
         stderr: "",
-      });
+      }, backend);
+      }
     } finally {
       rmSync(scratch, { force: true, recursive: true });
     }

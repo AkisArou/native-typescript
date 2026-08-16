@@ -165,6 +165,10 @@ export type ScriptCNativeResultProjection =
       readonly trueValue: string;
     }
   | { readonly kind: "utf8CString"; readonly nullable: boolean }
+  /** An owned handle the callee may report as absent. Absence is a value here
+   * rather than a failure: a container with no child has answered, and forcing
+   * that through the error channel would make the ordinary case a throw. */
+  | { readonly kind: "nullableHandle" }
   /** The physical result is the operation's error channel and yields no
    * source value. Paired with the `errorHandle` contract that reads and
    * releases it, so a foreign pointer never becomes a source value. */
@@ -2619,6 +2623,38 @@ export function translateScabiNativeProgram(
           falseValue: booleanType.falseValue,
           trueValue: booleanType.trueValue,
         });
+      }
+    } else if (
+      manifest.types[binding.signature.result.type]?.kind === "handle" &&
+      binding.signature.result.nullable &&
+      binding.signature.result.passMode === "pointer" &&
+      binding.signature.result.ownership.kind === "owned" &&
+      binding.signature.result.ownership.transfer === "to-runtime" &&
+      binding.error.kind === "no-fail"
+    ) {
+      /* An owned handle the callee may report as absent, where absence is not
+       * a failure. A binding that declares the nullable error contract instead
+       * says NULL means the call failed, which is right for a constructor and
+       * wrong for a reader: a container with no child has answered. */
+      const destructor = binding.signature.result.ownership.destructor;
+      resultType = lowerType(
+        binding.signature.result.type,
+        `${resultPath}/type`,
+      );
+      if (resultType === null || resultType.kind !== "nativeHandle") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          resultPath,
+          "A nullable handle result must lower to a native handle",
+        ));
+        valid = false;
+      } else {
+        resultOwnership = Object.freeze({
+          kind: "owned",
+          transfer: "to-runtime",
+          destructor: `${manifest.package.instance}#${destructor}`,
+        } as const);
+        resultProjection = Object.freeze({ kind: "nullableHandle" } as const);
       }
     } else {
       const unsupportedResult = positionUnsupported(

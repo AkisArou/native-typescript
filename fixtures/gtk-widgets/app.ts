@@ -212,22 +212,16 @@ const clicked = action.onClicked((sender): void => {
    * reference so the handle can outlive whatever GTK does next, and the
    * runtime interns it so repeated reads name one managed cell.
    *
-   * A container with no child throws rather than answering null, because a
-   * nullable owned handle lowers as an error — the same rule a nullable
-   * constructor result follows. */
-  window.getChild().visible = true;
-  alpha.getChild().visible = true;
-  /* The parent is an object this program constructed, so its pointer already
-   * has a managed cell. Interning has to find it: committing a second cell for
-   * one object traps rather than leaving two to disagree. */
-  heading.getParent().visible = true;
-  let absentReported = false;
-  try {
-    new ListBoxRow().getChild();
-  } catch {
-    absentReported = true;
-  }
-  check_(absentReported, "an empty row invented a child");
+   * GIR says these can be absent, so absence is an answer rather than a throw.
+   * The parent was constructed here, which means interning has to find its
+   * existing cell — committing a second for one object traps. */
+  const windowChild = window.getChild();
+  check_(windowChild !== null, "the window forgot its child");
+  const rowChild = alpha.getChild();
+  check_(rowChild !== null, "the first row forgot its child");
+  check_(new ListBoxRow().getChild() === null, "an empty row invented a child");
+  const headingParent = heading.getParent();
+  check_(headingParent !== null, "the heading lost its parent");
   check_(content.sensitive, "the content is not sensitive");
   /* An exact native scalar is constructed from a literal, never from an
    * arbitrary number: the compiler has to prove the value is in range. */

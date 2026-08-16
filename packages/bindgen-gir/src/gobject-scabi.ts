@@ -1729,14 +1729,20 @@ export function generateGObjectScabiPackage(
           result: Object.freeze({
             type: resultTypeId,
             passMode: "pointer",
-            nullable: true,
+            nullable: callable.result.nullable,
             ownership: Object.freeze({
               kind: "owned",
               transfer: "to-runtime",
               destructor: resultReleaseId,
             }),
           }),
-          error: Object.freeze({ kind: "nullable" }),
+          /* GIR says whether the object can be absent. When it can, absence is
+           * an answer and the result is `T | null`; when it cannot, a NULL
+           * would mean the library broke its own contract, which is a failure
+           * worth throwing over. */
+          error: callable.result.nullable
+            ? Object.freeze({ kind: "no-fail" })
+            : Object.freeze({ kind: "nullable" }),
           dependencies: dependencies({
             bindings: [resultReleaseId],
             links: linkIds,
@@ -1749,7 +1755,7 @@ export function generateGObjectScabiPackage(
         classLines.push(
           `  ${sourceMember}(${retainedSourceParameters.join(", ")}): ${
             borrowedResult.name
-          };`,
+          }${callable.result.nullable ? " | null" : ""};`,
         );
         continue;
       }
