@@ -788,6 +788,24 @@ test(
   },
 );
 
+test("a namespace cannot be supplied as its own import", () => {
+  // Easy to reach by wiring a build's imported namespaces carelessly, and
+  // meaningless: a package's own declarations are not foreign to it.
+  const selected = snapshot();
+  const failure = generationError(() =>
+    generateGObjectScabiPackage(
+      options(selected, [{ snapshot: selected, package: options().package }]),
+    )
+  );
+  assert.equal(
+    failure.diagnostics.some(({ message }) =>
+      message.includes("cannot be the namespace being generated")
+    ),
+    true,
+    failure.diagnostics.map(({ message }) => message).join("\n"),
+  );
+});
+
 test(
   "a throwing member names GError as the reason it cannot be projected",
   { skip: !existsSync(systemGioGir) },
