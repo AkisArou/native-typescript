@@ -721,6 +721,43 @@ export function composeScriptCNativePrograms(
       }
     }
   }
+  /* Collector visibility is derived per package, but the invariant behind it
+   * is global: upcast-connected declarations can denote one managed cell, so
+   * the collector must trace all of them or none. Each package propagates over
+   * its own upcasts, and only composition can see an edge whose target is
+   * owned elsewhere — a package that reached a derived handle without reaching
+   * whatever makes its base traceable would otherwise contradict the package
+   * that owns the base. Unlike thread-safety and identity this is reconciled
+   * rather than rejected: it is a conclusion, not a declared contract. */
+  const traceableTypeIds = new Set<string>();
+  for (const type of types.values()) {
+    if (type.kind === "handle" && type.cycleCollection === "traceable") {
+      traceableTypeIds.add(type.id);
+    }
+  }
+  let traceabilityPropagated = true;
+  while (traceabilityPropagated) {
+    traceabilityPropagated = false;
+    for (const type of types.values()) {
+      if (type.kind !== "handle") continue;
+      for (const upcast of type.upcasts) {
+        if (!types.has(upcast.target)) continue;
+        if (traceableTypeIds.has(type.id) === traceableTypeIds.has(upcast.target)) {
+          continue;
+        }
+        traceableTypeIds.add(type.id);
+        traceableTypeIds.add(upcast.target);
+        traceabilityPropagated = true;
+      }
+    }
+  }
+  for (const [id, type] of types) {
+    if (type.kind !== "handle") continue;
+    const cycleCollection = traceableTypeIds.has(id) ? "traceable" : "none";
+    if (type.cycleCollection === cycleCollection) continue;
+    types.set(id, Object.freeze({ ...type, cycleCollection }));
+  }
+
   if (orderedLinkInputs.length !== linkInputs.size) {
     const cyclic = [...indegree]
       .filter(([, count]) => count > 0)
@@ -1549,7 +1586,14 @@ export function translateScabiNativeProgram(
             declaration: normalizedDeclaration,
             type,
           }));
-          if (nativeType.kind === "flags") {
+          /* A flags type reached across a package boundary is defined here
+           * for its ABI but declared as its owner's. Its combine belongs to
+           * the owner too: synthesising a second one would have two packages
+           * declaring the same member, which composition rejects. */
+          if (
+            nativeType.kind === "flags" &&
+            normalizedDeclaration.module === manifest.package.name
+          ) {
             operations.set(typeId, Object.freeze({
               id: `${manifest.package.instance}#source-operation/${typeId}/combine`,
               declaration: Object.freeze({

@@ -125,8 +125,17 @@ Recorded in [Implementation status](status.md).
 
 ### Next slices
 
-The application lifecycle generates and the executable fixture no longer
-hand-authors its entry point.
+The application lifecycle generates, runs, and no longer depends on
+hand-authored C. Two findings came out of running it, both fixed:
+
+- A package that reached an imported flags type synthesised a second
+  `combine` for it, so two packages declared the same member and composition
+  refused the program. The owner declares it; an importer does not.
+- Collector visibility is derived per package but the invariant is global.
+  A derived handle in one package and its base in another disagreed about
+  whether the collector traces them, which the compiler rejected as an invalid
+  identity upcast. Composition reconciles it now, because it is a conclusion
+  rather than a declared contract.
 
 **Where the bootstrap belongs.** Done. `gtk_init` and attaching the GLib owner
 runtime are what a GTK target does before any TypeScript runs, not application

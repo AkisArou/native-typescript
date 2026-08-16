@@ -1,41 +1,29 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
 import {
   defineArtifactGraph,
   executeArtifactGraph,
-  resolvePkgConfigSdk,
-  resolveSourceArtifact,
 } from "@native-typescript/core";
-import type {
-  ArtifactActionDefinition,
-  ArtifactDefinition,
-} from "@native-typescript/core";
-import { canonicalizeJson } from "@native-typescript/scabi";
+import type { ArtifactActionDefinition } from "@native-typescript/core";
 import {
-  defineGirBindingPackageRequest,
+  girBindingAnalysisArtifactIds,
   girBindingToolFile,
   girPackageSlug,
-  girBindingAnalysisArtifactIds,
   ingestGir,
-  planGirBindingAnalysis,
 } from "@native-typescript/bindgen-gir";
+import {
+  ingestGioApplication,
+  planNamespaceAnalysis,
+} from "./support/gir-analysis.ts";
 
 const workspace = join(import.meta.dirname, "..");
 const systemGioGir = "/usr/share/gir-1.0/Gio-2.0.gir";
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
-const nativeTarget = "x86_64-unknown-linux-gnu";
-const executionPlatform = "x86_64-linux";
 const bindingToolPath = join(
   workspace,
   "packages/bindgen-gir/node_modules/.runtime",
@@ -62,42 +50,6 @@ async function toolIdentity(
     id,
     version: "test",
     digest: `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`,
-  };
-}
-
-async function metadataArtifact(
-  id: string,
-  path: string,
-  mediaType: string,
-  sourcePaths: Record<string, string>,
-): Promise<ArtifactDefinition> {
-  const resolved = await resolveSourceArtifact({
-    id,
-    path,
-    kind: mediaType === "text/javascript" ? "source" : "metadata",
-    entryType: "file",
-    mediaType,
-    target: executionPlatform,
-    domain: "host",
-    cache: "exportable",
-    fileName: id.split("/").at(-1)!,
-    logicalPath: `generated/${id}`,
-  });
-  sourcePaths[id] = path;
-  return resolved.artifact;
-}
-
-function packageIdentity(slug: string): {
-  readonly name: string;
-  readonly version: string;
-  readonly namespace: string;
-  readonly instance: string;
-} {
-  return {
-    name: `@native-typescript/${slug}`,
-    version: "0.0.0",
-    namespace: `native-typescript.${slug}`,
-    instance: `native-typescript.${slug}@0.0.0`,
   };
 }
 
@@ -210,7 +162,7 @@ interface AnalysisSubgraph {
 
 /**
  * Plans gio2 and gtk4 as two analysis subgraphs of one artifact graph, with
- * gtk4 importing gio2. `gioMembers` varies gio2's selection so a caller can
+ * gtk4 importing gio2. `gioMethods` varies gio2's selection so a caller can
  * observe what changing an imported namespace does to the dependent package.
  */
 async function planTwoNamespaceAnalysis(options: {
@@ -220,151 +172,28 @@ async function planTwoNamespaceAnalysis(options: {
   readonly clangTool: ArtifactActionDefinition["tool"];
   readonly nodeTool: ArtifactActionDefinition["tool"];
 }): Promise<AnalysisSubgraph> {
-  const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
-    logicalPath: "system-sdk/gir/Gio-2.0.gir",
-    namespace: { name: "Gio", version: "2.0" },
-    // The whole non-throwing lifecycle surface. Only register() is missing,
-    // and only because it is throws=1.
-    classes: [
-      // register() takes a GCancellable, so its class is part of the selection.
-      { name: "Cancellable", constructors: ["new"] },
-      {
-        name: "Application",
-        constructors: ["new"],
-        methods: [...options.gioMethods],
-        signals: ["activate"],
-      },
-    ],
-    enumerations: [
-      { name: "ApplicationFlags", members: ["default_flags", "is_service"] },
-    ],
-  });
+  const gio = ingestGioApplication(options.gioMethods);
   const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
     logicalPath: "system-sdk/gir/Gtk-4.0.gir",
     namespace: { name: "Gtk", version: "4.0" },
     classes: [{ name: "Application", constructors: ["new"] }],
   });
-
-  const sdk = await resolvePkgConfigSdk({
-    id: "gtk4",
-    executable: executable("pkg-config"),
-    modules: ["gtk4"],
-    target: nativeTarget,
+  const analysis = await planNamespaceAnalysis({
+    scratch: options.scratch,
+    suffix: options.suffix,
+    selections: [
+      { snapshot: gio, imports: [], sdkModules: ["gio-2.0"] },
+      { snapshot: gtk, imports: [gio], sdkModules: ["gtk4"] },
+    ],
+    clangTool: options.clangTool,
+    nodeTool: options.nodeTool,
   });
-  const sourcePaths: Record<string, string> = { ...sdk.sourcePaths };
-  const artifacts = [...sdk.artifacts];
-  const actions = [];
-  const toolArtifact = await metadataArtifact(
-    "tool-input/bindgen-gir/generator",
-    bindingToolPath,
-    "text/javascript",
-    sourcePaths,
-  );
-  artifacts.push(toolArtifact);
-
-  let generationActionId = "";
-  for (const [snapshot, imported, sdkModules] of [
-    [gio, [], ["gio-2.0"]],
-    [gtk, [gio], ["gtk4"]],
-  ] as const) {
-    const slug = girPackageSlug(snapshot.namespace);
-    const request = defineGirBindingPackageRequest({
-      namespace: { ...snapshot.namespace },
-      importedNamespaces: imported.map((entry) => ({
-        namespace: {
-          name: entry.namespace.name,
-          version: entry.namespace.version,
-        },
-        package: packageIdentity(girPackageSlug(entry.namespace)),
-      })),
-      clang: {
-        toolId: options.clangTool.id,
-        version: options.clangTool.version,
-        digest: options.clangTool.digest,
-        target: nativeTarget,
-      },
-      generation: {
-        package: packageIdentity(slug),
-        target: {
-          triple: nativeTarget,
-          architecture: "x86_64",
-          pointerWidth: 64,
-          endianness: "little",
-          objectFormat: "elf",
-          minimumPlatformVersion: "glibc-2.17",
-          abi: "sysv-amd64",
-          features: ["gtk4"],
-        },
-        sdk: {
-          vendor: "GNOME",
-          name: "GTK",
-          version: "4.0",
-          deploymentTarget: nativeTarget,
-          modules: [...sdkModules],
-        },
-        linkInputs: sdk.systemLibraries.map((name, order) => ({
-          id: name,
-          kind: "system-library" as const,
-          name,
-          order,
-        })),
-        adapterInput: {
-          id: `${slug}.gobject-adapters`,
-          output: "gobject-adapters.o",
-        },
-      },
-    });
-
-    const snapshotPath = join(
-      options.scratch,
-      `${slug}-snapshot-${options.suffix}.json`,
-    );
-    writeFileSync(snapshotPath, canonicalizeJson(snapshot));
-    const requestPath = join(
-      options.scratch,
-      `${slug}-request-${options.suffix}.json`,
-    );
-    writeFileSync(requestPath, canonicalizeJson(request));
-    const snapshotArtifact = await metadataArtifact(
-      `metadata/${slug}/selected-gir`,
-      snapshotPath,
-      "application/vnd.native-typescript.gir-snapshot+json",
-      sourcePaths,
-    );
-    const requestArtifact = await metadataArtifact(
-      `metadata/${slug}/binding-package-request`,
-      requestPath,
-      "application/vnd.native-typescript.gtk-binding-package-request+json",
-      sourcePaths,
-    );
-    const plan = planGirBindingAnalysis({
-      snapshot,
-      request,
-      requestArtifact: requestArtifact.id,
-      snapshotArtifact: snapshotArtifact.id,
-      generatorArtifact: toolArtifact.id,
-      importedSnapshots: imported,
-      importedSnapshotArtifacts: imported.map(
-        (entry) => `metadata/${girPackageSlug(entry.namespace)}/selected-gir`,
-      ),
-      clangArguments: sdk.compileArguments,
-      clangTool: options.clangTool,
-      nodeTool: options.nodeTool,
-      executionPlatform,
-      target: nativeTarget,
-    });
-    const probePath = join(options.scratch, `${slug}-probe-${options.suffix}.c`);
-    writeFileSync(probePath, plan.probe.source);
-    sourcePaths[plan.clang.source.id] = probePath;
-    artifacts.push(snapshotArtifact, requestArtifact, ...plan.artifacts);
-    actions.push(...plan.actions);
-    if (slug === "gtk4") generationActionId = plan.bindings.action.id;
-  }
-
+  const gtk4 = analysis.packages.find(({ slug }) => slug === "gtk4");
+  assert.ok(gtk4);
   return {
-    graph: defineArtifactGraph({ artifacts, actions }),
-    sourcePaths,
-    generationActionId,
+    graph: analysis.graph,
+    sourcePaths: analysis.sourcePaths,
+    generationActionId: gtk4?.generationActionId ?? "",
   };
 }
 

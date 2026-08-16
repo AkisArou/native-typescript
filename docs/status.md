@@ -28,7 +28,7 @@ The repository is not yet an application framework or a production compiler.
 | C ABI evidence (Clang-proven) | implemented |
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
 | GTK target runtime provider | implemented |
-| GTK application lifecycle | generated |
+| GTK application lifecycle | generated and executed |
 | GTK target runtime package | implemented |
 | Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
@@ -320,6 +320,23 @@ The owner runtime and the bootstrap share one source tree and one link, but not
 one dialect — the runtime is portable C under `-std=c11 -pedantic`, while the
 bootstrap reaches GNU extensions through the GTK headers.
 
+### Executed lifecycle
+
+An application drives the whole GTK lifecycle from TypeScript with no
+hand-written C of its own: `new Application(id, flags)`, `onActivate`,
+`register(new Cancellable())`, `getIsRemote`, `activate`, and `quit`. The gate
+builds it for both backends, runs it under Xvfb, and requires exact output.
+
+`Application` comes from gtk4 and inherits its lifecycle from gio2 across a
+package boundary, so this is also the first proof that cross-namespace
+composition survives into a linked, running process rather than only into a
+graph. Nothing blocks: `g_application_run()` is never reached, and the
+runtime's attached `GMainContext` turns the loop.
+
+Removing the `activate()` call makes the application report a missed activation
+through a ScriptC timer instead, so the gate distinguishes "signal not
+delivered" from "signal delivered late" rather than hanging.
+
 ### Generated surface
 
 | Projected | Notes |
@@ -369,11 +386,9 @@ tool.
 
 These are deliberate, not oversights. Each is a named future slice.
 
-- **The generated `Application` is not yet the executable's entry point.**
-  Every member projects, `register()` included, and the process bootstrap now
-  belongs to the target rather than to the fixture. What remains is an
-  application that drives its own lifecycle through the generated class instead
-  of through the target's start/quit pair.
+- **Only two GIR namespaces have ever been linked together.** gio2 and gtk4
+  compose and run; nothing proves a third, and no namespace outside the GNOME
+  stack has been attempted.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader
