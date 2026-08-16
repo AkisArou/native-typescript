@@ -128,6 +128,28 @@ Recorded in [Implementation status](status.md).
 The application lifecycle generates. What is left is retiring the executable
 fixture's hand-authored entry point in favour of it.
 
+**Where the bootstrap belongs.** The fixture's `nts_gtk_runtime_start()` does
+three things: `gtk_init`, attaching the GLib runtime, and registering teardown.
+None of that is application code — it is what a GTK target must do before any
+TypeScript runs — so it belongs to the target's runtime beside
+`nts_glib_runtime.c`, exposed as entries the application calls once.
+
+That needs something the workspace does not have yet: a SCABI package for the
+target runtime. The application gate currently stands the fixture manifest in
+for one, which is why the bootstrap ended up in the fixture. Giving
+`target-gtk` its own package makes the composition three packages — toolkit,
+target runtime, and fixture — rather than two.
+
+The split is not simply "move the C". Today's teardown interleaves runtime
+shutdown with test assertions: it stops accepting callbacks, checks the
+completion value and counter accounting, then detaches. The target owns
+`start`, `quit`, and `shutdown`; the fixture keeps its assertions and calls
+`shutdown` after them, so ordering stays explicit and the test still observes
+pre-teardown state.
+
+This is packaging rather than capability — the lifecycle already generates —
+which is why it is sequenced after the contracts above rather than before.
+
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a
 generated adapter absorbs the `GError **`, one accessor pair per namespace
