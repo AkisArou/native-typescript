@@ -33,3 +33,17 @@ export const glibRuntimeProvider = defineProvider({
     },
   },
 });
+
+export { buildGtkApplication } from "./application-build.ts";
+export type {
+  GtkApplicationBuildResult,
+  GtkApplicationToolPaths,
+} from "./application-build.ts";
+export {
+  GtkApplicationProjectError,
+  parseGtkApplicationProject,
+} from "./application-project.ts";
+export type {
+  GtkApplicationProject,
+  GtkProjectNamespace,
+} from "./application-project.ts";

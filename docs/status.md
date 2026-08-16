@@ -30,6 +30,7 @@ The repository is not yet an application framework or a production compiler.
 | GTK target runtime provider | implemented |
 | GTK application lifecycle | generated and executed |
 | GTK target runtime package | implemented |
+| Application build pipeline and `build` command | implemented |
 | Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
@@ -382,6 +383,23 @@ generated receiver-owned connections, and disposes deterministically.
 The executable contains no JavaScript engine and no part of the Node build
 tool.
 
+## Building an application
+
+`native-typescript build <project>` reads a `native-typescript.json`, generates
+the binding packages its namespaces ask for, and links a native executable.
+Parsing is strict and total: a project that the build would reject halfway
+through is rejected before any work starts, naming the offending field.
+
+The build runs in two phases, because generation is itself a build. The first
+graph probes the C ABI with Clang and emits one binding package per namespace;
+only once those exist can the second compile and link against them. Both phases
+are ordinary artifact graphs, so both are sandboxed and cacheable.
+
+The pipeline is `buildGtkApplication` in the target package rather than
+something the command line assembles, so a gate, a command, and any future
+editor integration take the same path instead of three reconstructions that can
+disagree.
+
 ## Known boundaries
 
 These are deliberate, not oversights. Each is a named future slice.
@@ -389,6 +407,10 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Only two GIR namespaces have ever been linked together.** gio2 and gtk4
   compose and run; nothing proves a third, and no namespace outside the GNOME
   stack has been attempted.
+- **A project cannot describe a non-GTK target.** `target` accepts `gtk4` and
+  nothing else, and the parser says so rather than pretending otherwise. The
+  Target SPI stays descriptor-only until a second target exists to justify its
+  shape.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader

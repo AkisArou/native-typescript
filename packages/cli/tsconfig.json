@@ -5,6 +5,7 @@
     "types": ["node"]
   },
   "references": [
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../target-gtk" }
   ]
 }

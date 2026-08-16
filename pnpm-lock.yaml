@@ -87,6 +87,9 @@ importers:
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core
+      '@native-typescript/target-gtk':
+        specifier: workspace:*
+        version: link:../target-gtk
 
   packages/core:
     dependencies:
@@ -119,6 +122,12 @@ importers:
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
+      '@native-typescript/scriptc':
+        specifier: workspace:*
+        version: link:../scriptc
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:../target-api

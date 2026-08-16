@@ -10,6 +10,7 @@
     ".": "./src/main.ts"
   },
   "dependencies": {
-    "@native-typescript/core": "workspace:*"
+    "@native-typescript/core": "workspace:*",
+    "@native-typescript/target-gtk": "workspace:*"
   }
 }

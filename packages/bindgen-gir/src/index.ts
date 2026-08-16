@@ -66,3 +66,13 @@ export type {
   GirTransferOwnership,
   GirTypeReference,
 } from "./gir-model.ts";
+
+export {
+  girPackageIdentity,
+  planGirNamespaceAnalysis,
+} from "./namespace-analysis.ts";
+export type {
+  GirGeneratedPackage,
+  GirNamespaceAnalysis,
+  GirNamespaceSelection,
+} from "./namespace-analysis.ts";

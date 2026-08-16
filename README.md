@@ -320,13 +320,13 @@ packages/
 ├── bindgen-c/    target-neutral Clang C ABI evidence and probe generation
 ├── bindgen-gir/  GObject-introspection binding family: GIR ingestion, GObject
 │                 adapters, and the GObject SCABI/declaration projection
-├── cli/          command-line entry point
+├── cli/          command-line entry point, including `build`
 ├── core/         build planning and orchestration
 ├── scabi/        native binding schema, canonicalization, and validation
 ├── scriptc/      integration with the pinned scriptc fork
 ├── target-api/   target-provider contracts
-└── target-gtk/   GTK target: GLib owner-runtime adapter, native object
-                  fragment, provider and packaging metadata
+└── target-gtk/   GTK target: GLib owner-runtime adapter, process bootstrap,
+                  native object fragment, and the application build pipeline
 
 third_party/
 └── scriptc/      pinned fork as a Git submodule
@@ -359,8 +359,18 @@ framework or a production compiler.
 
 The C ABI foundation and the first GTK vertical slice are the working surface
 today. A narrow but real GTK application — window, button, properties, signals,
-deterministic teardown — compiles from TypeScript through both the C and LLVM
-backends and runs against real GTK with no JavaScript engine in the executable.
+the `GApplication` lifecycle, deterministic teardown — compiles from TypeScript
+through both the C and LLVM backends and runs against real GTK with no
+JavaScript engine in the executable.
+
+One command builds one:
+
+```sh
+native-typescript build path/to/project
+```
+
+The project states which GIR namespaces it wants and which members of them;
+everything else — ABI probes, adapter generation, link order — is derived.
 
 | Layer | State |
 | --- | --- |
@@ -370,7 +380,8 @@ backends and runs against real GTK with no JavaScript engine in the executable.
 | Artifact graph, sandboxed executor, local action cache | implemented |
 | Clang-proven C ABI evidence and GIR/GObject projection | implemented, narrow algebra |
 | GTK target runtime and generated widget surface | implemented, narrow surface |
-| GTK application lifecycle | specified, not generated |
+| GTK application lifecycle | generated and executed |
+| `build` command, project description, action cache | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
 [Implementation status](docs/status.md) records what is built and proven, by

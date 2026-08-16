@@ -6,6 +6,8 @@
   },
   "references": [
     { "path": "../bindgen-gir" },
+    { "path": "../scabi" },
+    { "path": "../scriptc" },
     { "path": "../target-api" },
     { "path": "../core" }
   ]

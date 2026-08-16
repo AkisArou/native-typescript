@@ -9,6 +9,8 @@
   "dependencies": {
     "@native-typescript/bindgen-gir": "workspace:*",
     "@native-typescript/core": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/scriptc": "workspace:*",
     "@native-typescript/target-api": "workspace:*"
   }
 }
