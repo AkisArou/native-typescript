@@ -38,7 +38,6 @@ import {
   TextView,
   ToggleButton,
   Window,
-  type gdouble,
   type gint,
 } from "@native-typescript/gtk4";
 
@@ -91,24 +90,24 @@ content.append(controls);
 content.append(new Separator(Orientation.Horizontal));
 
 const adjustment = new Adjustment(
-  25 as gdouble,
-  0 as gdouble,
-  100 as gdouble,
-  1 as gdouble,
-  10 as gdouble,
-  0 as gdouble,
+  25,
+  0,
+  100,
+  1,
+  10,
+  0,
 );
-adjustment.setStepIncrement(2 as gdouble);
+adjustment.setStepIncrement(2);
 const scale = new Scale(Orientation.Horizontal, adjustment);
 scale.setDrawValue(true);
 scale.setDigits(1);
-const spin = new SpinButton(adjustment, 1 as gdouble, 0);
+const spin = new SpinButton(adjustment, 1, 0);
 spin.setDigits(0);
 content.append(scale);
 content.append(spin);
 
 const progress = new ProgressBar();
-progress.fraction = 0.25 as gdouble;
+progress.fraction = 0.25;
 progress.setText("Quarter");
 content.append(progress);
 
@@ -182,11 +181,10 @@ content.append(stack);
 window.setChild(content);
 window.present();
 
-/* Returns an optional exact scalar: the value crosses a union on the way out
- * and back, which is what any narrowing or absent value produces. gdouble is
- * the scalar that still carries a brand, so it is the one this proves. */
-function rowOffset(present: boolean): gdouble | undefined {
-  return present ? (-7 as gdouble) : undefined;
+/* Returns an optional number: the value crosses a union on the way out and
+ * back, which is what any narrowing or absent value produces. */
+function rowOffset(present: boolean): number | undefined {
+  return present ? -7 : undefined;
 }
 
 let failure = "";
@@ -225,11 +223,11 @@ const clicked = action.onClicked((sender): void => {
   check_(check.active, "the check button is not active");
   check_(toggle.active, "the toggle button is not active");
   check_(switch_.active, "the switch is not active");
-  check_(progress.fraction === (0.25 as gdouble), "the progress fraction is wrong");
-  check_(adjustment.value === (25 as gdouble), "the adjustment value is wrong");
-  check_(adjustment.upper === (100 as gdouble), "the adjustment upper is wrong");
-  check_(spin.value === (25 as gdouble), "the spin button did not share its adjustment");
-  check_(scale.getValue() === (25 as gdouble), "the scale did not share its adjustment");
+  check_(progress.fraction === 0.25, "the progress fraction is wrong");
+  check_(adjustment.value === 25, "the adjustment value is wrong");
+  check_(adjustment.upper === 100, "the adjustment upper is wrong");
+  check_(spin.value === 25, "the spin button did not share its adjustment");
+  check_(scale.getValue() === 25, "the scale did not share its adjustment");
   check_(expander.expanded, "the expander is collapsed");
   check_(revealer.revealChild, "the revealer is hidden");
   check_(!notes.editable, "the text view is editable");
@@ -275,7 +273,7 @@ const clicked = action.onClicked((sender): void => {
    * rather than an optional — and it is the very adjustment constructed
    * above, which only interning can answer with. */
   check_(
-    scale.getAdjustment().value === (25 as gdouble),
+    scale.getAdjustment().value === 25,
     "the scale's adjustment is not the one it was given",
   );
   check_(content.sensitive, "the content is not sensitive");
@@ -283,13 +281,13 @@ const clicked = action.onClicked((sender): void => {
   check_(beta.getIndex() === 1, "the second row reports the wrong index");
   check_(gamma.getIndex() === 2, "the third row reports the wrong index");
 
-  /* An optional exact scalar rides a union, which is what an absent value or
-   * a narrowed one produces. A negative has to survive the slot it rides in. */
-  check_(rowOffset(true) === (-7 as gdouble), "a negative scalar lost its sign");
+  /* An optional number rides a union, which is what an absent value or a
+   * narrowed one produces. A negative has to survive the slot it rides in. */
+  check_(rowOffset(true) === -7, "a negative scalar lost its sign");
   check_(rowOffset(false) === undefined, "an absent scalar did not stay absent");
   const present = rowOffset(true);
   check_(present !== undefined, "a present scalar read as absent");
-  check_(present !== (7 as gdouble), "a negative scalar read as its positive");
+  check_(present !== 7, "a negative scalar read as its positive");
   /* A GLib integer is an ordinary number, so everything ordinary numbers do
    * works on one. None of the four lines below had an expression form while
    * these values were branded exact scalars: no ordering, no arithmetic
@@ -301,6 +299,12 @@ const clicked = action.onClicked((sender): void => {
     "the standard library would not take a GLib integer",
   );
   check_(`${alpha.getIndex()}` === "0", "a row index would not print");
+  /* A gdouble is a double in both worlds, so it crosses as itself: the
+   * projection converts nothing, and the value divides and orders like the
+   * number it is. */
+  check_(adjustment.value / 5 === 5, "an adjustment value would not divide");
+  check_(progress.fraction < 1, "a fraction would not compare");
+  check_(scale.getValue() + 0.5 === 25.5, "a scale value would not add");
 
   /* The boundary check is what keeps that honesty affordable. Each value below
    * has no `gint` or `guint` to convert to, so the call throws a TypeError the

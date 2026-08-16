@@ -1652,6 +1652,7 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
             passMode: "value",
             nullable: false,
             ownership: { kind: "value" },
+            conversion: "number",
           },
         ],
         result: {
@@ -1686,7 +1687,8 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
   );
   assert.ok(nativeConnect);
   /* The queued gint payload stays exact in storage and reaches the handler as
-   * a plain number; gdouble is already one and keeps its brand. */
+   * a plain number; the gdouble payload is a double in both places, so it is
+   * the same plain number without a conversion between them. */
   assert.deepEqual(nativeConnect.arguments[1]?.type, {
     kind: "func",
     params: [
@@ -1695,7 +1697,7 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
         typeId: "native-typescript.gtk4@0.0.0#type:gtk_button",
       },
       { kind: "f64" },
-      { kind: "nativeScalar", scalar: "f64" },
+      { kind: "f64" },
     ],
     ret: { kind: "void" },
   });

@@ -17,7 +17,6 @@ import {
   Orientation,
   Overlay,
   Window,
-  type gdouble,
 } from "@native-typescript/gtk4";
 
 let failed = false;
@@ -77,7 +76,7 @@ const initial = button.getLabel();
 button.setLabel("Generated: updated");
 button.setVisible(false);
 button.setVisible(true);
-button.opacity = 0.75 as gdouble;
+button.opacity = 0.75;
 button.opacity = button.opacity;
 drawingArea.setContentWidth(640);
 drawingArea.setContentHeight(480);

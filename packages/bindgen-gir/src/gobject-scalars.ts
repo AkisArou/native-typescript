@@ -21,12 +21,14 @@ export interface SourceScalarType {
   readonly nativeType: NativeType;
   /** 64-bit integers exceed what a TypeScript number holds exactly. */
   readonly carrier: "number" | "bigint";
-  /** The source-visible carrier every position of this scalar declares. GLib's
-   * ≤32-bit integers are dimensions, indices, counts, and spacings: a double
-   * holds every one of them injectively, so they read and write as ordinary
-   * numbers and the boundary check keeps that honest. A 64-bit integer cannot
-   * make that promise and keeps its exact representation, and `gdouble` is a
-   * double already. */
+  /** The source-visible carrier every position of this scalar declares.
+   * GLib's ≤32-bit integers are dimensions, indices, counts, and spacings: a
+   * double holds every one of them injectively, so they read and write as
+   * ordinary numbers and the boundary check keeps that honest. `gdouble` is a
+   * double already, so its crossing converts nothing at all — a brand there
+   * would forbid arithmetic and ordering while protecting no representation.
+   * A 64-bit integer is the one family that cannot make the promise, so it
+   * keeps its exact carrier. */
   readonly conversion: NumberConversion | null;
 }
 
@@ -53,7 +55,7 @@ export const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
     abiType: "gdouble",
     nativeType: Object.freeze({ kind: "float", bits: 64 }),
     carrier: "number",
-    conversion: null,
+    conversion: "number",
   }) as SourceScalarType,
   integerScalar("gint", ["gint", "int"], true, 32),
   integerScalar("guint", ["guint", "unsigned int"], false, 32),

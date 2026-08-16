@@ -190,16 +190,18 @@ ordinary `number`, `boolean`, or generated enum/flag types only where a checked
 projection proves the value is lossless and within the declared range. Values
 that cannot be represented exactly keep an explicit native scalar type.
 
-In practice that divides GLib's numeric types in one place: an integer of at
-most 32 bits declares the JavaScript-number conversion, so `gint`, `guint`, and
-every fixed width up to 32 bits are transparent aliases for `number`. The
-spelling stays in every signature because it says what the value means, while
-the value orders, prints, and computes like the number it is. Writing one back
-is checked at the boundary and raises a catchable `TypeError` rather than
+In practice that divides GLib's numeric types in one place: every type a
+JavaScript number holds exactly declares the conversion, so `gdouble`, `gint`,
+`guint`, and every fixed integer width up to 32 bits are transparent aliases
+for `number`. The spelling stays in every signature because it says what the
+value means, while the value orders, prints, and computes like the number it
+is. `gdouble` converts nothing in either direction — the slot is the double —
+so every value crosses it, NaN and the infinities included. An integer slot is
+checked on the way in and raises a catchable `TypeError` rather than
 truncating; a literal is proven at compile time instead, so a provable one
-emits no check and an impossible one is refused where it is written. `gdouble`,
-`gint64`, and `guint64` keep exact branded carriers — the first because it is a
-double already, the other two because a double cannot carry them injectively.
+emits no check and an impossible one is refused where it is written. Only
+`gint64` and `guint64` keep exact branded carriers, because a double cannot
+carry them injectively.
 
 ## Enums and flags
 

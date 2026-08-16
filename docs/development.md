@@ -233,7 +233,7 @@ same graph. It then proves
 both representations through `Widget.setVisible(boolean)`, lowers
 `Widget.activate()` from exact `gboolean`, passes branded `gint` dimensions to
 `Window.setDefaultSize()`, feeds `Widget.getWidth()` into another native call,
-round-trips branded `gdouble` through the `Widget.opacity` property, and
+round-trips `gdouble` through the `Widget.opacity` property, and
 delivers `Button.clicked` through a generated result-owned retained callback.
 It also compiles `DrawingArea.resize(sender, width, height)` through both
 backends and feeds the copied `gint` values back into generated GTK calls.

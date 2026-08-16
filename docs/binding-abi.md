@@ -162,7 +162,7 @@ The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
 GObject adapter agree. It currently maps selected GObject constructors,
 instance methods, `void`, exact `gboolean`, checked-number `gint` over its
-exact slot, branded exact `gdouble`,
+exact slot, `gdouble` as itself,
 required or nullable borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
 owned handles, coherent GIR-linked getter/setter properties, and non-detailed
 `void` signals with zero or `gint`/`gdouble` payloads into canonical

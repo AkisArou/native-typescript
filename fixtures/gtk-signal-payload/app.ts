@@ -1,4 +1,4 @@
-/* Signal payloads that are not gint or gdouble.
+/* Signal payloads that are not plain numbers.
  *
  * A payload is copied into the callback turn, so anything that can be copied
  * can cross: an exact scalar of any width, an enumeration whose storage and

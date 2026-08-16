@@ -784,16 +784,12 @@ function validateTypes(
           fieldNames.add(field.name);
           if (field.conversion !== undefined) {
             const fieldType = manifest.types[field.type];
-            if (
-              fieldType === undefined ||
-              fieldType.kind !== "integer" ||
-              (fieldType.bits !== 8 && fieldType.bits !== 16 && fieldType.bits !== 32)
-            ) {
+            if (fieldType === undefined || !carriesNumberExactly(fieldType)) {
               diagnostics.push(
                 diagnostic(
                   "NTS2021",
                   `/types/${id}/fields/${index}/conversion`,
-                  "A number conversion requires an integer field of at most 32 bits; a double cannot carry wider values injectively",
+                  "A number conversion requires a 64-bit float field or an integer field of at most 32 bits; a double cannot carry wider values injectively",
                 ),
               );
             }
@@ -1191,6 +1187,15 @@ function validatePositionOwnership(
  * of the native type injectively and nothing else already reinterprets the
  * position. Everything wider than 32 bits, and every position that is a
  * pointer, a resource, or a marshalled buffer, keeps its own representation. */
+/** The native types a JavaScript number carries exactly, in both
+ * directions: the double itself, where the crossing converts nothing, and
+ * the integer widths a double holds injectively. */
+function carriesNumberExactly(type: NativeType): boolean {
+  if (type.kind === "float") return type.bits === 64;
+  return type.kind === "integer" &&
+    (type.bits === 8 || type.bits === 16 || type.bits === 32);
+}
+
 function validateConversion(
   manifest: ScabiManifest,
   position: AbiResult,
@@ -1204,15 +1209,12 @@ function validateConversion(
   if (type === undefined) {
     return;
   }
-  if (
-    type.kind !== "integer" ||
-    (type.bits !== 8 && type.bits !== 16 && type.bits !== 32)
-  ) {
+  if (!carriesNumberExactly(type)) {
     diagnostics.push(
       diagnostic(
         "NTS2021",
         `${path}/conversion`,
-        "A number conversion requires an integer type of at most 32 bits; a double cannot carry wider values injectively",
+        "A number conversion requires a 64-bit float or an integer of at most 32 bits; a double cannot carry wider values injectively",
       ),
     );
     return;

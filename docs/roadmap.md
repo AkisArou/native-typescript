@@ -186,23 +186,20 @@ justification is a measurement.
 specifies a whole numeric contract for it — wrapping `+`/`-`/`*`, trapping
 division by zero and signed-min ÷ −1, trapping out-of-range shifts, explicit
 conversion intrinsics that name whether they are checked, truncating, or
-wrapping. Implemented today: same-type `+`, `-`, `*`, `&`, `|`, `^`, and
-literal construction with a compile-time range check. Missing, and now scoped
-to `gdouble`, the 64-bit integers, and manifests that deliberately stay exact:
+wrapping. Implemented today: same-type `+`, `-`, `*`, `&`, `|`, `^`, all four
+orderings at the declared width and signedness, and literal construction with
+a compile-time range check. Missing, and now scoped to the 64-bit integers and
+to manifests that deliberately stay exact:
 
-1. **Comparisons.** `<`, `<=`, `>`, `>=` over same-type operands, signedness
-   from the type. No semantic decision is open — the C lowering compares
-   operands that already have the right type, and LLVM picks `icmp` by
-   signedness.
-2. **The construction seam.** `a + b` should lower like `(a + b) as u32` does
-   when both operands already have that exact type. Same slice as comparisons —
-   both are the general binary path learning about exact operands.
-3. **Conversion intrinsics.** Named per the profile: checked, truncating, or
+1. **The construction seam.** `a + b` should lower like `(a + b) as u32` does
+   when both operands already have that exact type — the general binary path
+   learning about exact operands, the way the comparison path already has.
+2. **Conversion intrinsics.** Named per the profile: checked, truncating, or
    wrapping. These are what let a 64-bit value reach `console.log`, `Math`, and
    JSON, and what convert between widths and signedness.
-4. **Division, remainder, and shifts**, with the traps the profile already
+3. **Division, remainder, and shifts**, with the traps the profile already
    specifies.
-5. **The checked, saturating, and wrapping helper families.**
+4. **The checked, saturating, and wrapping helper families.**
 
 **Projecting an object the callee already owns.** Done, from both sides. 187
 GTK methods return a borrowed same-namespace object and 19 signal payloads

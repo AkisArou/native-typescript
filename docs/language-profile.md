@@ -157,19 +157,23 @@ JavaScript-number conversion policy.
 
 ### The JavaScript-number conversion policy
 
-A binding position whose native type is an integer of **at most 32 bits** may
-declare that its source-visible carrier is an ordinary `number`. The width
-bound is the whole rule: a double represents every value of such a type
-injectively, so the round trip is lossless in both directions. A 64-bit or
-pointer-width integer may not declare it, and no analysis or heuristic may
-infer the policy — the manifest declares it or the position is exact.
+A binding position whose native type is a **64-bit float** or an integer of
+**at most 32 bits** may declare that its source-visible carrier is an ordinary
+`number`. Exactness in both directions is the whole rule: the float case
+converts nothing at all, since the slot is the double the source already
+holds, and a double represents every value of a ≤32-bit integer injectively,
+so that round trip is lossless too. A 64-bit or pointer-width integer may not
+declare it, and no analysis or heuristic may infer the policy — the manifest
+declares it or the position is exact.
 
-- **Ingress** (arguments, aggregate construction) is *checked*. The value must
-  be finite, integral, and within the native type's range. A value that is not
-  raises a catchable `TypeError` at the boundary, through the same pending-
-  check mechanism the native boolean projection uses, before the call happens.
-  Negative zero converts to zero: it is integral and in range, and `-0` and
-  `0` denote the same integer.
+- **Ingress** (arguments, aggregate construction) into an integer slot is
+  *checked*. The value must be finite, integral, and within the native type's
+  range. A value that is not raises a catchable `TypeError` at the boundary,
+  through the same pending-check mechanism the native boolean projection uses,
+  before the call happens. Negative zero converts to zero: it is integral and
+  in range, and `-0` and `0` denote the same integer. Ingress into a float
+  slot is the identity and cannot fail — every `number`, NaN and the
+  infinities included, is a value that slot holds.
 - **Egress** (results, aggregate fields, callback payloads) is *exact
   widening*. It cannot fail and has no failure arm.
 - A crossing the compiler can decide is decided at compile time. A literal is

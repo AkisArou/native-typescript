@@ -495,19 +495,15 @@ test(
         )?.sourceCall,
         { kind: "constructor" },
       );
-      /* gdouble is the only one of the two that names a source type. `gint`
-       * is a transparent alias for `number`, and registering it here would
+      /* Neither names a source type. Both are transparent aliases for
+       * `number` — `gint` widened out of an exact slot, `gdouble` because
+       * the slot is a double already — and registering either here would
        * hand the checker a branded reading of every plain number. */
       assert.deepEqual(
         translated.input.sourceTypes.filter(
           ({ declaration }) => declaration.name === "gdouble" || declaration.name === "gint",
         ),
-        [
-          {
-            declaration: { module: "@native-typescript/gtk4", name: "gdouble" },
-            type: { kind: "nativeScalar", scalar: "f64" },
-          },
-        ],
+        [],
       );
       const buttonType = translated.input.types.find(
         ({ id }) => id.endsWith("#type:gtk_button"),
@@ -556,11 +552,13 @@ test(
         kind: "getter",
         receiverArgument: 0,
       });
+      /* A double crosses as itself: the projection changes the source view
+       * and converts nothing, so the slot stays the f64 it always was. */
       assert.deepEqual(getOpacity?.result, {
         type: { kind: "nativeScalar", scalar: "f64" },
         passMode: "value",
         ownership: { kind: "value" },
-        projection: { kind: "direct" },
+        projection: { kind: "number" },
       });
       const setOpacity = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_set_opacity",
@@ -572,14 +570,14 @@ test(
       });
       assert.deepEqual(setOpacity?.arguments[1], {
         name: "opacity",
-        type: { kind: "nativeScalar", scalar: "f64" },
+        type: { kind: "f64" },
       });
       assert.deepEqual(setOpacity?.parameters[1], {
         name: "opacity",
         type: { kind: "nativeScalar", scalar: "f64" },
         passMode: "value",
         ownership: { kind: "value" },
-        projection: { kind: "argument", argument: 1 },
+        projection: { kind: "number", argument: 1 },
       });
       const getWidth = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_get_width",

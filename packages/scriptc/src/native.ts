@@ -969,11 +969,13 @@ function supportedBorrowedStringResult(
 
 /** The exact scalars a double carries injectively, so a widening loses
  * nothing and a checked ingress can always be undone by reading the value
- * back. Pointer-width and 64-bit slots are absent by construction: this is
- * the fence, not an omission. */
+ * back. `f64` is the identity case — the slot is the double. Pointer-width
+ * and 64-bit integer slots are absent by construction: this is the fence,
+ * not an omission. */
 function widensToNumber(scalar: ScriptCNativeScalar): boolean {
-  return scalar === "i8" || scalar === "u8" || scalar === "i16" ||
-    scalar === "u16" || scalar === "i32" || scalar === "u32";
+  return scalar === "f64" || scalar === "i8" || scalar === "u8" ||
+    scalar === "i16" || scalar === "u16" || scalar === "i32" ||
+    scalar === "u32";
 }
 
 type SupportedCallbackPair = {
