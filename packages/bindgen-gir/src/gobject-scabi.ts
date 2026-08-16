@@ -571,8 +571,11 @@ function handleParameter(
       name: parameter.name,
       type: typeId,
       passMode: "pointer",
-      // A nullable C parameter safely admits this generated non-null source
-      // subset. Null exposure needs nullable managed-handle IR of its own.
+      // Native IR supports an optional handle input, but a derived handle
+      // does not upcast through a nullable union, and GTK passes derived
+      // widgets constantly — `overlay.setChild(drawingArea)`. Until union
+      // re-tagging consults identity upcasts, this projects the non-null
+      // subset rather than an API that rejects ordinary calls.
       nullable: false,
       ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
     }),

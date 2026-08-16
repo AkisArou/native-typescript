@@ -130,6 +130,9 @@ export type ScriptCNativeArgumentType =
   | { readonly kind: "bool" }
   | { readonly kind: "string" }
   | { readonly kind: "nullableString" }
+  /** A managed handle the source may omit. The null arm passes NULL without
+   * consulting the handle table. */
+  | { readonly kind: "nullableNativeHandle"; readonly typeId: string }
   | { readonly kind: "bytes"; readonly elem: "u8" }
   | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
@@ -790,7 +793,19 @@ function positionUnsupported(
     isParameter &&
     position.ownership.kind === "owned" &&
     position.ownership.transfer === "to-native";
-  if (position.nullable && !allowNullable && !nonNullManagedHandleArgument) {
+  // A borrowed handle input may be omitted: the source gains a null arm while
+  // the ABI slot stays one pointer.
+  const optionalHandleArgument =
+    handle &&
+    isParameter &&
+    position.ownership.kind === "borrowed" &&
+    position.ownership.scope === "call";
+  if (
+    position.nullable &&
+    !allowNullable &&
+    !nonNullManagedHandleArgument &&
+    !optionalHandleArgument
+  ) {
     return "nullable values";
   }
   const validOwnership = handle
@@ -2229,7 +2244,25 @@ export function translateScabiNativeProgram(
       }
       directTypes.set(index, type);
       argumentByParameter.set(index, sourceArguments.length);
-      sourceArguments.push(Object.freeze({ name: parameter.name, type }));
+      // An optional handle keeps its pointer slot; only the source side gains
+      // a null arm, so the ABI parameter type stays the handle.
+      // Only a borrowed input is genuinely optional. An owned to-native
+      // handle is marked nullable in SCABI because the C slot accepts NULL,
+      // but the source value is a non-null managed handle — a destructor
+      // takes the handle it destroys.
+      const optionalHandle =
+        type.kind === "nativeHandle" &&
+        parameter.nullable &&
+        parameter.ownership.kind === "borrowed";
+      sourceArguments.push(Object.freeze({
+        name: parameter.name,
+        type: optionalHandle && type.kind === "nativeHandle"
+          ? Object.freeze({
+              kind: "nullableNativeHandle",
+              typeId: type.typeId,
+            } as const)
+          : type,
+      }));
     }
     if (valid) {
       for (const [index, parameter] of binding.signature.parameters.entries()) {

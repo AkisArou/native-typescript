@@ -83,6 +83,10 @@ NTS_SCABI_EXPORT int32_t nts_counter_add(
     NtsCounter *counter,
     int32_t delta);
 NTS_SCABI_EXPORT int32_t nts_counter_value(NtsCounter *counter);
+/* Accepts an optional counter: null is a valid argument, not a failure. */
+NTS_SCABI_EXPORT int32_t nts_counter_value_or(
+    NtsCounter *counter,
+    int32_t fallback);
 NTS_SCABI_EXPORT const char *nts_counter_label(NtsCounter *counter);
 NTS_SCABI_EXPORT const char *nts_counter_required_label(NtsCounter *counter);
 NTS_SCABI_EXPORT void nts_counter_destroy(NtsCounter *counter);

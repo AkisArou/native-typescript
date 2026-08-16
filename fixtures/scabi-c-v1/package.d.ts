@@ -41,6 +41,12 @@ export interface OwnedBytes {
   dispose(): void;
 }
 
+/* Accepts an optional counter: null is a valid argument, not a failure. */
+export declare function counterValueOr(
+  counter: Counter | null,
+  fallback: i32,
+): i32;
+
 export interface Subscription {
   readonly [nativeResource]: "Subscription";
   emit(value: i32): i32;

@@ -435,8 +435,9 @@ test(
         "hold(): void;",
         "release(): void;",
         "getIsRemote(): boolean;",
-        // A nullable C handle still projects as the non-null source subset;
-        // exposing null needs nullable managed-handle IR of its own.
+        // Native IR supports an optional handle input, but a derived handle
+        // does not upcast through a nullable union, so generation projects
+        // the non-null subset for now.
         "register(cancellable: Cancellable): void;",
         "onActivate(callback: (application: Application) => void): SignalConnection;",
       ]) {

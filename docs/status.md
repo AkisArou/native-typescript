@@ -151,6 +151,13 @@ callback-exception unwinding.
 
 Other native error conventions remain explicit future slices.
 
+A borrowed handle input may also be optional: the source passes the handle or
+null while the ABI slot stays one pointer, and the null arm never consults the
+handle table. Owned `to-native` handles are excluded, since a destructor takes
+the handle it destroys. A derived handle does not yet reach an optional
+parameter, because union re-tagging does not consult identity upcasts, so
+GObject generation still projects the non-null subset.
+
 ### Booleans
 
 Exact integer-backed native boolean parameters and results use their SCABI

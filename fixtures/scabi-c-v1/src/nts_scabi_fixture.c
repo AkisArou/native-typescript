@@ -320,3 +320,7 @@ void nts_fixture_error_free(NtsFixtureError *error) {
 }
 
 int32_t nts_fixture_errors_outstanding(void) { return nts_fixture_errors_live; }
+
+int32_t nts_counter_value_or(NtsCounter *counter, int32_t fallback) {
+  return counter == NULL ? fallback : nts_counter_value(counter);
+}

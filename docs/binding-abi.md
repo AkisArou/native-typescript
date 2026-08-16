@@ -328,6 +328,22 @@ some composed package, is a handle, and carries matching thread-safety and
 identity contracts. A package that imports a type it is not composed with fails
 there, because it cannot detect the omission on its own.
 
+### Optional handle inputs
+
+A borrowed handle parameter marked nullable is genuinely optional: the source
+may pass the handle or null, and the ABI slot stays one pointer. The null arm
+passes NULL without consulting the handle table, while a present handle is
+validated exactly as a required one is.
+
+This applies to borrowed inputs only. An owned `to-native` handle is marked
+nullable because the C slot accepts NULL, but its source value is a non-null
+managed handle — a destructor takes the handle it destroys.
+
+A derived handle does not currently reach an optional parameter, because union
+re-tagging does not consult identity upcasts. Generation therefore still
+projects the non-null subset for GObject, where passing a derived widget is the
+common case, rather than an API that would reject ordinary calls.
+
 ### Error-object failures
 
 An operation may report failure by returning an owned error object rather than
