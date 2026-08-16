@@ -32,6 +32,7 @@ import {
 import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
+const systemGioGir = "/usr/share/gir-1.0/Gio-2.0.gir";
 const target = "x86_64-unknown-linux-gnu";
 const executionPlatform = "x86_64-linux";
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
@@ -633,6 +634,118 @@ test(
         },
         projection: { kind: "utf8CString", nullable: true },
       });
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "target Clang proves the storage of an enumeration another namespace owns",
+  {
+    skip:
+      process.platform !== "linux" ||
+      process.arch !== "x64" ||
+      !existsSync(systemGtkGir) ||
+      !existsSync(systemGioGir) ||
+      !hasGtk ||
+      !hasClang ||
+      !hasBubblewrap,
+  },
+  async () => {
+    // gtk_application_new() takes a GApplicationFlags, which Gio owns. The
+    // importing package proves that storage against its own headers rather
+    // than trusting the owning package, so SDK skew between two packages
+    // cannot pass unnoticed.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Application" }],
+      enumerations: [
+        { name: "ApplicationFlags", members: ["default_flags", "is_service"] },
+      ],
+    });
+    const snapshot = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Application", constructors: ["new"] }],
+    });
+    const gobjectAdapter = generateGObjectAdapterSource(snapshot);
+    const probe = generateGirClangAbiProbe(snapshot, gobjectAdapter, [gio]);
+
+    // The foreign enumeration is a probe candidate because a selected callable
+    // reaches it. Nothing else from Gio is.
+    assert.deepEqual(probe.enums.map(({ id, typeName }) => ({ id, typeName })), [
+      { id: "Gio.ApplicationFlags.bitfield", typeName: "GApplicationFlags" },
+    ]);
+
+    const clangPath = executable("clang");
+    const clang = toolIdentity(clangPath);
+    const sdk = await resolvePkgConfigSdk({
+      id: "gtk4-foreign-enum-evidence",
+      executable: executable("pkg-config"),
+      modules: ["gtk4"],
+      target,
+    });
+    const plan = planClangAbiProbe({
+      probe,
+      sourceArtifactId: "source/gtk4/clang-abi-probe",
+      rawAstArtifactId: "metadata/gtk4/clang-abi-ast",
+      rawLlvmArtifactId: "metadata/gtk4/clang-abi-llvm",
+      astActionId: "inspect/gtk4/clang-abi",
+      llvmActionId: "inspect/gtk4/clang-calling-convention",
+      logicalPath: "generated/gtk4/clang-abi-probe.c",
+      arguments: sdk.compileArguments,
+      tool: clang,
+      executionPlatform,
+      target,
+    });
+    const graph = defineArtifactGraph({
+      artifacts: [plan.source, ...sdk.artifacts, plan.rawAst, plan.rawLlvm],
+      actions: [plan.astAction, plan.llvmAction],
+    });
+
+    const temporaryRoot = mkdtempSync(
+      join(tmpdir(), "native-typescript-foreign-enum-"),
+    );
+    try {
+      const sourcePath = join(temporaryRoot, "clang-abi-probe.c");
+      writeFileSync(sourcePath, probe.source);
+      const report = await executeArtifactGraph(graph, {
+        buildRoot: join(temporaryRoot, "build"),
+        sourcePaths: { ...sdk.sourcePaths, [plan.source.id]: sourcePath },
+        tools: { [clang.id]: { path: clangPath } },
+        sandbox: { kind: "bubblewrap", path: executable("bwrap") },
+      });
+      const ast = report.artifacts.find(({ id }) => id === plan.rawAst.id);
+      const llvm = report.artifacts.find(({ id }) => id === plan.rawLlvm.id);
+      assert.ok(ast && llvm);
+      if (!ast || !llvm) return;
+      const evidence = parseClangAbiEvidence(
+        readFileSync(ast.path, "utf8"),
+        readFileSync(llvm.path, "utf8"),
+        {
+          probe,
+          clang: {
+            toolId: clang.id,
+            version: clang.version,
+            digest: clang.digest,
+            target,
+          },
+        },
+      );
+      const flags = evidence.enums[0];
+      assert.ok(flags);
+      assert.equal(flags.id, "Gio.ApplicationFlags.bitfield");
+      assert.equal(flags.typeName, "GApplicationFlags");
+      assert.equal(flags.size, 4);
+      assert.deepEqual(
+        flags.members.map(({ cIdentifier, value }) => ({ cIdentifier, value })),
+        [
+          { cIdentifier: "G_APPLICATION_DEFAULT_FLAGS", value: "0" },
+          { cIdentifier: "G_APPLICATION_IS_SERVICE", value: "1" },
+        ],
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
