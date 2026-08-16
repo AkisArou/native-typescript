@@ -524,6 +524,90 @@ test(
 );
 
 test(
+  "two namespaces' generated adapters link into one executable",
+  {
+    skip:
+      process.platform !== "linux" ||
+      !existsSync(installedGtkGirPath) ||
+      !existsSync(installedGioGirPath) ||
+      !hasGtk ||
+      !hasClang,
+  },
+  () => {
+    // The symbol-disjointness check above is textual. This is the property it
+    // stands for: two adapter objects in one link. A collision here is a
+    // "multiple definition" error from the linker, which is how the
+    // Gio.Application / Gtk.Application clash would have surfaced.
+    const temporaryRoot = mkdtempSync(
+      join(tmpdir(), "native-typescript-adapter-link-"),
+    );
+    try {
+      const gio = ingestGir(readFileSync(installedGioGirPath, "utf8"), {
+        logicalPath: "system-sdk/gir/Gio-2.0.gir",
+        namespace: { name: "Gio", version: "2.0" },
+        classes: [
+          { name: "Application", constructors: ["new"], signals: ["activate"] },
+        ],
+      });
+      const gtk = ingestGir(readFileSync(installedGtkGirPath, "utf8"), {
+        logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+        namespace: { name: "Gtk", version: "4.0" },
+        classes: [{ name: "Application", constructors: ["new"] }],
+      });
+
+      const pkgConfig = spawnSync(
+        "pkg-config",
+        ["--cflags", "--libs", "gtk4"],
+        { encoding: "utf8" },
+      );
+      assert.equal(pkgConfig.status, 0, pkgConfig.stderr);
+      const flags = pkgConfig.stdout.trim().split(/\s+/u).filter(Boolean);
+
+      const objects: string[] = [];
+      for (const [name, snapshot] of [
+        ["gio", gio],
+        ["gtk", gtk],
+      ] as const) {
+        const sourcePath = join(temporaryRoot, `${name}-adapters.c`);
+        const objectPath = join(temporaryRoot, `${name}-adapters.o`);
+        writeFileSync(sourcePath, generateGObjectAdapterSource(snapshot).source);
+        const compile = spawnSync(
+          "clang",
+          [
+            "-std=gnu11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            ...flags.filter((flag) => !flag.startsWith("-l")),
+            "-c",
+            sourcePath,
+            "-o",
+            objectPath,
+          ],
+          { encoding: "utf8" },
+        );
+        assert.equal(compile.status, 0, compile.stderr);
+        objects.push(objectPath);
+      }
+
+      const mainPath = join(temporaryRoot, "main.c");
+      const executablePath = join(temporaryRoot, "adapter-link");
+      writeFileSync(mainPath, "int main(void) { return 0; }\n");
+      const link = spawnSync(
+        "clang",
+        [mainPath, ...objects, ...flags, "-o", executablePath],
+        { encoding: "utf8" },
+      );
+      assert.equal(link.status, 0, link.stderr);
+      assert.doesNotMatch(link.stderr, /multiple definition/u);
+      assert.equal(spawnSync(executablePath).status, 0);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "a generated GTK signal adapter forwards real scalar payloads and disconnects",
   {
     skip:
