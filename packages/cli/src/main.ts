@@ -25,9 +25,10 @@ Build:
   --out <directory>      Where to place the executable (default: <project>/dist)
   --cache <directory>    Action cache location
                          (default: <project>/.native-typescript/cache)
-                         Covers binding generation only. Native compilation
-                         re-runs every build, and the link — which rebuilds the
-                         ScriptC runtime each time — dominates it.
+                         Covers binding generation and object compiles. The
+                         link is not reused: it rebuilds the ScriptC runtime
+                         together with the program, so it re-runs whenever the
+                         program changes, and it dominates the build.
   --no-cache             Run every action, caching nothing
   --keep-intermediates   Leave the scratch tree in place and print its path
 

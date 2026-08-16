@@ -154,6 +154,24 @@ The two objects share one source tree but not one dialect: the owner runtime is
 portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
 extensions through the GTK headers and compiles as `-std=gnu11`.
 
+**Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
+7.2 s build because it is one Clang invocation compiling 19 runtime sources and
+the emitted program together. Nothing about that command can be reused while
+the program changes, so the runtime has to become its own artifact: it depends
+on the pinned checkout and the toolchain, not on the application.
+
+The cache that would make the split pay off is built and proven — a native
+action records what it read and an entry survives only while those files do —
+so what remains is the seam, not the caching.
+
+The seam belongs in the compiler. `planExecutableExternalCBuild` intercepts one
+driver command through `commandExecutor`, and scriptc deliberately disables its
+own runtime-object cache on that path because an embedder is expected to bring
+its own. Reconstructing per-file compile commands from the link command on the
+embedder's side would work today and break on the next flag the driver adds, so
+the fork should emit the runtime build as a plan of its own rather than leave it
+to be inferred.
+
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a
 generated adapter absorbs the `GError **`, one accessor pair per namespace
