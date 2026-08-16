@@ -184,6 +184,23 @@ the closest analogue and is about twenty lines per backend:
 | SCABI | the matching `ErrorContract` member and its validation |
 | `bindgen-gir` | generate the wrapper and message accessor, and select the contract for a `throws=1` callable |
 
+One design question inside that work is settled here rather than left open. A
+binding's result carries one ABI type and a projection, and the projection is
+what decides the source value: `utf8CString` yields a string, `boolean` yields
+a boolean, `direct` yields the ABI value. A GError result is a pointer that
+must yield *no* source value, since a foreign pointer may never become a
+TypeScript value.
+
+So the result needs a projection whose source type is void, paired with the
+error contract that consumes the physical pointer. Validation requires the two
+to appear together: the projection states that the source sees nothing, and the
+contract states what the physical value means.
+
+The alternative — calling it a discarded result — would misdescribe it. The
+pointer is not ignored; it is read for its message and released. The `errno`
+contract already sets the precedent that a contract inspects the physical
+result; GError differs only in returning nothing to the source.
+
 Selecting a `throws=1` member already fails with a diagnostic naming GError, so
 the gap reports itself until this lands.
 
