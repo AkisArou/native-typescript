@@ -5,6 +5,7 @@ import {
   defineArtifactGraph,
   digestArtifactPath,
   executeArtifactGraph,
+  nativeRuntimeServices,
   planScriptCExecutable,
   planScriptCProgramEmission,
   resolvePkgConfigSdk,
@@ -32,6 +33,7 @@ import type {
   GObjectAdapterSource,
   GirNamespaceSelection,
 } from "@native-typescript/bindgen-gir";
+import { glibRuntimeProvider } from "./provider.ts";
 import { planGtkTargetObjects } from "./gtk-target-objects.ts";
 import { targetRuntimeArtifactIds } from "./target-runtime-objects.ts";
 import { parseGtkApplicationProject } from "./application-project.ts";
@@ -337,6 +339,10 @@ export async function buildGtkApplication(input: {
       externalTypes,
       native: composed.input,
       nativeLinkInputs: linkInputs,
+      /* The target's runtime objects are in the link whatever the application
+       * does, so what they call is a requirement rather than something to
+       * infer from the program. */
+      nativeRuntimeRequires: nativeRuntimeServices([glibRuntimeProvider]),
       nativeSystemLibraries: composed.build.linkInputs
         .filter(({ kind }) => kind === "system-library")
         .toSorted((left, right) => left.order - right.order)

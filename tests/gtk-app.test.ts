@@ -54,6 +54,7 @@ import {
   sourceArtifact,
   sourceFileArtifact,
 } from "./support/artifacts.ts";
+import { runApplication } from "./support/run-application.ts";
 
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
@@ -867,32 +868,8 @@ test(
         const product = report.artifacts.find(({ id }) => id === outputId);
         assert.ok(product);
 
-        const run = spawnSync(
-          "xvfb-run",
-          [
-            "-a",
-            "--server-args=-screen 0 1024x768x24",
-            product.path,
-          ],
-          {
-            env: {
-              ...process.env,
-              GDK_BACKEND: "x11",
-              GDK_DISABLE: "gl,vulkan",
-              GSETTINGS_BACKEND: "memory",
-              GSK_RENDERER: "cairo",
-              NO_AT_BRIDGE: "1",
-            },
-            encoding: "utf8",
-          },
-        );
         assert.deepEqual(
-          {
-            status: run.status,
-            signal: run.signal,
-            stdout: run.stdout,
-            stderr: run.stderr,
-          },
+          runApplication(product.path),
           { status: 0, signal: null, stdout: "", stderr: "" },
           backend,
         );

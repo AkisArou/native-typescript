@@ -31,6 +31,7 @@ The repository is not yet an application framework or a production compiler.
 | GTK application lifecycle | generated and executed |
 | GTK target runtime package | implemented |
 | Application build pipeline and `build` command | implemented |
+| Provider compiler requirements | read by the build |
 | Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
@@ -401,6 +402,19 @@ something the command line assembles, so a gate, a command, and any future
 editor integration take the same path instead of three reconstructions that can
 disagree.
 
+### Runtime services a target requires
+
+ScriptC links a runtime service when the compiled program reaches it. That rule
+is right for the program and wrong for the target: the GLib owner runtime calls
+the retained-callback service whether or not the application connects a signal.
+
+`ProviderDescriptor.requires.compiler` is now read rather than merely declared.
+`nativeRuntimeServices` maps those capabilities onto ScriptC's own vocabulary
+and the build passes them to the compiler, so an application that connects
+nothing still links. A capability with no mapping is an error: linking without
+it would fail on undefined symbols, which says nothing about the requirement
+that was never declared.
+
 ## Known boundaries
 
 These are deliberate, not oversights. Each is a named future slice.
@@ -429,9 +443,10 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Sandbox inputs are not hermetic.** The executor binds the host filesystem
   read-only, so undeclared system headers can still influence a result.
   Declared inputs are content-verified; undeclared ones are not.
-- **The Target SPI is descriptor-only.** Providers declare capabilities but
-  carry no planning behavior, so GTK is wired directly rather than through the
-  SPI.
+- **The Target SPI carries no planning behavior.** A provider's
+  `requires.compiler` is now load-bearing, but everything else about a target
+  is still wired directly: providers cannot plan, and GTK is reached by name.
+  The remaining shape waits on a second target to justify it.
 - **The CLI has no build command.** Application assembly currently lives in the
   integration test.
 

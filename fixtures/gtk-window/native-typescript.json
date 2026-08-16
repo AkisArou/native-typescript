@@ -1,0 +1,24 @@
+{
+  "schema": "native-typescript.project",
+  "schemaVersion": 1,
+  "name": "gtk-window",
+  "target": "gtk4",
+  "entry": "app.ts",
+  "output": "gtk-window",
+  "sdkModules": ["gtk4"],
+  "namespaces": [
+    {
+      "name": "Gtk",
+      "version": "4.0",
+      "sdkModules": ["gtk4"],
+      "classes": [
+        { "name": "Widget" },
+        {
+          "name": "Window",
+          "constructors": ["new"],
+          "methods": ["destroy", "get_title", "present", "set_title"]
+        }
+      ]
+    }
+  ]
+}

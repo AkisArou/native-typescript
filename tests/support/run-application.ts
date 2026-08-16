@@ -11,18 +11,41 @@ const applicationEnvironment = {
   GDK_DISABLE: "gl,vulkan",
   GSETTINGS_BACKEND: "memory",
   GSK_RENDERER: "cairo",
-  NO_AT_BRIDGE: "1",
-  /* A registering GtkApplication probes desktop portals over the session bus.
-   * Whether that bus exists is a property of the machine, not of the program,
-   * so the application is run without one — being non-unique, it never needed
-   * a bus name. */
+  /* GTK 4 ignores NO_AT_BRIDGE. Without this it reaches for the accessibility
+   * bus and reports a CRITICAL when at-spi is not running, which depends on
+   * the host rather than on the program and so comes and goes. */
+  GTK_A11Y: "none",
+  /* There is no quiet choice here. Without a session bus GTK warns that it
+   * cannot acquire one; with a real one it warns that the host's portal
+   * services are missing or the wrong version. Running without is the more
+   * contained of the two: a private bus activates real desktop daemons. */
   DBUS_SESSION_BUS_ADDRESS: "disabled:",
 } as const;
+
+/**
+ * GLib-formatted warnings about the host's desktop session, which say nothing
+ * about the program under test.
+ *
+ * Only WARNING records naming the session bus or a portal are dropped.
+ * A CRITICAL, an ERROR, an assertion, a sanitizer report, or anything the
+ * program itself wrote survives and fails the gate — the point is to stop
+ * pinning the developer's desktop, not to stop reading stderr.
+ */
+const hostSessionWarning =
+  /^\(process:\d+\): \w+-WARNING \*\*: [\d:.]+: (?:Unable to acquire session bus|Cannot get portal)\b.*$/u;
+
+function withoutHostSessionNoise(stderr: string): string {
+  const kept = stderr
+    .split("\n")
+    .filter((line) => line.length > 0 && !hostSessionWarning.test(line));
+  return kept.length === 0 ? "" : `${kept.join("\n")}\n`;
+}
 
 export interface ApplicationRun {
   readonly status: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
+  /** Standard error with host desktop-session warnings removed. */
   readonly stderr: string;
 }
 
@@ -36,6 +59,6 @@ export function runApplication(path: string): ApplicationRun {
     status: run.status,
     signal: run.signal,
     stdout: run.stdout,
-    stderr: run.stderr,
+    stderr: withoutHostSessionNoise(run.stderr),
   };
 }

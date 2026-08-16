@@ -16,6 +16,7 @@ import { runApplication } from "./support/run-application.ts";
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-application");
+const windowFixtureRoot = join(workspace, "fixtures/gtk-window");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
@@ -158,6 +159,56 @@ test(
           stderr: "",
         }, backend);
       }
+    } finally {
+      rmSync(scratch, { force: true, recursive: true });
+    }
+  },
+);
+
+test(
+  "an application that connects no signal still links its target's runtime",
+  { skip: unavailable || !existsSync(bindingToolPath) },
+  async () => {
+    /* ScriptC includes a runtime service when the compiled program reaches it,
+     * which is right for the program and wrong for the target: the GLib owner
+     * runtime calls the retained-callback service whether or not the
+     * application connects anything. The provider says so in
+     * requires.compiler, and the build reads it. Without that this program
+     * fails to link on seven undefined symbols.
+     *
+     * It is also the only project built from a single namespace. */
+    execFileSync(pnpm, [
+      "--dir",
+      scriptcRoot,
+      "--filter",
+      "@scriptc/compiler",
+      "build",
+    ]);
+    const project = parseGtkApplicationProject(
+      readFileSync(join(windowFixtureRoot, "native-typescript.json"), "utf8"),
+    );
+    assert.equal(project.namespaces.length, 1);
+
+    const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-window-"));
+    try {
+      const built = await buildGtkApplication({
+        projectRoot: windowFixtureRoot,
+        project,
+        scratch,
+        backend: "c",
+        tools: {
+          clang: executable("clang"),
+          node: process.execPath,
+          pkgConfig: executable("pkg-config"),
+          sandbox: executable("bwrap"),
+        },
+      });
+      assert.deepEqual(runApplication(built.productPath), {
+        status: 0,
+        signal: null,
+        stdout: "window ok\n",
+        stderr: "",
+      });
     } finally {
       rmSync(scratch, { force: true, recursive: true });
     }

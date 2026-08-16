@@ -76,3 +76,6 @@ export function inspectWorkspace(
 }
 
 export type { ScriptCCheckout } from "@native-typescript/scriptc";
+
+export { nativeRuntimeServices } from "./runtime-requirements.ts";
+export type { NativeRuntimeService } from "./runtime-requirements.ts";
