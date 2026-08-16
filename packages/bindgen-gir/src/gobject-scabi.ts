@@ -1052,6 +1052,12 @@ export function generateGObjectScabiPackage(
     options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
   );
   const typeIdByRecord = new Map<string, string>();
+  /* A scalar's SCABI identity is its own abiType, so a scalar output resolves
+   * without the record table. Every scalar a method reaches is already
+   * registered above, out-parameters included. */
+  const scalarAbiTypeByGirName = new Map(
+    sourceScalarTypes.map((scalar) => [scalar.girName, scalar.abiType]),
+  );
   // The probe carries candidates from more than this snapshot once a foreign
   // enum is reached, so evidence is matched by probe identity. Matching by
   // array position silently pairs a type with another type's layout.
@@ -1281,7 +1287,9 @@ export function generateGObjectScabiPackage(
     const typeId = `${namespacePrefix}_${snakeCase(method.resultName)}`;
     const fields = method.outputs.map((output, index) => {
       const fieldEvidence = evidence?.fields[index];
-      const fieldType = typeIdByRecord.get(output.recordName);
+      const fieldType = output.kind === "record"
+        ? typeIdByRecord.get(output.sourceName)
+        : scalarAbiTypeByGirName.get(output.sourceName);
       if (fieldEvidence === undefined || fieldType === undefined) {
         diagnostics.push(diagnostic(
           `${path}/fields/${index}`,
@@ -1325,7 +1333,7 @@ export function generateGObjectScabiPackage(
     declarationLines.push(
       `export interface ${method.resultName} {`,
       ...method.outputs.map((output) =>
-        `  readonly ${output.fieldName}: ${output.recordName};`
+        `  readonly ${output.fieldName}: ${output.sourceName};`
       ),
       "}",
       "",
@@ -1883,9 +1891,14 @@ export function generateGObjectScabiPackage(
         const declaration = `${class_.name}.${sourceMember}`;
         const bindingId = valueMethod.adapterSymbol;
         const resultTypeId = `${namespacePrefix}_${snakeCase(valueMethod.resultName)}`;
+        const inputTypes = valueMethod.inputs.map((input) =>
+          scalarAbiTypeByGirName.get(input.sourceName)
+        );
         if (
-          callable.parameters.length !== valueMethod.outputs.length + 1 ||
-          types[resultTypeId]?.kind !== "struct"
+          callable.parameters.length !==
+            valueMethod.outputs.length + valueMethod.inputs.length + 1 ||
+          types[resultTypeId]?.kind !== "struct" ||
+          inputTypes.some((type) => type === undefined || types[type] === undefined)
         ) {
           diagnostics.push(diagnostic(path, "Value-return adapter result is incomplete"));
           continue;
@@ -1900,13 +1913,22 @@ export function generateGObjectScabiPackage(
           kind: "method",
           entryKind: "adapter-symbol",
           symbol: valueMethod.adapterSymbol,
-          parameters: [Object.freeze({
-            name: receiver.name,
-            type: typeId,
-            passMode: "pointer",
-            nullable: false,
-            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-          })],
+          parameters: [
+            Object.freeze({
+              name: receiver.name,
+              type: typeId,
+              passMode: "pointer",
+              nullable: false,
+              ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+            }),
+            ...valueMethod.inputs.map((input, index) => Object.freeze({
+              name: input.parameterName,
+              type: inputTypes[index]!,
+              passMode: "value" as const,
+              nullable: false,
+              ownership: Object.freeze({ kind: "value" as const }),
+            })),
+          ],
           result: Object.freeze({
             type: resultTypeId,
             passMode: "value",
@@ -1922,7 +1944,9 @@ export function generateGObjectScabiPackage(
         adapterBindings.push(bindingId);
         classLines.push(
           ...deprecationDoc(callable, "  "),
-          `  ${sourceMember}(): ${valueMethod.resultName};`,
+          `  ${sourceMember}(${valueMethod.inputs.map((input) =>
+            `${lowerCamel(input.parameterName)}: ${input.sourceName}`
+          ).join(", ")}): ${valueMethod.resultName};`,
         );
         continue;
       }

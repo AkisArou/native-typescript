@@ -112,6 +112,43 @@ function valueMethodAdapter() {
   return generateGObjectAdapterSource(snapshot);
 }
 
+/* A method that both takes a value and hands several back — the shape GTK
+ * writes as `f(self, in, out *, out *)`. Nothing in the fixture GIR has it, and
+ * every GTK method that does is on a deprecated class, so it is stated here
+ * rather than borrowed. */
+function scalarOutputAdapter() {
+  const source = girSource.replace(
+    '<method name="get_preferred_size" c:identifier="gtk_widget_get_preferred_size">',
+    `<method name="convert_coords" c:identifier="gtk_widget_convert_coords">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="widget" transfer-ownership="none">
+            <type name="Widget" c:type="GtkWidget*"/>
+          </instance-parameter>
+          <parameter name="scale" transfer-ownership="none">
+            <type name="gdouble" c:type="gdouble"/>
+          </parameter>
+          <parameter name="out_x" direction="out" caller-allocates="0" transfer-ownership="full">
+            <type name="gint" c:type="int*"/>
+          </parameter>
+          <parameter name="out_y" direction="out" caller-allocates="0" transfer-ownership="full">
+            <type name="gint" c:type="int*"/>
+          </parameter>
+        </parameters>
+      </method>
+      <method name="unused_get_preferred_size" c:identifier="gtk_widget_get_preferred_size">`,
+  );
+  const snapshot = ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [{ name: "Widget", methods: ["convert_coords"] }],
+    records: [{ name: "Requisition", fields: ["width", "height"] }],
+  });
+  return generateGObjectAdapterSource(snapshot);
+}
+
 function scalarSignalAdapter() {
   const source = girSource.replace(
     `<glib:signal name="clicked" when="first" action="1">
@@ -232,7 +269,7 @@ test(
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 8);
+  assert.equal(generated.schemaVersion, 9);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -315,9 +352,10 @@ test("caller-allocated record outputs become one value-returning adapter", () =>
     adapterSymbol: "nts_gobject_value_gtk_widget_get_preferred_size",
     resultName: "WidgetPreferredSize",
     resultNativeType: "NtsGtkWidgetPreferredSize",
+    inputs: [],
     outputs: [
-      { parameterName: "minimum_size", fieldName: "minimumSize", recordName: "Requisition", nativeType: "GtkRequisition" },
-      { parameterName: "natural_size", fieldName: "naturalSize", recordName: "Requisition", nativeType: "GtkRequisition" },
+      { kind: "record", parameterName: "minimum_size", fieldName: "minimumSize", sourceName: "Requisition", nativeType: "GtkRequisition" },
+      { kind: "record", parameterName: "natural_size", fieldName: "naturalSize", sourceName: "Requisition", nativeType: "GtkRequisition" },
     ],
   }]);
   assert.match(
@@ -331,6 +369,40 @@ test("caller-allocated record outputs become one value-returning adapter", () =>
   assert.match(generated.source, /memset\(&result, 0, sizeof result\);/u);
   assertDeepFrozen(generated);
   assert.deepEqual(valueMethodAdapter(), generated);
+});
+
+test("scalar outputs and forwarded inputs become one value-returning adapter", () => {
+  const generated = scalarOutputAdapter();
+  assert.deepEqual(generated.valueMethods, [{
+    id: "Widget.method.convert_coords",
+    className: "Widget",
+    nativeType: "GtkWidget",
+    sourceSymbol: "gtk_widget_convert_coords",
+    adapterSymbol: "nts_gobject_value_gtk_widget_convert_coords",
+    resultName: "WidgetConvertCoords",
+    resultNativeType: "NtsGtkWidgetConvertCoords",
+    inputs: [{ parameterName: "scale", sourceName: "gdouble", nativeType: "gdouble" }],
+    outputs: [
+      { kind: "scalar", parameterName: "out_x", fieldName: "outX", sourceName: "gint", nativeType: "gint" },
+      { kind: "scalar", parameterName: "out_y", fieldName: "outY", sourceName: "gint", nativeType: "gint" },
+    ],
+  }]);
+  /* The struct is the caller-allocated storage the C signature demanded, and
+   * the input is forwarded into the slot the function declared it in. */
+  assert.match(
+    generated.source,
+    /typedef struct NtsGtkWidgetConvertCoords \{\n  gint outX;\n  gint outY;\n\} NtsGtkWidgetConvertCoords;/u,
+  );
+  assert.match(
+    generated.source,
+    /NtsGtkWidgetConvertCoords nts_gobject_value_gtk_widget_convert_coords\(GtkWidget \*instance, gdouble scale\)/u,
+  );
+  assert.match(
+    generated.source,
+    /gtk_widget_convert_coords\(instance, scale, &result\.outX, &result\.outY\);/u,
+  );
+  assertDeepFrozen(generated);
+  assert.deepEqual(scalarOutputAdapter(), generated);
 });
 
 test("GObject signal adapters forward exact scalar payloads", () => {

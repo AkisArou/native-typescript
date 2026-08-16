@@ -399,13 +399,25 @@ delivered" from "signal delivered late" rather than hanging.
 | Branded exact integers | `gint`, `guint`, and every fixed width, separately branded |
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
-| Record outputs | `Widget.getPreferredSize()` as a nested value |
+| Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
 | Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
 | Deprecated members | bind normally, marked `@deprecated` in the declaration |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
 `none` and `full` results become one strong, non-floating reference, and a real
 GTK weak-finalization gate proves exact release.
+
+A method that answers through output parameters returns a value instead. The
+adapter declares a struct of the outputs, passes each field by address, and
+returns it, so `gtk_widget_get_size_request(w, &width, &height)` reads as
+`widget.getSizeRequest()` giving `{ width, height }` of branded `gint`. Both
+families project: a caller-allocated record, and an exact scalar — which GIR
+annotates `transfer-ownership="full"` because the value is copied out, an
+annotation that is correct and means nothing to release.
+
+Inputs are forwarded, so a method may both take values and hand several back.
+The wrapped call is rebuilt from the declared parameter order rather than by
+assuming outputs come last.
 
 A member the library has deprecated binds like any other. Deprecation is the
 library's opinion about its own API, not a fact about that API's ABI, and the

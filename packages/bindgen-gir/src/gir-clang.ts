@@ -197,7 +197,7 @@ export function generateGirClangAbiProbe(
       type: physicalType(
         {
           kind: "named",
-          name: output.recordName,
+          name: output.sourceName,
           cType: output.nativeType,
           arguments: [],
         },

@@ -21,7 +21,7 @@ import type {
   GirSnapshot,
   GirTransferOwnership,
 } from "./gir-model.ts";
-import { sourceScalarType } from "./gobject-scalars.ts";
+import { sourceScalarType, sourceScalarTypes } from "./gobject-scalars.ts";
 
 export interface GObjectConstructorAdapter {
   readonly id: string;
@@ -61,10 +61,34 @@ export interface GObjectSignalConnectionAdapter {
   readonly releaseSymbol: string;
 }
 
+/**
+ * One value a method hands back through an output parameter.
+ *
+ * `sourceName` is the TypeScript spelling the field projects as — a selected
+ * record's name, or a branded scalar's. `kind` says which, because the two
+ * resolve to a SCABI type by different routes even though the C side treats
+ * them identically: both are a field in a generated struct the adapter fills
+ * by address.
+ */
 export interface GObjectValueMethodOutputAdapter {
+  readonly kind: "record" | "scalar";
   readonly parameterName: string;
   readonly fieldName: string;
-  readonly recordName: string;
+  readonly sourceName: string;
+  readonly nativeType: string;
+}
+
+/**
+ * An input a value-returning method takes before its outputs.
+ *
+ * The adapter forwards it untouched. Without this a method could only be
+ * projected when its outputs were its whole parameter list, which excludes the
+ * ordinary shape of asking a question about something —
+ * `gtk_tree_view_convert_tree_to_widget_coords(view, x, y, &wx, &wy)`.
+ */
+export interface GObjectValueMethodInputAdapter {
+  readonly parameterName: string;
+  readonly sourceName: string;
   readonly nativeType: string;
 }
 
@@ -76,6 +100,7 @@ export interface GObjectValueMethodAdapter {
   readonly adapterSymbol: string;
   readonly resultName: string;
   readonly resultNativeType: string;
+  readonly inputs: readonly GObjectValueMethodInputAdapter[];
   readonly outputs: readonly GObjectValueMethodOutputAdapter[];
 }
 
@@ -130,7 +155,7 @@ export interface GObjectThrowingMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 8;
+  readonly schemaVersion: 9;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -544,8 +569,13 @@ function generateValueMethod(
   readonly lines: readonly string[];
 } | null {
   const path = `${class_.name}/method/${callable.name}`;
-  const outputParameters = callable.parameters.slice(1);
-  if (outputParameters.every((parameter) => parameter.direction === "in")) return null;
+  const declared = callable.parameters.slice(1);
+  if (declared.every((parameter) => parameter.direction === "in")) return null;
+  /* Inputs come first in every GIR signature this projects, but the adapter
+   * reconstructs the call from the original order rather than assuming it, so
+   * an interleaved signature cannot silently transpose arguments. */
+  const inputParameters = declared.filter((parameter) => parameter.direction === "in");
+  const outputParameters = declared.filter((parameter) => parameter.direction !== "in");
   const receiver = callable.parameters[0];
   const validReceiver = receiver?.kind === "instance" &&
     receiver.type.kind === "named" &&
@@ -570,32 +600,105 @@ function generateValueMethod(
   const outputs = outputParameters.map((parameter, index) => {
     const recordName = parameter.type.kind === "named" ? parameter.type.name : null;
     const record = recordName === null ? undefined : recordsByName.get(recordName);
+    /* An output names its scalar by GIR name and spells it as a pointer, so
+     * the value-spelling lookup cannot resolve it: `gint` arrives as `int*`. */
+    const scalarName = parameter.type.kind === "named" ? parameter.type.name : null;
+    const scalar = scalarName === null
+      ? undefined
+      : sourceScalarTypes.find(({ girName }) => girName === scalarName);
+    const shared = parameter.kind === "parameter" &&
+      parameter.direction === "out" &&
+      !parameter.skip &&
+      parameter.scope === null &&
+      parameter.closureParameter === null &&
+      parameter.destroyParameter === null &&
+      parameter.type.kind === "named";
+    /* A record output is caller-allocated: the caller owns the storage and the
+     * callee fills it. A scalar output is not — GIR says so, and the C is
+     * `gint *` rather than a pointer to storage the caller reserved — but the
+     * adapter treats both the same way, because a field of the returned struct
+     * is caller-allocated storage either way. */
+    if (shared && record !== undefined && parameter.callerAllocates) {
+      /* The caller owns the storage and the callee writes into it, so nothing
+       * is transferred. */
+      if (
+        parameter.transferOwnership === "none" &&
+        parameter.type.cType === `${record.cType}*`
+      ) {
+        return Object.freeze({
+          kind: "record" as const,
+          parameterName: parameter.name,
+          fieldName: lowerCamel(parameter.name),
+          sourceName: record.name,
+          nativeType: record.cType,
+        });
+      }
+    } else if (shared && scalar !== undefined && !parameter.callerAllocates) {
+      /* A scalar has several accepted C spellings, so the pointee is matched
+       * against all of them; the struct field is declared with the GLib
+       * typedef the scalar is named for, which is the spelling the probe
+       * resolves. */
+      const pointee = parameter.type.cType?.endsWith("*") === true
+        ? parameter.type.cType.slice(0, -1).trim()
+        : null;
+      /* GIR writes `full` on a scalar output because the value is copied out,
+       * which is the honest annotation and means nothing to release: a gint
+       * has no ownership to transfer. Requiring `none` here refused every
+       * scalar output GTK declares. */
+      if (
+        (parameter.transferOwnership === "none" ||
+          parameter.transferOwnership === "full") &&
+        pointee !== null && scalar.cTypes.includes(pointee)
+      ) {
+        return Object.freeze({
+          kind: "scalar" as const,
+          parameterName: parameter.name,
+          fieldName: lowerCamel(parameter.name),
+          sourceName: scalar.girName,
+          nativeType: scalar.girName,
+        });
+      }
+    }
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/parameters/${index + 1}`,
+      message:
+        "Value-return adapter outputs must be caller-allocated records or exact scalars",
+    });
+    return null;
+  });
+  /* An input is forwarded untouched, so it is limited to the families that
+   * already cross this boundary as a plain argument. */
+  const inputs = inputParameters.map((parameter, index) => {
+    const scalar = sourceScalarType(parameter.type);
     if (
       parameter.kind !== "parameter" ||
-      parameter.direction !== "out" ||
-      !parameter.callerAllocates ||
       parameter.transferOwnership !== "none" ||
+      parameter.nullable ||
+      parameter.optional ||
+      parameter.callerAllocates ||
       parameter.skip ||
       parameter.scope !== null ||
       parameter.closureParameter !== null ||
       parameter.destroyParameter !== null ||
-      record === undefined ||
+      scalar === undefined ||
       parameter.type.kind !== "named" ||
-      parameter.type.cType !== `${record.cType}*`
+      parameter.type.cType === null ||
+      !scalar.cTypes.includes(parameter.type.cType)
     ) {
       diagnostics.push({
         code: "NTS5001",
         severity: "error",
         path: `${path}/parameters/${index + 1}`,
-        message: "Value-return adapters require caller-allocated record output parameters",
+        message: "Value-return adapter inputs must be exact scalars",
       });
       return null;
     }
     return Object.freeze({
       parameterName: parameter.name,
-      fieldName: `${lowerCamel(parameter.name)}`,
-      recordName: record.name,
-      nativeType: record.cType,
+      sourceName: scalar.girName,
+      nativeType: scalar.girName,
     });
   });
   if (
@@ -604,7 +707,8 @@ function generateValueMethod(
     !validReceiver ||
     !validResult ||
     outputs.length === 0 ||
-    outputs.some((output) => output === null)
+    outputs.some((output) => output === null) ||
+    inputs.some((input) => input === null)
   ) {
     if (callable.cIdentifier === null || callable.throws || !validReceiver || !validResult) {
       diagnostics.push({
@@ -625,15 +729,33 @@ function generateValueMethod(
   const validOutputs = outputs.filter(
     (output): output is GObjectValueMethodOutputAdapter => output !== null,
   );
+  const validInputs = inputs.filter(
+    (input): input is GObjectValueMethodInputAdapter => input !== null,
+  );
+  const outputByName = new Map(
+    validOutputs.map((output) => [output.parameterName, output]),
+  );
+  /* The wrapped call is rebuilt from the declared order, so an input that
+   * follows an output — or sits between two — still lands in the slot the
+   * function declared it in. */
+  const callArguments = declared.map((parameter) => {
+    const output = outputByName.get(parameter.name);
+    return output === undefined
+      ? parameter.name
+      : `&result.${output.fieldName}`;
+  });
   const lines = [
     `typedef struct ${resultNativeType} {`,
     ...validOutputs.map((output) => `  ${output.nativeType} ${output.fieldName};`),
     `} ${resultNativeType};`,
     "",
-    `${resultNativeType} ${adapterSymbol}(${class_.cType} *instance) {`,
+    `${resultNativeType} ${adapterSymbol}(${[
+      `${class_.cType} *instance`,
+      ...validInputs.map((input) => `${input.nativeType} ${input.parameterName}`),
+    ].join(", ")}) {`,
     `  ${resultNativeType} result;`,
     "  memset(&result, 0, sizeof result);",
-    `  ${callable.cIdentifier}(instance, ${validOutputs.map((output) => `&result.${output.fieldName}`).join(", ")});`,
+    `  ${callable.cIdentifier}(${["instance", ...callArguments].join(", ")});`,
     "  return result;",
     "}",
     "",
@@ -647,6 +769,7 @@ function generateValueMethod(
       adapterSymbol,
       resultName,
       resultNativeType,
+      inputs: Object.freeze(validInputs),
       outputs: Object.freeze(validOutputs),
     }),
     lines: Object.freeze(lines),
@@ -1026,7 +1149,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 8,
+    schemaVersion: 9,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),

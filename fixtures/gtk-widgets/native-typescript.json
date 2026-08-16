@@ -71,6 +71,7 @@
             "get_next_sibling",
             "get_parent",
             "get_sensitive",
+            "get_size_request",
             "get_visible",
             "get_width",
             "grab_focus",

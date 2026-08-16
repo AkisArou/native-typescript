@@ -241,6 +241,11 @@ const clicked = action.onClicked((sender): void => {
     "the activated row arrived with the wrong index",
   );
   check_(!alpha.selectable, "the payload did not reach the original row");
+  const requested = heading.getSizeRequest();
+  check_(
+    requested.width === (220 as gint) && requested.height === (40 as gint),
+    "the size request did not come back through its output parameters",
+  );
   /* GIR says a range always has one, so this reads as a plain Adjustment
    * rather than an optional — and it is the very adjustment constructed
    * above, which only interning can answer with. */
@@ -267,6 +272,11 @@ const clicked = action.onClicked((sender): void => {
   applicationQuit();
 });
 if (!clicked.connected) throw new Error("clicked did not connect");
+
+/* Two values come back from one call, through output parameters the adapter
+ * turns into a struct. Nothing about the C signature reaches TypeScript: the
+ * pointers are the adapter's business, and this reads as a record. */
+heading.setSizeRequest(220 as gint, 40 as gint);
 
 /* A deprecated member still binds. GTK would rather this were
  * `setVisible(true)`, and the generated declaration says so, but an
