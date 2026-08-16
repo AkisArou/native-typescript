@@ -421,7 +421,16 @@ test(
     const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gio-2.0.gir",
       namespace: { name: "Gio", version: "2.0" },
-      classes: [{ name: "Application", methods: ["quit"], signals: ["activate"] }],
+      classes: [
+        { name: "Cancellable", constructors: ["new"] },
+        {
+          name: "Application",
+          // register() reports failure through a GError, so this also proves
+          // the generated error contract survives translation.
+          methods: ["quit", "register"],
+          signals: ["activate"],
+        },
+      ],
     });
     const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
@@ -455,7 +464,7 @@ test(
     );
 
     const gioProgram = translateScabiNativeProgram(gioGenerated.manifest, {
-      imports: ["gio_application_connect_activate"],
+      imports: ["gio_application_connect_activate", "gio_application_register"],
       exports: [],
     });
     const gtkProgram = translateScabiNativeProgram(gtkGenerated.manifest, {
@@ -481,6 +490,21 @@ test(
       composed.ok ? undefined : JSON.stringify(composed.diagnostics),
     );
     if (!composed.ok) return;
+
+    // The generated error contract reaches Native IR with the adapter symbols
+    // resolved, so the emitters call the accessor pair rather than deriving
+    // names from the operation.
+    const registerBinding = composed.input.bindings.find(({ declaration }) =>
+      declaration.name === "Application.register"
+    );
+    assert.ok(registerBinding);
+    if (!registerBinding) return;
+    assert.deepEqual(registerBinding.error, {
+      kind: "errorHandle",
+      messageSymbol: "nts_gio_error_message",
+      releaseSymbol: "nts_gio_error_free",
+    });
+    assert.equal(registerBinding.result.projection.kind, "errorChannel");
 
     // One program now holds both packages' handles, joined by the upcast.
     const application = composed.input.types.find(
