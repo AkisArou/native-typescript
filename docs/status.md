@@ -396,7 +396,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Native properties | from authoritative GIR getter/setter links |
 | Nullable string properties | `Button.label`, `Window.title` |
 | Exact `gboolean` methods | both representations |
-| Branded exact integers | `gint`, `guint`, and every fixed width, separately branded |
+| Branded exact integers | `gint`, `guint`, and every fixed width, separately branded — see the arithmetic limit below |
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
@@ -519,6 +519,26 @@ These are deliberate, not oversights. Each is a named future slice.
   A getter returning an object projects as a method, for the reason a nullable
   string getter does: it is a call whose answer can change, and the object it
   names has a lifetime of its own.
+
+- **An exact integer cannot be computed with.** It can be passed to a native
+  member, stored, returned, and compared with `===`, and that is the whole
+  list. `width < 100` and `width + 1` are refused, and so is
+  `const n: number = width`.
+
+  This is not a binding gap. ScriptC's numeric semantics are f64 throughout —
+  its own documentation says integer inference is a roadmap milestone — while
+  an exact integer exists precisely to keep the width a foreign ABI declared.
+  The two are different value families with no conversion between them, and
+  the IR's integer arithmetic is reachable only through a declared operation,
+  which is how a flags type gets its `combine`.
+
+  It is the largest usability gap in the generated surface: every dimension,
+  index, and count GTK hands back is inert. Closing it is a language decision
+  rather than a binding one — either exact integers gain arithmetic with
+  defined overflow and mixed-width rules, or a lossless widening to `number`
+  is admitted for the widths where one exists — so it is recorded here rather
+  than settled unilaterally. The refusal at least says which situation the
+  caller is in.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars
