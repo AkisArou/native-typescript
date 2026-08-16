@@ -173,6 +173,20 @@ established decision in this architecture, not a shortcut around it.
 If a later binding family needs true out-parameters at the boundary, that
 remains its own slice.
 
+The implementation follows the shape the `errno` contract already has, which is
+the closest analogue and is about twenty lines per backend:
+
+| Where | Change |
+| --- | --- |
+| `scriptc` runtime | a fourth throw helper beside `scr_native_throw_errno`, `_null`, and `_boolean`, taking the message and the operation |
+| `scriptc` IR | one more `error` variant carrying the message and release binding identities, plus its validation |
+| C and LLVM emitters | after the call, branch on a non-null result: read the message, throw unless an exception is pending, release the handle |
+| SCABI | the matching `ErrorContract` member and its validation |
+| `bindgen-gir` | generate the wrapper and message accessor, and select the contract for a `throws=1` callable |
+
+Selecting a `throws=1` member already fails with a diagnostic naming GError, so
+the gap reports itself until this lands.
+
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`
 signal are already inside the implemented algebra and need no new contract.
