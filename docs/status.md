@@ -572,9 +572,11 @@ These are deliberate, not oversights. Each is a named future slice.
   helper families, and the conversion intrinsics.
 
   Arithmetic is also only reachable inside a construction: `(a + b) as u32`
-  lowers, `a + b` does not, because the general binary path is f64-only and the
-  cast is what supplies the target type. That is a lowering seam rather than a
-  semantic one — the profile asks for same-type arithmetic, not for the cast.
+  lowers, `a + b` does not. That is not a lowering seam to close — TypeScript
+  types `+` over two branded numbers as plain `number`, so the bare expression
+  does not typecheck against an exact declaration however the lowering would
+  treat it. The cast is what makes the expression well-typed at the source
+  level, and only then what supplies the target type.
 
   What this costs has narrowed sharply. Every GIR number now crosses as a
   plain `number` under the declared conversion policy, so ordering, printing,

@@ -191,15 +191,20 @@ orderings at the declared width and signedness, and literal construction with
 a compile-time range check. Missing, and now scoped to the 64-bit integers and
 to manifests that deliberately stay exact:
 
-1. **The construction seam.** `a + b` should lower like `(a + b) as u32` does
-   when both operands already have that exact type — the general binary path
-   learning about exact operands, the way the comparison path already has.
-2. **Conversion intrinsics.** Named per the profile: checked, truncating, or
+1. **Conversion intrinsics.** Named per the profile: checked, truncating, or
    wrapping. These are what let a 64-bit value reach `console.log`, `Math`, and
    JSON, and what convert between widths and signedness.
-3. **Division, remainder, and shifts**, with the traps the profile already
+2. **Division, remainder, and shifts**, with the traps the profile already
    specifies.
-4. **The checked, saturating, and wrapping helper families.**
+3. **The checked, saturating, and wrapping helper families.**
+
+The construction form is not on that list, and the earlier claim that it was
+a mere lowering seam was wrong. `(a + b) as u32` is not the compiler asking
+for a cast it could infer: TypeScript types `+` over two branded numbers as
+plain `number`, so the bare expression does not typecheck against an exact
+declaration at all, whatever the lowering would accept. Closing that seam
+would mean the checker tracking branded arithmetic, which is a TypeScript
+question rather than a ScriptC one. The cast is load-bearing.
 
 **Projecting an object the callee already owns.** Done, from both sides. 187
 GTK methods return a borrowed same-namespace object and 19 signal payloads
