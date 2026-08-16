@@ -154,6 +154,40 @@ The two objects share one source tree but not one dialect: the owner runtime is
 portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
 extensions through the GTK headers and compiles as `-std=gnu11`.
 
+**Projecting an object the callee already owns.** 187 GTK methods return a
+borrowed same-namespace object and every one is refused, which is why an
+application can only touch objects it constructed itself. The 19 signal
+payloads carrying a GObject are the same gap from the other side.
+
+The projection is nearly free. A `transfer=none` result becomes an owned one at
+the adapter boundary — `return value == NULL ? NULL : g_object_ref(value)` —
+and an owned result with a declared destructor already projects, using the
+release function the adapter generates today. No new IR shape is needed for the
+value itself.
+
+What is not free is identity, and it cannot be skipped.
+[Ownership](ownership.md) declares GObject identity to follow the underlying
+object reference, so two projections of one object must be one managed cell.
+Without a map they are two, and `===` answers false about the same widget —
+silently, which is the one failure mode this project does not accept. Shipping
+the projection alone would trade a precise refusal for a wrong answer.
+
+The map is a runtime facility keyed by handle tag and foreign pointer, because
+the cell is created by emitted code rather than by the adapter:
+
+- a small table in `scr_native_handle.c`, which today has no registry;
+- registration in `scr_native_handle_commit`, for types that declare identity;
+- removal on final release and on native invalidation, per the ownership rule;
+- an identity flag on `ScrNativeHandleType`, carried from SCABI's existing
+  `identity: "pointer"` through the IR handle definition;
+- lookup before `prepare` in both emitters, reusing an existing cell with a
+  retain rather than committing a second one;
+- adapters that ref a borrowed result, and a GIR projection that admits
+  `transfer=none` object results once the above holds.
+
+Sequenced after everything else because it is the one change that touches the
+commit and release path every handle already depends on.
+
 **Splitting the ScriptC runtime out of the link.** The link is 4253 ms of a
 7.2 s build because it is one Clang invocation compiling 19 runtime sources and
 the emitted program together. Nothing about that command can be reused while
