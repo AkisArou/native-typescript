@@ -250,9 +250,22 @@ thread-safety and identity contracts. Inside the artifact graph, each imported
 namespace is a content-verified snapshot input of the dependent package's
 generation action.
 
-The gate generates gio2 and gtk4 against the installed GIRs, translates both,
-and composes them into one program in which `gtk_application` upcasts to
-`gio_application`. Composing gtk4 alone fails.
+A parameter typed by another namespace's enumeration needs no SCABI type
+import, unlike a handle: an enumeration lowers to a bare scalar with no
+instance-scoped identity, so the type is defined locally for its ABI and only
+declared as the owning package's for its identity. The importing package proves
+the storage with its own Clang probe. Member constants stay with the owning
+package.
+
+Generated adapter symbols are qualified by namespace wherever a class name
+would otherwise identify them, because a class name is unique only inside its
+namespace and two namespaces link into one executable.
+
+The gates generate gio2 and gtk4 against the installed GIRs, translate both,
+and compose them into one program in which `gtk_application` upcasts to
+`gio_application`; composing gtk4 alone fails. `gtk_application_new()` projects
+as `constructor(applicationId: string | null, flags: GioApplicationFlags)`, and
+both packages' adapter objects compile and link into one executable.
 
 ## GTK target
 
