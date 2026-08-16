@@ -26,9 +26,8 @@ Build:
   --cache <directory>    Action cache location
                          (default: <project>/.native-typescript/cache)
                          Covers binding generation only. Native compilation
-                         re-runs every build: it reads system headers that are
-                         not declared graph inputs, so a cached result could
-                         outlive a toolchain change.
+                         re-runs every build, and the link — which rebuilds the
+                         ScriptC runtime each time — dominates it.
   --no-cache             Run every action, caching nothing
   --keep-intermediates   Leave the scratch tree in place and print its path
 

@@ -453,18 +453,30 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
   table on purpose: their width should come from probe evidence rather than
   from a table that assumes an ABI.
-- **Native toolchain actions are non-cacheable**, which makes the action cache
-  close to worthless for a GTK build today: a warm build measures the same as a
-  cold one, because the dominant cost is Clang parsing the GTK headers and that
-  action opts out. Implicit system toolchain and library trees are not declared
-  graph inputs, so caching those results would let one outlive a header change
-  nothing recorded.
+- **Nothing in a native build is reused between runs.** A warm build measures
+  the same as a cold one. Measured on the single-namespace fixture, 7.2 s total:
 
-  The fix is not to declare `/usr/include` — digesting it every build would
-  cost more than the compile it saves. It is to record what each action
-  actually read, from Clang's own `-MD` dependency output, and validate a
-  cached entry against exactly those files. That is a subsystem, not a flag,
-  and it is unbuilt.
+  | action | time |
+  | --- | --- |
+  | `link/scriptc-executable` | 4253 ms |
+  | Clang ABI probes and binding generation | 731 ms |
+  | target and adapter object compiles | 567 ms |
+  | TypeScript frontend, planning, program emission | ~740 ms |
+
+  The link is 59% of the build because it is one Clang invocation that compiles
+  the emitted program *and the whole ScriptC runtime* every time. Caching it as
+  it stands would cache the program too, which is the one thing that changed.
+  The fix is to split the runtime into an artifact of its own — it depends on
+  the checkout and the toolchain, not on the application — so a rebuild
+  recompiles one file and relinks.
+
+  Object compiles are separately non-cacheable for a different reason: they
+  read system headers that are not declared graph inputs, so a cached result
+  could outlive a toolchain change nothing recorded. Declaring `/usr/include`
+  is not the answer — digesting it every build would cost more than the 567 ms
+  it saves. Recording what each action actually read, from Clang's own `-MD`
+  output, and validating a cached entry against exactly those files, is.
+
 - **Sandbox inputs are not hermetic.** The executor binds the host filesystem
   read-only, so undeclared system headers can still influence a result.
   Declared inputs are content-verified; undeclared ones are not.
