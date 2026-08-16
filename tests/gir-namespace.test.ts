@@ -210,8 +210,23 @@ test(
     const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gio-2.0.gir",
       namespace: { name: "Gio", version: "2.0" },
+      // The whole non-throwing lifecycle surface. Only register() is missing,
+      // and only because it is throws=1.
       classes: [
-        { name: "Application", constructors: ["new"], signals: ["activate"] },
+        {
+          name: "Application",
+          constructors: ["new"],
+          methods: [
+            "activate",
+            "get_application_id",
+            "get_is_remote",
+            "hold",
+            "quit",
+            "release",
+            "set_application_id",
+          ],
+          signals: ["activate"],
+        },
       ],
       enumerations: [
         { name: "ApplicationFlags", members: ["default_flags", "is_service"] },
@@ -380,6 +395,20 @@ test(
         gioDeclarations,
         /export declare namespace ApplicationFlags \{[^}]*const DefaultFlags: ApplicationFlags;/su,
       );
+      for (const member of [
+        "activate(): void;",
+        "quit(): void;",
+        "hold(): void;",
+        "release(): void;",
+        "getIsRemote(): boolean;",
+        "onActivate(callback: (application: Application) => void): SignalConnection;",
+      ]) {
+        assert.equal(
+          gioDeclarations.includes(member),
+          true,
+          `gio2 declarations are missing ${member}`,
+        );
+      }
 
       const gtkPackage = report.artifacts.find(
         ({ id }) => id === "package/gtk4/bindings",
