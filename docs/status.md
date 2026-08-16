@@ -428,14 +428,31 @@ These are deliberate, not oversights. Each is a named future slice.
   shape.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
-- **A signal payload must be a value.** Exact scalars of every width and
-  selected enumerations project, because the dispatch copies them and nothing
-  outlives the callback. A handle, a boxed record, or a string would each have
-  to be borrowed for exactly the callback's duration, and that lifetime does
-  not exist: a callback source argument may be a handle only when it is the
-  registration owner. Of GTK 4's 348 signals this leaves `gboolean` (30
-  payloads), `utf8` (29), and GObject or boxed types as the families that do
-  not project.
+- **A signal payload must be a value carried by its own ABI type.** Exact
+  scalars of every width and selected enumerations project: the dispatch copies
+  an integer and nothing outlives the callback.
+
+  Measured against GTK 4's 261 void non-detailed signals, **185 project**. The
+  families that do not, by how many additional signals each would unlock:
+  GObject handles +19, `utf8` +13, `gboolean` +6.
+
+  All three need the same missing seam, which is why the cheapest is not worth
+  taking alone. A callback source argument carries no projection, so a
+  `gboolean` payload — an integer that must become a boolean at the source
+  boundary — has nowhere to say so, exactly as a string has nowhere to say it
+  must be copied at dispatch. Whoever adds one should design the seam for all
+  three.
+
+  `gboolean` is also the one that cannot be demonstrated: all six signals it
+  would unlock are keybinding actions or async printer callbacks, none
+  reachable from an ordinary method call.
+
+  Handles and strings need more than the seam. A queued delivery means a
+  payload must be captured when the signal fires, not when the callback runs:
+  a string has to be copied and a handle retained at dispatch, and released if
+  the invocation is dropped during shutdown. That is a lifetime the
+  retained-callback contract does not have — a source argument may be a handle
+  only when it is the registration owner.
 - **Detailed signals and non-void signal results** fail generation, as do
   broader value-method input/output families.
 - **`gfloat` does not project.** ScriptC's float slice is exactly `f64`, so
@@ -444,9 +461,18 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
   table on purpose: their width should come from probe evidence rather than
   from a table that assumes an ABI.
-- **Native toolchain actions are non-cacheable.** Implicit system
-  toolchain/library trees are not declared graph inputs, so GTK native actions
-  opt out of the implemented cache.
+- **Native toolchain actions are non-cacheable**, which makes the action cache
+  close to worthless for a GTK build today: a warm build measures the same as a
+  cold one, because the dominant cost is Clang parsing the GTK headers and that
+  action opts out. Implicit system toolchain and library trees are not declared
+  graph inputs, so caching those results would let one outlive a header change
+  nothing recorded.
+
+  The fix is not to declare `/usr/include` — digesting it every build would
+  cost more than the compile it saves. It is to record what each action
+  actually read, from Clang's own `-MD` dependency output, and validate a
+  cached entry against exactly those files. That is a subsystem, not a flag,
+  and it is unbuilt.
 - **Sandbox inputs are not hermetic.** The executor binds the host filesystem
   read-only, so undeclared system headers can still influence a result.
   Declared inputs are content-verified; undeclared ones are not.

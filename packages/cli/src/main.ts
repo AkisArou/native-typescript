@@ -25,6 +25,10 @@ Build:
   --out <directory>      Where to place the executable (default: <project>/dist)
   --cache <directory>    Action cache location
                          (default: <project>/.native-typescript/cache)
+                         Covers binding generation only. Native compilation
+                         re-runs every build: it reads system headers that are
+                         not declared graph inputs, so a cached result could
+                         outlive a toolchain change.
   --no-cache             Run every action, caching nothing
   --keep-intermediates   Leave the scratch tree in place and print its path
 
