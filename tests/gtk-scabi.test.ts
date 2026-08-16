@@ -290,12 +290,22 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   });
 }
 
-function options(selected = snapshot()): GObjectScabiGenerationOptions {
+function options(
+  selected = snapshot(),
+  importedNamespaces: GObjectScabiGenerationOptions["importedNamespaces"] = [],
+): GObjectScabiGenerationOptions {
   const gobjectAdapter = generateGObjectAdapterSource(selected);
   return {
     snapshot: selected,
-    evidence: evidence(generateGirClangAbiProbe(selected, gobjectAdapter)),
+    evidence: evidence(
+      generateGirClangAbiProbe(
+        selected,
+        gobjectAdapter,
+        importedNamespaces.map(({ snapshot: imported }) => imported),
+      ),
+    ),
     gobjectAdapter,
+    importedNamespaces,
     package: {
       name: "@native-typescript/gtk4",
       version: "0.0.0",
@@ -367,10 +377,9 @@ test(
       name: "Application",
     });
 
-    const generated = generateGObjectScabiPackage({
-      ...options(gtk),
-      importedNamespaces: [{ snapshot: gio, package: gio2Package }],
-    });
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gio, package: gio2Package }]),
+    );
 
     // The ABI side names the owning package and the type inside it.
     assert.deepEqual(generated.manifest.imports, {
@@ -441,10 +450,9 @@ test(
       ],
       adapterInput: { id: "gio2.gobject-adapters", output: "gobject-adapters.o" },
     });
-    const gtkGenerated = generateGObjectScabiPackage({
-      ...options(gtk),
-      importedNamespaces: [{ snapshot: gio, package: gio2Package }],
-    });
+    const gtkGenerated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gio, package: gio2Package }]),
+    );
 
     const gioProgram = translateScabiNativeProgram(gioGenerated.manifest, {
       imports: ["gio_application_connect_activate"],
@@ -583,6 +591,66 @@ test("imported namespaces are declared inputs of the generation action", () => {
     /imports its own namespace/u,
   );
 });
+
+test(
+  "a constructor taking another namespace's flags projects and proves its storage",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGioGir) },
+  () => {
+    // gtk_application_new(const char *id, GApplicationFlags flags). The flags
+    // type belongs to Gio, so only its TypeScript name is foreign: an enum
+    // lowers to a bare scalar, and this package proves that scalar against its
+    // own headers.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Application" }],
+      enumerations: [
+        { name: "ApplicationFlags", members: ["default_flags", "is_service"] },
+      ],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Application", constructors: ["new"] }],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gio, package: gio2Package }]),
+    );
+
+    // Defined here for its ABI, declared as gio2's for its identity.
+    const flags = generated.manifest.types.gio_application_flags;
+    assert.ok(flags && flags.kind === "flags");
+    if (!flags || flags.kind !== "flags") return;
+    assert.equal(flags.underlying, "gio_application_flags_storage");
+    assert.deepEqual(
+      generated.manifest.declarations.types.gio_application_flags,
+      { module: "@native-typescript/gio2", name: "ApplicationFlags" },
+    );
+
+    // No SCABI type import is involved: the representation is a bare scalar.
+    assert.equal(generated.manifest.imports?.gio_application_flags, undefined);
+
+    // gio2 owns the member constants; gtk4 must not re-export them.
+    assert.equal(
+      Object.values(generated.manifest.bindings).some(
+        (binding) =>
+          binding.kind === "constant" &&
+          binding.declaration.name.startsWith("ApplicationFlags."),
+      ),
+      false,
+    );
+
+    assert.match(
+      generated.declarations,
+      /^import type \{ ApplicationFlags as GioApplicationFlags \} from "@native-typescript\/gio2";$/mu,
+    );
+    assert.match(
+      generated.declarations,
+      /constructor\(applicationId: string \| null, flags: GioApplicationFlags\);/u,
+    );
+  },
+);
 
 test(
   "an unsupplied parent namespace leaves the hierarchy rooted here",

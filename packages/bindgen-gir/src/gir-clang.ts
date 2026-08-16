@@ -97,7 +97,7 @@ function enumCandidate(
  * Only reached names are collected so a package's evidence depends on what it
  * actually uses rather than on everything the imported namespace selected.
  */
-function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<string> {
+export function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<string> {
   const names = new Set<string>();
   function visit(type: GirTypeReference): void {
     if (type.kind === "array") {

@@ -31,7 +31,10 @@ import type {
   Sha256Digest,
   TargetIdentity,
 } from "@native-typescript/scabi";
-import { generateGirClangAbiProbe } from "./gir-clang.ts";
+import {
+  generateGirClangAbiProbe,
+  reachedForeignTypeNames,
+} from "./gir-clang.ts";
 import type {
   GirCallable,
   GirClass,
@@ -257,7 +260,13 @@ function validateInputs(
   options: GObjectScabiGenerationOptions,
   diagnostics: CBindgenDiagnostic[],
 ): void {
-  const probe = generateGirClangAbiProbe(options.snapshot, options.gobjectAdapter);
+  // Regenerated with the same imported namespaces, so the verification probe
+  // covers the identical candidate set the evidence was produced from.
+  const probe = generateGirClangAbiProbe(
+    options.snapshot,
+    options.gobjectAdapter,
+    (options.importedNamespaces ?? []).map(({ snapshot }) => snapshot),
+  );
   if (
     options.evidence.schema !== "native-typescript.clang-abi-evidence" ||
     options.evidence.schemaVersion !== 3
@@ -867,6 +876,30 @@ export function generateGObjectScabiPackage(
       }),
     ]),
   );
+  // An enumeration another namespace owns joins the same lookup under its
+  // qualified GIR name. Only reached ones are projected, matching the probe
+  // exactly, so evidence and declarations cover the same set.
+  const reachedForeign = reachedForeignTypeNames(options.snapshot);
+  const foreignEnumerations: EnumerationProjection[] = [];
+  for (const imported of options.importedNamespaces ?? []) {
+    const namespace = imported.snapshot.namespace.name;
+    for (const enum_ of imported.snapshot.enumerations) {
+      const girName = `${namespace}.${enum_.name}`;
+      if (!reachedForeign.has(girName)) continue;
+      const projection = Object.freeze({
+        girName,
+        sourceName: `${namespace}${enum_.name}`,
+        cType: enum_.cType,
+        typeId: enumerationTypeId(namespace, enum_.name),
+        enumeration: enum_,
+        namespace,
+        owner: imported.package,
+      });
+      enumerations.set(girName, projection);
+      foreignEnumerations.push(projection);
+    }
+  }
+
   const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
   const signalConnectionTypeId = `${namespacePrefix}_signal_connection`;
@@ -1012,6 +1045,67 @@ export function generateGObjectScabiPackage(
       "",
     );
   }
+  // A foreign enumeration is defined here for its ABI and declared as the
+  // owning package's for its identity. Its representation is a bare scalar
+  // with no cross-package identity, so nothing needs importing at the SCABI
+  // type level; only the TypeScript name is foreign. Member constants belong
+  // to the owning package and are not re-emitted.
+  for (const projection of foreignEnumerations) {
+    const enum_ = projection.enumeration;
+    const path = `${projection.girName}`;
+    const evidence = enumEvidenceById.get(
+      `${projection.namespace}.${enum_.name}.${enum_.kind}`,
+    );
+    const storageId = `${projection.typeId}_storage`;
+    const bits = evidence === undefined ? 0 : evidence.size * 8;
+    if (
+      evidence === undefined ||
+      (bits !== 8 && bits !== 16 && bits !== 32 && bits !== 64)
+    ) {
+      diagnostics.push(diagnostic(
+        path,
+        evidence === undefined
+          ? "Reached foreign enumeration lacks Clang ABI evidence"
+          : `Reached foreign enumeration has unsupported ${bits}-bit C storage`,
+      ));
+      continue;
+    }
+    if (
+      types[projection.typeId] !== undefined ||
+      types[storageId] !== undefined ||
+      declarationTypes[projection.typeId] !== undefined ||
+      enumerations.get(projection.sourceName) !== undefined ||
+      classByName.has(projection.sourceName)
+    ) {
+      diagnostics.push(diagnostic(
+        path,
+        `Imported enumeration aliases as ${projection.sourceName}, which collides with a generated declaration`,
+      ));
+      continue;
+    }
+    const members: Record<string, string> = {};
+    for (const member of enum_.members) {
+      members[upperCamel(member.name)] = member.value;
+    }
+    types[storageId] = Object.freeze({
+      kind: "integer",
+      signed: evidence.signed,
+      bits,
+    });
+    types[projection.typeId] = Object.freeze({
+      kind: enum_.kind === "bitfield" ? "flags" : "enum",
+      underlying: storageId,
+      members: Object.freeze(members),
+    });
+    declarationTypes[projection.typeId] = Object.freeze({
+      module: projection.owner!.name,
+      name: enum_.name,
+    });
+    importedDeclarationLines.push(
+      `import type { ${enum_.name} as ${projection.sourceName} } from "${projection.owner!.name}";`,
+    );
+  }
+
   for (const record of options.snapshot.records) {
     const path = `${options.snapshot.namespace.name}/${record.name}`;
     const evidence = recordEvidenceById.get(
