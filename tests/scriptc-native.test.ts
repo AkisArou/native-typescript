@@ -41,7 +41,7 @@ test("translated native packages compose canonically with build requirements", (
   const scalar = translateScabiNativeProgram(manifest, selectImports(["i32_identity"]));
   const runtime = translateScabiNativeProgram(
     gtkCounterManifest,
-    selectImports(["runtime_start"]),
+    selectImports(["counter_close"]),
   );
   assert.equal(scalar.ok, true);
   assert.equal(runtime.ok, true);
@@ -56,7 +56,7 @@ test("translated native packages compose canonically with build requirements", (
     left.input.bindings.map(({ id }) => id),
     [
       "native-typescript.fixture.c-v1@0.0.0#i32_identity",
-      "native-typescript.fixture.gtk-counter@0.0.0#runtime_start",
+      "native-typescript.fixture.gtk-counter@0.0.0#counter_close",
     ],
   );
   assert.deepEqual(left.build, runtime.build);
@@ -149,7 +149,7 @@ test("native package composition rejects target and source identity collisions",
 
   const runtime = translateScabiNativeProgram(
     gtkCounterManifest,
-    selectImports(["runtime_start"]),
+    selectImports(["counter_close"]),
   );
   assert.equal(runtime.ok, true);
   if (!runtime.ok) return;

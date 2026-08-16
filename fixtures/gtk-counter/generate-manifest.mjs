@@ -87,7 +87,7 @@ const manifest = {
   bindings: {
     complete: callable({
       declaration: "complete",
-      symbol: "nts_gtk_runtime_complete",
+      symbol: "nts_gtk_counter_complete",
       parameters: [value("value", "i32")],
     }),
     counter_create: callable({
@@ -162,19 +162,9 @@ const manifest = {
       kind: "method",
       parameters: [borrowedCounter],
     }),
-    quit: callable({
-      declaration: "quit",
-      symbol: "nts_gtk_runtime_quit",
-    }),
-    runtime_start: callable({
-      declaration: "runtimeStart",
-      symbol: "nts_gtk_runtime_start",
-      result: {
-        nullable: false,
-        ownership: { kind: "value" },
-        passMode: "value",
-        type: "i32",
-      },
+    counter_close: callable({
+      declaration: "closeCounter",
+      symbol: "nts_gtk_counter_close",
     }),
   },
   declarations: {

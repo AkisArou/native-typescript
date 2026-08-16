@@ -44,7 +44,7 @@ import {
   planGirBindingAnalysis,
 } from "@native-typescript/bindgen-gir";
 import {
-  glibRuntimeArtifactIds,
+  targetRuntimeArtifactIds,
   planGtkTargetObjects,
 } from "@native-typescript/target-gtk";
 import type {
@@ -56,6 +56,7 @@ const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-counter");
 const targetRoot = join(workspace, "packages/target-gtk");
+const applicationRoot = join(targetRoot, "application");
 const bindgenGirRoot = join(workspace, "packages/bindgen-gir");
 const scriptcRuntimeRoot = join(scriptcRoot, "packages/runtime");
 const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
@@ -166,11 +167,10 @@ test(
 
     const runtimeTranslated = translateScabiNativeProgram(manifest, {
       imports: [
-        "runtime_start",
         "counter_create",
         "counter_schedule_click",
         "counter_destroy",
-        "quit",
+        "counter_close",
         "complete",
       ],
       exports: [],
@@ -190,6 +190,35 @@ test(
       runtimeTranslated.build.linkInputs,
       manifest.linkInputs,
     );
+
+    /* The GTK bootstrap is the target's own binding package, not the
+     * application's: an application reaches it the same way it reaches a
+     * generated one, through SCABI. */
+    const applicationManifest = parseScabiManifest(
+      readFileSync(join(applicationRoot, "package.scabi.json"), "utf8"),
+    );
+    assert.equal(
+      applicationManifest.declarations.digest,
+      sha256(join(applicationRoot, "package.d.ts")),
+    );
+    assert.equal(
+      applicationManifest.sdk.metadataDigest,
+      sha256(join(targetRoot, "runtime/nts_gtk_application.h")),
+    );
+    const applicationTranslated = translateScabiNativeProgram(
+      applicationManifest,
+      { imports: ["application_start", "application_quit"], exports: [] },
+    );
+    assert.equal(
+      applicationTranslated.ok,
+      true,
+      applicationTranslated.ok
+        ? undefined
+        : applicationTranslated.diagnostics
+            .map(({ code, path, message }) => `${code} ${path}: ${message}`)
+            .join("\n"),
+    );
+    if (!applicationTranslated.ok) return;
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-app-"));
     try {
@@ -634,6 +663,7 @@ test(
         gtkSdk.systemLibraries,
       );
       const translated = composeScriptCNativePrograms([
+        applicationTranslated,
         runtimeTranslated,
         gtkTranslated,
       ]);
@@ -650,9 +680,14 @@ test(
       assert.deepEqual(translated.build.adapterInputs.map(({ id }) => id), [
         "gtk4.gobject-adapters",
       ]);
+      /* Three packages, one link line: the shared GTK stack merges by
+       * identity and only the runtime components accumulate. */
       assert.deepEqual(
-        translated.build.linkInputs.map(({ id }) => id),
-        runtimeTranslated.build.linkInputs.map(({ id }) => id),
+        translated.build.linkInputs.map(({ id }) => id).toSorted(),
+        [
+          ...runtimeTranslated.build.linkInputs.map(({ id }) => id),
+          "gtk-application-runtime",
+        ].toSorted(),
       );
 
       const runtimeHeadersPath = join(targetRoot, "runtime");
@@ -694,7 +729,7 @@ test(
       );
       const targetObjects = planGtkTargetObjects({
         adapters: [{ slug: "gtk4", adapter: gobjectAdapter }],
-        glibRuntimeSourceTreeDigest: runtimeTreeContent.digest,
+        targetRuntimeSourceTreeDigest: runtimeTreeContent.digest,
         scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
         sdkArguments: gtkSdk.compileArguments,
         tool: clangTool,
@@ -702,6 +737,7 @@ test(
         target: nativeTarget,
       });
       const runtimeObject = targetObjects.runtime;
+      const applicationObject = targetObjects.application;
       const gobjectAdapterObject = targetObjects.adapters[0]!.plan;
       const counterArguments: readonly ArtifactActionArgument[] = [
         ...baseArguments,
@@ -714,7 +750,7 @@ test(
         { kind: "literal", value: "-I" },
         {
           kind: "input-path",
-          artifact: glibRuntimeArtifactIds.sourceTree,
+          artifact: targetRuntimeArtifactIds.sourceTree,
         },
         { kind: "literal", value: "-I" },
         { kind: "input-path", artifact: "headers/scriptc/runtime" },
@@ -763,11 +799,16 @@ test(
           sourceRoot: fixtureRoot,
           externalTypes: {
             [manifest.package.name]: join(fixtureRoot, "package.d.ts"),
+            [applicationManifest.package.name]: join(
+              applicationRoot,
+              "package.d.ts",
+            ),
             [generatedGtkManifest.package.name]: generatedGtkDeclarationsPath,
           },
           native: translated.input,
           nativeLinkInputs: [
             runtimeObject.object.id,
+            applicationObject.object.id,
             counterObject.artifact.id,
             gobjectAdapterObject.object.id,
           ],
@@ -819,6 +860,7 @@ test(
             runtime: "runtime/scriptc",
             linkInputs: [
               runtimeObject.object.id,
+              applicationObject.object.id,
               counterObject.artifact.id,
               gobjectAdapterObject.object.id,
             ],
@@ -873,7 +915,7 @@ test(
           buildRoot: join(scratch, `${backend}-artifacts`),
           sourcePaths: {
             ...gtkSdk.sourcePaths,
-            [glibRuntimeArtifactIds.sourceTree]: runtimeHeadersPath,
+            [targetRuntimeArtifactIds.sourceTree]: runtimeHeadersPath,
             "source/fixture/gtk-counter": fixtureTreePath,
             "runtime/scriptc": scriptcRuntimeRoot,
             "headers/scriptc/runtime": scriptcRuntimeInclude,

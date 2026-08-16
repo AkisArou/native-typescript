@@ -29,6 +29,7 @@ The repository is not yet an application framework or a production compiler.
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
 | GTK target runtime provider | implemented |
 | GTK application lifecycle | generated |
+| GTK target runtime package | implemented |
 | Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
@@ -303,6 +304,22 @@ performs exactly one retained-callback dispatch and one microtask checkpoint.
 Failure delivery, thread affinity, stop/detach ordering, and source lifetime
 are explicit and sanitizer-tested.
 
+### Process bootstrap
+
+`nts_gtk_application.c` initialises GTK, attaches the owner runtime, and tears
+both down again. It is the target's own SCABI package rather than generated
+code, because it describes hand-written C the target ships. An application
+composes it alongside the generated toolkit bindings and its own native code.
+
+Start and shutdown are separate calls with separate verdicts: shutdown reports
+whether the retained-callback service was idle when asked to stop, and the
+application runs its own teardown checks before calling it so an application
+failure is never reported as a runtime one.
+
+The owner runtime and the bootstrap share one source tree and one link, but not
+one dialect — the runtime is portable C under `-std=c11 -pedantic`, while the
+bootstrap reaches GNU extensions through the GTK headers.
+
 ### Generated surface
 
 | Projected | Notes |
@@ -352,11 +369,11 @@ tool.
 
 These are deliberate, not oversights. Each is a named future slice.
 
-- **The GTK application lifecycle generates, but the fixture has not been
-  retired.** Every member projects, `register()` included. The executable
-  fixture still starts the GLib runtime and requests its stop through
-  hand-authored C; replacing that entry point with the generated `Application`
-  is the remaining step.
+- **The generated `Application` is not yet the executable's entry point.**
+  Every member projects, `register()` included, and the process bootstrap now
+  belongs to the target rather than to the fixture. What remains is an
+  application that drives its own lifecycle through the generated class instead
+  of through the target's start/quit pair.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader

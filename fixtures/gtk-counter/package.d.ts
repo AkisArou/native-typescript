@@ -13,7 +13,6 @@ export interface GtkCounter {
   dispose(): void;
 }
 
-export declare function runtimeStart(): i32;
 export declare function createCounter(callback: (count: i32) => void): GtkCounter;
-export declare function quit(): void;
+export declare function closeCounter(): void;
 export declare function complete(value: i32): void;

@@ -4,15 +4,14 @@ import {
 } from "@native-typescript/target-api";
 
 export {
-  glibRuntimeArtifactIds,
-  glibRuntimeNative,
   planGlibRuntimeObject,
-} from "./glib-runtime-object.ts";
-export type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
-export {
-  gtkTargetObjectArtifactIds,
-  planGtkTargetObjects,
-} from "./gtk-target-objects.ts";
+  planGtkApplicationObject,
+  targetRuntimeArtifactIds,
+  targetRuntimeNative,
+  targetRuntimeSourceTree,
+} from "./target-runtime-objects.ts";
+export type { TargetRuntimeObjectPlan } from "./target-runtime-objects.ts";
+export { planGtkTargetObjects } from "./gtk-target-objects.ts";
 export type {
   GtkAdapterObject,
   GtkTargetObjectsPlan,

@@ -1,8 +1,11 @@
 import {
+  applicationQuit,
+  applicationStart,
+} from "@native-typescript/gtk-application";
+import {
+  closeCounter,
   complete,
   createCounter,
-  quit,
-  runtimeStart,
   type i32,
 } from "@native-typescript/gtk-counter-fixture";
 import {
@@ -18,23 +21,28 @@ import {
   type gint,
 } from "@native-typescript/gtk4";
 
-runtimeStart();
+let failed = false;
 let generatedReady = false;
 let counterReady = false;
 let flagsReady = false;
 let resizeReady = false;
-let failed = false;
 let generatedValue = 0 as i32;
 let observed = 0 as i32;
 
+/* The target brings GTK and the owner runtime up; everything below is ordinary
+ * application code running on that runtime's thread. */
+if (!applicationStart()) failed = true;
+
 function finishIfReady(): void {
   if (failed) {
+    closeCounter();
     complete(0 as i32);
-    quit();
+    applicationQuit();
   } else if (generatedReady && counterReady && flagsReady && resizeReady) {
     window.destroy();
+    closeCounter();
     complete((generatedValue + observed) as i32);
-    quit();
+    applicationQuit();
   }
 }
 

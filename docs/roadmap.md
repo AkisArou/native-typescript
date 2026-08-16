@@ -125,30 +125,25 @@ Recorded in [Implementation status](status.md).
 
 ### Next slices
 
-The application lifecycle generates. What is left is retiring the executable
-fixture's hand-authored entry point in favour of it.
+The application lifecycle generates and the executable fixture no longer
+hand-authors its entry point.
 
-**Where the bootstrap belongs.** The fixture's `nts_gtk_runtime_start()` does
-three things: `gtk_init`, attaching the GLib runtime, and registering teardown.
-None of that is application code — it is what a GTK target must do before any
-TypeScript runs — so it belongs to the target's runtime beside
-`nts_glib_runtime.c`, exposed as entries the application calls once.
+**Where the bootstrap belongs.** Done. `gtk_init` and attaching the GLib owner
+runtime are what a GTK target does before any TypeScript runs, not application
+code, so they live in `packages/target-gtk/runtime/nts_gtk_application.c` beside
+`nts_glib_runtime.c` and reach TypeScript through `target-gtk`'s own SCABI
+package. An application composes three packages — toolkit, target runtime, and
+its own native code — rather than standing one in for another.
 
-That needs something the workspace does not have yet: a SCABI package for the
-target runtime. The application gate currently stands the fixture manifest in
-for one, which is why the bootstrap ended up in the fixture. Giving
-`target-gtk` its own package makes the composition three packages — toolkit,
-target runtime, and fixture — rather than two.
+Teardown stayed split rather than moving wholesale. `nts_gtk_application_shutdown`
+stops accepting retained callbacks, destroys the service, and detaches the
+runtime, returning whether the service was idle when it was asked to stop. The
+application runs its own checks first and calls shutdown after them, so a
+failure in application state is never reported as a runtime failure.
 
-The split is not simply "move the C". Today's teardown interleaves runtime
-shutdown with test assertions: it stops accepting callbacks, checks the
-completion value and counter accounting, then detaches. The target owns
-`start`, `quit`, and `shutdown`; the fixture keeps its assertions and calls
-`shutdown` after them, so ordering stays explicit and the test still observes
-pre-teardown state.
-
-This is packaging rather than capability — the lifecycle already generates —
-which is why it is sequenced after the contracts above rather than before.
+The two objects share one source tree but not one dialect: the owner runtime is
+portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
+extensions through the GTK headers and compiles as `-std=gnu11`.
 
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a

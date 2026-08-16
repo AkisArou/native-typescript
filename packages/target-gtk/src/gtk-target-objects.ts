@@ -10,15 +10,11 @@ import type {
   GObjectAdapterSource,
 } from "@native-typescript/bindgen-gir";
 import {
-  glibRuntimeArtifactIds,
   planGlibRuntimeObject,
-} from "./glib-runtime-object.ts";
-import type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
-
-export const gtkTargetObjectArtifactIds = Object.freeze({
-  glibRuntimeSourceTree: glibRuntimeArtifactIds.sourceTree,
-  glibRuntimeObject: glibRuntimeArtifactIds.object,
-});
+  planGtkApplicationObject,
+  targetRuntimeSourceTree,
+} from "./target-runtime-objects.ts";
+import type { TargetRuntimeObjectPlan } from "./target-runtime-objects.ts";
 
 /**
  * Adapter artifact identities for one binding package, derived from its
@@ -36,17 +32,36 @@ function gtkAdapterObjectArtifactIds(slug: string): {
   });
 }
 
-/* The GLib runtime adapter is ordinary portable C and is held to the strictest
- * dialect the target package compiles. The generated GObject adapters instead
- * require GNU extensions reached through the GTK headers, so their prologue is
- * owned by planGObjectAdapterObject rather than shared here. */
-const glibRuntimeCompilePrologue: readonly ArtifactActionInputArgument[] =
-  Object.freeze(
-    (["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"] as const).map(
-      (value): ArtifactActionInputArgument =>
-        Object.freeze({ kind: "literal", value }),
+function compilePrologue(
+  ...values: readonly string[]
+): readonly ArtifactActionInputArgument[] {
+  return Object.freeze(
+    values.map((value): ArtifactActionInputArgument =>
+      Object.freeze({ kind: "literal", value }),
     ),
   );
+}
+
+/* The GLib owner runtime is ordinary portable C and is held to the strictest
+ * dialect the target package compiles. */
+const glibRuntimeCompilePrologue = compilePrologue(
+  "-std=c11",
+  "-O2",
+  "-Wall",
+  "-Wextra",
+  "-Werror",
+  "-pedantic",
+);
+
+/* The application bootstrap and the generated GObject adapters both reach GNU
+ * extensions through the GTK headers, so neither can be -pedantic. */
+const gtkCompilePrologue = compilePrologue(
+  "-std=gnu11",
+  "-O2",
+  "-Wall",
+  "-Wextra",
+  "-Werror",
+);
 
 export interface GtkAdapterObject {
   readonly slug: string;
@@ -54,7 +69,9 @@ export interface GtkAdapterObject {
 }
 
 export interface GtkTargetObjectsPlan {
-  readonly runtime: GlibRuntimeObjectPlan;
+  readonly sourceTree: ArtifactDefinition;
+  readonly runtime: TargetRuntimeObjectPlan;
+  readonly application: TargetRuntimeObjectPlan;
   readonly adapters: readonly GtkAdapterObject[];
   readonly artifacts: readonly ArtifactDefinition[];
   readonly actions: readonly ArtifactActionDefinition[];
@@ -62,8 +79,8 @@ export interface GtkTargetObjectsPlan {
 
 /**
  * Plans every native object the GTK target contributes to an application link:
- * the target-owned GLib owner-runtime adapter and the generated GObject
- * adapters for the selected binding surface.
+ * the GLib owner-runtime adapter, the GTK application bootstrap, and the
+ * generated GObject adapters for the selected binding surface.
  *
  * Callers supply the SDK compile arguments, tool identity, and execution
  * facts. Artifact identities, per-object dialect policy, and dependency edges
@@ -80,20 +97,30 @@ export function planGtkTargetObjects(input: {
     readonly slug: string;
     readonly adapter: GObjectAdapterSource;
   }[];
-  readonly glibRuntimeSourceTreeDigest: string;
+  readonly targetRuntimeSourceTreeDigest: string;
   readonly scriptcRuntimeHeaders: ArtifactInputPath;
   readonly sdkArguments: readonly ArtifactActionInputArgument[];
   readonly tool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
 }): GtkTargetObjectsPlan {
-  const runtime = planGlibRuntimeObject({
-    sourceTreeDigest: input.glibRuntimeSourceTreeDigest,
+  const sourceTree = targetRuntimeSourceTree({
+    digest: input.targetRuntimeSourceTreeDigest,
+    target: input.target,
+  });
+  const shared = {
     scriptcRuntimeHeaders: input.scriptcRuntimeHeaders,
-    arguments: [...glibRuntimeCompilePrologue, ...input.sdkArguments],
     tool: input.tool,
     executionPlatform: input.executionPlatform,
     target: input.target,
+  } as const;
+  const runtime = planGlibRuntimeObject({
+    ...shared,
+    arguments: [...glibRuntimeCompilePrologue, ...input.sdkArguments],
+  });
+  const application = planGtkApplicationObject({
+    ...shared,
+    arguments: [...gtkCompilePrologue, ...input.sdkArguments],
   });
 
   const slugs = new Set<string>();
@@ -121,15 +148,19 @@ export function planGtkTargetObjects(input: {
   });
 
   return Object.freeze({
+    sourceTree,
     runtime,
+    application,
     adapters: Object.freeze(adapters),
     artifacts: Object.freeze([
-      runtime.sourceTree,
+      sourceTree,
       runtime.object,
+      application.object,
       ...adapters.flatMap(({ plan }) => [plan.source, plan.object]),
     ]),
     actions: Object.freeze([
       runtime.action,
+      application.action,
       ...adapters.map(({ plan }) => plan.action),
     ]),
   });

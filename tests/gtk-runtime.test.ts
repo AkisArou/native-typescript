@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-  glibRuntimeArtifactIds,
-  glibRuntimeNative,
   glibRuntimeProvider,
-  gtkTargetObjectArtifactIds,
   planGlibRuntimeObject,
   planGtkTargetObjects,
+  targetRuntimeArtifactIds,
+  targetRuntimeNative,
+  targetRuntimeSourceTree,
 } from "@native-typescript/target-gtk";
 import { capabilities } from "@native-typescript/target-api";
 
@@ -51,16 +51,26 @@ test("GTK target declares the GLib owner runtime contract", () => {
   assert.deepEqual(glibRuntimeProvider.descriptor.requires.compiler, [
     capabilities.retainedCallbackV1,
   ]);
-  assert.deepEqual(glibRuntimeNative, {
-    header: "runtime/nts_glib_runtime.h",
-    source: "runtime/nts_glib_runtime.c",
-    pkgConfigModules: ["glib-2.0"],
+  assert.deepEqual(targetRuntimeNative, {
+    glibRuntime: {
+      header: "runtime/nts_glib_runtime.h",
+      source: "runtime/nts_glib_runtime.c",
+      pkgConfigModules: ["glib-2.0"],
+    },
+    application: {
+      header: "runtime/nts_gtk_application.h",
+      source: "runtime/nts_gtk_application.c",
+      pkgConfigModules: ["gtk4"],
+    },
   });
 });
 
 test("GTK target contributes its GLib runtime as an artifact-graph fragment", () => {
+  const sourceTree = targetRuntimeSourceTree({
+    digest: `sha256:${"1".repeat(64)}`,
+    target: "x86_64-unknown-linux-gnu",
+  });
   const plan = planGlibRuntimeObject({
-    sourceTreeDigest: `sha256:${"1".repeat(64)}`,
     scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
     arguments: [
       { kind: "literal", value: "-std=c11" },
@@ -75,10 +85,10 @@ test("GTK target contributes its GLib runtime as an artifact-graph fragment", ()
     target: "x86_64-unknown-linux-gnu",
   });
 
-  assert.equal(plan.sourceTree.id, glibRuntimeArtifactIds.sourceTree);
-  assert.equal(plan.object.id, glibRuntimeArtifactIds.object);
+  assert.equal(sourceTree.id, targetRuntimeArtifactIds.sourceTree);
+  assert.equal(plan.object.id, targetRuntimeArtifactIds.glibRuntimeObject);
   assert.deepEqual(plan.action.inputs, [
-    glibRuntimeArtifactIds.sourceTree,
+    targetRuntimeArtifactIds.sourceTree,
     "sdk/glib/include",
     "headers/scriptc/runtime",
   ]);
@@ -87,11 +97,11 @@ test("GTK target contributes its GLib runtime as an artifact-graph fragment", ()
     { kind: "literal", value: "-c" },
     {
       kind: "input-path",
-      artifact: glibRuntimeArtifactIds.sourceTree,
+      artifact: targetRuntimeArtifactIds.sourceTree,
       path: "nts_glib_runtime.c",
     },
     { kind: "literal", value: "-o" },
-    { kind: "output-path", artifact: glibRuntimeArtifactIds.object },
+    { kind: "output-path", artifact: targetRuntimeArtifactIds.glibRuntimeObject },
   ]);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.action.arguments), true);
@@ -114,7 +124,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
       errorSupport: null,
       throwingMethods: [],
     } }],
-    glibRuntimeSourceTreeDigest: `sha256:${"1".repeat(64)}`,
+    targetRuntimeSourceTreeDigest: `sha256:${"1".repeat(64)}`,
     scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
     sdkArguments,
     tool: {
@@ -126,12 +136,17 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
     target: "x86_64-unknown-linux-gnu",
   });
 
-  assert.equal(plan.runtime.object.id, gtkTargetObjectArtifactIds.glibRuntimeObject);
+  assert.equal(plan.runtime.object.id, targetRuntimeArtifactIds.glibRuntimeObject);
+  assert.equal(
+    plan.application.object.id,
+    targetRuntimeArtifactIds.applicationObject,
+  );
   assert.equal(plan.adapters[0]?.plan.source.id, "source/gtk4/gobject-adapters");
   assert.equal(plan.adapters[0]?.plan.object.id, "object/gtk4/gobject-adapters");
 
-  // The GLib runtime is portable C held to the strict dialect; the generated
-  // GObject adapters reach GNU extensions through the GTK headers.
+  // The GLib runtime is portable C held to the strict dialect; the application
+  // bootstrap and the generated GObject adapters reach GNU extensions through
+  // the GTK headers.
   const literals = (action: (typeof plan)["runtime"]["action"]): string[] =>
     action.arguments.flatMap((argument) =>
       argument.kind === "literal" ? [argument.value] : [],
@@ -144,6 +159,13 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
     "-Werror",
     "-pedantic",
   ]);
+  assert.deepEqual(literals(plan.application.action).slice(0, 5), [
+    "-std=gnu11",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+  ]);
   assert.deepEqual(literals(plan.adapters[0]!.plan.action).slice(0, 4), [
     "-std=gnu11",
     "-Wall",
@@ -152,20 +174,29 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
   ]);
 
   // Every object sees the SDK include tree, and the fragment declares it.
-  for (const action of [plan.runtime.action, plan.adapters[0]!.plan.action]) {
+  for (const action of [
+    plan.runtime.action,
+    plan.application.action,
+    plan.adapters[0]!.plan.action,
+  ]) {
     assert.equal(action.inputs.includes("sdk/gtk4/include"), true);
   }
 
   assert.deepEqual(
     plan.artifacts.map(({ id }) => id),
     [
-      gtkTargetObjectArtifactIds.glibRuntimeSourceTree,
-      gtkTargetObjectArtifactIds.glibRuntimeObject,
+      targetRuntimeArtifactIds.sourceTree,
+      targetRuntimeArtifactIds.glibRuntimeObject,
+      targetRuntimeArtifactIds.applicationObject,
       "source/gtk4/gobject-adapters",
       "object/gtk4/gobject-adapters",
     ],
   );
-  assert.deepEqual(plan.actions, [plan.runtime.action, plan.adapters[0]!.plan.action]);
+  assert.deepEqual(plan.actions, [
+    plan.runtime.action,
+    plan.application.action,
+    plan.adapters[0]!.plan.action,
+  ]);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.artifacts), true);
   assert.equal(Object.isFrozen(plan.actions), true);
@@ -202,7 +233,7 @@ for (const sanitizer of ["none", "address", "thread"] as const) {
           runtimeDir,
           "-I",
           scriptcRuntime,
-          join(targetPackage, glibRuntimeNative.source),
+          join(targetPackage, targetRuntimeNative.glibRuntime.source),
           fixture,
           ...pkgConfig("--libs"),
           "-o",

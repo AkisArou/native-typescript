@@ -4,7 +4,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#include "nts_glib_runtime.h"
+#include "nts_gtk_application.h"
+#include "scr_runtime.h"
 
 struct NtsGtkCounter {
   GtkWidget *window;
@@ -16,7 +17,6 @@ struct NtsGtkCounter {
   int32_t count;
 };
 
-static NtsGlibRuntime *nts_runtime;
 static NtsGtkCounter *nts_active_counter;
 static int32_t nts_completion = -1;
 static int32_t nts_destroyed_counters;
@@ -32,30 +32,15 @@ static void nts_gtk_counter_close_window(NtsGtkCounter *counter) {
   counter->button = NULL;
 }
 
-static void nts_gtk_runtime_cleanup(void) {
-  scr_retained_callbacks_stop_accepting();
+/* Runs after the application has finished: checks what this fixture asserts
+ * about its own objects, then hands the runtime back to the target. The order
+ * matters — a fixture failure must not be reported as a runtime failure. */
+static void nts_gtk_counter_cleanup(void) {
   if (nts_active_counter != NULL || nts_completion != 42 ||
-      nts_destroyed_counters != 1 || scr_retained_callbacks_pending() ||
-      scr_retained_callbacks_active() != 0 ||
-      !scr_retained_callbacks_destroy()) {
+      nts_destroyed_counters != 1) {
     abort();
   }
-  nts_glib_runtime_detach(nts_runtime);
-  nts_runtime = NULL;
-}
-
-int32_t nts_gtk_runtime_start(void) {
-  if (nts_runtime != NULL || !gtk_init_check()) return 0;
-  NtsGlibRuntime *runtime = nts_glib_runtime_new(
-      NULL, G_PRIORITY_DEFAULT, NULL, NULL);
-  if (runtime == NULL) return 0;
-  if (!nts_glib_runtime_start(runtime)) {
-    nts_glib_runtime_detach(runtime);
-    return 0;
-  }
-  nts_runtime = runtime;
-  scr_atexit(nts_gtk_runtime_cleanup);
-  return 1;
+  if (!nts_gtk_application_shutdown()) abort();
 }
 
 static void nts_gtk_counter_clicked(GtkButton *button, gpointer opaque) {
@@ -67,7 +52,9 @@ static void nts_gtk_counter_clicked(GtkButton *button, gpointer opaque) {
 
 NtsGtkCounter *nts_gtk_counter_create(NtsGtkCounterCallback callback,
                                       void *context) {
-  if (nts_runtime == NULL || nts_active_counter != NULL) return NULL;
+  if (!nts_gtk_application_is_running() || nts_active_counter != NULL) {
+    return NULL;
+  }
   NtsGtkCounter *counter = calloc(1, sizeof *counter);
   if (counter == NULL) return NULL;
 
@@ -81,6 +68,7 @@ NtsGtkCounter *nts_gtk_counter_create(NtsGtkCounterCallback callback,
   counter->clicked_handler = g_signal_connect(
       counter->button, "clicked", G_CALLBACK(nts_gtk_counter_clicked), counter);
   nts_active_counter = counter;
+  scr_atexit(nts_gtk_counter_cleanup);
   gtk_window_present(GTK_WINDOW(counter->window));
   return counter;
 }
@@ -115,9 +103,8 @@ void nts_gtk_counter_destroy(NtsGtkCounter *counter) {
   free(counter);
 }
 
-void nts_gtk_runtime_quit(void) {
+void nts_gtk_counter_close(void) {
   nts_gtk_counter_close_window(nts_active_counter);
-  nts_glib_runtime_request_stop(nts_runtime);
 }
 
-void nts_gtk_runtime_complete(int32_t value) { nts_completion = value; }
+void nts_gtk_counter_complete(int32_t value) { nts_completion = value; }
