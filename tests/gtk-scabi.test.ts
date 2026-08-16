@@ -544,6 +544,44 @@ test("imported namespaces are declared inputs of the generation action", () => {
   // The imported snapshot is a content-verified input, so changing it
   // invalidates this package rather than silently reusing a cached result.
   assert.equal(plan.action.inputs.includes("metadata/gio2/snapshot"), true);
+
+  // Normalization regenerates the probe to read the raw AST, so it must take
+  // the same imported snapshots the compiled probe covered.
+  const normalization = planGirClangEvidenceNormalization({
+    request,
+    requestArtifact: "metadata/gtk4/request",
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    rawAstArtifact: "metadata/gtk4/ast",
+    rawLlvmArtifact: "metadata/gtk4/llvm",
+    generatorArtifact: "tool-input/gir/generator",
+    importedSnapshotArtifacts: ["metadata/gio2/snapshot"],
+    artifactId: "metadata/gtk4/evidence",
+    actionId: "normalize/gtk4/clang-abi-evidence",
+    tool: { id: "tool/node", version: "24", digest: `sha256:${"c".repeat(64)}` },
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+  assert.equal(
+    normalization.action.inputs.includes("metadata/gio2/snapshot"),
+    true,
+  );
+  assert.throws(
+    () =>
+      planGirClangEvidenceNormalization({
+        request,
+        requestArtifact: "metadata/gtk4/request",
+        snapshotArtifact: "metadata/gtk4/snapshot",
+        rawAstArtifact: "metadata/gtk4/ast",
+        rawLlvmArtifact: "metadata/gtk4/llvm",
+        generatorArtifact: "tool-input/gir/generator",
+        artifactId: "metadata/gtk4/evidence",
+        actionId: "normalize/gtk4/clang-abi-evidence",
+        tool: { id: "tool/node", version: "24", digest: `sha256:${"c".repeat(64)}` },
+        executionPlatform: "x86_64-linux",
+        target: "x86_64-unknown-linux-gnu",
+      }),
+    /declares 1 imported namespace\(s\) but received 0/u,
+  );
   assert.equal(
     plan.action.arguments.some(
       (argument) =>

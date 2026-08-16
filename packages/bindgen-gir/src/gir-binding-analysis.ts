@@ -72,6 +72,12 @@ export function planGirBindingAnalysis(input: {
    * projected across the package boundary.
    */
   readonly importedSnapshotArtifacts?: readonly string[];
+  /**
+   * The imported snapshots themselves, needed at plan time because the probe
+   * source is generated here and must cover the foreign candidates the
+   * package reaches.
+   */
+  readonly importedSnapshots?: readonly GirSnapshot[];
   readonly clangArguments: readonly ArtifactActionInputArgument[];
   readonly clangTool: ArtifactActionDefinition["tool"];
   readonly nodeTool: ArtifactActionDefinition["tool"];
@@ -114,7 +120,11 @@ export function planGirBindingAnalysis(input: {
   const slug = girPackageSlug(input.snapshot.namespace);
 
   const adapter = generateGObjectAdapterSource(input.snapshot);
-  const probe = generateGirClangAbiProbe(input.snapshot, adapter);
+  const probe = generateGirClangAbiProbe(
+    input.snapshot,
+    adapter,
+    input.importedSnapshots,
+  );
   const clang = planClangAbiProbe({
     probe,
     sourceArtifactId: artifactIds.probeSource,
@@ -135,6 +145,7 @@ export function planGirBindingAnalysis(input: {
     rawAstArtifact: clang.rawAst.id,
     rawLlvmArtifact: clang.rawLlvm.id,
     generatorArtifact: input.generatorArtifact,
+    importedSnapshotArtifacts: input.importedSnapshotArtifacts,
     artifactId: artifactIds.evidence,
     actionId: `normalize/${slug}/clang-abi-evidence`,
     tool: input.nodeTool,

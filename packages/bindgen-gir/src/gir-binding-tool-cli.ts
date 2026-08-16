@@ -43,14 +43,22 @@ async function normalizeEvidence(
   rawLlvmPath: string,
   requestPath: string,
   outputPath: string,
+  importedSnapshotPaths: readonly string[],
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
   const gobjectAdapter = generateGObjectAdapterSource(snapshot);
+  const imported = await readImportedNamespaces(request, importedSnapshotPaths);
   const evidence = parseClangAbiEvidence(
     await readFile(rawAstPath, "utf8"),
     await readFile(rawLlvmPath, "utf8"),
     {
-      probe: generateGirClangAbiProbe(snapshot, gobjectAdapter),
+      // The probe is regenerated to interpret the raw AST, so it must cover
+      // the same candidates the compiled probe did, imports included.
+      probe: generateGirClangAbiProbe(
+        snapshot,
+        gobjectAdapter,
+        imported.map(({ snapshot: importedSnapshot }) => importedSnapshot),
+      ),
       clang: request.clang,
     },
   );
@@ -162,13 +170,21 @@ async function generatePackage(
 async function main(): Promise<void> {
   const [command, ...arguments_] = process.argv.slice(2);
   if (command === "normalize-evidence") {
-    if (arguments_.length !== 5) {
+    if (arguments_.length < 5) {
       throw new Error(
-        "usage: gtk-binding-tool-cli normalize-evidence " +
-          "<snapshot.json> <ast.json> <classification.ll> <request.json> <output>",
+        "usage: gir-binding-tool-cli normalize-evidence " +
+          "<snapshot.json> <ast.json> <classification.ll> <request.json> <output> " +
+          "[imported-snapshot.json...]",
       );
     }
-    await normalizeEvidence(arguments_[0]!, arguments_[1]!, arguments_[2]!, arguments_[3]!, arguments_[4]!);
+    await normalizeEvidence(
+      arguments_[0]!,
+      arguments_[1]!,
+      arguments_[2]!,
+      arguments_[3]!,
+      arguments_[4]!,
+      arguments_.slice(5),
+    );
     return;
   }
   if (command === "generate-package") {

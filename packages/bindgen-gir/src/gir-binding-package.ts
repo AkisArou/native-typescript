@@ -190,6 +190,12 @@ export function planGirClangEvidenceNormalization(input: {
   readonly rawAstArtifact: string;
   readonly rawLlvmArtifact: string;
   readonly generatorArtifact: string;
+  /**
+   * The same imported snapshots the generation action receives. Normalization
+   * regenerates the probe to interpret the raw AST, so it must see the exact
+   * candidate set the probe was compiled from.
+   */
+  readonly importedSnapshotArtifacts?: readonly string[];
   readonly artifactId: string;
   readonly actionId: string;
   readonly tool: ArtifactActionDefinition["tool"];
@@ -197,6 +203,14 @@ export function planGirClangEvidenceNormalization(input: {
   readonly target: string;
 }): GirClangEvidenceArtifactPlan {
   validatePlannerInput(input);
+  const importedSnapshots = input.importedSnapshotArtifacts ?? [];
+  const importedNamespaces = input.request.importedNamespaces ?? [];
+  if (importedSnapshots.length !== importedNamespaces.length) {
+    throw new Error(
+      `GIR evidence normalization declares ${importedNamespaces.length} imported ` +
+        `namespace(s) but received ${importedSnapshots.length} snapshot input(s)`,
+    );
+  }
   return Object.freeze({
     artifact: Object.freeze({
       id: input.artifactId,
@@ -246,6 +260,9 @@ export function planGirClangEvidenceNormalization(input: {
           kind: "output-path" as const,
           artifact: input.artifactId,
         }),
+        ...importedSnapshots.map((artifact) =>
+          Object.freeze({ kind: "input-path" as const, artifact })
+        ),
       ]),
       environment: Object.freeze([]),
       inputs: Object.freeze([
@@ -254,6 +271,7 @@ export function planGirClangEvidenceNormalization(input: {
         input.rawAstArtifact,
         input.rawLlvmArtifact,
         input.requestArtifact,
+        ...importedSnapshots,
       ]),
       outputs: Object.freeze([input.artifactId]),
       standardOutput: Object.freeze({ kind: "report" as const }),
