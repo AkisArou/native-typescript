@@ -337,6 +337,16 @@ Two things a project author meets immediately, both deliberate:
 
 - An exact native scalar is constructed from a literal, never from an arbitrary
   number, because the compiler proves the value is in range.
+- **A generated property cannot be read back after a literal is assigned to
+  it.** `sender.label = "Count: 1"` narrows every later read of `label` to that
+  literal, and a native getter cannot honour a narrowing — the setter may
+  normalise the value and a nullable getter may still return null. This is the
+  first thing a newcomer hits, because set-then-read is the natural shape.
+
+  The trap belongs to the property projection specifically: a getter method is
+  never narrowed by a setter call. Properties read better and this is what they
+  cost, which is worth revisiting if it proves to be the common case rather
+  than the occasional one.
 - An array of exact native scalars is not implemented. `[0 as gint]` is
   refused by name; a union carrying one — `gint | undefined`, which is what a
   narrowing or an absent value produces — does work.

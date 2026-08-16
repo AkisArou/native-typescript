@@ -37,7 +37,8 @@ explicit compatibility realm, but is never introduced silently.
 
 The following sketches show the intended direct, non-React experience. Package
 names and API details are directional until each target is implemented and
-proven against its authoritative SDK metadata and ABI.
+proven against its authoritative SDK metadata and ABI — except GTK, which is
+implemented: its example below is the generated API as it exists today.
 
 ### Android
 
@@ -138,18 +139,31 @@ GTK is the first implemented application target and establishes the binding,
 ownership, callback, and artifact path that broader target work builds on.
 
 ```ts
+import { applicationStart } from "@native-typescript/gtk-application";
 import { Button, Window } from "@native-typescript/gtk4";
+
+if (!applicationStart()) throw new Error("GTK did not start");
 
 let count = 0;
 const button = Button.withLabel("Count: 0");
 button.onClicked((sender): void => {
-  sender.label = `Count: ${++count}`;
+  count += 1;
+  sender.label = `Count: ${count}`;
 });
 
 const window = new Window();
-window.child = button;
+window.setChild(button);
 window.present();
 ```
+
+Which classes and members exist is the project's own decision — generation is
+closed over exactly what `native-typescript.json` selects, so an unlisted
+member is absent rather than merely unused.
+
+Reading a property back after assigning a literal to it does not compile. The
+assignment narrows every later read, and a native getter cannot honour a
+narrowing: the callee still returns whatever its declaration allows. The
+compiler says so by name at the call site.
 
 ### Windows
 
