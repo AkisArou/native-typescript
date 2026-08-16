@@ -518,8 +518,11 @@ These are deliberate, not oversights. Each is a named future slice.
   `requires.compiler` is now load-bearing, but everything else about a target
   is still wired directly: providers cannot plan, and GTK is reached by name.
   The remaining shape waits on a second target to justify it.
-- **The CLI has no build command.** Application assembly currently lives in the
-  integration test.
+- **A GObject signal payload does not project.** The borrowed-result machinery
+  is most of what it needs — an adapter that takes a reference, and the
+  identity map — but a payload is captured when the signal fires rather than
+  returned, so the trampoline has to make a cell from a raw pointer and knows
+  no destructor for it. That is a field the IR does not carry.
 
 Platform UI and framework work begins only after the contracts above pass their
 conformance gates. See [Roadmap](roadmap.md) for sequencing and exit gates.
