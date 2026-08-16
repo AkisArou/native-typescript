@@ -296,16 +296,31 @@ The initial workspace roles are:
   descriptions;
 - `@native-typescript/scabi`: the closed binding model, canonical serializer,
   schema validation, and semantic validation;
-- `@native-typescript/core`: build planning, validation, and orchestration;
-- `@native-typescript/cli`: user-facing commands and reports;
+- `@native-typescript/core`: target-neutral build planning, validation, and
+  orchestration — the artifact graph, its sandboxed executor, and the action
+  cache, including the record of undeclared files an action read that decides
+  whether a cached result may be reused;
+- `@native-typescript/cli`: user-facing commands and reports. `build` reads a
+  project description and produces an executable; everything it knows about a
+  target it gets from that target's package;
 - `@native-typescript/bindgen-gir`: the GObject-introspection binding family —
   GIR ingestion, GObject adapter generation, and the GObject SCABI/declaration
   projection. It is a binding family rather than a toolkit: GIR describes Gio,
   GLib, GObject, GStreamer, and every other introspected library, so nothing in
   it may depend on GTK;
 - `@native-typescript/target-gtk`: the GTK target itself — the GLib
-  main-context runtime adapter, the target's native object fragment, and its
-  provider and packaging metadata.
+  main-context runtime adapter, the process bootstrap that initialises GTK and
+  attaches that runtime, the target's own binding package for both, its native
+  object fragment, provider and packaging metadata, the GTK project
+  description, and the application build pipeline that turns one into an
+  executable.
+
+  The pipeline lives here because every decision in it is a GTK decision:
+  which namespaces to generate, which objects to link, what the bootstrap
+  requires of the compiler. The cost is that the command line names this
+  package directly, which is the same gap recorded as the Target SPI carrying
+  no planning behavior — a second target is what would force the seam, and
+  inventing it before then would be guessing at its shape.
 
 Future packages should be created around stable ownership boundaries, not one
 package per small type. Likely additional boundaries include the runtime ABI,

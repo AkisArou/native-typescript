@@ -502,6 +502,12 @@ These are deliberate, not oversights. Each is a named future slice.
   the checkout and the toolchain, not on the application — so a rebuild
   recompiles one file and relinks.
 
+  This is a stated invariant rather than a preference. [Architecture](architecture.md)
+  requires that "incremental builds reuse validated artifacts at the narrowest
+  sound boundary", and one action compiling twenty translation units is the
+  widest boundary available. Object compiles now meet it; the link does not.
+  The seams are mapped in the [roadmap](roadmap.md).
+
   Object compiles now do cache. A cacheable C action asks Clang for the list of
   files it read, and the entry records every one outside its own action root
   with the digest it had. The key proves the declared inputs match; the list
