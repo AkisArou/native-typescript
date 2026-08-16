@@ -1,6 +1,7 @@
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { ArtifactExecutionError } from "@native-typescript/core";
 import {
   buildGtkApplication,
   parseGtkApplicationProject,
@@ -165,6 +166,19 @@ export async function runBuild(argv: readonly string[]): Promise<number> {
     return 0;
   } catch (cause) {
     process.stderr.write(`${(cause as Error).message}\n`);
+    /* A failing action's own diagnostics are the answer the user needs. The
+     * executor captures them so a sandboxed process cannot write over the
+     * build's output, which means someone has to hand them back. */
+    if (cause instanceof ArtifactExecutionError) {
+      for (const [stream, text] of [
+        ["stderr", cause.stderr],
+        ["stdout", cause.stdout],
+      ] as const) {
+        if (text.trim().length === 0) continue;
+        process.stderr.write(`\n${cause.actionId ?? "action"} ${stream}:\n`);
+        process.stderr.write(text.endsWith("\n") ? text : `${text}\n`);
+      }
+    }
     return 1;
   } finally {
     if (options.keepIntermediates) {

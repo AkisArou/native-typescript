@@ -96,22 +96,66 @@ export interface GObjectScabiPackage {
 
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
-const sourceScalarTypes = Object.freeze([
+/**
+ * The GLib scalars that project as exact branded TypeScript types.
+ *
+ * Each entry names one GIR type, the C spellings that type is allowed to have,
+ * and the ABI it claims. The claim is not trusted: the Clang probe proves the
+ * callable's real signature, so an entry that mis-states a width or a sign
+ * fails generation rather than producing a program that reads the wrong bytes.
+ *
+ * Widths are fixed and unambiguous. `glong`, `gsize`, and friends vary by
+ * platform and are deliberately absent until the probe's evidence, rather than
+ * a table, decides their width. `gfloat` is absent because ScriptC has no
+ * 32-bit float: admitting it here would silently widen every value.
+ */
+interface SourceScalarType {
+  readonly girName: string;
+  readonly cTypes: readonly string[];
+  readonly abiType: string;
+  readonly nativeType: NativeType;
+  /** 64-bit integers exceed what a TypeScript number holds exactly. */
+  readonly carrier: "number" | "bigint";
+}
+
+function integerScalar(
+  girName: string,
+  cTypes: readonly string[],
+  signed: boolean,
+  bits: 8 | 16 | 32 | 64,
+): SourceScalarType {
+  return Object.freeze({
+    girName,
+    cTypes: Object.freeze([...cTypes]),
+    abiType: girName,
+    nativeType: Object.freeze({ kind: "integer", signed, bits }),
+    carrier: bits === 64 ? "bigint" : "number",
+  });
+}
+
+const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
   Object.freeze({
     girName: "gdouble",
     cTypes: Object.freeze(["double", "gdouble"]),
     abiType: "gdouble",
-  }),
-  Object.freeze({
-    girName: "gint",
-    cTypes: Object.freeze(["gint", "int"]),
-    abiType: "gint",
-  }),
+    nativeType: Object.freeze({ kind: "float", bits: 64 }),
+    carrier: "number",
+  }) as SourceScalarType,
+  integerScalar("gint", ["gint", "int"], true, 32),
+  integerScalar("guint", ["guint", "unsigned int"], false, 32),
+  integerScalar("gint8", ["gint8"], true, 8),
+  integerScalar("guint8", ["guint8"], false, 8),
+  integerScalar("gint16", ["gint16", "short"], true, 16),
+  integerScalar("guint16", ["guint16", "unsigned short"], false, 16),
+  integerScalar("gint32", ["gint32"], true, 32),
+  integerScalar("guint32", ["guint32"], false, 32),
+  integerScalar("gint64", ["gint64"], true, 64),
+  integerScalar("guint64", ["guint64"], false, 64),
 ]);
 
 function sourceScalarType(
   type: GirTypeReference,
-): (typeof sourceScalarTypes)[number] | undefined {
+): SourceScalarType | undefined {
   return type.kind === "named"
     ? sourceScalarTypes.find(
         (scalar) => scalar.girName === type.name &&
@@ -546,10 +590,23 @@ function handleParameter(
   const className = parameter.type.kind === "named" ? parameter.type.name : null;
   const class_ = className === null ? undefined : classByName.get(className);
   const typeId = className === null ? undefined : typeIdByClass.get(className);
+  if (class_ === undefined || typeId === undefined) {
+    /* This is the last projection attempted, so anything that reaches it and
+     * is not a selected class is simply outside the implemented slice. Saying
+     * "handle inputs are implemented" of a guint sends the reader looking for
+     * a class that was never involved. */
+    diagnostics.push(diagnostic(
+      path,
+      className === null
+        ? "Parameter type is outside the implemented slice"
+        : `Parameter type '${className}' is outside the implemented slice: ` +
+          "exact scalars, booleans, enumerations, borrowed UTF-8, and " +
+          "selected GObject classes project; nothing else does yet",
+    ));
+    return null;
+  }
   if (
     parameter.kind !== "parameter" ||
-    class_ === undefined ||
-    typeId === undefined ||
     parameter.type.kind !== "named" ||
     parameter.type.cType !== `${class_.cType}*` ||
     parameter.direction !== "in" ||
@@ -811,6 +868,10 @@ export function generateGObjectScabiPackage(
       module: ".",
       name: scalar.girName,
     });
+    /* gint and gdouble are always defined above: gboolean's storage names gint
+     * whether or not a member uses one. Every other scalar enters the manifest
+     * only where something reached it. */
+    types[scalar.abiType] ??= scalar.nativeType;
   }
   // Classes reachable in another package, keyed by their qualified GIR name.
   // Type identities use handleTypeId(), the same derivation the owning
@@ -974,7 +1035,7 @@ export function generateGObjectScabiPackage(
     ...(usedSourceScalars.length > 0
       ? [
           ...usedSourceScalars.map((scalar) =>
-            `export type ${scalar.girName} = number & { readonly [nativeScalar]: "${scalar.girName}" };`
+            `export type ${scalar.girName} = ${scalar.carrier} & { readonly [nativeScalar]: "${scalar.girName}" };`
           ),
           "",
         ]

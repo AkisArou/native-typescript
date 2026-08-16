@@ -905,6 +905,70 @@ test(
   },
 );
 
+test(
+  "unsigned and wide GLib integers project as exact branded scalars",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* GTK spends unsigned integers freely — spacings, counts, digits — and a
+     * projection that admitted only gint refused those members while blaming
+     * GObject handles for it. Every width is exact and separately branded, so
+     * a guint16 cannot be handed where a guint belongs. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Grid", constructors: ["new"], methods: ["set_row_spacing"] },
+        { name: "Entry", constructors: ["new"], methods: ["get_text_length"] },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    assert.deepEqual(generated.manifest.types["guint"], {
+      kind: "integer",
+      signed: false,
+      bits: 32,
+    });
+    assert.deepEqual(generated.manifest.types["guint16"], {
+      kind: "integer",
+      signed: false,
+      bits: 16,
+    });
+    assert.match(
+      generated.declarations,
+      /export type guint = number & \{ readonly \[nativeScalar\]: "guint" \};/u,
+    );
+    assert.match(generated.declarations, /setRowSpacing\(spacing: guint\): void;/u);
+    assert.match(generated.declarations, /getTextLength\(\): guint16;/u);
+  },
+);
+
+test(
+  "a parameter outside the slice is not reported as a GObject handle",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* gfloat has no ScriptC counterpart, so Label.set_xalign cannot project.
+     * Naming the type is the whole value of the diagnostic: blaming handle
+     * inputs sends the reader looking for a class never involved. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Label", constructors: ["new"], methods: ["set_xalign"] },
+      ],
+    });
+    const error = generationError(() =>
+      generateGObjectScabiPackage(options(gtk)),
+    );
+    assert.equal(error.diagnostics.length, 1);
+    assert.match(
+      error.diagnostics[0]?.message ?? "",
+      /Parameter type 'gfloat' is outside the implemented slice/u,
+    );
+  },
+);
+
 function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);

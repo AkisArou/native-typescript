@@ -347,7 +347,8 @@ delivered" from "signal delivered late" rather than hanging.
 | Native properties | from authoritative GIR getter/setter links |
 | Nullable string properties | `Button.label`, `Window.title` |
 | Exact `gboolean` methods | both representations |
-| Branded `gint` / `gdouble` | parameters and results |
+| Branded exact integers | `gint`, `guint`, and every fixed width, separately branded |
+| Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Record outputs | `Widget.getPreferredSize()` as a nested value |
 | Signals | non-detailed `void`, zero or copied exact `gint`/`gdouble` payloads |
@@ -414,7 +415,14 @@ These are deliberate, not oversights. Each is a named future slice.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader
-  value-method input/output families fail generation.
+  value-method input/output families fail generation. A signal carrying a
+  GObject — `ListBox::row-activated` — is the common case that does not project.
+- **`gfloat` does not project.** ScriptC's float slice is exactly `f64`, so
+  admitting a 32-bit float would silently widen every value. Members taking one
+  are refused by name.
+- **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
+  table on purpose: their width should come from probe evidence rather than
+  from a table that assumes an ABI.
 - **Native toolchain actions are non-cacheable.** Implicit system
   toolchain/library trees are not declared graph inputs, so GTK native actions
   opt out of the implemented cache.
