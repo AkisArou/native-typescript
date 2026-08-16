@@ -1736,13 +1736,12 @@ export function generateGObjectScabiPackage(
               destructor: resultReleaseId,
             }),
           }),
-          /* GIR says whether the object can be absent. When it can, absence is
-           * an answer and the result is `T | null`; when it cannot, a NULL
-           * would mean the library broke its own contract, which is a failure
-           * worth throwing over. */
-          error: callable.result.nullable
-            ? Object.freeze({ kind: "no-fail" })
-            : Object.freeze({ kind: "nullable" }),
+          /* Never the nullable error contract: that one says NULL means the
+           * call failed, and a reader's NULL does not. GIR decides which shape
+           * the result takes instead — `T | null` when the object can be
+           * absent, and a plain `T` when it cannot, where a NULL would mean
+           * the library broke its own contract and traps on commit. */
+          error: Object.freeze({ kind: "no-fail" }),
           dependencies: dependencies({
             bindings: [resultReleaseId],
             links: linkIds,

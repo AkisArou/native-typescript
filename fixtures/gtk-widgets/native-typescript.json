@@ -100,10 +100,11 @@
         {
           "name": "Range",
           "methods": [
-            "set_value",
+            "get_adjustment",
             "get_value",
+            "set_increments",
             "set_range",
-            "set_increments"
+            "set_value"
           ]
         },
         {

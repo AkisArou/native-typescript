@@ -222,6 +222,13 @@ const clicked = action.onClicked((sender): void => {
   check_(new ListBoxRow().getChild() === null, "an empty row invented a child");
   const headingParent = heading.getParent();
   check_(headingParent !== null, "the heading lost its parent");
+  /* GIR says a range always has one, so this reads as a plain Adjustment
+   * rather than an optional — and it is the very adjustment constructed
+   * above, which only interning can answer with. */
+  check_(
+    scale.getAdjustment().value === (25 as gdouble),
+    "the scale's adjustment is not the one it was given",
+  );
   check_(content.sensitive, "the content is not sensitive");
   /* An exact native scalar is constructed from a literal, never from an
    * arbitrary number: the compiler has to prove the value is in range. */
