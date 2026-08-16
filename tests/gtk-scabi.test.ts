@@ -609,24 +609,111 @@ test("imported namespaces are declared inputs of the generation action", () => {
     /declares 1 imported namespace\(s\) but received 0/u,
   );
 
-  // A namespace cannot import itself, and order is canonical.
+  interface ImportedNamespace {
+    readonly namespace: { readonly name: string; readonly version: string };
+    readonly package: {
+      readonly name: string;
+      readonly version: string;
+      readonly namespace: string;
+      readonly instance: string;
+    };
+  }
+
+  function requestImporting(
+    importedNamespaces: readonly ImportedNamespace[],
+  ): unknown {
+    return defineGirBindingPackageRequest({
+      namespace: { name: "Gtk", version: "4.0" },
+      importedNamespaces,
+      clang: options().evidence.clang,
+      generation: {
+        package: options().package,
+        target: options().target,
+        sdk: options().sdk,
+        linkInputs: options().linkInputs,
+        adapterInput: options().adapterInput,
+      },
+    });
+  }
+
+  // A namespace cannot import itself.
   assert.throws(
     () =>
-      defineGirBindingPackageRequest({
-        namespace: { name: "Gtk", version: "4.0" },
-        importedNamespaces: [
-          { namespace: { name: "Gtk", version: "4.0" }, package: gio2Package },
-        ],
-        clang: options().evidence.clang,
-        generation: {
-          package: options().package,
-          target: options().target,
-          sdk: options().sdk,
-          linkInputs: options().linkInputs,
-          adapterInput: options().adapterInput,
-        },
-      }),
+      requestImporting([
+        { namespace: { name: "Gtk", version: "4.0" }, package: gio2Package },
+      ]),
     /imports its own namespace/u,
+  );
+
+  // Several namespaces are ordinary, and their order is canonical so one
+  // selection has one serialization.
+  const gdk4Package = {
+    name: "@native-typescript/gdk4",
+    version: "0.0.0",
+    namespace: "native-typescript.gdk4",
+    instance: "native-typescript.gdk4@0.0.0",
+  };
+  assert.doesNotThrow(() =>
+    requestImporting([
+      { namespace: { name: "Gdk", version: "4.0" }, package: gdk4Package },
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+    ]),
+  );
+  for (const outOfOrder of ([
+    [
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+      { namespace: { name: "Gdk", version: "4.0" }, package: gdk4Package },
+    ],
+    [
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+    ],
+  ] as readonly (readonly ImportedNamespace[])[])) {
+    assert.throws(
+      () => requestImporting(outOfOrder),
+      /unique and in canonical order/u,
+    );
+  }
+
+  // Two declared namespaces need two snapshot inputs, in the same order.
+  const twoImports = defineGirBindingPackageRequest({
+    namespace: { name: "Gtk", version: "4.0" },
+    importedNamespaces: [
+      { namespace: { name: "Gdk", version: "4.0" }, package: gdk4Package },
+      { namespace: { name: "Gio", version: "2.0" }, package: gio2Package },
+    ],
+    clang: options().evidence.clang,
+    generation: {
+      package: options().package,
+      target: options().target,
+      sdk: options().sdk,
+      linkInputs: options().linkInputs,
+      adapterInput: options().adapterInput,
+    },
+  });
+  const twoPlan = planGirBindingPackage({
+    request: twoImports,
+    requestArtifact: "metadata/gtk4/request",
+    snapshotArtifact: "metadata/gtk4/snapshot",
+    normalizedEvidenceArtifact: "metadata/gtk4/evidence",
+    generatorArtifact: "tool-input/gir/generator",
+    importedSnapshotArtifacts: [
+      "metadata/gdk4/snapshot",
+      "metadata/gio2/snapshot",
+    ],
+    artifactId: "package/gtk4/bindings",
+    actionId: "generate/gtk4/binding-package",
+    tool: { id: "tool/node", version: "24", digest: `sha256:${"c".repeat(64)}` },
+    executionPlatform: "x86_64-linux",
+    target: "x86_64-unknown-linux-gnu",
+  });
+  assert.deepEqual(
+    twoPlan.action.arguments
+      .flatMap((argument) =>
+        argument.kind === "input-path" ? [argument.artifact] : [],
+      )
+      .filter((artifact) => artifact.endsWith("/snapshot")),
+    ["metadata/gtk4/snapshot", "metadata/gdk4/snapshot", "metadata/gio2/snapshot"],
   );
 });
 
