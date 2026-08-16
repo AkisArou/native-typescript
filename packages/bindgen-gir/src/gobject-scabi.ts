@@ -175,6 +175,21 @@ const borrowedUtf8CTypes: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Spellings a signal payload may use on top of the const ones.
+ *
+ * GIR writes an emitted string as `gchar*` even though the handler must not
+ * write to it. The unqualified spelling is admitted only here, where the
+ * generated code is the callee: a `char*` method parameter can be an output
+ * buffer, and treating that as borrowed input would let the callee write
+ * through a pointer the caller believes it owns.
+ */
+const emittedUtf8CTypes: ReadonlySet<string> = new Set([
+  ...borrowedUtf8CTypes,
+  "char*",
+  "gchar*",
+]);
+
+/**
  * Why a callable cannot become a direct native binding, or null when it can.
  *
  * The three causes are reported apart because they mean different things to
@@ -439,13 +454,14 @@ function cStringParameter(
   typeId: string,
   path: string,
   diagnostics: CBindgenDiagnostic[],
+  spellings: ReadonlySet<string> = borrowedUtf8CTypes,
 ): AbiParameter | null {
   if (
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
     parameter.type.name !== "utf8" ||
     parameter.type.cType === null ||
-    !borrowedUtf8CTypes.has(parameter.type.cType) ||
+    !spellings.has(parameter.type.cType) ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
     parameter.optional ||
@@ -1942,10 +1958,39 @@ export function generateGObjectScabiPackage(
           sourceName: enumeration.sourceName,
           cTypeOnDeclaration: true,
         });
+        const adapterPayload = adapter.parameters[index];
+        /* A UTF-8 payload is a borrowed C string the runtime copies when the
+         * signal fires. Its ABI is the same pointer a borrowed string
+         * parameter uses; what differs is only that delivery is queued, which
+         * is the contract's business rather than this projection's. */
+        if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
+          const abi = cStringParameter(
+            parameter,
+            parameter.nullable ? "nullable_const_utf8" : "const_utf8",
+            parameterPath,
+            diagnostics,
+            emittedUtf8CTypes,
+          );
+          if (abi === null || adapterPayload?.name !== parameter.name ||
+              adapterPayload.sourceType !== "utf8") {
+            if (abi !== null) {
+              diagnostics.push(
+                diagnostic(parameterPath, "GObject signal adapter payload does not match GIR"),
+              );
+            }
+            signalValid = false;
+            continue;
+          }
+          signalParameters.push(abi);
+          sourceSignalParameters.push(
+            `${lowerCamel(parameter.name)}: ${parameter.nullable ? "string | null" : "string"}`,
+          );
+          continue;
+        }
         if (payload === undefined) {
           diagnostics.push(diagnostic(
             parameterPath,
-            "Only exact scalar and selected enumeration signal payloads are implemented",
+            "Only exact scalar, selected enumeration, and UTF-8 signal payloads are implemented",
           ));
           signalValid = false;
           continue;
@@ -1954,11 +1999,10 @@ export function generateGObjectScabiPackage(
           ? payload.sourceName
           : payload.girName;
         const abi = requiredValueParameter(parameter, payload, parameterPath, diagnostics);
-        const adapterParameter = adapter.parameters[index];
         if (
           abi === null ||
-          adapterParameter?.name !== parameter.name ||
-          adapterParameter.sourceType !== payload.girName
+          adapterPayload?.name !== parameter.name ||
+          adapterPayload.sourceType !== payload.girName
         ) {
           if (abi !== null) {
             diagnostics.push(

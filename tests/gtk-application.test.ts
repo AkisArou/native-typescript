@@ -217,14 +217,17 @@ test(
 );
 
 test(
-  "signal payloads carry exact scalars and enumerations",
+  "signal payloads carry exact scalars, enumerations, and copied strings",
   { skip: unavailable || !existsSync(bindingToolPath) },
   async () => {
-    /* Both are values the dispatch copies, so neither introduces a lifetime.
-     * The payloads are produced by GTK — a direction change and a buffer
-     * deletion — rather than emitted by the program, and every value is
-     * checked, so a payload that marshalled to the wrong number would fail
-     * here rather than merely link. */
+    /* Every payload is produced by GTK — a direction change and two buffer
+     * edits — rather than emitted by the program, and every value is checked,
+     * so one that marshalled wrongly fails here rather than merely links.
+     *
+     * The string is the one that could not simply be passed through. GTK hands
+     * the handler a pointer it may reuse the moment emission returns, and
+     * delivery is queued, so what arrives is a copy taken when the signal
+     * fired. */
     execFileSync(pnpm, [
       "--dir",
       scriptcRoot,
@@ -237,11 +240,14 @@ test(
     );
     const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-payload-"));
     try {
+      /* Each backend builds its own trampoline, and the string payload is the
+       * first thing that made them differ. */
+      for (const backend of ["c", "llvm"] as const) {
       const built = await buildGtkApplication({
         projectRoot: payloadFixtureRoot,
         project,
-        scratch,
-        backend: "c",
+        scratch: join(scratch, backend),
+        backend,
         tools: {
           clang: executable("clang"),
           node: process.execPath,
@@ -261,12 +267,17 @@ test(
         declarations,
         /onDeletedText\(callback: \(entryBuffer: EntryBuffer, position: guint, nChars: guint\) => void\): SignalConnection;/u,
       );
+      assert.match(
+        declarations,
+        /onInsertedText\(callback: \(entryBuffer: EntryBuffer, position: guint, chars: string, nChars: guint\) => void\): SignalConnection;/u,
+      );
       assert.deepEqual(runApplication(built.productPath), {
         status: 0,
         signal: null,
         stdout: "payloads ok\n",
         stderr: "",
-      });
+      }, backend);
+      }
     } finally {
       rmSync(scratch, { force: true, recursive: true });
     }

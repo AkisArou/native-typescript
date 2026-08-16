@@ -352,7 +352,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Record outputs | `Widget.getPreferredSize()` as a nested value |
-| Signals | non-detailed `void`, payloads of any exact scalar or selected enumeration |
+| Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, or UTF-8 string |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
 `none` and `full` results become one strong, non-floating reference, and a real
@@ -428,31 +428,23 @@ These are deliberate, not oversights. Each is a named future slice.
   shape.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
-- **A signal payload must be a value carried by its own ABI type.** Exact
-  scalars of every width and selected enumerations project: the dispatch copies
-  an integer and nothing outlives the callback.
+- **A signal payload must be something the runtime can capture.** Exact scalars
+  of every width, selected enumerations, and UTF-8 strings project.
 
-  Measured against GTK 4's 261 void non-detailed signals, **185 project**. The
-  families that do not, by how many additional signals each would unlock:
-  GObject handles +19, `utf8` +13, `gboolean` +6.
+  Measured against GTK 4's 261 void non-detailed signals, **198 project**. What
+  remains is GObject and boxed payloads, worth +19 and +8 respectively.
 
-  All three need the same missing seam, which is why the cheapest is not worth
-  taking alone. A callback source argument carries no projection, so a
-  `gboolean` payload — an integer that must become a boolean at the source
-  boundary — has nowhere to say so, exactly as a string has nowhere to say it
-  must be copied at dispatch. Whoever adds one should design the seam for all
-  three.
+  Delivery is queued to the runtime owner, so a payload cannot be a pointer the
+  emitter still owns: GTK may reuse a string the moment emission returns. A
+  string is therefore copied when the signal fires, held by the invocation, and
+  released whether the delivery runs or is dropped during shutdown — the same
+  discipline the registration owner already used.
 
-  `gboolean` is also the one that cannot be demonstrated: all six signals it
-  would unlock are keybinding actions or async printer callbacks, none
-  reachable from an ordinary method call.
+  A GObject payload needs one thing more: a managed cell made from a raw
+  pointer. Retaining and releasing it is the pattern strings just established;
+  deciding what cell a bare `GtkWidget*` belongs to is not, because nothing
+  proves it is the same cell an existing handle already denotes.
 
-  Handles and strings need more than the seam. A queued delivery means a
-  payload must be captured when the signal fires, not when the callback runs:
-  a string has to be copied and a handle retained at dispatch, and released if
-  the invocation is dropped during shutdown. That is a lifetime the
-  retained-callback contract does not have — a source argument may be a handle
-  only when it is the registration owner.
 - **Detailed signals and non-void signal results** fail generation, as do
   broader value-method input/output families.
 - **`gfloat` does not project.** ScriptC's float slice is exactly `f64`, so

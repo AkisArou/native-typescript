@@ -1,9 +1,12 @@
 /* Signal payloads that are not gint or gdouble.
  *
- * A payload is copied into the callback turn, so any type that is a value can
- * cross: an exact scalar of any width, and an enumeration, whose storage and
- * members Clang proved. Both are checked here against payloads GTK itself
- * produces rather than against ones this program emits.
+ * A payload is copied into the callback turn, so anything that can be copied
+ * can cross: an exact scalar of any width, an enumeration whose storage and
+ * members Clang proved, and a UTF-8 string. The string matters most — GTK
+ * hands the handler a pointer it may reuse the moment emission returns, and
+ * delivery is queued, so what arrives has to be a copy taken when the signal
+ * fired. All are checked against payloads GTK itself produces rather than
+ * against ones this program emits.
  *
  * Delivery is queued to the runtime owner rather than made synchronously, so
  * every assertion runs inside the callback. Nothing here may assume a payload
@@ -25,13 +28,14 @@ if (!applicationStart()) throw new Error("the GTK target did not start");
 
 let enumerationSeen = false;
 let scalarSeen = false;
+let stringSeen = false;
 let failure = "";
 
 function finishIfReady(): void {
   if (failure.length > 0) {
     console.log(failure);
     applicationQuit();
-  } else if (enumerationSeen && scalarSeen) {
+  } else if (enumerationSeen && scalarSeen && stringSeen) {
     console.log("payloads ok");
     applicationQuit();
   }
@@ -39,7 +43,8 @@ function finishIfReady(): void {
 
 const deadline = setTimeout((): void => {
   console.log(
-    `payload never delivered: enumeration=${enumerationSeen} scalar=${scalarSeen}`,
+    "payload never delivered: " +
+      `enumeration=${enumerationSeen} scalar=${scalarSeen} string=${stringSeen}`,
   );
   applicationQuit();
 }, 10_000);
@@ -60,6 +65,19 @@ if (!direction.connected) throw new Error("direction-changed did not connect");
 
 const buffer = new EntryBuffer(null, -1 as gint);
 buffer.setText("native typescript", -1 as gint);
+const inserted = buffer.onInsertedText((_sender, position, chars, characters): void => {
+  /* The pointer GTK passed is long gone by the time this runs. */
+  if (chars !== " rules") {
+    failure = `inserted-text carried the wrong string: ${chars}`;
+  } else if (chars.length !== 6) {
+    failure = "inserted-text string has the wrong length";
+  } else if (position !== (17 as guint) || characters !== (6 as guint)) {
+    failure = "inserted-text carried the wrong position or count";
+  }
+  stringSeen = true;
+  finishIfReady();
+});
+if (!inserted.connected) throw new Error("inserted-text did not connect");
 const deleted = buffer.onDeletedText((_sender, position, characters): void => {
   /* delete_text(6, 10) removes "typescript" starting at index 6. */
   if (position !== (6 as guint)) {
@@ -73,4 +91,5 @@ const deleted = buffer.onDeletedText((_sender, position, characters): void => {
 if (!deleted.connected) throw new Error("deleted-text did not connect");
 
 window.setDirection(TextDirection.Rtl);
+buffer.insertText(17 as guint, " rules", -1 as gint);
 buffer.deleteText(6 as guint, 10 as gint);

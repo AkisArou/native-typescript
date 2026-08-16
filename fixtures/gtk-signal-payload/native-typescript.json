@@ -5,28 +5,59 @@
   "target": "gtk4",
   "entry": "app.ts",
   "output": "gtk-signal-payload",
-  "sdkModules": ["gtk4"],
+  "sdkModules": [
+    "gtk4"
+  ],
   "namespaces": [
     {
       "name": "Gtk",
       "version": "4.0",
-      "sdkModules": ["gtk4"],
+      "sdkModules": [
+        "gtk4"
+      ],
       "classes": [
         {
           "name": "Widget",
-          "methods": ["get_direction", "set_direction"],
-          "signals": ["direction-changed"]
+          "methods": [
+            "get_direction",
+            "set_direction"
+          ],
+          "signals": [
+            "direction-changed"
+          ]
         },
-        { "name": "Window", "constructors": ["new"] },
+        {
+          "name": "Window",
+          "constructors": [
+            "new"
+          ]
+        },
         {
           "name": "EntryBuffer",
-          "constructors": ["new"],
-          "methods": ["delete_text", "get_length", "set_text"],
-          "signals": ["deleted-text"]
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "delete_text",
+            "get_length",
+            "insert_text",
+            "set_text"
+          ],
+          "signals": [
+            "deleted-text",
+            "inserted-text"
+          ]
         }
       ],
       "enumerations": [
-        { "name": "TextDirection", "members": ["none", "ltr", "rtl"] }
+        {
+          "name": "TextDirection",
+          "members": [
+            "none",
+            "ltr",
+            "rtl"
+          ]
+        }
       ]
     }
   ]

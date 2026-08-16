@@ -173,6 +173,11 @@ function lowerCamel(value: string): string {
   return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
 }
 
+/* One statement of what a payload may be. Two diagnostics quote it, and they
+ * drifted apart once already: a message that lists what is supported has to
+ * come from the same place the support does. */
+const signalPayloadFamilies = "exact scalar, enumeration, and UTF-8";
+
 function signalSymbolPart(value: string): string {
   return value.replaceAll("-", "_");
 }
@@ -183,18 +188,29 @@ function signalParameter(
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): GObjectSignalParameterAdapter | null {
-  /* A payload is either an exact scalar or an enumeration. Both are values the
-   * dispatch copies, so neither outlives the callback. Handles, boxed records,
-   * and strings are refused: each would have to be a borrowed thing whose
-   * lifetime ends when the callback returns, which nothing implements yet. */
+  /* A payload is an exact scalar, an enumeration, or a UTF-8 string. The first
+   * two are values; the third is copied when the signal fires. Handles and
+   * boxed records are refused: each would have to become a managed cell from a
+   * raw pointer, which nothing implements yet. */
   const scalar = sourceScalarType(parameter.type);
   const enumerationCType = parameter.type.kind === "named"
     ? enumerationCTypes.get(parameter.type.name)
     : undefined;
+  /* A UTF-8 payload is a borrowed C string that GTK may free once emission
+   * returns. Delivery is queued, so the runtime copies it when the signal
+   * fires rather than holding the pointer — the adapter's job is only to
+   * declare it faithfully. */
+  const isUtf8 = parameter.type.kind === "named" &&
+    parameter.type.name === "utf8" &&
+    (parameter.type.cType === "gchar*" || parameter.type.cType === "char*" ||
+      parameter.type.cType === "const gchar*" ||
+      parameter.type.cType === "const char*");
   const sourceType = scalar?.girName ??
-    (enumerationCType === undefined || parameter.type.kind !== "named"
-      ? null
-      : parameter.type.name);
+    (isUtf8
+      ? "utf8"
+      : enumerationCType === undefined || parameter.type.kind !== "named"
+        ? null
+        : parameter.type.name);
   /* GIR gives a signal parameter no c:type — a signal is not a C function — so
    * an enumeration payload's spelling comes from the enumeration's own
    * declaration rather than from the parameter that names it. */
@@ -223,7 +239,7 @@ function signalParameter(
         severity: "error",
         path,
         message: sourceType === null
-          ? "Only exact gint and gdouble GObject signal payloads are implemented"
+          ? `Only ${signalPayloadFamilies} GObject signal payloads are implemented`
           : "GObject signal payloads must be required non-null input values",
       });
     }
@@ -386,8 +402,8 @@ function generateSignal(
       severity: "error",
       path,
       message:
-        "Only non-detailed void GObject signals with exact scalar or " +
-        "enumeration payloads are implemented",
+        `Only non-detailed void GObject signals with ${signalPayloadFamilies} ` +
+        "payloads are implemented",
     });
     return null;
   }

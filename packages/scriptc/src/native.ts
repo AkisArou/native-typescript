@@ -55,10 +55,15 @@ export interface ScriptCNativePointerType {
 
 export interface ScriptCNativeCallbackSignature {
   readonly callingConvention: "c";
-  readonly parameters: readonly {
-    readonly kind: "nativeScalar";
-    readonly scalar: ScriptCNativeScalar;
-  }[];
+  /**
+   * The C parameters the emitter passes. A pointer appears when the payload is
+   * a borrowed string: the physical slot carries the pointer, and what reaches
+   * the source is the copy the runtime makes from it.
+   */
+  readonly parameters: readonly (
+    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
+    | ScriptCNativePointerType
+  )[];
   readonly result:
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | { readonly kind: "void" };
@@ -78,8 +83,9 @@ export interface ScriptCNativeContextType {
 export type ScriptCNativeCallbackArgumentType = {
   readonly kind: "func";
   readonly params: readonly (
-    | ScriptCNativeCallbackSignature["parameters"][number]
+    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | { readonly kind: "nativeHandle"; readonly typeId: string }
+    | { readonly kind: "string" }
   )[];
   readonly ret: ScriptCNativeCallbackSignature["result"];
 };
@@ -945,6 +951,12 @@ type SupportedCallbackPair = {
         readonly kind: "callback-parameter";
         readonly parameter: number;
         readonly typeId: NativeTypeId;
+        /**
+         * How the physical value becomes the value the source sees. A scalar
+         * is itself; a UTF-8 C string is copied, because a queued delivery
+         * outlives the pointer the emitter handed over.
+         */
+        readonly projection: "direct" | "utf8CString";
       }
     | {
         readonly kind: "registration-owner";
@@ -956,6 +968,7 @@ type SupportedCallbackPair = {
 };
 
 function supportedCallbackSourceArguments(
+  manifest: ScabiManifest,
   binding: CallableBinding,
   callbackType: Extract<NativeType, { readonly kind: "callback" }>,
   contract: NonNullable<AbiParameter["callback"]>,
@@ -978,10 +991,14 @@ function supportedCallbackSourceArguments(
         return "callback source arguments must project each physical parameter exactly once";
       }
       projectedPhysical.add(parameter);
+      const physical = callbackType.signature.parameters[parameter]!;
+      const string = borrowedUtf8CString(manifest, physical);
+      if (typeof string === "string") return string;
       result.push(Object.freeze({
         kind: "callback-parameter",
         parameter,
-        typeId: callbackType.signature.parameters[parameter]!.type,
+        typeId: physical.type,
+        projection: string === null ? "direct" : "utf8CString",
       }));
       continue;
     }
@@ -1108,7 +1125,7 @@ function supportedCallScopedCallbackPair(
   ) {
     return "callback argument transport must borrow every callback parameter in ABI order";
   }
-  const sourceArguments = supportedCallbackSourceArguments(binding, callbackType, contract);
+  const sourceArguments = supportedCallbackSourceArguments(manifest, binding, callbackType, contract);
   if (typeof sourceArguments === "string") return sourceArguments;
   return {
     functionIndex: callbackIndex,
@@ -1250,11 +1267,20 @@ function supportedRetainedCallbackPair(
       (!("callback" in position) || position.callback === undefined) &&
       (type?.kind === "integer" || (type?.kind === "float" && type.bits === 64));
   };
+  /* A retained payload may also be a borrowed UTF-8 C string. Delivery is
+   * queued, so the runtime copies it when the signal fires rather than holding
+   * a pointer the emitter is free to reuse. */
+  const supportedRetainedPosition = (position: AbiParameter): boolean =>
+    supportedScalarPosition(position) ||
+    (typeof borrowedUtf8CString(manifest, position) === "object" &&
+      !position.nullable);
   if (
-    callbackType.signature.parameters.some((position) => !supportedScalarPosition(position)) ||
+    callbackType.signature.parameters.some(
+      (position) => !supportedRetainedPosition(position),
+    ) ||
     manifest.types[callbackType.signature.result.type]?.kind !== "void"
   ) {
-    return "retained callback parameters must be exact scalar values and its result must be void";
+    return "retained callback parameters must be exact scalar values or borrowed UTF-8 strings, and its result must be void";
   }
   if (
     contract.arguments.length !== callbackType.signature.parameters.length ||
@@ -1265,7 +1291,7 @@ function supportedRetainedCallbackPair(
   ) {
     return "retained callback transport must copy every callback parameter in ABI order";
   }
-  const sourceArguments = supportedCallbackSourceArguments(binding, callbackType, contract);
+  const sourceArguments = supportedCallbackSourceArguments(manifest, binding, callbackType, contract);
   if (typeof sourceArguments === "string") return sourceArguments;
   if (
     sourceArguments.some(({ kind }) => kind === "registration-owner") &&
@@ -1335,6 +1361,45 @@ function supportedCallbackPair(
       : `callback lifetime '${lifetime ?? "missing"}' is outside the implemented call and until-cancelled slice`;
 }
 
+/**
+ * Classifies a borrowed NUL-terminated UTF-8 C string parameter.
+ *
+ * Returns null when the parameter is not one, a message when it claims to be
+ * and is malformed, and the pointee otherwise. Used both for a binding's own
+ * argument and for a retained callback's payload, so the two cannot disagree
+ * about what a borrowed C string is.
+ */
+function borrowedUtf8CString(
+  manifest: ScabiManifest,
+  data: AbiParameter,
+): { readonly pointee: "i8" | "u8"; readonly nullable: boolean } | string | null {
+  const marshal = data.marshal;
+  if (
+    marshal?.kind !== "string" ||
+    marshal.encoding !== "utf-8" ||
+    marshal.termination !== "nul" ||
+    marshal.embeddedNul !== "reject" ||
+    marshal.length.kind !== "nul"
+  ) {
+    return null;
+  }
+  const pointer = manifest.types[data.type];
+  const pointee = pointer?.kind === "pointer"
+    ? manifest.types[pointer.pointee]
+    : undefined;
+  if (
+    data.passMode !== "pointer" ||
+    data.ownership.kind !== "borrowed" || data.ownership.scope !== "call" ||
+    data.callback !== undefined ||
+    pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
+    pointer.nullable !== data.nullable || pointer.addressSpace !== 0 ||
+    pointee?.kind !== "integer" || pointee.bits !== 8
+  ) {
+    return "NUL-terminated UTF-8 data must be a borrowed const i8/u8 pointer in address space zero with matching nullability";
+  }
+  return { pointee: pointee.signed ? "i8" : "u8", nullable: data.nullable };
+}
+
 function supportedBorrowedDataPair(
   manifest: ScabiManifest,
   binding: CallableBinding,
@@ -1349,24 +1414,15 @@ function supportedBorrowedDataPair(
       marshal.embeddedNul === "reject" &&
       marshal.length.kind === "nul"
     ) {
-      const pointer = manifest.types[data.type];
-      const pointee = pointer?.kind === "pointer"
-        ? manifest.types[pointer.pointee]
-        : undefined;
-      if (
-        data.passMode !== "pointer" ||
-        data.ownership.kind !== "borrowed" || data.ownership.scope !== "call" ||
-        data.callback !== undefined ||
-        pointer?.kind !== "pointer" || pointer.mutability !== "const" ||
-        pointer.nullable !== data.nullable || pointer.addressSpace !== 0 ||
-        pointee?.kind !== "integer" || pointee.bits !== 8
-      ) {
+      const classified = borrowedUtf8CString(manifest, data);
+      if (typeof classified === "string") return classified;
+      if (classified === null) {
         return "NUL-terminated UTF-8 data must be a borrowed const i8/u8 pointer in address space zero with matching nullability";
       }
       return {
         kind: "utf8-c-string",
-        pointee: pointee.signed ? "i8" : "u8",
-        nullable: data.nullable,
+        pointee: classified.pointee,
+        nullable: classified.nullable,
       };
     }
     if (marshal.length.kind === "nul") {
@@ -2168,26 +2224,59 @@ export function translateScabiNativeProgram(
         > = [];
         let callbackValid = true;
         for (const [callbackIndex, typeId] of callback.parameterTypeIds.entries()) {
-          const type = lowerType(
-            typeId,
-            `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
+          const physical = callback.sourceArguments.find(
+            (argument) =>
+              argument.kind === "callback-parameter" &&
+              argument.parameter === callbackIndex,
           );
-          if (type?.kind !== "nativeScalar") {
+          const copiesString = physical?.kind === "callback-parameter" &&
+            physical.projection === "utf8CString";
+          /* A pointer has no place in ScriptC's scalar-and-struct slice, so a
+           * string payload's physical slot is described directly rather than
+           * asked of a lowering that would refuse it. */
+          const type = copiesString
+            ? null
+            : lowerType(
+                typeId,
+                `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
+              );
+          if (copiesString) {
+            /* A string payload's physical slot is the pointer the emitter
+             * passes; what crosses to the source is the copy made from it. */
+            const pointer = manifest.types[typeId];
+            const pointee = pointer?.kind === "pointer"
+              ? manifest.types[pointer.pointee]
+              : undefined;
+            physicalCallbackParameters.push(Object.freeze({
+              kind: "nativePointer",
+              pointee:
+                pointee?.kind === "integer" && pointee.signed ? "i8" : "u8",
+              const: true,
+              addressSpace: 0,
+            } as const));
+          } else if (type?.kind === "nativeScalar") {
+            physicalCallbackParameters.push(type);
+          } else {
             if (type !== null) {
               diagnostics.push(
                 diagnostic(
                   "NTS3002",
                   `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
-                  "Physical callback parameters must be exact native scalars",
+                  "Physical callback parameters must be exact native scalars or borrowed UTF-8 pointers",
                 ),
               );
             }
             callbackValid = false;
-          } else {
-            physicalCallbackParameters.push(type);
           }
         }
         for (const [callbackIndex, sourceArgument] of callback.sourceArguments.entries()) {
+          if (
+            sourceArgument.kind === "callback-parameter" &&
+            sourceArgument.projection === "utf8CString"
+          ) {
+            callbackParameters.push(Object.freeze({ kind: "string" } as const));
+            continue;
+          }
           const type = lowerType(
             sourceArgument.typeId,
             `${parameterPath}/callback/sourceArguments/${callbackIndex}/type`,

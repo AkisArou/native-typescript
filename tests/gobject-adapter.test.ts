@@ -351,7 +351,7 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
         code: "NTS5001",
         severity: "error",
         path: "Button/signal/clicked",
-        message: "Only non-detailed void GObject signals with exact scalar or enumeration payloads are implemented",
+        message: "Only non-detailed void GObject signals with exact scalar, enumeration, and UTF-8 payloads are implemented",
       }]);
       return true;
     },
@@ -359,6 +359,10 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
 });
 
 test("unsupported GObject signal payloads fail at the exact parameter", () => {
+  /* A GObject payload is the family that remains: it would have to become a
+   * managed cell from a raw pointer, captured when the signal fires and
+   * released if the delivery is dropped. Scalars, enumerations, and strings
+   * all project. */
   const source = girSource.replace(
     `<return-value transfer-ownership="none">
           <type name="none" c:type="void"/>
@@ -368,8 +372,8 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
           <type name="none" c:type="void"/>
         </return-value>
         <parameters>
-          <parameter name="text" transfer-ownership="none">
-            <type name="utf8" c:type="const char*"/>
+          <parameter name="child" transfer-ownership="none">
+            <type name="Widget" c:type="GtkWidget*"/>
           </parameter>
         </parameters>
       </glib:signal>`,
@@ -387,7 +391,8 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
         code: "NTS5001",
         severity: "error",
         path: "Button/signal/clicked/parameters/0",
-        message: "Only exact gint and gdouble GObject signal payloads are implemented",
+        message:
+          "Only exact scalar, enumeration, and UTF-8 GObject signal payloads are implemented",
       }]);
       return true;
     },
