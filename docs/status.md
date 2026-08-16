@@ -520,25 +520,22 @@ These are deliberate, not oversights. Each is a named future slice.
   string getter does: it is a call whose answer can change, and the object it
   names has a lifetime of its own.
 
-- **An exact integer cannot be computed with.** It can be passed to a native
-  member, stored, returned, and compared with `===`, and that is the whole
-  list. `width < 100` and `width + 1` are refused, and so is
-  `const n: number = width`.
+- **An exact integer cannot be ordered or converted.** Addition, subtraction,
+  multiplication, and the three bitwise operations are implemented for
+  same-type operands, and a decimal literal constructs one with a compile-time
+  range check — `-5 as guint` is refused, not truncated. What is missing is
+  everything else [Language profile](language-profile.md) specifies:
+  comparisons (`<`, `<=`, `>`, `>=`), division, remainder, shifts, the
+  checked/saturating/wrapping helper families, and the conversion intrinsics.
 
-  This is not a binding gap. ScriptC's numeric semantics are f64 throughout —
-  its own documentation says integer inference is a roadmap milestone — while
-  an exact integer exists precisely to keep the width a foreign ABI declared.
-  The two are different value families with no conversion between them, and
-  the IR's integer arithmetic is reachable only through a declared operation,
-  which is how a flags type gets its `combine`.
+  Ordering is the gap that bites first. `width < 100` has no expression form at
+  all, and neither does getting the value into `console.log`, `Math`, or JSON,
+  because exact-to-`number` conversion is one of the missing intrinsics.
 
-  It is the largest usability gap in the generated surface: every dimension,
-  index, and count GTK hands back is inert. Closing it is a language decision
-  rather than a binding one — either exact integers gain arithmetic with
-  defined overflow and mixed-width rules, or a lossless widening to `number`
-  is admitted for the widths where one exists — so it is recorded here rather
-  than settled unilaterally. The refusal at least says which situation the
-  caller is in.
+  Arithmetic is also only reachable inside a construction: `(a + b) as guint`
+  lowers, `a + b` does not, because the general binary path is f64-only and the
+  cast is what supplies the target type. That is a lowering seam rather than a
+  semantic one — the profile asks for same-type arithmetic, not for the cast.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars

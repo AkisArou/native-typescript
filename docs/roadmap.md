@@ -154,6 +154,39 @@ The two objects share one source tree but not one dialect: the owner runtime is
 portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
 extensions through the GTK headers and compiles as `-std=gnu11`.
 
+**Finishing the exact-integer slice.** The largest usability gap in the
+generated surface, and not a design question: [Language
+profile](language-profile.md) already specifies the whole numeric contract —
+wrapping `+`/`-`/`*`, trapping division by zero and signed-min ÷ −1, trapping
+out-of-range shifts, explicit conversion intrinsics that name whether they are
+checked, truncating, or wrapping, and no implicit conversion between ordinary
+`number` and an exact integer. What is missing is implementation, so the work
+is sequenced rather than debated.
+
+Implemented today: same-type `+`, `-`, `*`, `&`, `|`, `^`, and literal
+construction with a compile-time range check. Missing: everything below.
+
+1. **Comparisons.** `<`, `<=`, `>`, `>=` over same-type operands, signedness
+   from the type. No semantic decision is open — the C lowering compares
+   operands that already have the right type, and LLVM picks `icmp` by
+   signedness. This is the one that blocks ordinary code first: `width < 100`
+   has no expression form at all today.
+2. **The construction seam.** `a + b` should lower like `(a + b) as u32` does
+   when both operands already have that exact type. Same slice as comparisons —
+   both are the general binary path learning about exact operands.
+3. **Conversion intrinsics.** Named per the profile: checked, truncating, or
+   wrapping. Exact-to-`number` is what lets a value reach `console.log`,
+   `Math`, and JSON, and is lossless for every width up to 32 bits.
+4. **Division, remainder, and shifts**, with the traps the profile already
+   specifies.
+5. **The checked, saturating, and wrapping helper families.**
+
+One defect on this side belongs with them: `gint` and `gint32` are separate
+SCABI types because the scalar table sets `abiType` from the GIR name, though
+the Clang probe proves both are `i32`. Two names for one proven ABI type should
+be one exact type with two TypeScript spellings, or `gint + gint32` stays a
+type error for no reason a caller can act on.
+
 **Projecting an object the callee already owns.** Done, from both sides. 187
 GTK methods return a borrowed same-namespace object and 19 signal payloads
 carry one; before this an application could only touch objects it had
