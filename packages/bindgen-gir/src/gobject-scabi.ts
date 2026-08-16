@@ -26,6 +26,7 @@ import type {
   NativePhysicalAbiType,
   NativePhysicalAbiValue,
   NativeType,
+  NumberConversion,
   PackageIdentity,
   ScabiManifest,
   Sha256Digest,
@@ -529,6 +530,9 @@ function requiredValueParameter(
      * unspelled parameter through on a guess.
      */
     readonly cTypeOnDeclaration?: boolean;
+    /** Absent for the types whose source view is their own representation:
+     * booleans, enumerations, and flags project through their own contracts. */
+    readonly conversion?: NumberConversion | null;
   },
   path: string,
   diagnostics: CBindgenDiagnostic[],
@@ -561,6 +565,9 @@ function requiredValueParameter(
     passMode: "value",
     nullable: false,
     ownership: Object.freeze({ kind: "value" }),
+    ...(type.conversion === undefined || type.conversion === null
+      ? {}
+      : { conversion: type.conversion }),
   });
 }
 
@@ -682,6 +689,9 @@ function methodResult(
       passMode: "value",
       nullable: false,
       ownership: Object.freeze({ kind: "value" }),
+      ...(scalarType.conversion === null
+        ? {}
+        : { conversion: scalarType.conversion }),
     });
   }
   const enumeration = result.type.kind === "named"
@@ -1017,7 +1027,16 @@ export function generateGObjectScabiPackage(
   const signalConnectedDeclaration = "SignalConnection.connected";
   const signalReleaseDeclaration = "SignalConnection.__release";
   const declarations = new Set<string>();
-  const hasExactSourceTypes = usedSourceScalars.length > 0 ||
+  /* A converted scalar's declaration is a transparent alias, so it needs no
+   * brand. The brand symbol is emitted only for what still carries an exact
+   * representation: gdouble, the 64-bit integers, and every enumeration. */
+  const brandedSourceScalars = usedSourceScalars.filter(
+    (scalar) => scalar.conversion === null,
+  );
+  const convertedSourceScalars = usedSourceScalars.filter(
+    (scalar) => scalar.conversion !== null,
+  );
+  const hasExactSourceTypes = brandedSourceScalars.length > 0 ||
     options.snapshot.enumerations.length > 0;
   const declarationLines = [
     ...(hasExactSourceTypes
@@ -1030,7 +1049,13 @@ export function generateGObjectScabiPackage(
     "",
     ...(usedSourceScalars.length > 0
       ? [
-          ...usedSourceScalars.map((scalar) =>
+          /* The GLib spelling stays in every signature because it says what
+           * the value means; the alias is transparent so the value behaves
+           * like the number it is. */
+          ...convertedSourceScalars.map((scalar) =>
+            `export type ${scalar.girName} = number;`
+          ),
+          ...brandedSourceScalars.map((scalar) =>
             `export type ${scalar.girName} = ${scalar.carrier} & { readonly [nativeScalar]: "${scalar.girName}" };`
           ),
           "",
@@ -1054,9 +1079,10 @@ export function generateGObjectScabiPackage(
   const typeIdByRecord = new Map<string, string>();
   /* A scalar's SCABI identity is its own abiType, so a scalar output resolves
    * without the record table. Every scalar a method reaches is already
-   * registered above, out-parameters included. */
-  const scalarAbiTypeByGirName = new Map(
-    sourceScalarTypes.map((scalar) => [scalar.girName, scalar.abiType]),
+   * registered above, out-parameters included. The whole entry is kept rather
+   * than just the ID: a scalar's source-visible carrier travels with it. */
+  const scalarByGirName = new Map(
+    sourceScalarTypes.map((scalar) => [scalar.girName, scalar]),
   );
   // The probe carries candidates from more than this snapshot once a foreign
   // enum is reached, so evidence is matched by probe identity. Matching by
@@ -1240,6 +1266,7 @@ export function generateGObjectScabiPackage(
         name: field.name,
         type: scalar.abiType,
         offset: fieldEvidence.offset,
+        ...(scalar.conversion === null ? {} : { conversion: scalar.conversion }),
       });
     });
     if (
@@ -1287,9 +1314,12 @@ export function generateGObjectScabiPackage(
     const typeId = `${namespacePrefix}_${snakeCase(method.resultName)}`;
     const fields = method.outputs.map((output, index) => {
       const fieldEvidence = evidence?.fields[index];
+      const scalar = output.kind === "record"
+        ? undefined
+        : scalarByGirName.get(output.sourceName);
       const fieldType = output.kind === "record"
         ? typeIdByRecord.get(output.sourceName)
-        : scalarAbiTypeByGirName.get(output.sourceName);
+        : scalar?.abiType;
       if (fieldEvidence === undefined || fieldType === undefined) {
         diagnostics.push(diagnostic(
           `${path}/fields/${index}`,
@@ -1301,6 +1331,7 @@ export function generateGObjectScabiPackage(
         name: output.fieldName,
         type: fieldType,
         offset: fieldEvidence.offset,
+        ...(scalar?.conversion == null ? {} : { conversion: scalar.conversion }),
       });
     });
     if (
@@ -1895,10 +1926,13 @@ export function generateGObjectScabiPackage(
          * already registered by whatever else in this package reached it. */
         const inputProjections = valueMethod.inputs.map((input) => {
           if (input.kind === "scalar") {
-            const type = scalarAbiTypeByGirName.get(input.sourceName);
-            return type === undefined
-              ? null
-              : { type, sourceName: input.sourceName, passMode: "value" as const };
+            const scalar = scalarByGirName.get(input.sourceName);
+            return scalar === undefined ? null : {
+              type: scalar.abiType,
+              sourceName: scalar.girName,
+              passMode: "value" as const,
+              conversion: scalar.conversion,
+            };
           }
           if (input.kind === "enumeration") {
             const enumeration = enumerations.get(input.sourceName);
@@ -1906,12 +1940,16 @@ export function generateGObjectScabiPackage(
               type: enumeration.typeId,
               sourceName: enumeration.sourceName,
               passMode: "value" as const,
+              conversion: null,
             };
           }
           const handle = typeIdByClass.get(input.sourceName);
-          return handle === undefined
-            ? null
-            : { type: handle, sourceName: input.sourceName, passMode: "pointer" as const };
+          return handle === undefined ? null : {
+            type: handle,
+            sourceName: input.sourceName,
+            passMode: "pointer" as const,
+            conversion: null,
+          };
         });
         if (
           callable.parameters.length !==
@@ -1953,6 +1991,7 @@ export function generateGObjectScabiPackage(
               ownership: input!.passMode === "pointer"
                 ? Object.freeze({ kind: "borrowed" as const, scope: "call" as const })
                 : Object.freeze({ kind: "value" as const }),
+              ...(input!.conversion === null ? {} : { conversion: input!.conversion }),
             })),
           ],
           result: Object.freeze({
@@ -2581,7 +2620,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 1,
+    schemaVersion: 2,
     package: options.package,
     target: {
       ...options.target,

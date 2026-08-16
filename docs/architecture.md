@@ -217,11 +217,21 @@ ordinary compiler-generated unwinding. Physical foreign-pointer, callback, and
 context types are ABI-only and are not members of the TypeScript/language-IR
 value model.
 
+A projection may also change a slot's source carrier without changing the slot.
+A position over an integer of at most 32 bits may declare that its source
+carrier is an ordinary `number`: an argument is checked into the exact slot at
+the boundary and raises a catchable `TypeError` when the value is not finite,
+integral, and in range. The declaration is data in the manifest — no analysis
+may infer it — and the width bound is enforced by validation, because a double
+carries wider integers non-injectively.
+
 Results make the logical/physical separation explicit too. Direct results
-preserve their exact native value type. A borrowed C-string result instead
-records a physical const pointer, a named receiver lifetime anchor, and a UTF-8
-projection to logical `string` or `string | null`. Both backends copy the bytes
-before releasing logical arguments, so no foreign pointer becomes a TypeScript
+preserve their exact native value type. A checked-number result widens its
+exact slot into a plain number, which cannot fail and therefore requires a
+non-failing binding. A borrowed C-string result instead records a physical
+const pointer, a named receiver lifetime anchor, and a UTF-8 projection to
+logical `string` or `string | null`. Both backends copy the bytes before
+releasing logical arguments, so no foreign pointer becomes a TypeScript
 value.
 
 Applications compose independently translated SCABI packages before invoking

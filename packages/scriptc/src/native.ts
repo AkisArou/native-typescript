@@ -83,10 +83,13 @@ export interface ScriptCNativeContextType {
 
 export type ScriptCNativeCallbackArgumentType = {
   readonly kind: "func";
+  /** A handler parameter's source view. `f64` over an exact physical payload
+   * is the widening the delivery performs when it reads the queued value. */
   readonly params: readonly (
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | { readonly kind: "nativeHandle"; readonly typeId: string }
     | { readonly kind: "string" }
+    | { readonly kind: "f64" }
   )[];
   readonly ret: ScriptCNativeCallbackSignature["result"];
 };
@@ -147,6 +150,8 @@ export type ScriptCNativeArgumentType =
    * consulting the handle table. */
   | { readonly kind: "nullableNativeHandle"; readonly typeId: string }
   | { readonly kind: "bytes"; readonly elem: "u8" }
+  /** A plain JavaScript number the boundary checks into an exact slot. */
+  | { readonly kind: "f64" }
   | ScriptCNativeCallbackArgumentType;
 export type ScriptCNativeParameterProjection =
   | { readonly kind: "argument"; readonly argument: number }
@@ -156,6 +161,9 @@ export type ScriptCNativeParameterProjection =
       readonly falseValue: string;
       readonly trueValue: string;
     }
+  /** The checked JavaScript-number ingress: finite, integral, and in range, or
+   * a catchable TypeError before the call happens. */
+  | { readonly kind: "number"; readonly argument: number }
   | { readonly kind: "utf8CString"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
   | { readonly kind: "utf8ByteLength"; readonly argument: number }
@@ -171,6 +179,9 @@ export type ScriptCNativeResultProjection =
       readonly falseValue: string;
       readonly trueValue: string;
     }
+  /** Exact widening out of an integer slot at most 32 bits wide; it cannot
+   * fail, so it carries no failure arm. */
+  | { readonly kind: "number" }
   | { readonly kind: "utf8CString"; readonly nullable: boolean }
   /** An owned handle the callee may report as absent. Absence is a value here
    * rather than a failure: a container with no child has answered, and forcing
@@ -282,6 +293,9 @@ export interface ScriptCNativeStructDefinition {
       | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
       | { readonly kind: "nativeStruct"; readonly typeId: string };
     readonly offset: number;
+    /** The field keeps its exact storage; the marker says a read of it widens
+     * to a plain number and a construction of it takes one. */
+    readonly projection?: "number";
   }[];
 }
 
@@ -953,6 +967,15 @@ function supportedBorrowedStringResult(
   };
 }
 
+/** The exact scalars a double carries injectively, so a widening loses
+ * nothing and a checked ingress can always be undone by reading the value
+ * back. Pointer-width and 64-bit slots are absent by construction: this is
+ * the fence, not an omission. */
+function widensToNumber(scalar: ScriptCNativeScalar): boolean {
+  return scalar === "i8" || scalar === "u8" || scalar === "i16" ||
+    scalar === "u16" || scalar === "i32" || scalar === "u32";
+}
+
 type SupportedCallbackPair = {
   readonly functionIndex: number;
   readonly contextIndex: number;
@@ -965,9 +988,10 @@ type SupportedCallbackPair = {
         /**
          * How the physical value becomes the value the source sees. A scalar
          * is itself; a UTF-8 C string is copied, because a queued delivery
-         * outlives the pointer the emitter handed over.
+         * outlives the pointer the emitter handed over; a converted integer
+         * widens to a plain number when the delivery reads it.
          */
-        readonly projection: "direct" | "utf8CString" | "ownedHandle";
+        readonly projection: "direct" | "utf8CString" | "ownedHandle" | "number";
         /** The binding that gives the reference back, for an owned handle. */
         readonly destructor?: string;
       }
@@ -1018,9 +1042,11 @@ function supportedCallbackSourceArguments(
         typeId: physical.type,
         projection: owned !== undefined
           ? "ownedHandle"
-          : string === null
-            ? "direct"
-            : "utf8CString",
+          : physical.conversion === "number"
+            ? "number"
+            : string === null
+              ? "direct"
+              : "utf8CString",
         ...(owned === undefined ? {} : { destructor: owned }),
       }));
       continue;
@@ -1895,7 +1921,15 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      const fieldType = lowerType(field.type, `${path}/fields/${index}/type`);
+      /* A converted field stores its exact scalar and reads as a plain
+       * number, so — like a converted parameter — its GLib spelling names no
+       * source type. */
+      const convertsNumber = field.conversion === "number";
+      const fieldType = lowerType(
+        field.type,
+        `${path}/fields/${index}/type`,
+        !convertsNumber,
+      );
       if (
         fieldType === null ||
         (fieldType.kind !== "nativeScalar" && fieldType.kind !== "nativeStruct")
@@ -1908,7 +1942,24 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      fields.push(Object.freeze({ name: field.name, type: fieldType, offset: field.offset }));
+      if (
+        convertsNumber &&
+        (fieldType.kind !== "nativeScalar" || !widensToNumber(fieldType.scalar))
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/fields/${index}/conversion`,
+          "A number conversion requires an integer slot a double carries injectively",
+        ));
+        valid = false;
+        continue;
+      }
+      fields.push(Object.freeze({
+        name: field.name,
+        type: fieldType,
+        offset: field.offset,
+        ...(convertsNumber ? { projection: "number" as const } : {}),
+      }));
     }
     activeTypes.delete(typeId);
     if (!valid) return null;
@@ -2136,6 +2187,7 @@ export function translateScabiNativeProgram(
       readonly falseValue: string;
       readonly trueValue: string;
     }>();
+    const numberParameters = new Set<number>();
     const argumentByParameter = new Map<number, number>();
     let valid = true;
     for (const [index, parameter] of binding.signature.parameters.entries()) {
@@ -2276,6 +2328,12 @@ export function translateScabiNativeProgram(
             physical.projection === "utf8CString";
           const ownsHandle = physical?.kind === "callback-parameter" &&
             physical.projection === "ownedHandle";
+          /* A converted payload's physical slot is exact and its source view
+           * is a plain number, so the GLib spelling names no source type: the
+           * transparent alias must not enter the source-type table, where it
+           * would re-brand every plain number the checker sees. */
+          const widensNumber = physical?.kind === "callback-parameter" &&
+            physical.projection === "number";
           /* A pointer has no place in ScriptC's scalar-and-struct slice, so a
            * string payload's physical slot is described directly rather than
            * asked of a lowering that would refuse it. */
@@ -2284,6 +2342,7 @@ export function translateScabiNativeProgram(
             : lowerType(
                 typeId,
                 `${parameterPath}/type/signature/parameters/${callbackIndex}/type`,
+                !widensNumber,
               );
           if (ownsHandle) {
             /* The slot carries the referenced pointer; the cell is made from
@@ -2328,6 +2387,15 @@ export function translateScabiNativeProgram(
             sourceArgument.projection === "utf8CString"
           ) {
             callbackParameters.push(Object.freeze({ kind: "string" } as const));
+            continue;
+          }
+          if (
+            sourceArgument.kind === "callback-parameter" &&
+            sourceArgument.projection === "number"
+          ) {
+            /* The queued slot keeps the exact payload; the handler sees the
+             * widening the delivery performs when it reads that slot. */
+            callbackParameters.push(Object.freeze({ kind: "f64" } as const));
             continue;
           }
           if (
@@ -2453,7 +2521,15 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      const type = lowerType(parameter.type, `${parameterPath}/type`);
+      /* A converted parameter's source view is a plain number, so the GLib
+       * spelling contributes no source type. Registering the transparent
+       * alias would hand the checker a branded reading of ordinary numbers. */
+      const convertsNumber = parameter.conversion === "number";
+      const type = lowerType(
+        parameter.type,
+        `${parameterPath}/type`,
+        !convertsNumber,
+      );
       if (type === null || type.kind === "void") {
         if (type?.kind === "void") {
           diagnostics.push(
@@ -2462,6 +2538,18 @@ export function translateScabiNativeProgram(
         }
         valid = false;
         continue;
+      }
+      if (convertsNumber) {
+        if (type.kind !== "nativeScalar" || !widensToNumber(type.scalar)) {
+          diagnostics.push(diagnostic(
+            "NTS3002",
+            `${parameterPath}/conversion`,
+            "A number conversion requires an integer slot a double carries injectively",
+          ));
+          valid = false;
+          continue;
+        }
+        numberParameters.add(index);
       }
       directTypes.set(index, type);
       argumentByParameter.set(index, sourceArguments.length);
@@ -2477,12 +2565,14 @@ export function translateScabiNativeProgram(
         parameter.ownership.kind === "borrowed";
       sourceArguments.push(Object.freeze({
         name: parameter.name,
-        type: optionalHandle && type.kind === "nativeHandle"
-          ? Object.freeze({
-              kind: "nullableNativeHandle",
-              typeId: type.typeId,
-            } as const)
-          : type,
+        type: convertsNumber
+          ? Object.freeze({ kind: "f64" } as const)
+          : optionalHandle && type.kind === "nativeHandle"
+            ? Object.freeze({
+                kind: "nullableNativeHandle",
+                typeId: type.typeId,
+              } as const)
+            : type,
       }));
     }
     if (valid) {
@@ -2535,6 +2625,16 @@ export function translateScabiNativeProgram(
         }
         const directType = directTypes.get(index);
         const booleanType = booleanTypes.get(index);
+        if (numberParameters.has(index)) {
+          parameters.push(Object.freeze({
+            name: parameter.name,
+            type: directType!,
+            passMode: "value",
+            ownership: Object.freeze({ kind: "value" } as const),
+            projection: Object.freeze({ kind: "number", argument } as const),
+          }));
+          continue;
+        }
         parameters.push(Object.freeze(
           booleanType !== undefined
             ? {
@@ -2719,6 +2819,49 @@ export function translateScabiNativeProgram(
           destructor: `${manifest.package.instance}#${destructor}`,
         } as const);
         resultProjection = Object.freeze({ kind: "nullableHandle" } as const);
+      }
+    } else if (binding.signature.result.conversion === "number") {
+      /* Widening out is total: every value of the slot is a double, so the
+       * projection has no failure arm and needs none. What it does need is a
+       * binding that cannot fail, because a failure contract is read from the
+       * exact scalar the source would never see. */
+      const unsupportedResult = positionUnsupported(
+        binding.signature.result,
+        false,
+        manifest.types[binding.signature.result.type],
+      );
+      if (unsupportedResult !== null) {
+        diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
+        valid = false;
+      }
+      resultType = lowerType(
+        binding.signature.result.type,
+        `${resultPath}/type`,
+        false,
+      );
+      if (
+        resultType === null ||
+        resultType.kind !== "nativeScalar" ||
+        !widensToNumber(resultType.scalar)
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${resultPath}/conversion`,
+          "A number conversion requires an integer slot a double carries injectively",
+        ));
+        resultType = null;
+        valid = false;
+      } else if (binding.error.kind !== "no-fail") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${resultPath}/conversion`,
+          "A number-converted result requires a non-failing binding",
+        ));
+        resultType = null;
+        valid = false;
+      } else {
+        resultOwnership = Object.freeze({ kind: "value" } as const);
+        resultProjection = Object.freeze({ kind: "number" } as const);
       }
     } else {
       const unsupportedResult = positionUnsupported(

@@ -1,6 +1,6 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv";
-import schema from "./scabi-v1.schema.json" with { type: "json" };
+import schema from "./scabi-v2.schema.json" with { type: "json" };
 import { canonicalizeJson } from "./canonical-json.ts";
 import type {
   AbiParameter,
@@ -782,6 +782,33 @@ function validateTypes(
             );
           }
           fieldNames.add(field.name);
+          if (field.conversion !== undefined) {
+            const fieldType = manifest.types[field.type];
+            if (
+              fieldType === undefined ||
+              fieldType.kind !== "integer" ||
+              (fieldType.bits !== 8 && fieldType.bits !== 16 && fieldType.bits !== 32)
+            ) {
+              diagnostics.push(
+                diagnostic(
+                  "NTS2021",
+                  `/types/${id}/fields/${index}/conversion`,
+                  "A number conversion requires an integer field of at most 32 bits; a double cannot carry wider values injectively",
+                ),
+              );
+            }
+            /* A bit field's storage is not the integer type's storage, so the
+             * exact read the widening starts from does not exist yet. */
+            if (field.bitField !== undefined) {
+              diagnostics.push(
+                diagnostic(
+                  "NTS2021",
+                  `/types/${id}/fields/${index}/conversion`,
+                  "A bit field cannot declare a number conversion",
+                ),
+              );
+            }
+          }
           const fieldSize = typeSize(manifest, field.type);
           const fieldAlignment = typeAlignment(manifest, field.type);
           const effectiveFieldAlignment = fieldAlignment === undefined
@@ -842,6 +869,26 @@ function validateTypes(
         validateLayout(id, type, diagnostics);
         break;
       case "callback":
+        for (const [index, parameter] of type.signature.parameters.entries()) {
+          validateConversion(
+            manifest,
+            parameter,
+            `/types/${id}/signature/parameters/${index}`,
+            diagnostics,
+          );
+        }
+        /* A handler's return value crosses back into native code, where the
+         * exact scalar is the contract; only the payload it receives has a
+         * source-visible carrier to choose. */
+        if (type.signature.result.conversion !== undefined) {
+          diagnostics.push(
+            diagnostic(
+              "NTS2021",
+              `/types/${id}/signature/result/conversion`,
+              "A callback result carries its exact native representation",
+            ),
+          );
+        }
         if (
           type.context.placement === "none" &&
           type.context.type !== undefined
@@ -1136,6 +1183,60 @@ function validatePositionOwnership(
       reference,
       `${path}/ownership`,
       diagnostics,
+    );
+  }
+}
+
+/* A JavaScript-number carrier is only honest where a double holds every value
+ * of the native type injectively and nothing else already reinterprets the
+ * position. Everything wider than 32 bits, and every position that is a
+ * pointer, a resource, or a marshalled buffer, keeps its own representation. */
+function validateConversion(
+  manifest: ScabiManifest,
+  position: AbiResult,
+  path: string,
+  diagnostics: ScabiDiagnostic[],
+): void {
+  if (position.conversion === undefined) {
+    return;
+  }
+  const type = manifest.types[position.type];
+  if (type === undefined) {
+    return;
+  }
+  if (
+    type.kind !== "integer" ||
+    (type.bits !== 8 && type.bits !== 16 && type.bits !== 32)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "NTS2021",
+        `${path}/conversion`,
+        "A number conversion requires an integer type of at most 32 bits; a double cannot carry wider values injectively",
+      ),
+    );
+    return;
+  }
+  if (
+    position.passMode !== "value" ||
+    position.ownership.kind !== "value" ||
+    position.nullable
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "NTS2021",
+        `${path}/conversion`,
+        "A number conversion requires a non-nullable integer passed by value",
+      ),
+    );
+  }
+  if (position.marshal !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        "NTS2021",
+        `${path}/conversion`,
+        "A marshalled position already declares its own source representation",
+      ),
     );
   }
 }
@@ -1611,6 +1712,12 @@ function validateCallableBinding(
       diagnostics,
     );
     validateMarshalling(manifest, id, binding, parameter, index, diagnostics);
+    validateConversion(
+      manifest,
+      parameter,
+      `/bindings/${id}/signature/parameters/${index}`,
+      diagnostics,
+    );
 
     const type = manifest.types[parameter.type];
     if (type?.kind === "callback") {
@@ -1644,6 +1751,25 @@ function validateCallableBinding(
     true,
     diagnostics,
   );
+
+  validateConversion(
+    manifest,
+    binding.signature.result,
+    `/bindings/${id}/signature/result`,
+    diagnostics,
+  );
+  if (
+    binding.signature.result.conversion !== undefined &&
+    binding.error.kind !== "no-fail"
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "NTS2040",
+        `/bindings/${id}/signature/result/conversion`,
+        "A number-converted result requires a non-failing binding: a failure contract is read from the exact scalar the source never sees",
+      ),
+    );
+  }
 
   const resultOwnership = binding.signature.result.ownership;
   if (

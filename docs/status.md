@@ -18,6 +18,7 @@ The repository is not yet an application framework or a production compiler.
 | Layer | State |
 | --- | --- |
 | Exact scalars, aggregates, ABI classification | implemented |
+| Checked JavaScript-number boundaries (≤32-bit) | implemented |
 | Native handles and ownership | implemented |
 | Borrowed strings and byte views | implemented |
 | Call-scoped and `until-cancelled` callbacks | implemented |
@@ -56,6 +57,25 @@ is not general JavaScript BigInt support.
 Exact same-type `+`, `-`, and `*` wrap at their declared width without C
 undefined behavior. `&`, `|`, and `^` operate at exact native width without
 routing through JavaScript's `ToInt32`.
+
+### Checked JavaScript-number boundaries
+
+A binding position over an integer of at most 32 bits may declare that its
+source carrier is an ordinary `number`. Arguments and aggregate constructions
+are checked at the boundary — finite, integral, in range, or a catchable
+`TypeError` raised before the call — and results, aggregate fields, and both
+callback trampolines widen exactly on the way out. The physical slot stays the
+exact scalar throughout, including in a queued callback invocation, where the
+widening happens when the delivery reads the stored payload.
+
+Literals are decided at compile time in both directions: a literal the emitter
+re-proves in place produces the constant with no check emitted at all, and a
+literal no value of the native type can hold is refused where it is written
+rather than deferred to a throw.
+
+Pointer-width and 64-bit slots cannot declare it. A double carries at most 53
+bits of integer injectively, so the width fence is enforced structurally by IR
+validation, including for callback payloads.
 
 ### Declaration-backed constants
 
@@ -351,8 +371,16 @@ unnoticed.
 
 Two things a project author meets immediately, both deliberate:
 
-- An exact native scalar is constructed from a literal, never from an arbitrary
-  number, because the compiler proves the value is in range.
+- **A GLib integer of at most 32 bits is a plain `number`.** `gint`, `guint`,
+  and every fixed width up to 32 bits are transparent aliases: the spelling
+  survives in signatures because it says what the value means, and the value
+  orders, prints, and does arithmetic like the number it is. Writing one back
+  is checked at the boundary — a fraction, a NaN, an infinity, or an
+  out-of-range value raises a catchable `TypeError` instead of being
+  truncated. A literal is decided at compile time instead: proven literals
+  emit no check at all, and a literal that cannot convert is refused where it
+  is written. `gdouble`, `gint64`, and `guint64` keep their exact branded
+  carriers.
 - **A narrowed read of a nullable native result is refused**, because the
   callee returns what its declaration allows on every call and a read narrowed
   to `string` has nowhere to put a null. The compiler names the cause and the
@@ -364,11 +392,12 @@ Two things a project author meets immediately, both deliberate:
   the narrowing never arises, and the shape says what is true: each read is a
   call. Properties remain for everything else, where a narrowing is harmless
   because no exact two-arm match is required.
-- An array of exact native scalars is not implemented. `[0 as gint]` is
-  refused by name; a union carrying one — `gint | undefined`, which is what a
-  narrowing or an absent value produces — does work.
+- An array of exact native scalars is not implemented. `[0 as gdouble]` is
+  refused by name; a union carrying one — `gdouble | undefined`, which is what
+  a narrowing or an absent value produces — does work.
 - Comparing exact scalars with `<` or `>` is not implemented either; `===` and
-  `!==` are.
+  `!==` are. This is now confined to the family that is still exact: `gdouble`
+  and the 64-bit integers.
 
 ### Executed lifecycle
 
@@ -396,7 +425,8 @@ delivered" from "signal delivered late" rather than hanging.
 | Native properties | from authoritative GIR getter/setter links |
 | Nullable string properties | `Button.label`, `Window.title` |
 | Exact `gboolean` methods | both representations |
-| Branded exact integers | `gint`, `guint`, and every fixed width, separately branded — see the arithmetic limit below |
+| GLib integers ≤32 bits | `gint`, `guint`, and every fixed width up to 32 bits, as plain `number` over their exact slots — checked in, widened out |
+| Branded 64-bit integers | `gint64`, `guint64`, exact with BigInt carriers |
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
@@ -410,7 +440,7 @@ GTK weak-finalization gate proves exact release.
 A method that answers through output parameters returns a value instead. The
 adapter declares a struct of the outputs, passes each field by address, and
 returns it, so `gtk_widget_get_size_request(w, &width, &height)` reads as
-`widget.getSizeRequest()` giving `{ width, height }` of branded `gint`. Both
+`widget.getSizeRequest()` giving `{ width, height }` as plain numbers. Both
 families project: a caller-allocated record, and an exact scalar — which GIR
 annotates `transfer-ownership="full"` because the value is copied out, an
 annotation that is correct and means nothing to release.
@@ -455,7 +485,8 @@ and compiles through both backends.
 Against real GTK it constructs a `Window`/`Button`/`Box`/`DrawingArea`/`Overlay`
 hierarchy, reads and writes nullable `Button.label` and `Window.title`, calls
 `Window.setChild()` through the declared Widget upcast, passes both boolean
-representations through `Widget.setVisible()`, sets exact `gint` dimensions,
+representations through `Widget.setVisible()`, sets `gint` dimensions from
+plain numbers,
 feeds `Widget.getWidth()` back into a native call, round-trips exact `gdouble`
 opacity, calls `Widget.activate()` and projects its boolean result, receives
 `Button.clicked` and `DrawingArea.resize(sender, width, height)` through
@@ -523,19 +554,22 @@ These are deliberate, not oversights. Each is a named future slice.
 - **An exact integer cannot be ordered or converted.** Addition, subtraction,
   multiplication, and the three bitwise operations are implemented for
   same-type operands, and a decimal literal constructs one with a compile-time
-  range check — `-5 as guint` is refused, not truncated. What is missing is
+  range check — `-5 as u32` is refused, not truncated. What is missing is
   everything else [Language profile](language-profile.md) specifies:
   comparisons (`<`, `<=`, `>`, `>=`), division, remainder, shifts, the
   checked/saturating/wrapping helper families, and the conversion intrinsics.
 
-  Ordering is the gap that bites first. `width < 100` has no expression form at
-  all, and neither does getting the value into `console.log`, `Math`, or JSON,
-  because exact-to-`number` conversion is one of the missing intrinsics.
-
-  Arithmetic is also only reachable inside a construction: `(a + b) as guint`
+  Arithmetic is also only reachable inside a construction: `(a + b) as u32`
   lowers, `a + b` does not, because the general binary path is f64-only and the
   cast is what supplies the target type. That is a lowering seam rather than a
   semantic one — the profile asks for same-type arithmetic, not for the cast.
+
+  What this costs has narrowed sharply. Every GIR integer of at most 32 bits
+  now crosses as a plain `number` under the declared conversion policy, so
+  ordering, printing, and `Math` work on the GTK surface without any of those
+  intrinsics. The gap is confined to what is still exact by necessity:
+  `gdouble`, the 64-bit integers, and manifests that deliberately keep exact
+  ≤32-bit scalars, such as the `scabi-c-v1` fixture.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars

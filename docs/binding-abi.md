@@ -161,10 +161,11 @@ forms without encoding size heuristics in Native TypeScript.
 The first GTK package generator accepts only when the GIR probe, normalized
 Clang evidence, target triple, SDK modules, and deterministically regenerated
 GObject adapter agree. It currently maps selected GObject constructors,
-instance methods, `void`, exact `gboolean`, branded exact `gint` and `gdouble`,
+instance methods, `void`, exact `gboolean`, checked-number `gint` over its
+exact slot, branded exact `gdouble`,
 required or nullable borrowed NUL-terminated UTF-8 inputs, borrowed UTF-8 results, confined
 owned handles, coherent GIR-linked getter/setter properties, and non-detailed
-`void` signals with zero or exact `gint`/`gdouble` payloads into canonical
+`void` signals with zero or `gint`/`gdouble` payloads into canonical
 declarations and a validated SCABI manifest. Equivalent unordered target inputs
 produce identical output. Signals are adapter entries rather than invented
 direct C functions. Exact scalar signal payloads are copied before owner

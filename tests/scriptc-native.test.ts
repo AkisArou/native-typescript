@@ -232,6 +232,53 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
   assert.equal(Object.isFrozen(result.input.bindings[0]), true);
 });
 
+test("SCABI checked-number positions translate without naming a source type", () => {
+  /* The same binding as above with the conversion declared. The physical slot
+   * is unchanged — what moves is the source view, and with it the obligation
+   * to check on the way in. Nothing may enter `sourceTypes`: the declaration
+   * of a converted scalar is a transparent alias for `number`, and recording
+   * it would give the checker a branded reading of every plain number. */
+  const raw = JSON.parse(
+    readFileSync(resolve(fixtureRoot, "package.scabi.json"), "utf8"),
+  ) as {
+    readonly bindings: Record<string, {
+      readonly signature?: {
+        readonly parameters?: { conversion?: string }[];
+        readonly result?: { conversion?: string };
+      };
+    }>;
+  };
+  const identity = raw.bindings["i32_identity"]?.signature;
+  assert.ok(identity?.parameters?.[0] !== undefined && identity.result !== undefined);
+  identity.parameters[0].conversion = "number";
+  identity.result.conversion = "number";
+  const result = translateScabiNativeProgram(
+    parseScabiManifest(canonicalizeJson(raw)),
+    selectImports(["i32_identity"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.input.sourceTypes, []);
+  const binding = result.input.bindings[0];
+  assert.deepEqual(binding?.arguments, [{ name: "value", type: { kind: "f64" } }]);
+  assert.deepEqual(binding?.parameters, [
+    {
+      name: "value",
+      type: { kind: "nativeScalar", scalar: "i32" },
+      passMode: "value",
+      ownership: { kind: "value" },
+      projection: { kind: "number", argument: 0 },
+    },
+  ]);
+  assert.deepEqual(binding?.result, {
+    type: { kind: "nativeScalar", scalar: "i32" },
+    passMode: "value",
+    ownership: { kind: "value" },
+    projection: { kind: "number" },
+  });
+});
+
 test("SCABI enum constants lower to exact declaration-backed literals", () => {
   const enumManifest = structuredClone(manifest);
   Object.assign(enumManifest.types, {

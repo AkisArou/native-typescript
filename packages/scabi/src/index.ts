@@ -52,6 +52,7 @@ export type {
   NativePhysicalAbiValue,
   NativeType,
   NativeTypeId,
+  NumberConversion,
   OpaqueValueType,
   OwnershipContract,
   PackageIdentity,

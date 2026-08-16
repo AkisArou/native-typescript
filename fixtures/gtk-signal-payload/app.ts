@@ -20,8 +20,6 @@ import {
   EntryBuffer,
   TextDirection,
   Window,
-  type gint,
-  type guint,
 } from "@native-typescript/gtk4";
 
 if (!applicationStart()) throw new Error("the GTK target did not start");
@@ -63,16 +61,21 @@ const direction = window.onDirectionChanged((sender, previousDirection): void =>
 });
 if (!direction.connected) throw new Error("direction-changed did not connect");
 
-const buffer = new EntryBuffer(null, -1 as gint);
-buffer.setText("native typescript", -1 as gint);
+const buffer = new EntryBuffer(null, -1);
+buffer.setText("native typescript", -1);
 const inserted = buffer.onInsertedText((_sender, position, chars, characters): void => {
   /* The pointer GTK passed is long gone by the time this runs. */
   if (chars !== " rules") {
     failure = `inserted-text carried the wrong string: ${chars}`;
   } else if (chars.length !== 6) {
     failure = "inserted-text string has the wrong length";
-  } else if (position !== (17 as guint) || characters !== (6 as guint)) {
+  } else if (position !== 17 || characters !== 6) {
     failure = "inserted-text carried the wrong position or count";
+  } else if (position + characters !== 23) {
+    /* A payload that arrives as a plain number can be computed with the
+     * moment it lands, without a construction to route the arithmetic
+     * through. */
+    failure = "inserted-text payloads would not add";
   }
   stringSeen = true;
   finishIfReady();
@@ -80,9 +83,9 @@ const inserted = buffer.onInsertedText((_sender, position, chars, characters): v
 if (!inserted.connected) throw new Error("inserted-text did not connect");
 const deleted = buffer.onDeletedText((_sender, position, characters): void => {
   /* delete_text(6, 10) removes "typescript" starting at index 6. */
-  if (position !== (6 as guint)) {
+  if (position !== 6) {
     failure = "deleted-text carried the wrong position";
-  } else if (characters !== (10 as guint)) {
+  } else if (characters !== 10) {
     failure = "deleted-text carried the wrong count";
   }
   scalarSeen = true;
@@ -91,5 +94,5 @@ const deleted = buffer.onDeletedText((_sender, position, characters): void => {
 if (!deleted.connected) throw new Error("deleted-text did not connect");
 
 window.setDirection(TextDirection.Rtl);
-buffer.insertText(17 as guint, " rules", -1 as gint);
-buffer.deleteText(6 as guint, 10 as gint);
+buffer.insertText(17, " rules", -1);
+buffer.deleteText(6, 10);

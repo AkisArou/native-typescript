@@ -154,38 +154,50 @@ The two objects share one source tree but not one dialect: the owner runtime is
 portable C held to `-std=c11 -pedantic`, while the bootstrap reaches GNU
 extensions through the GTK headers and compiles as `-std=gnu11`.
 
-**Finishing the exact-integer slice.** The largest usability gap in the
-generated surface, and not a design question: [Language
-profile](language-profile.md) already specifies the whole numeric contract —
-wrapping `+`/`-`/`*`, trapping division by zero and signed-min ÷ −1, trapping
-out-of-range shifts, explicit conversion intrinsics that name whether they are
-checked, truncating, or wrapping, and no implicit conversion between ordinary
-`number` and an exact integer. What is missing is implementation, so the work
-is sequenced rather than debated.
+**Finishing the numeric model.** The GIR surface is done: every integer of at
+most 32 bits crosses as a plain `number` under the declared conversion policy,
+checked on the way in and widened on the way out, with literals decided at
+compile time. That dissolved the usability gap — ordering, printing, `Math`,
+and arithmetic all work on GTK values — and it dissolved the `gint`/`gint32`
+defect at the source: both spellings are transparent aliases for `number`, so
+mixing them is no longer a type error a caller cannot act on. The two SCABI
+types remain, correctly, as distinct names for one proven ABI type.
 
-Implemented today: same-type `+`, `-`, `*`, `&`, `|`, `^`, and literal
-construction with a compile-time range check. Missing: everything below.
+Two tracks remain, in this order.
+
+*Making the checked boundary free where it is provably unnecessary.* The
+emitters already elide the check for a literal. The next step is a facts pass
+— the abstract-value domain `int-infer` already implements, lifted out of the
+library path into the IR and run after validation — producing a certified
+side-table of call sites whose argument is provably whole and in range, which
+both backends consult. A widened egress value seeds those facts, so a
+round-trip such as `sender.setContentWidth(width)` inside a resize handler
+costs nothing. A provably failing site is promoted to a diagnostic the way a
+literal already is. After that, machine-integer specialization for the shapes
+where it pays: loop inductions, and guarded add/sub/mul through the overflow
+intrinsics with an f64 fallback.
+
+*The exact family that remains.* [Language profile](language-profile.md)
+specifies a whole numeric contract for it — wrapping `+`/`-`/`*`, trapping
+division by zero and signed-min ÷ −1, trapping out-of-range shifts, explicit
+conversion intrinsics that name whether they are checked, truncating, or
+wrapping. Implemented today: same-type `+`, `-`, `*`, `&`, `|`, `^`, and
+literal construction with a compile-time range check. Missing, and now scoped
+to `gdouble`, the 64-bit integers, and manifests that deliberately stay exact:
 
 1. **Comparisons.** `<`, `<=`, `>`, `>=` over same-type operands, signedness
    from the type. No semantic decision is open — the C lowering compares
    operands that already have the right type, and LLVM picks `icmp` by
-   signedness. This is the one that blocks ordinary code first: `width < 100`
-   has no expression form at all today.
+   signedness.
 2. **The construction seam.** `a + b` should lower like `(a + b) as u32` does
    when both operands already have that exact type. Same slice as comparisons —
    both are the general binary path learning about exact operands.
 3. **Conversion intrinsics.** Named per the profile: checked, truncating, or
-   wrapping. Exact-to-`number` is what lets a value reach `console.log`,
-   `Math`, and JSON, and is lossless for every width up to 32 bits.
+   wrapping. These are what let a 64-bit value reach `console.log`, `Math`, and
+   JSON, and what convert between widths and signedness.
 4. **Division, remainder, and shifts**, with the traps the profile already
    specifies.
 5. **The checked, saturating, and wrapping helper families.**
-
-One defect on this side belongs with them: `gint` and `gint32` are separate
-SCABI types because the scalar table sets `abiType` from the GIR name, though
-the Clang probe proves both are `i32`. Two names for one proven ABI type should
-be one exact type with two TypeScript spellings, or `gint + gint32` stays a
-type error for no reason a caller can act on.
 
 **Projecting an object the callee already owns.** Done, from both sides. 187
 GTK methods return a borrowed same-namespace object and 19 signal payloads

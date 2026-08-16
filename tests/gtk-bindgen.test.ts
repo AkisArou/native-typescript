@@ -495,6 +495,9 @@ test(
         )?.sourceCall,
         { kind: "constructor" },
       );
+      /* gdouble is the only one of the two that names a source type. `gint`
+       * is a transparent alias for `number`, and registering it here would
+       * hand the checker a branded reading of every plain number. */
       assert.deepEqual(
         translated.input.sourceTypes.filter(
           ({ declaration }) => declaration.name === "gdouble" || declaration.name === "gint",
@@ -503,10 +506,6 @@ test(
           {
             declaration: { module: "@native-typescript/gtk4", name: "gdouble" },
             type: { kind: "nativeScalar", scalar: "f64" },
-          },
-          {
-            declaration: { module: "@native-typescript/gtk4", name: "gint" },
-            type: { kind: "nativeScalar", scalar: "i32" },
           },
         ],
       );
@@ -585,24 +584,37 @@ test(
       const getWidth = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_get_width",
       );
+      /* The slot stays an exact i32; the projection is what widens it into
+       * the plain number the source reads. */
       assert.deepEqual(getWidth?.result, {
         type: { kind: "nativeScalar", scalar: "i32" },
         passMode: "value",
         ownership: { kind: "value" },
-        projection: { kind: "direct" },
+        projection: { kind: "number" },
       });
       const setDefaultSize = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_window_set_default_size",
       );
+      /* The source takes plain numbers and the physical slots stay exact, so
+       * each argument is an f64 the checked ingress converts. */
       assert.deepEqual(setDefaultSize?.arguments.slice(1), [
-        { name: "width", type: { kind: "nativeScalar", scalar: "i32" } },
-        { name: "height", type: { kind: "nativeScalar", scalar: "i32" } },
+        { name: "width", type: { kind: "f64" } },
+        { name: "height", type: { kind: "f64" } },
       ]);
       assert.deepEqual(
-        setDefaultSize?.parameters.slice(1).map(({ projection }) => projection),
+        setDefaultSize?.parameters.slice(1).map(({ type, projection }) => ({
+          type,
+          projection,
+        })),
         [
-          { kind: "argument", argument: 1 },
-          { kind: "argument", argument: 2 },
+          {
+            type: { kind: "nativeScalar", scalar: "i32" },
+            projection: { kind: "number", argument: 1 },
+          },
+          {
+            type: { kind: "nativeScalar", scalar: "i32" },
+            projection: { kind: "number", argument: 2 },
+          },
         ],
       );
       const connect = translated.input.bindings.find(

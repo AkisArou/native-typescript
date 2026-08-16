@@ -906,13 +906,15 @@ test(
 );
 
 test(
-  "unsigned and wide GLib integers project as exact branded scalars",
+  "unsigned and wide GLib integers project as plain numbers over exact slots",
   { skip: !existsSync(systemGtkGir) },
   () => {
     /* GTK spends unsigned integers freely — spacings, counts, digits — and a
      * projection that admitted only gint refused those members while blaming
-     * GObject handles for it. Every width is exact and separately branded, so
-     * a guint16 cannot be handed where a guint belongs. */
+     * GObject handles for it. Each width keeps its own exact ABI type, and
+     * each declares the JavaScript-number conversion, so the spelling still
+     * says what the value means while the value behaves like the number it
+     * is. The manifest is where the width lives; the alias is transparent. */
     const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
       namespace: { name: "Gtk", version: "4.0" },
@@ -934,9 +936,24 @@ test(
       signed: false,
       bits: 16,
     });
-    assert.match(
-      generated.declarations,
-      /export type guint = number & \{ readonly \[nativeScalar\]: "guint" \};/u,
+    assert.match(generated.declarations, /export type guint = number;\n/u);
+    assert.match(generated.declarations, /export type guint16 = number;\n/u);
+    /* Nothing here still carries an exact representation, so the brand symbol
+     * itself must not be declared. */
+    assert.ok(!generated.declarations.includes("nativeScalar"));
+    const setRowSpacing = generated.manifest.bindings.gtk_grid_set_row_spacing;
+    assert.equal(
+      setRowSpacing?.kind === "constant"
+        ? undefined
+        : setRowSpacing?.signature.parameters[1]?.conversion,
+      "number",
+    );
+    const getTextLength = generated.manifest.bindings.gtk_entry_get_text_length;
+    assert.equal(
+      getTextLength?.kind === "constant"
+        ? undefined
+        : getTextLength?.signature.result.conversion,
+      "number",
     );
     assert.match(generated.declarations, /setRowSpacing\(spacing: guint\): void;/u);
     assert.match(generated.declarations, /getTextLength\(\): guint16;/u);
@@ -1034,8 +1051,8 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
       }],
     },
     fields: [
-      { name: "width", type: "gint", offset: 0 },
-      { name: "height", type: "gint", offset: 4 },
+      { name: "width", type: "gint", offset: 0, conversion: "number" },
+      { name: "height", type: "gint", offset: 4, conversion: "number" },
     ],
   });
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
@@ -1627,6 +1644,7 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
             passMode: "value",
             nullable: false,
             ownership: { kind: "value" },
+            conversion: "number",
           },
           {
             name: "scale",
@@ -1667,6 +1685,8 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
     ({ id }) => id.endsWith("#gtk_button_connect_resized"),
   );
   assert.ok(nativeConnect);
+  /* The queued gint payload stays exact in storage and reaches the handler as
+   * a plain number; gdouble is already one and keeps its brand. */
   assert.deepEqual(nativeConnect.arguments[1]?.type, {
     kind: "func",
     params: [
@@ -1674,11 +1694,21 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
         kind: "nativeHandle",
         typeId: "native-typescript.gtk4@0.0.0#type:gtk_button",
       },
-      { kind: "nativeScalar", scalar: "i32" },
+      { kind: "f64" },
       { kind: "nativeScalar", scalar: "f64" },
     ],
     ret: { kind: "void" },
   });
+  const payloadSignature = nativeConnect.parameters[1]?.type;
+  assert.deepEqual(
+    payloadSignature?.kind === "nativeCallback"
+      ? payloadSignature.signature.parameters
+      : undefined,
+    [
+      { kind: "nativeScalar", scalar: "i32" },
+      { kind: "nativeScalar", scalar: "f64" },
+    ],
+  );
   assert.deepEqual(nativeConnect.arguments[1]?.callback, {
     lifetime: "until-cancelled",
     registrationOwner: { kind: "argument", argument: 0 },

@@ -18,7 +18,6 @@ import {
   Overlay,
   Window,
   type gdouble,
-  type gint,
 } from "@native-typescript/gtk4";
 
 let failed = false;
@@ -57,7 +56,7 @@ if (window.getTitle() !== "Native TypeScript GTK") failed = true;
 const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();
-const box = new Box(Orientation.Vertical, 8 as gint);
+const box = new Box(Orientation.Vertical, 8);
 const combinedScrollFlags = EventControllerScrollFlags.combine(
   EventControllerScrollFlags.Vertical,
   EventControllerScrollFlags.Horizontal,
@@ -80,8 +79,8 @@ button.setVisible(false);
 button.setVisible(true);
 button.opacity = 0.75 as gdouble;
 button.opacity = button.opacity;
-drawingArea.setContentWidth(640 as gint);
-drawingArea.setContentHeight(480 as gint);
+drawingArea.setContentWidth(640);
+drawingArea.setContentHeight(480);
 overlay.setChild(drawingArea);
 overlay.addOverlay(button);
 box.append(overlay);
@@ -91,9 +90,9 @@ window.setDefaultSize(
   preferredSize.naturalSize.width,
   preferredSize.naturalSize.height,
 );
-window.setDefaultSize(640 as gint, 480 as gint);
+window.setDefaultSize(640, 480);
 window.present();
-window.setDefaultSize(button.getWidth(), 480 as gint);
+window.setDefaultSize(button.getWidth(), 480);
 const clicked = button.onClicked((sender): void => {
   const updated = sender.getLabel();
   if (

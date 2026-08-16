@@ -98,7 +98,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:cdd38ec29c8eec9194b0e80b6f67cea18f488e3f2378cde329281ae9015552d8",
+    "sha256:7c457e8515c8a808b42a47b9fa8c6f7a1d7bb66dd7febe29ad8ed8fbe0042c9d",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -630,6 +630,58 @@ test("SCABI rejects unknown and ambiguous source type identities", () => {
     },
   };
   assert.deepEqual(validationCodes(duplicate), ["NTS2021"]);
+});
+
+test("SCABI admits a number conversion only where a double is injective", () => {
+  const identity = manifest.bindings.i32_identity;
+  const wide = manifest.bindings.i64_identity;
+  assert.notEqual(identity?.kind, "constant");
+  assert.notEqual(wide?.kind, "constant");
+  if (
+    identity === undefined || identity.kind === "constant" ||
+    wide === undefined || wide.kind === "constant"
+  ) {
+    return;
+  }
+  const converted = (
+    binding: typeof identity,
+    id: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    ...manifest,
+    bindings: {
+      ...manifest.bindings,
+      [id]: {
+        ...binding,
+        ...extra,
+        signature: {
+          ...binding.signature,
+          parameters: [
+            { ...binding.signature.parameters[0]!, conversion: "number" },
+          ],
+          result: { ...binding.signature.result, conversion: "number" },
+        },
+      },
+    },
+  });
+
+  /* 32 bits and narrower round-trip through a double exactly. */
+  assert.equal(
+    validateScabiManifest(converted(identity, "i32_identity")).ok,
+    true,
+  );
+  /* 64 bits do not, so the declaration is a defect rather than a preference. */
+  assert.deepEqual(
+    validationCodes(converted(wide, "i64_identity")),
+    ["NTS2021", "NTS2021"],
+  );
+  /* A failure contract is read from the exact scalar the source never sees. */
+  assert.deepEqual(
+    validationCodes(converted(identity, "i32_identity", {
+      error: { kind: "errno", failureValue: "-1" },
+    })),
+    ["NTS2040"],
+  );
 });
 
 test("SCABI rejects implicit ownership for a native pointer", () => {

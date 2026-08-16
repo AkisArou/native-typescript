@@ -40,15 +40,13 @@ import {
   Window,
   type gdouble,
   type gint,
-  type guint,
-  type guint16,
 } from "@native-typescript/gtk4";
 
 if (!applicationStart()) throw new Error("the GTK target did not start");
 
 const window = new Window();
 window.setTitle("Native TypeScript");
-window.setDefaultSize(720 as gint, 480 as gint);
+window.setDefaultSize(720, 480);
 window.setResizable(true);
 
 const header = new HeaderBar();
@@ -57,12 +55,12 @@ header.setTitleWidget(new Label("Widgets"));
 header.packStart(new Image());
 header.packEnd(new Button());
 
-const content = new Box(Orientation.Vertical, 12 as gint);
+const content = new Box(Orientation.Vertical, 12);
 content.setHomogeneous(false);
-content.setMarginTop(8 as gint);
-content.setMarginBottom(8 as gint);
-content.setMarginStart(8 as gint);
-content.setMarginEnd(8 as gint);
+content.setMarginTop(8);
+content.setMarginBottom(8);
+content.setMarginStart(8);
+content.setMarginEnd(8);
 content.append(header);
 
 const heading = new Label(null);
@@ -72,11 +70,11 @@ heading.setSelectable(false);
 content.append(heading);
 
 const entry = new Entry();
-entry.maxLength = 32 as gint;
+entry.maxLength = 32;
 entry.setVisibility(true);
 content.append(entry);
 
-const controls = new Box(Orientation.Horizontal, 6 as gint);
+const controls = new Box(Orientation.Horizontal, 6);
 const check = CheckButton.withLabel("Enabled");
 check.active = true;
 const toggle = new ToggleButton();
@@ -103,9 +101,9 @@ const adjustment = new Adjustment(
 adjustment.setStepIncrement(2 as gdouble);
 const scale = new Scale(Orientation.Horizontal, adjustment);
 scale.setDrawValue(true);
-scale.setDigits(1 as gint);
-const spin = new SpinButton(adjustment, 1 as gdouble, 0 as guint);
-spin.setDigits(0 as guint);
+scale.setDigits(1);
+const spin = new SpinButton(adjustment, 1 as gdouble, 0);
+spin.setDigits(0);
 content.append(scale);
 content.append(spin);
 
@@ -147,10 +145,10 @@ const rowActivated = list.onRowActivated((_sender, row): void => {
 if (!rowActivated.connected) throw new Error("row-activated did not connect");
 
 const grid = new Grid();
-grid.setRowSpacing(4 as guint);
-grid.setColumnSpacing(8 as guint);
-grid.attach(new Label("row"), 0 as gint, 0 as gint, 1 as gint, 1 as gint);
-grid.attach(list, 1 as gint, 0 as gint, 1 as gint, 2 as gint);
+grid.setRowSpacing(4);
+grid.setColumnSpacing(8);
+grid.attach(new Label("row"), 0, 0, 1, 1);
+grid.attach(list, 1, 0, 1, 2);
 
 /* An object goes in and four values come back. The input is borrowed for the
  * call: the grid already holds the child, and asking about it takes no
@@ -173,8 +171,8 @@ const notes = new TextView();
 notes.editable = false;
 notes.setMonospace(true);
 const scroller = new ScrolledWindow();
-scroller.setMinContentHeight(120 as gint);
-scroller.setMinContentWidth(240 as gint);
+scroller.setMinContentHeight(120);
+scroller.setMinContentWidth(240);
 scroller.setChild(notes);
 content.append(scroller);
 
@@ -185,15 +183,25 @@ window.setChild(content);
 window.present();
 
 /* Returns an optional exact scalar: the value crosses a union on the way out
- * and back, which is what any narrowing or absent value produces. */
-function rowIndex(present: boolean): gint | undefined {
-  return present ? (-7 as gint) : undefined;
+ * and back, which is what any narrowing or absent value produces. gdouble is
+ * the scalar that still carries a brand, so it is the one this proves. */
+function rowOffset(present: boolean): gdouble | undefined {
+  return present ? (-7 as gdouble) : undefined;
 }
 
 let failure = "";
 
 function check_(condition: boolean, description: string): void {
   if (!condition && failure.length === 0) failure = description;
+}
+
+function rejects(action: () => void): boolean {
+  try {
+    action();
+  } catch (error) {
+    return error instanceof TypeError;
+  }
+  return false;
 }
 
 /* Declared before the handler because the handler must cancel it: a pending
@@ -212,8 +220,8 @@ const clicked = action.onClicked((sender): void => {
   check_(sender.getLabel() === "Run", "the button forgot its label");
   check_(heading.getText() === "Native TypeScript", "the heading text is wrong");
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
-  check_(entry.maxLength === (32 as gint), "the entry length limit is wrong");
-  check_(entry.getTextLength() === (0 as guint16), "the entry is not empty");
+  check_(entry.maxLength === 32, "the entry length limit is wrong");
+  check_(entry.getTextLength() === 0, "the entry is not empty");
   check_(check.active, "the check button is not active");
   check_(toggle.active, "the toggle button is not active");
   check_(switch_.active, "the switch is not active");
@@ -225,7 +233,7 @@ const clicked = action.onClicked((sender): void => {
   check_(expander.expanded, "the expander is collapsed");
   check_(revealer.revealChild, "the revealer is hidden");
   check_(!notes.editable, "the text view is editable");
-  check_(content.spacing === (12 as gint), "the box spacing is wrong");
+  check_(content.spacing === 12, "the box spacing is wrong");
   check_(window.visible, "the window is not visible");
   /* Objects this program never constructed. GTK owns them; the adapter takes a
    * reference so the handle can outlive whatever GTK does next, and the
@@ -242,25 +250,25 @@ const clicked = action.onClicked((sender): void => {
   const headingParent = heading.getParent();
   check_(headingParent !== null, "the heading lost its parent");
   check_(
-    activatedRowIndex === (0 as gint),
+    activatedRowIndex === 0,
     "the activated row arrived with the wrong index",
   );
   check_(!alpha.selectable, "the payload did not reach the original row");
   /* An enumeration crosses as an input, and the four measurements come back
    * as one value rather than four out-pointers. */
-  const width = heading.measure(Orientation.Horizontal, -1 as gint);
+  const width = heading.measure(Orientation.Horizontal, -1);
   check_(
-    width.minimum === (220 as gint),
+    width.minimum === 220,
     "the heading measured a width other than its request",
   );
   check_(
-    listPlacement.column === (1 as gint) && listPlacement.row === (0 as gint) &&
-      listPlacement.width === (1 as gint) && listPlacement.height === (2 as gint),
+    listPlacement.column === 1 && listPlacement.row === 0 &&
+      listPlacement.width === 1 && listPlacement.height === 2,
     "the grid reported the wrong placement for its child",
   );
   const requested = heading.getSizeRequest();
   check_(
-    requested.width === (220 as gint) && requested.height === (40 as gint),
+    requested.width === 220 && requested.height === 40,
     "the size request did not come back through its output parameters",
   );
   /* GIR says a range always has one, so this reads as a plain Adjustment
@@ -271,19 +279,62 @@ const clicked = action.onClicked((sender): void => {
     "the scale's adjustment is not the one it was given",
   );
   check_(content.sensitive, "the content is not sensitive");
-  /* An exact native scalar is constructed from a literal, never from an
-   * arbitrary number: the compiler has to prove the value is in range. */
-  check_(alpha.getIndex() === (0 as gint), "the first row reports the wrong index");
-  check_(beta.getIndex() === (1 as gint), "the second row reports the wrong index");
-  check_(gamma.getIndex() === (2 as gint), "the third row reports the wrong index");
+  check_(alpha.getIndex() === 0, "the first row reports the wrong index");
+  check_(beta.getIndex() === 1, "the second row reports the wrong index");
+  check_(gamma.getIndex() === 2, "the third row reports the wrong index");
 
   /* An optional exact scalar rides a union, which is what an absent value or
    * a narrowed one produces. A negative has to survive the slot it rides in. */
-  check_(rowIndex(true) === (-7 as gint), "a negative scalar lost its sign");
-  check_(rowIndex(false) === undefined, "an absent scalar did not stay absent");
-  const present = rowIndex(true);
+  check_(rowOffset(true) === (-7 as gdouble), "a negative scalar lost its sign");
+  check_(rowOffset(false) === undefined, "an absent scalar did not stay absent");
+  const present = rowOffset(true);
   check_(present !== undefined, "a present scalar read as absent");
-  check_(present !== (7 as gint), "a negative scalar read as its positive");
+  check_(present !== (7 as gdouble), "a negative scalar read as its positive");
+  /* A GLib integer is an ordinary number, so everything ordinary numbers do
+   * works on one. None of the four lines below had an expression form while
+   * these values were branded exact scalars: no ordering, no arithmetic
+   * outside a construction, no formatting, and no standard library. */
+  check_(width.minimum > 100, "a measured width would not compare");
+  check_(content.spacing + 1 === 13, "a spacing would not add");
+  check_(
+    Math.max(requested.width, requested.height) === 220,
+    "the standard library would not take a GLib integer",
+  );
+  check_(`${alpha.getIndex()}` === "0", "a row index would not print");
+
+  /* The boundary check is what keeps that honesty affordable. Each value below
+   * has no `gint` or `guint` to convert to, so the call throws a TypeError the
+   * program catches, and the widget keeps what it had. Every one is computed:
+   * a literal the compiler can disprove is refused where it is written rather
+   * than deferred to a throw. */
+  const limit = entry.maxLength;
+  const zero = limit - limit;
+  check_(
+    rejects((): void => {
+      entry.maxLength = limit + 0.5;
+    }),
+    "a fraction crossed the boundary",
+  );
+  check_(
+    rejects((): void => {
+      entry.maxLength = limit + 2147483647;
+    }),
+    "a value above gint crossed the boundary",
+  );
+  check_(
+    rejects((): void => {
+      entry.maxLength = zero / zero;
+    }),
+    "NaN crossed the boundary",
+  );
+  check_(
+    rejects((): void => {
+      grid.setRowSpacing(-limit);
+    }),
+    "a negative crossed into an unsigned slot",
+  );
+  check_(entry.maxLength === 32, "a refused conversion changed the widget");
+
   console.log(failure.length > 0 ? failure : "widgets ok");
   window.destroy();
   applicationQuit();
@@ -293,7 +344,7 @@ if (!clicked.connected) throw new Error("clicked did not connect");
 /* Two values come back from one call, through output parameters the adapter
  * turns into a struct. Nothing about the C signature reaches TypeScript: the
  * pointers are the adapter's business, and this reads as a record. */
-heading.setSizeRequest(220 as gint, 40 as gint);
+heading.setSizeRequest(220, 40);
 
 /* A deprecated member still binds. GTK would rather this were
  * `setVisible(true)`, and the generated declaration says so, but an

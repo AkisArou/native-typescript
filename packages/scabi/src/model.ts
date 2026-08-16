@@ -107,7 +107,27 @@ export interface NativeField {
     readonly bitOffset: number;
     readonly bitWidth: number;
   };
+  /** See {@link AbiResult.conversion}. The field keeps its exact storage; only
+   * the source view of it changes. */
+  readonly conversion?: NumberConversion;
 }
+
+/**
+ * The source-visible carrier for a position whose native representation is an
+ * exact integer.
+ *
+ * `"number"` declares the JavaScript-number conversion policy: the source sees
+ * an ordinary `number`, an argument is checked into the native integer at the
+ * boundary — finite, integral, in range, or a catchable TypeError — and a
+ * result or field widens out of it exactly. Only an integer of at most 32 bits
+ * may declare it, because a double carries wider integers non-injectively and
+ * a silently rounded value is worse than a refused one.
+ *
+ * Absence is not a default policy but the other option: the position carries
+ * the exact native representation, which is the only honest carrier for a
+ * 64-bit or pointer-width integer.
+ */
+export type NumberConversion = "number";
 
 export type NativePhysicalAbiType =
   | { readonly kind: "void" }
@@ -281,6 +301,9 @@ export interface AbiResult {
   readonly nullable: boolean;
   readonly ownership: OwnershipContract;
   readonly marshal?: MarshallingContract;
+  /** The source-visible carrier for this position when it is not the native
+   * type's own representation. See {@link NumberConversion}. */
+  readonly conversion?: NumberConversion;
 }
 
 export interface AbiParameter extends AbiResult {
@@ -486,7 +509,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;

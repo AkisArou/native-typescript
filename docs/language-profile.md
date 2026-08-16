@@ -155,6 +155,35 @@ Binding declarations must use exact scalars wherever the native ABI does.
 Ordinary `number` is accepted only when the binding explicitly declares a
 JavaScript-number conversion policy.
 
+### The JavaScript-number conversion policy
+
+A binding position whose native type is an integer of **at most 32 bits** may
+declare that its source-visible carrier is an ordinary `number`. The width
+bound is the whole rule: a double represents every value of such a type
+injectively, so the round trip is lossless in both directions. A 64-bit or
+pointer-width integer may not declare it, and no analysis or heuristic may
+infer the policy — the manifest declares it or the position is exact.
+
+- **Ingress** (arguments, aggregate construction) is *checked*. The value must
+  be finite, integral, and within the native type's range. A value that is not
+  raises a catchable `TypeError` at the boundary, through the same pending-
+  check mechanism the native boolean projection uses, before the call happens.
+  Negative zero converts to zero: it is integral and in range, and `-0` and
+  `0` denote the same integer.
+- **Egress** (results, aggregate fields, callback payloads) is *exact
+  widening*. It cannot fail and has no failure arm.
+- A literal argument is decided at compile time. When the compiler can prove
+  the literal converts, no check is emitted — the constant is the converted
+  value. When it can prove the literal cannot convert, the program is refused
+  where the literal is written, because the call has only one outcome.
+- A failing binding may not declare the policy on its result: a sentinel,
+  errno, or status contract is read from the exact scalar the source never
+  sees.
+
+An implementation must not narrow this to a specific binding family. It is a
+property of a declared position, and it is what makes an ordinary `number`
+usable at an ABI without giving up the ABI's exactness.
+
 ### Native boolean projection
 
 An ABI boolean is not an exact-integer source alias. SCABI declares its integer

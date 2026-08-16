@@ -570,14 +570,13 @@ test(
           { kind: "callback-parameter", parameter: 1 },
         ],
       );
+      /* The queued slots stay exact i32; what the handler receives is the
+       * widening the delivery performs when it reads them. */
       assert.deepEqual(
         translatedResize?.arguments[1]?.type.kind === "func"
           ? translatedResize.arguments[1].type.params.slice(1)
           : undefined,
-        [
-          { kind: "nativeScalar", scalar: "i32" },
-          { kind: "nativeScalar", scalar: "i32" },
-        ],
+        [{ kind: "f64" }, { kind: "f64" }],
       );
       for (const declarationName of [
         "Button",
