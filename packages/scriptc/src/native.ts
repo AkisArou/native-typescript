@@ -1073,8 +1073,18 @@ function supportedCallScopedCallbackPair(
   ) {
     return `callback context '${contract.contextParameter}' must name a non-null call-scoped address-space-zero void pointer`;
   }
+  /* An enumeration is its underlying integer at the ABI, and its members are
+   * proven constants of that integer. Passing one by value is passing that
+   * integer, so a callback payload may name an enumeration wherever it may
+   * name the integer it stores. */
+  const valueStorage = (typeId: string): NativeType | undefined => {
+    const type = manifest.types[typeId];
+    return type?.kind === "enum" || type?.kind === "flags"
+      ? manifest.types[type.underlying]
+      : type;
+  };
   const supportedScalarPosition = (position: AbiParameter | AbiResult): boolean => {
-    const type = manifest.types[position.type];
+    const type = valueStorage(position.type);
     return position.passMode === "value" &&
       !position.nullable &&
       position.ownership.kind === "value" &&
@@ -1221,8 +1231,18 @@ function supportedRetainedCallbackPair(
   ) {
     return `callback context '${contract.contextParameter}' must name a non-null registration-borrowed address-space-zero void pointer anchored to '${parameter.name}'`;
   }
+  /* An enumeration is its underlying integer at the ABI, and its members are
+   * proven constants of that integer. Passing one by value is passing that
+   * integer, so a callback payload may name an enumeration wherever it may
+   * name the integer it stores. */
+  const valueStorage = (typeId: string): NativeType | undefined => {
+    const type = manifest.types[typeId];
+    return type?.kind === "enum" || type?.kind === "flags"
+      ? manifest.types[type.underlying]
+      : type;
+  };
   const supportedScalarPosition = (position: AbiParameter | AbiResult): boolean => {
-    const type = manifest.types[position.type];
+    const type = valueStorage(position.type);
     return position.passMode === "value" &&
       !position.nullable &&
       position.ownership.kind === "value" &&

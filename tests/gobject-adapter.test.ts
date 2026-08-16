@@ -351,7 +351,7 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
         code: "NTS5001",
         severity: "error",
         path: "Button/signal/clicked",
-        message: "Only non-detailed void GObject signals with exact scalar payloads are implemented",
+        message: "Only non-detailed void GObject signals with exact scalar or enumeration payloads are implemented",
       }]);
       return true;
     },

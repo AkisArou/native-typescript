@@ -352,7 +352,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Branded `gdouble` | parameters and results |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Record outputs | `Widget.getPreferredSize()` as a nested value |
-| Signals | non-detailed `void`, zero or copied exact `gint`/`gdouble` payloads |
+| Signals | non-detailed `void`, payloads of any exact scalar or selected enumeration |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
 `none` and `full` results become one strong, non-floating reference, and a real
@@ -428,9 +428,16 @@ These are deliberate, not oversights. Each is a named future slice.
   shape.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
-- **Non-scalar signal payloads and results**, detailed signals, and broader
-  value-method input/output families fail generation. A signal carrying a
-  GObject — `ListBox::row-activated` — is the common case that does not project.
+- **A signal payload must be a value.** Exact scalars of every width and
+  selected enumerations project, because the dispatch copies them and nothing
+  outlives the callback. A handle, a boxed record, or a string would each have
+  to be borrowed for exactly the callback's duration, and that lifetime does
+  not exist: a callback source argument may be a handle only when it is the
+  registration owner. Of GTK 4's 348 signals this leaves `gboolean` (30
+  payloads), `utf8` (29), and GObject or boxed types as the families that do
+  not project.
+- **Detailed signals and non-void signal results** fail generation, as do
+  broader value-method input/output families.
 - **`gfloat` does not project.** ScriptC's float slice is exactly `f64`, so
   admitting a 32-bit float would silently widen every value. Members taking one
   are refused by name.

@@ -41,7 +41,6 @@ import type {
   GirEnumeration,
   GirParameter,
   GirSnapshot,
-  GirTypeReference,
 } from "./gir-model.ts";
 import { generateGObjectAdapterSource } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
@@ -94,76 +93,13 @@ export interface GObjectScabiPackage {
   readonly manifestDigest: Sha256Digest;
 }
 
+import {
+  sourceScalarType,
+  sourceScalarTypes,
+} from "./gobject-scalars.ts";
+
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
-/**
- * The GLib scalars that project as exact branded TypeScript types.
- *
- * Each entry names one GIR type, the C spellings that type is allowed to have,
- * and the ABI it claims. The claim is not trusted: the Clang probe proves the
- * callable's real signature, so an entry that mis-states a width or a sign
- * fails generation rather than producing a program that reads the wrong bytes.
- *
- * Widths are fixed and unambiguous. `glong`, `gsize`, and friends vary by
- * platform and are deliberately absent until the probe's evidence, rather than
- * a table, decides their width. `gfloat` is absent because ScriptC has no
- * 32-bit float: admitting it here would silently widen every value.
- */
-interface SourceScalarType {
-  readonly girName: string;
-  readonly cTypes: readonly string[];
-  readonly abiType: string;
-  readonly nativeType: NativeType;
-  /** 64-bit integers exceed what a TypeScript number holds exactly. */
-  readonly carrier: "number" | "bigint";
-}
-
-function integerScalar(
-  girName: string,
-  cTypes: readonly string[],
-  signed: boolean,
-  bits: 8 | 16 | 32 | 64,
-): SourceScalarType {
-  return Object.freeze({
-    girName,
-    cTypes: Object.freeze([...cTypes]),
-    abiType: girName,
-    nativeType: Object.freeze({ kind: "integer", signed, bits }),
-    carrier: bits === 64 ? "bigint" : "number",
-  });
-}
-
-const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
-  Object.freeze({
-    girName: "gdouble",
-    cTypes: Object.freeze(["double", "gdouble"]),
-    abiType: "gdouble",
-    nativeType: Object.freeze({ kind: "float", bits: 64 }),
-    carrier: "number",
-  }) as SourceScalarType,
-  integerScalar("gint", ["gint", "int"], true, 32),
-  integerScalar("guint", ["guint", "unsigned int"], false, 32),
-  integerScalar("gint8", ["gint8"], true, 8),
-  integerScalar("guint8", ["guint8"], false, 8),
-  integerScalar("gint16", ["gint16", "short"], true, 16),
-  integerScalar("guint16", ["guint16", "unsigned short"], false, 16),
-  integerScalar("gint32", ["gint32"], true, 32),
-  integerScalar("guint32", ["guint32"], false, 32),
-  integerScalar("gint64", ["gint64"], true, 64),
-  integerScalar("guint64", ["guint64"], false, 64),
-]);
-
-function sourceScalarType(
-  type: GirTypeReference,
-): SourceScalarType | undefined {
-  return type.kind === "named"
-    ? sourceScalarTypes.find(
-        (scalar) => scalar.girName === type.name &&
-          type.cType !== null &&
-          scalar.cTypes.includes(type.cType),
-      )
-    : undefined;
-}
 
 function sha256(value: string): Sha256Digest {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
@@ -546,6 +482,13 @@ function requiredValueParameter(
     readonly girName: string;
     readonly cTypes: readonly string[];
     readonly abiType: string;
+    /**
+     * GIR spells an enumeration signal payload with no c:type of its own — the
+     * spelling is on the enumeration's declaration. Set only there: a
+     * primitive payload does carry one, and accepting its absence would let an
+     * unspelled parameter through on a guess.
+     */
+    readonly cTypeOnDeclaration?: boolean;
   },
   path: string,
   diagnostics: CBindgenDiagnostic[],
@@ -554,8 +497,9 @@ function requiredValueParameter(
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
     parameter.type.name !== type.girName ||
-    parameter.type.cType === null ||
-    !type.cTypes.includes(parameter.type.cType) ||
+    (parameter.type.cType === null
+      ? type.cTypeOnDeclaration !== true
+      : !type.cTypes.includes(parameter.type.cType)) ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
     parameter.nullable ||
@@ -1983,19 +1927,38 @@ export function generateGObjectScabiPackage(
       for (const [index, parameter] of callable.parameters.entries()) {
         const parameterPath = `${path}/parameters/${index}`;
         const scalar = sourceScalarType(parameter.type);
-        if (scalar === undefined) {
-          diagnostics.push(
-            diagnostic(parameterPath, "Only exact gint and gdouble signal payloads are implemented"),
-          );
+        const enumeration = parameter.type.kind === "named"
+          ? enumerations.get(parameter.type.name)
+          : undefined;
+        /* A payload is copied into the callback turn, so only types that are
+         * values qualify. An enumeration is one: its storage and members are
+         * Clang-proven and nothing outlives the call. A handle, a boxed
+         * record, or a string would each have to be borrowed for exactly the
+         * callback's duration, which is a lifetime nothing implements. */
+        const payload = scalar ?? (enumeration === undefined ? undefined : {
+          girName: enumeration.girName,
+          cTypes: [enumeration.cType],
+          abiType: enumeration.typeId,
+          sourceName: enumeration.sourceName,
+          cTypeOnDeclaration: true,
+        });
+        if (payload === undefined) {
+          diagnostics.push(diagnostic(
+            parameterPath,
+            "Only exact scalar and selected enumeration signal payloads are implemented",
+          ));
           signalValid = false;
           continue;
         }
-        const abi = requiredValueParameter(parameter, scalar, parameterPath, diagnostics);
+        const sourceName = "sourceName" in payload
+          ? payload.sourceName
+          : payload.girName;
+        const abi = requiredValueParameter(parameter, payload, parameterPath, diagnostics);
         const adapterParameter = adapter.parameters[index];
         if (
           abi === null ||
           adapterParameter?.name !== parameter.name ||
-          adapterParameter.sourceType !== scalar.girName
+          adapterParameter.sourceType !== payload.girName
         ) {
           if (abi !== null) {
             diagnostics.push(
@@ -2007,7 +1970,7 @@ export function generateGObjectScabiPackage(
         }
         signalParameters.push(abi);
         sourceSignalParameters.push(
-          `${lowerCamel(parameter.name)}: ${scalar.girName}`,
+          `${lowerCamel(parameter.name)}: ${sourceName}`,
         );
       }
       if (!signalValid || signalParameters.length !== adapter.parameters.length) continue;

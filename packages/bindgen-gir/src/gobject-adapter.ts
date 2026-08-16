@@ -21,6 +21,7 @@ import type {
   GirSnapshot,
   GirTransferOwnership,
 } from "./gir-model.ts";
+import { sourceScalarType } from "./gobject-scalars.ts";
 
 export interface GObjectConstructorAdapter {
   readonly id: string;
@@ -47,7 +48,8 @@ export interface GObjectSignalAdapter {
 export interface GObjectSignalParameterAdapter {
   readonly name: string;
   readonly nativeType: string;
-  readonly sourceType: "gdouble" | "gint";
+  /** The GIR type name the payload projects as: a scalar or an enumeration. */
+  readonly sourceType: string;
 }
 
 export interface GObjectSignalConnectionAdapter {
@@ -177,19 +179,30 @@ function signalSymbolPart(value: string): string {
 
 function signalParameter(
   parameter: GirCallable["parameters"][number],
+  enumerationCTypes: ReadonlyMap<string, string>,
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): GObjectSignalParameterAdapter | null {
-  const physical = physicalType(parameter.type.cType, `${path}/type`, diagnostics);
-  const sourceType = parameter.type.kind === "named" &&
-      parameter.type.name === "gint" &&
-      (parameter.type.cType === "int" || parameter.type.cType === "gint")
-    ? "gint"
-    : parameter.type.kind === "named" &&
-        parameter.type.name === "gdouble" &&
-        (parameter.type.cType === "double" || parameter.type.cType === "gdouble")
-      ? "gdouble"
-      : null;
+  /* A payload is either an exact scalar or an enumeration. Both are values the
+   * dispatch copies, so neither outlives the callback. Handles, boxed records,
+   * and strings are refused: each would have to be a borrowed thing whose
+   * lifetime ends when the callback returns, which nothing implements yet. */
+  const scalar = sourceScalarType(parameter.type);
+  const enumerationCType = parameter.type.kind === "named"
+    ? enumerationCTypes.get(parameter.type.name)
+    : undefined;
+  const sourceType = scalar?.girName ??
+    (enumerationCType === undefined || parameter.type.kind !== "named"
+      ? null
+      : parameter.type.name);
+  /* GIR gives a signal parameter no c:type — a signal is not a C function — so
+   * an enumeration payload's spelling comes from the enumeration's own
+   * declaration rather than from the parameter that names it. */
+  const physical = physicalType(
+    parameter.type.cType ?? enumerationCType ?? null,
+    `${path}/type`,
+    diagnostics,
+  );
   if (
     physical === null ||
     sourceType === null ||
@@ -333,6 +346,7 @@ function generateSignal(
   class_: GirClass,
   callable: GirCallable,
   signalConnection: GObjectSignalConnectionAdapter,
+  enumerationCTypes: ReadonlyMap<string, string>,
   diagnostics: CBindgenDiagnostic[],
 ): {
   readonly adapter: GObjectSignalAdapter;
@@ -343,7 +357,12 @@ function generateSignal(
   const nativeClass = physicalType(class_.cType, `${path}/class`, diagnostics);
   const result = physicalType(callable.result.type.cType, `${path}/result`, diagnostics);
   const parameters = callable.parameters.map((parameter, index) =>
-    signalParameter(parameter, `${path}/parameters/${index}`, diagnostics)
+    signalParameter(
+      parameter,
+      enumerationCTypes,
+      `${path}/parameters/${index}`,
+      diagnostics,
+    )
   );
   const validParameters = parameters.filter(
     (parameter): parameter is NonNullable<typeof parameter> => parameter !== null,
@@ -366,7 +385,9 @@ function generateSignal(
       code: "NTS5001",
       severity: "error",
       path,
-      message: "Only non-detailed void GObject signals with exact scalar payloads are implemented",
+      message:
+        "Only non-detailed void GObject signals with exact scalar or " +
+        "enumeration payloads are implemented",
     });
     return null;
   }
@@ -643,6 +664,15 @@ export function generateGObjectAdapterSource(
   const signals: GObjectSignalAdapter[] = [];
   const valueMethods: GObjectValueMethodAdapter[] = [];
   const hasSignals = snapshot.classes.some((class_) => class_.signals.length > 0);
+  /* Only a selected enumeration projects. An unselected one has no members and
+   * no proven storage, so a payload naming it is refused like any other
+   * unprojectable type. */
+  const enumerationCTypes: ReadonlyMap<string, string> = new Map(
+    snapshot.enumerations.map((enumeration) => [
+      enumeration.name,
+      enumeration.cType,
+    ]),
+  );
   const namespacePart = snapshot.namespace.name.toLowerCase();
   const signalConnection = hasSignals
     ? Object.freeze({
@@ -746,6 +776,7 @@ export function generateGObjectAdapterSource(
         class_,
         callable,
         signalConnection!,
+        enumerationCTypes,
         diagnostics,
       );
       if (generated === null) continue;

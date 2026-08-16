@@ -17,6 +17,7 @@ const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/gtk-application");
 const windowFixtureRoot = join(workspace, "fixtures/gtk-window");
+const payloadFixtureRoot = join(workspace, "fixtures/gtk-signal-payload");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
@@ -207,6 +208,63 @@ test(
         status: 0,
         signal: null,
         stdout: "window ok\n",
+        stderr: "",
+      });
+    } finally {
+      rmSync(scratch, { force: true, recursive: true });
+    }
+  },
+);
+
+test(
+  "signal payloads carry exact scalars and enumerations",
+  { skip: unavailable || !existsSync(bindingToolPath) },
+  async () => {
+    /* Both are values the dispatch copies, so neither introduces a lifetime.
+     * The payloads are produced by GTK — a direction change and a buffer
+     * deletion — rather than emitted by the program, and every value is
+     * checked, so a payload that marshalled to the wrong number would fail
+     * here rather than merely link. */
+    execFileSync(pnpm, [
+      "--dir",
+      scriptcRoot,
+      "--filter",
+      "@scriptc/compiler",
+      "build",
+    ]);
+    const project = parseGtkApplicationProject(
+      readFileSync(join(payloadFixtureRoot, "native-typescript.json"), "utf8"),
+    );
+    const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-payload-"));
+    try {
+      const built = await buildGtkApplication({
+        projectRoot: payloadFixtureRoot,
+        project,
+        scratch,
+        backend: "c",
+        tools: {
+          clang: executable("clang"),
+          node: process.execPath,
+          pkgConfig: executable("pkg-config"),
+          sandbox: executable("bwrap"),
+        },
+      });
+      const declarations = readFileSync(
+        join(built.generatedPackages[0]!.path, "package.d.ts"),
+        "utf8",
+      );
+      assert.match(
+        declarations,
+        /onDirectionChanged\(callback: \(widget: Widget, previousDirection: TextDirection\) => void\): SignalConnection;/u,
+      );
+      assert.match(
+        declarations,
+        /onDeletedText\(callback: \(entryBuffer: EntryBuffer, position: guint, nChars: guint\) => void\): SignalConnection;/u,
+      );
+      assert.deepEqual(runApplication(built.productPath), {
+        status: 0,
+        signal: null,
+        stdout: "payloads ok\n",
         stderr: "",
       });
     } finally {
