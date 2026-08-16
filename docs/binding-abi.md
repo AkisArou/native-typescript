@@ -266,6 +266,34 @@ Every type is a tagged value. Core SCABI v1 supports:
 Ordinary TypeScript strings, bytes, records, and errors map through explicit
 marshalling rules. They are not native types by implication.
 
+### Imported types
+
+A manifest may reference a native type another package defines. The reference
+is declared, not inferred: `declarations.types` already names the owning module
+for every type, so an entry whose module is not `"."` and that has no matching
+entry in `types` is an **import**. It states which package owns the type and
+under which source name.
+
+A package must not both import and define one identity, and a referenced type
+that is neither defined nor imported is an error rather than a silently dropped
+reference.
+
+Imports exist because one binding family can span several packages. GIR
+namespaces are package boundaries, so `Gtk.Application` extends
+`Gio.Application` across a package edge, and the two must remain separate
+packages rather than being flattened into one manifest.
+
+An imported type is opaque inside the importing manifest. Only positions that
+need no local structure may use one, which today means **handle upcast targets
+only**: an identity upcast is representation-preserving, so the importer needs
+the identity but not the definition. Every other position requires the type to
+be defined locally.
+
+Structural agreement is therefore not a manifest-level property. Composition
+sees both packages and is responsible for proving that an imported target
+exists, is a handle, and carries matching thread-safety and identity
+contracts.
+
 A native boolean names an integer storage type plus distinct, canonical,
 in-range false and true values. Its source projection is an ordinary TypeScript
 `boolean`; the storage integer is ABI-only. Both backends compare the exact

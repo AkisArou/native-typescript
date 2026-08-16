@@ -152,6 +152,61 @@ test("SCABI handle upcasts are explicit, canonical, and representation-safe", ()
   assert.deepEqual(validationCodes(cyclic), ["NTS2021"]);
 });
 
+test("SCABI handle upcasts may target a type another package owns", () => {
+  // Gtk.Application extends Gio.Application. GIR namespaces are package
+  // boundaries, so the base handle is defined by a different package and this
+  // manifest only imports it.
+  const imported = structuredClone(manifest);
+  Object.assign(imported.types, {
+    derived_handle: {
+      kind: "handle" as const,
+      nativeName: "DerivedHandle",
+      threadSafety: "confined" as const,
+      identity: "platform" as const,
+      upcasts: [{ kind: "identity" as const, target: "base_handle" }],
+    },
+  });
+  Object.assign(imported.declarations.types, {
+    derived_handle: { module: ".", name: "Derived" },
+    base_handle: { module: "@example/base", name: "Base" },
+  });
+  assert.equal(validateScabiManifest(imported).ok, true);
+
+  // The import must be declared. A bare dangling target used to pass silently
+  // and drop the ancestry.
+  const undeclared = structuredClone(imported);
+  delete (undeclared.declarations.types as Record<string, unknown>).base_handle;
+  assert.deepEqual(validationCodes(undeclared), ["NTS2010"]);
+
+  // A package cannot both import and define one identity.
+  const alsoDefined = structuredClone(imported);
+  Object.assign(alsoDefined.types, {
+    base_handle: {
+      kind: "handle" as const,
+      nativeName: "BaseHandle",
+      threadSafety: "confined" as const,
+      identity: "platform" as const,
+      upcasts: [],
+    },
+  });
+  assert.deepEqual(validationCodes(alsoDefined), ["NTS2010"]);
+
+  // An imported type is opaque here, so it is only usable where no local
+  // structure is required. A binding signature is not such a position.
+  const inSignature = structuredClone(imported);
+  const callable = Object.values(inSignature.bindings).find(
+    (binding) => "signature" in binding,
+  );
+  assert.ok(callable && "signature" in callable);
+  if (!callable || !("signature" in callable)) return;
+  Object.assign(callable.signature.result, { type: "base_handle" });
+  assert.equal(
+    validateScabiManifest(inSignature).ok,
+    false,
+    "an imported type must not be accepted in a binding signature",
+  );
+});
+
 test("SCABI constants and scalar member representations are validated eagerly", () => {
   const valid = structuredClone(manifest);
   Object.assign(valid.types, {

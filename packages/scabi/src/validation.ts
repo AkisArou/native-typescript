@@ -156,6 +156,34 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
   }
 }
 
+/**
+ * Type IDs this manifest references but does not define, because another
+ * package owns them.
+ *
+ * `declarations.types` already names the owning module for every type, so an
+ * entry whose module is not `"."` is the import declaration: it states which
+ * package defines the type and under which source name. A package may not both
+ * import and define the same identity.
+ *
+ * Imports exist so one binding family can span several packages without
+ * flattening them. `Gtk.Application` extends `Gio.Application`, and the two
+ * project into separate packages because GIR namespaces are package
+ * boundaries. Structural agreement cannot be checked here — only composition
+ * sees the defining package — so this manifest checks that every import is
+ * declared and used in a position that tolerates a locally opaque type.
+ */
+function importedTypeIds(manifest: ScabiManifest): ReadonlySet<string> {
+  const imported = new Set<string>();
+  for (const [typeId, declaration] of Object.entries(
+    manifest.declarations.types,
+  )) {
+    if (declaration.module !== "." && manifest.types[typeId] === undefined) {
+      imported.add(typeId);
+    }
+  }
+  return imported;
+}
+
 function validateHandleUpcasts(
   manifest: ScabiManifest,
   diagnostics: ScabiDiagnostic[],
@@ -187,6 +215,9 @@ function validateHandleUpcasts(
         return;
       }
       const target = manifest.types[upcast.target];
+      // An imported target is opaque here, and composition resolves it against
+      // the defining package. A target that is neither defined nor imported is
+      // reported once by the type-reference pass.
       if (target === undefined) return;
       if (target.kind !== "handle") {
         diagnostics.push(diagnostic(
@@ -238,11 +269,24 @@ function validateTypeReferences(
     manifest.declarations.types,
   )) {
     if (manifest.types[typeId] === undefined) {
+      // A missing definition is an import only when another package is named
+      // as its owner. A local declaration must be backed by a local type.
+      if (declaration.module === ".") {
+        diagnostics.push(
+          diagnostic(
+            "NTS2010",
+            `/declarations/types/${typeId}`,
+            `Native type ${typeId} does not exist`,
+          ),
+        );
+      }
+    } else if (declaration.module !== ".") {
       diagnostics.push(
         diagnostic(
           "NTS2010",
           `/declarations/types/${typeId}`,
-          `Native type ${typeId} does not exist`,
+          `Native type ${typeId} is declared in ${declaration.module} but also ` +
+            "defined here; a package cannot both import and define one identity",
         ),
       );
     }
@@ -259,17 +303,29 @@ function validateTypeReferences(
     declarationIdentities.add(identity);
   }
 
+  // Handle upcast targets are the only position that currently tolerates an
+  // imported type, because they need no local structure: the upcast is
+  // representation-preserving and composition proves the target is a handle
+  // with matching thread-safety and identity. Every other position needs the
+  // definition here, so an import in one is reported as such rather than as a
+  // missing type.
+  const imported = importedTypeIds(manifest);
   for (const [id, type] of Object.entries(manifest.types)) {
+    const upcastTargets = new Set(
+      type.kind === "handle" ? type.upcasts.map(({ target }) => target) : [],
+    );
     for (const reference of typeReferences(type)) {
-      if (manifest.types[reference] === undefined) {
-        diagnostics.push(
-          diagnostic(
-            "NTS2010",
-            `/types/${id}`,
-            `Native type ${reference} does not exist`,
-          ),
-        );
-      }
+      if (manifest.types[reference] !== undefined) continue;
+      if (upcastTargets.has(reference) && imported.has(reference)) continue;
+      diagnostics.push(
+        diagnostic(
+          "NTS2010",
+          `/types/${id}`,
+          imported.has(reference)
+            ? `Native type ${reference} is imported and may only be a handle upcast target`
+            : `Native type ${reference} does not exist`,
+        ),
+      );
     }
   }
 
@@ -280,7 +336,9 @@ function validateTypeReferences(
           diagnostic(
             "NTS2010",
             `/bindings/${id}/type`,
-            `Native type ${binding.type} does not exist`,
+            imported.has(binding.type)
+              ? `Native type ${binding.type} is imported and may only be a handle upcast target`
+              : `Native type ${binding.type} does not exist`,
           ),
         );
       }
@@ -297,7 +355,9 @@ function validateTypeReferences(
           diagnostic(
             "NTS2010",
             `/bindings/${id}/signature`,
-            `Native type ${position.type} does not exist`,
+            imported.has(position.type)
+              ? `Native type ${position.type} is imported and may only be a handle upcast target`
+              : `Native type ${position.type} does not exist`,
           ),
         );
       }
