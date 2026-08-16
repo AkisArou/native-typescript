@@ -337,9 +337,11 @@ Two things a project author meets immediately, both deliberate:
 
 - An exact native scalar is constructed from a literal, never from an arbitrary
   number, because the compiler proves the value is in range.
-- Indexing an array under `noUncheckedIndexedAccess` yields `T | undefined`,
-  and a union carrying an exact native scalar has no representation in the
-  emitted C yet. Naming the values avoids it.
+- An array of exact native scalars is not implemented. `[0 as gint]` is
+  refused by name; a union carrying one — `gint | undefined`, which is what a
+  narrowing or an absent value produces — does work.
+- Comparing exact scalars with `<` or `>` is not implemented either; `===` and
+  `!==` are.
 
 ### Executed lifecycle
 

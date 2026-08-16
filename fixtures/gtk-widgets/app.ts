@@ -171,6 +171,12 @@ content.append(stack);
 window.setChild(content);
 window.present();
 
+/* Returns an optional exact scalar: the value crosses a union on the way out
+ * and back, which is what any narrowing or absent value produces. */
+function rowIndex(present: boolean): gint | undefined {
+  return present ? (-7 as gint) : undefined;
+}
+
 let failure = "";
 
 function check_(condition: boolean, description: string): void {
@@ -211,6 +217,14 @@ const clicked = action.onClicked((sender): void => {
   check_(alpha.getIndex() === (0 as gint), "the first row reports the wrong index");
   check_(beta.getIndex() === (1 as gint), "the second row reports the wrong index");
   check_(gamma.getIndex() === (2 as gint), "the third row reports the wrong index");
+
+  /* An optional exact scalar rides a union, which is what an absent value or
+   * a narrowed one produces. A negative has to survive the slot it rides in. */
+  check_(rowIndex(true) === (-7 as gint), "a negative scalar lost its sign");
+  check_(rowIndex(false) === undefined, "an absent scalar did not stay absent");
+  const present = rowIndex(true);
+  check_(present !== undefined, "a present scalar read as absent");
+  check_(present !== (7 as gint), "a negative scalar read as its positive");
   console.log(failure.length > 0 ? failure : "widgets ok");
   window.destroy();
   applicationQuit();
