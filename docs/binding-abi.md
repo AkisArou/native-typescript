@@ -269,14 +269,32 @@ marshalling rules. They are not native types by implication.
 ### Imported types
 
 A manifest may reference a native type another package defines. The reference
-is declared, not inferred: `declarations.types` already names the owning module
-for every type, so an entry whose module is not `"."` and that has no matching
-entry in `types` is an **import**. It states which package owns the type and
-under which source name.
+is declared in an explicit `imports` map, never inferred:
 
-A package must not both import and define one identity, and a referenced type
-that is neither defined nor imported is an error rather than a silently dropped
-reference.
+```json
+"imports": {
+  "gio_application": {
+    "package": {
+      "name": "@native-typescript/gio2",
+      "version": "0.0.0",
+      "namespace": "native-typescript.gio2",
+      "instance": "native-typescript.gio2@0.0.0"
+    },
+    "type": "gio_application"
+  }
+}
+```
+
+The owning **package identity** is explicit because a native type's compiler
+identity is scoped to the package instance that defines it. A module specifier
+alone cannot name that instance, so it cannot name the type. `type` is the ID
+inside the owning package, which need not match the importer's local ID.
+
+Every import also needs a `declarations.types` entry naming the owning module,
+which is what the TypeScript projection imports from. A package must not both
+import and define one identity, must not import from its own instance, and a
+referenced type that is neither defined nor imported is an error rather than a
+silently dropped reference.
 
 Imports exist because one binding family can span several packages. GIR
 namespaces are package boundaries, so `Gtk.Application` extends

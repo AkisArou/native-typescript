@@ -160,28 +160,61 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
  * Type IDs this manifest references but does not define, because another
  * package owns them.
  *
- * `declarations.types` already names the owning module for every type, so an
- * entry whose module is not `"."` is the import declaration: it states which
- * package defines the type and under which source name. A package may not both
- * import and define the same identity.
- *
  * Imports exist so one binding family can span several packages without
  * flattening them. `Gtk.Application` extends `Gio.Application`, and the two
  * project into separate packages because GIR namespaces are package
- * boundaries. Structural agreement cannot be checked here — only composition
- * sees the defining package — so this manifest checks that every import is
- * declared and used in a position that tolerates a locally opaque type.
+ * boundaries.
+ *
+ * The owning package identity is explicit rather than inferred from the
+ * declaration's module, because a native type's compiler identity is scoped to
+ * the package instance that defines it. Only the owning instance lets an
+ * importer name the same type.
+ *
+ * Structural agreement cannot be checked here — only composition sees the
+ * defining package — so this manifest checks that every import is declared,
+ * not also defined, and used in a position that tolerates a locally opaque
+ * type.
  */
 function importedTypeIds(manifest: ScabiManifest): ReadonlySet<string> {
-  const imported = new Set<string>();
-  for (const [typeId, declaration] of Object.entries(
-    manifest.declarations.types,
-  )) {
-    if (declaration.module !== "." && manifest.types[typeId] === undefined) {
-      imported.add(typeId);
+  return new Set(Object.keys(manifest.imports ?? {}));
+}
+
+function validateTypeImports(
+  manifest: ScabiManifest,
+  diagnostics: ScabiDiagnostic[],
+): void {
+  for (const [typeId, entry] of Object.entries(manifest.imports ?? {})) {
+    const path = `/imports/${typeId}`;
+    if (manifest.types[typeId] !== undefined) {
+      diagnostics.push(diagnostic(
+        "NTS2010",
+        path,
+        `Native type ${typeId} is imported from ${entry.package.name} but also ` +
+          "defined here; a package cannot both import and define one identity",
+      ));
+    }
+    if (entry.package.instance === manifest.package.instance) {
+      diagnostics.push(diagnostic(
+        "NTS2010",
+        path,
+        `Native type ${typeId} is imported from this package's own instance`,
+      ));
+    }
+    const declaration = manifest.declarations.types[typeId];
+    if (declaration === undefined) {
+      diagnostics.push(diagnostic(
+        "NTS2010",
+        path,
+        `Imported native type ${typeId} has no TypeScript declaration identity`,
+      ));
+    } else if (declaration.module === ".") {
+      diagnostics.push(diagnostic(
+        "NTS2010",
+        path,
+        `Imported native type ${typeId} is declared local to this package`,
+      ));
     }
   }
-  return imported;
 }
 
 function validateHandleUpcasts(
@@ -264,29 +297,17 @@ function validateTypeReferences(
   manifest: ScabiManifest,
   diagnostics: ScabiDiagnostic[],
 ): void {
+  const imported = importedTypeIds(manifest);
   const declarationIdentities = new Set<string>();
   for (const [typeId, declaration] of Object.entries(
     manifest.declarations.types,
   )) {
-    if (manifest.types[typeId] === undefined) {
-      // A missing definition is an import only when another package is named
-      // as its owner. A local declaration must be backed by a local type.
-      if (declaration.module === ".") {
-        diagnostics.push(
-          diagnostic(
-            "NTS2010",
-            `/declarations/types/${typeId}`,
-            `Native type ${typeId} does not exist`,
-          ),
-        );
-      }
-    } else if (declaration.module !== ".") {
+    if (manifest.types[typeId] === undefined && !imported.has(typeId)) {
       diagnostics.push(
         diagnostic(
           "NTS2010",
           `/declarations/types/${typeId}`,
-          `Native type ${typeId} is declared in ${declaration.module} but also ` +
-            "defined here; a package cannot both import and define one identity",
+          `Native type ${typeId} does not exist`,
         ),
       );
     }
@@ -309,7 +330,6 @@ function validateTypeReferences(
   // with matching thread-safety and identity. Every other position needs the
   // definition here, so an import in one is reported as such rather than as a
   // missing type.
-  const imported = importedTypeIds(manifest);
   for (const [id, type] of Object.entries(manifest.types)) {
     const upcastTargets = new Set(
       type.kind === "handle" ? type.upcasts.map(({ target }) => target) : [],
@@ -1736,6 +1756,7 @@ function validateSemantics(
   manifest: ScabiManifest,
 ): readonly ScabiDiagnostic[] {
   const diagnostics: ScabiDiagnostic[] = [];
+  validateTypeImports(manifest, diagnostics);
   validateTypeReferences(manifest, diagnostics);
   validateHandleUpcasts(manifest, diagnostics);
   validateTypes(manifest, diagnostics);

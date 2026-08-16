@@ -457,6 +457,22 @@ export interface PermissionRequirement {
   readonly description: string;
 }
 
+/**
+ * A native type this manifest references but another package defines.
+ *
+ * The owning package identity is explicit because a native type's compiler
+ * identity is scoped to the package instance that defines it. An importer must
+ * name that instance to reference the same type, and composition verifies the
+ * import against the package that actually provides it.
+ *
+ * `type` is the type's ID inside the owning package, which need not match the
+ * ID the importer uses locally.
+ */
+export interface TypeImport {
+  readonly package: PackageIdentity;
+  readonly type: NativeTypeId;
+}
+
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
   readonly schemaVersion: 1;
@@ -465,6 +481,8 @@ export interface ScabiManifest {
   readonly sdk: SdkIdentity;
   readonly generator: GeneratorIdentity;
   readonly declarations: DeclarationContract;
+  /** Native types owned by other packages. Absent when nothing is imported. */
+  readonly imports?: Readonly<Record<NativeTypeId, TypeImport>>;
   readonly types: Readonly<Record<NativeTypeId, NativeType>>;
   readonly bindings: Readonly<Record<NativeBindingId, NativeBinding>>;
   readonly linkInputs: readonly LinkInput[];

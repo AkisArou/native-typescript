@@ -67,6 +67,7 @@ export type {
   StructType,
   TargetIdentity,
   ThreadContract,
+  TypeImport,
   UnionType,
   VoidType,
 } from "./model.ts";

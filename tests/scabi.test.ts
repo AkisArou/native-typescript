@@ -156,7 +156,15 @@ test("SCABI handle upcasts may target a type another package owns", () => {
   // Gtk.Application extends Gio.Application. GIR namespaces are package
   // boundaries, so the base handle is defined by a different package and this
   // manifest only imports it.
-  const imported = structuredClone(manifest);
+  const basePackage = {
+    name: "@example/base",
+    version: "1.0.0",
+    namespace: "example.base",
+    instance: "example.base@1.0.0",
+  };
+  const imported = structuredClone(manifest) as typeof manifest & {
+    imports?: Record<string, unknown>;
+  };
   Object.assign(imported.types, {
     derived_handle: {
       kind: "handle" as const,
@@ -170,13 +178,16 @@ test("SCABI handle upcasts may target a type another package owns", () => {
     derived_handle: { module: ".", name: "Derived" },
     base_handle: { module: "@example/base", name: "Base" },
   });
+  imported.imports = {
+    base_handle: { package: basePackage, type: "base_handle" },
+  };
   assert.equal(validateScabiManifest(imported).ok, true);
 
-  // The import must be declared. A bare dangling target used to pass silently
-  // and drop the ancestry.
+  // The import record is what makes the reference legal. Without it the target
+  // is simply dangling.
   const undeclared = structuredClone(imported);
-  delete (undeclared.declarations.types as Record<string, unknown>).base_handle;
-  assert.deepEqual(validationCodes(undeclared), ["NTS2010"]);
+  delete undeclared.imports;
+  assert.deepEqual(validationCodes(undeclared), ["NTS2010", "NTS2010"]);
 
   // A package cannot both import and define one identity.
   const alsoDefined = structuredClone(imported);
@@ -190,6 +201,13 @@ test("SCABI handle upcasts may target a type another package owns", () => {
     },
   });
   assert.deepEqual(validationCodes(alsoDefined), ["NTS2010"]);
+
+  // Importing from this package's own instance is incoherent.
+  const selfImport = structuredClone(imported);
+  selfImport.imports = {
+    base_handle: { package: imported.package, type: "base_handle" },
+  };
+  assert.deepEqual(validationCodes(selfImport), ["NTS2010"]);
 
   // An imported type is opaque here, so it is only usable where no local
   // structure is required. A binding signature is not such a position.
