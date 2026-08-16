@@ -115,6 +115,14 @@ upstream or replaced cleanly by later upstream work.
 
 ## Validation before commit
 
+`pnpm test` is the gate. It runs every workspace test, including the ones that
+drive Clang, the Bubblewrap sandbox, and a real GTK executable through both
+backends, and it takes about half a minute. A green subset is not evidence, so
+run it before every commit.
+
+The commands below are focused accelerators for iterating on one area. They do
+not replace the full run.
+
 The focused cross-repository Native IR/SCABI gate translates the fixture's
 reached fixed- and pointer-width integer bindings, padded by-value struct,
 borrowed required and nullable UTF-8 and `Uint8Array`/Buffer input, and owned opaque handle. It
@@ -171,7 +179,7 @@ The GTK owner-loop and native-application gates are:
 
 ```sh
 node --test tests/c-bindgen.test.ts tests/gtk-bindgen.test.ts tests/gobject-adapter.test.ts tests/gtk-scabi.test.ts
-node --test tests/gir.test.ts
+node --test tests/gir.test.ts tests/gir-namespace.test.ts
 node --test tests/gtk-runtime.test.ts tests/gtk-app.test.ts
 ```
 
@@ -189,7 +197,12 @@ contracts, while rejecting tampered provenance and unsupported reached
 metadata. The GIR test
 validates the compact selected-metadata
 contract and, when the system file exists, parses the real `Gtk-4.0.gir`
-`Gtk.Button` surface. The runtime test compiles the GLib adapter in plain,
+`Gtk.Button` surface. The namespace test covers the cross-namespace path: it
+runs gio2 and gtk4 as two analysis subgraphs of one artifact graph, checks that
+gtk4 imports the handle gio2 owns without defining it, and proves that changing
+only the imported namespace re-executes gtk4's generation rather than reusing a
+cached package. Run it whenever GIR ingestion, package slugs, imported
+namespaces, or the binding-package request contract change. The runtime test compiles the GLib adapter in plain,
 ASan/UBSan, and TSan modes.
 The application test builds the ScriptC compiler and the self-contained GTK
 host generator tool. Its analysis graph makes sandboxed Clang evidence feed a
