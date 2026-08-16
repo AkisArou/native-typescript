@@ -86,6 +86,12 @@ check, and a crossing whose every admitted value is outside the slot becomes a
 diagnostic (SC5106). The sanitized lane re-enables every check, so a proof that
 was wrong throws there instead of converting a value the slot cannot hold.
 
+Measured on the generated GTK counter application: of the five crossings no
+literal proof reaches — two resize-payload round-trips, two nested field reads
+feeding `setDefaultSize`, and one widened `getWidth()` fed back — the analysis
+proves all five, so the emitted program contains no boundary check at all, on
+either backend.
+
 Pointer-width and 64-bit slots cannot declare it. A double carries at most 53
 bits of integer injectively, so the width fence is enforced structurally by IR
 validation, including for callback payloads.
