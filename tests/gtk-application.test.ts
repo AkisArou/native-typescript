@@ -307,6 +307,17 @@ test(
       readFileSync(join(widgetsFixtureRoot, "native-typescript.json"), "utf8"),
     );
     assert.equal(project.namespaces[1]?.classes.length, 28);
+    /* Breadth is the point, and it is the thing a fixture loses quietly: a
+     * member the application does not call still has to generate and link, and
+     * three real defects were found by widening this selection rather than by
+     * running it. The count guards against it shrinking unnoticed. */
+    const members = project.namespaces[1]!.classes.reduce(
+      (total, class_) =>
+        total + (class_.methods?.length ?? 0) +
+        (class_.constructors?.length ?? 0) + (class_.signals?.length ?? 0),
+      0,
+    );
+    assert.ok(members >= 145, `selection covers only ${members} members`);
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-widgets-"));
     try {

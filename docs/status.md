@@ -324,7 +324,8 @@ bootstrap reaches GNU extensions through the GTK headers.
 
 ### Proven surface
 
-`fixtures/gtk-widgets` builds a window from 28 GTK classes — labels, entries,
+`fixtures/gtk-widgets` selects 28 GTK classes and 145 of their members, and
+builds a window from them — labels, entries,
 buttons, toggles, switches, adjustments, scales, spin buttons, progress bars,
 list boxes and rows, grids, frames, expanders, revealers, stacks, text views,
 scrolled windows, header bars, separators, images — and then reads its own
@@ -332,6 +333,14 @@ state back. A shared adjustment really is shared between a scale and a spin
 button; a list row really knows its index. The gate exists for breadth: a
 member that stops projecting fails there rather than being found by whoever
 first tried to use it.
+
+Breadth is what a fixture loses quietly, so the selection is deliberately wider
+than the application uses — a member nothing calls still has to generate and
+link. Three defects were found by widening it rather than by running it: that
+unsigned integers did not project at all, that a method returning a GTK
+interface is refused, and that a non-nullable object result was paired with the
+failure contract. The gate asserts the member count so it cannot shrink back
+unnoticed.
 
 Two things a project author meets immediately, both deliberate:
 

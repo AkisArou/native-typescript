@@ -65,7 +65,10 @@
           "name": "Widget",
           "methods": [
             "activate",
+            "get_first_child",
             "get_height",
+            "get_last_child",
+            "get_next_sibling",
             "get_parent",
             "get_sensitive",
             "get_visible",
@@ -267,6 +270,7 @@
             "new"
           ],
           "methods": [
+            "get_child",
             "set_child",
             "set_min_content_height",
             "set_min_content_width"
@@ -306,6 +310,7 @@
             "new"
           ],
           "methods": [
+            "get_child",
             "set_child",
             "set_label"
           ]
@@ -316,9 +321,10 @@
             "new"
           ],
           "methods": [
+            "get_child",
+            "get_expanded",
             "set_child",
-            "set_expanded",
-            "get_expanded"
+            "set_expanded"
           ]
         },
         {
@@ -337,9 +343,10 @@
             "new"
           ],
           "methods": [
+            "get_child",
+            "get_reveal_child",
             "set_child",
-            "set_reveal_child",
-            "get_reveal_child"
+            "set_reveal_child"
           ]
         },
         {
@@ -348,9 +355,10 @@
             "new"
           ],
           "methods": [
-            "set_value",
+            "get_adjustment",
             "get_value",
-            "set_digits"
+            "set_digits",
+            "set_value"
           ]
         },
         {
@@ -382,6 +390,7 @@
             "new"
           ],
           "methods": [
+            "set_from_icon_name",
             "set_pixel_size"
           ]
         },
