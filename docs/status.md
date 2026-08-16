@@ -29,7 +29,7 @@ The repository is not yet an application framework or a production compiler.
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
 | GTK target runtime provider | implemented |
 | GTK application lifecycle | specified, not generated |
-| Cross-namespace GIR composition | not started |
+| Cross-namespace GIR composition | implemented |
 | Terminal, mobile, React, partitions, DOM | not started |
 
 ## Compiler and runtime
@@ -236,6 +236,24 @@ and provenance. A second build root reuses that package from the local cache.
 
 Gio-2.0 ingests through the same namespace-neutral path as Gtk-4.0.
 
+A class whose parent lives in another namespace projects across the package
+boundary. SCABI records an imported type owned by the other package, the
+generated handle carries an identity upcast to it, and the declaration file
+imports the parent under a namespace-qualified alias. Imported type identities
+are derived by the same function that produced them in the owning package, so
+the two agree by construction rather than by a hand-kept table. Importing is
+opt-in: an external parent whose namespace was not supplied still truncates.
+
+Composition is the only stage that sees both packages, so it proves every
+handle upcast target is provided, is a handle, and shares its derived handle's
+thread-safety and identity contracts. Inside the artifact graph, each imported
+namespace is a content-verified snapshot input of the dependent package's
+generation action.
+
+The gate generates gio2 and gtk4 against the installed GIRs, translates both,
+and composes them into one program in which `gtk_application` upcasts to
+`gio_application`. Composing gtk4 alone fails.
+
 ## GTK target
 
 See [GTK TypeScript API](gtk-api.md) for the normative projection.
@@ -301,9 +319,20 @@ These are deliberate, not oversights. Each is a named future slice.
 - **GTK application lifecycle** is specified in [gtk-api.md](gtk-api.md) but
   not generated. The fixture still starts the GLib runtime and requests its
   stop through hand-authored C.
-- **Cross-namespace composition** is not implemented. `Gtk.Application` extends
-  `Gio.Application`, so the lifecycle cannot be generated until an external
-  reference resolves into a second package.
+- **Two contracts still block the GTK application lifecycle**, both foundation
+  work rather than target glue:
+  - `g_application_register()` is `throws=1`, and GError is not an implemented
+    native error convention. Only exact-integer `errno` sentinels and nullable
+    owned handle results are.
+  - `gtk_application_new()` takes a `Gio.ApplicationFlags`, and imported types
+    are currently admitted only as handle upcast targets. A handle needs no
+    local structure because its representation is always a pointer; a flags
+    type needs its underlying scalar, so importing one requires carrying the
+    definition and having composition verify it against the owner.
+
+  `g_application_activate()`, `g_application_quit()`,
+  `g_application_get_is_remote()`, and the `activate` signal are all inside the
+  implemented algebra already.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader
