@@ -217,6 +217,10 @@ const clicked = action.onClicked((sender): void => {
    * constructor result follows. */
   window.getChild().visible = true;
   alpha.getChild().visible = true;
+  /* The parent is an object this program constructed, so its pointer already
+   * has a managed cell. Interning has to find it: committing a second cell for
+   * one object traps rather than leaving two to disagree. */
+  heading.getParent().visible = true;
   let absentReported = false;
   try {
     new ListBoxRow().getChild();

@@ -66,6 +66,7 @@
           "methods": [
             "activate",
             "get_height",
+            "get_parent",
             "get_sensitive",
             "get_visible",
             "get_width",
