@@ -647,6 +647,44 @@ export function composeScriptCNativePrograms(
       }
     }
   }
+  // A package that imports a type emits a reference into the owning package's
+  // instance without ever seeing the definition. Composition is the first
+  // stage that sees both, so it is where an unresolved or structurally
+  // incompatible import has to fail.
+  for (const type of types.values()) {
+    if (type.kind !== "handle") continue;
+    for (const [index, upcast] of type.upcasts.entries()) {
+      const target = types.get(upcast.target);
+      const path = `/input/types/${type.id}/upcasts/${index}/target`;
+      if (target === undefined) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Native handle upcast target '${upcast.target}' is not provided by any composed package`,
+        ));
+        continue;
+      }
+      if (target.kind !== "handle") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Native handle upcast target '${upcast.target}' is not a handle`,
+        ));
+        continue;
+      }
+      if (
+        target.threadSafety !== type.threadSafety ||
+        target.identity !== type.identity
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Native handle upcast target '${upcast.target}' does not share the ` +
+            "thread-safety and identity contracts of its derived handle",
+        ));
+      }
+    }
+  }
   if (orderedLinkInputs.length !== linkInputs.size) {
     const cyclic = [...indegree]
       .filter(([, count]) => count > 0)
@@ -1414,6 +1452,18 @@ export function translateScabiNativeProgram(
   ): ScriptCNativeIrType | null => {
     const nativeType = manifest.types[typeId];
     if (nativeType === undefined) {
+      // An imported type is defined by another package. Its compiler identity
+      // is scoped to that package's instance, so the reference is built from
+      // the declared owner rather than from this manifest. Composition proves
+      // the owner is actually present and that the type is a handle; nothing
+      // here can see the definition.
+      const imported = manifest.imports?.[typeId];
+      if (imported !== undefined) {
+        return Object.freeze({
+          kind: "nativeHandle",
+          typeId: `${imported.package.instance}#type:${imported.type}`,
+        } as const);
+      }
       diagnostics.push(
         diagnostic("NTS3001", path, `Native type '${typeId}' does not exist`),
       );

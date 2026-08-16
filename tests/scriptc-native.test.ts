@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { parseScabiManifest } from "@native-typescript/scabi";
+import { canonicalizeJson, parseScabiManifest } from "@native-typescript/scabi";
 import {
   composeScriptCNativePrograms,
   translateScabiNativeProgram,
@@ -1366,6 +1366,112 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     },
   });
   assert.deepEqual(result.build.linkInputs, []);
+});
+
+test("an imported handle resolves to the package that defines it", () => {
+  // Gtk.Application extends Gio.Application across a package boundary. Model
+  // that shape here: a dependent package derives from a handle the base
+  // package owns, and never sees its definition.
+  const basePackage = {
+    name: "@example/base",
+    version: "1.0.0",
+    namespace: "example.base",
+    instance: "example.base@1.0.0",
+  };
+  const baseSource = structuredClone(manifest) as unknown as Record<string, unknown>;
+  Object.assign(baseSource, { package: basePackage });
+  const base = parseScabiManifest(canonicalizeJson(baseSource));
+
+  const derivedSource = structuredClone(manifest) as unknown as Record<
+    string,
+    unknown
+  > & { imports?: Record<string, unknown> };
+  Object.assign(derivedSource, {
+    package: {
+      name: "@example/derived",
+      version: "1.0.0",
+      namespace: "example.derived",
+      instance: "example.derived@1.0.0",
+    },
+  });
+  const derivedTypes = derivedSource.types as Record<string, unknown>;
+  // The derived package defines only its own handle and imports the base.
+  for (const owned of ["counter", "counter_middle", "counter_base"]) {
+    delete derivedTypes[owned];
+  }
+  derivedTypes.counter = {
+    kind: "handle",
+    nativeName: "NtsCounter",
+    threadSafety: "confined",
+    identity: "pointer",
+    upcasts: [{ kind: "identity", target: "counter_base" }],
+  };
+  // Drop bindings that mention the types this package no longer defines: an
+  // imported type is opaque, so it is legal only as an upcast target.
+  const derivedBindings = derivedSource.bindings as Record<string, unknown>;
+  for (const [id, binding] of Object.entries(derivedBindings)) {
+    const mentions = JSON.stringify(binding);
+    if (
+      mentions.includes("counter_middle") ||
+      (mentions.includes("counter_base") && id !== "counter_create")
+    ) {
+      delete derivedBindings[id];
+    }
+  }
+  const derivedDeclarations = (
+    derivedSource.declarations as { types: Record<string, unknown> }
+  ).types;
+  delete derivedDeclarations.counter_middle;
+  derivedDeclarations.counter_base = { module: "@example/base", name: "CounterBase" };
+  derivedSource.imports = {
+    counter_base: { package: basePackage, type: "counter_base" },
+  };
+  const derived = parseScabiManifest(canonicalizeJson(derivedSource));
+
+  const baseProgram = translateScabiNativeProgram(base, selectImports(["counter_create"]));
+  const derivedProgram = translateScabiNativeProgram(
+    derived,
+    selectImports(["counter_create"]),
+  );
+  assert.equal(baseProgram.ok, true);
+  assert.equal(
+    derivedProgram.ok,
+    true,
+    derivedProgram.ok ? undefined : JSON.stringify(derivedProgram.diagnostics),
+  );
+  if (!baseProgram.ok || !derivedProgram.ok) return;
+
+  // The importer names the owning instance, not its own.
+  const derivedCounter = derivedProgram.input.types.find(
+    (definition) => definition.id === "example.derived@1.0.0#type:counter",
+  );
+  assert.ok(derivedCounter && derivedCounter.kind === "handle");
+  if (!derivedCounter || derivedCounter.kind !== "handle") return;
+  assert.deepEqual(derivedCounter.upcasts, [
+    { kind: "identity", target: "example.base@1.0.0#type:counter_base" },
+  ]);
+  // It emits no definition for a type it does not own.
+  assert.equal(
+    derivedProgram.input.types.some(({ id }) => id.includes("counter_base")),
+    false,
+  );
+
+  // Composed with the owner, the reference resolves.
+  const composed = composeScriptCNativePrograms([derivedProgram, baseProgram]);
+  assert.equal(
+    composed.ok,
+    true,
+    composed.ok ? undefined : JSON.stringify(composed.diagnostics),
+  );
+
+  // Alone, it does not. The importer cannot detect this by itself.
+  const unresolved = composeScriptCNativePrograms([derivedProgram]);
+  assert.equal(unresolved.ok, false);
+  if (unresolved.ok) return;
+  assert.match(
+    unresolved.diagnostics.map(({ message }) => message).join("\n"),
+    /is not provided by any composed package/u,
+  );
 });
 
 test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () => {

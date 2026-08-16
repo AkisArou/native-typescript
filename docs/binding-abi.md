@@ -308,9 +308,10 @@ the identity but not the definition. Every other position requires the type to
 be defined locally.
 
 Structural agreement is therefore not a manifest-level property. Composition
-sees both packages and is responsible for proving that an imported target
-exists, is a handle, and carries matching thread-safety and identity
-contracts.
+sees both packages and proves that every handle upcast target is provided by
+some composed package, is a handle, and carries matching thread-safety and
+identity contracts. A package that imports a type it is not composed with fails
+there, because it cannot detect the omission on its own.
 
 A native boolean names an integer storage type plus distinct, canonical,
 in-range false and true values. Its source projection is an ordinary TypeScript
