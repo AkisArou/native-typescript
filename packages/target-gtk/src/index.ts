@@ -10,7 +10,6 @@ export {
 } from "./glib-runtime-object.ts";
 export type { GlibRuntimeObjectPlan } from "./glib-runtime-object.ts";
 export {
-  gtkAdapterObjectArtifactIds,
   gtkTargetObjectArtifactIds,
   planGtkTargetObjects,
 } from "./gtk-target-objects.ts";

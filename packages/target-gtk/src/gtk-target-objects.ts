@@ -23,9 +23,10 @@ export const gtkTargetObjectArtifactIds = Object.freeze({
 /**
  * Adapter artifact identities for one binding package, derived from its
  * package slug so several namespaces can contribute objects to one link
- * without colliding.
+ * without colliding. Callers read the resulting identities off the returned
+ * plan rather than recomputing them, so this stays internal.
  */
-export function gtkAdapterObjectArtifactIds(slug: string): {
+function gtkAdapterObjectArtifactIds(slug: string): {
   readonly source: string;
   readonly object: string;
 } {
