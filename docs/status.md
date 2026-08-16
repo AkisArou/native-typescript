@@ -263,9 +263,19 @@ namespace and two namespaces link into one executable.
 
 The gates generate gio2 and gtk4 against the installed GIRs, translate both,
 and compose them into one program in which `gtk_application` upcasts to
-`gio_application`; composing gtk4 alone fails. `gtk_application_new()` projects
-as `constructor(applicationId: string | null, flags: GioApplicationFlags)`, and
-both packages' adapter objects compile and link into one executable.
+`gio_application`; composing gtk4 alone fails. One artifact graph runs both
+analysis subgraphs with real Clang in the sandbox, and both packages' adapter
+objects compile and link into one executable.
+
+The whole non-throwing GApplication lifecycle projects:
+`new Application(id, flags)`, `activate()`, `quit()`, `hold()`, `release()`,
+`getIsRemote()`, `getApplicationId()`, `setApplicationId()`, and
+`onActivate()`. `gtk_application_new()` projects as
+`constructor(applicationId: string | null, flags: GioApplicationFlags)`.
+
+A metadata C spelling is an untrusted candidate that the probe proves, so
+equivalent spellings of one type are accepted: `Gio` writes `const gchar*`
+where `Gtk` writes `const char*` for the same borrowed UTF-8 parameter.
 
 ## GTK target
 
@@ -336,14 +346,14 @@ These are deliberate, not oversights. Each is a named future slice.
   foundation work rather than target glue:
   - `g_application_register()` is `throws=1`, and GError is not an implemented
     native error convention. Only exact-integer `errno` sentinels and nullable
-    owned handle results are.
-  - `g_application_register()` additionally needs owned C-string results. Only
-    borrowed, receiver-anchored strings are implemented, and a GError carries
-    an owned message, so the error is not representable without discarding it.
+    owned handle results are. It additionally needs owned C-string results:
+    only borrowed, receiver-anchored strings are implemented, and a GError
+    carries an owned message, so the error is not representable without
+    discarding it. Its `GCancellable` parameter is an ordinary nullable handle
+    and needs nothing new.
 
-  `gtk_application_new()`, `g_application_activate()`, `g_application_quit()`,
-  `g_application_get_is_remote()`, and the `activate` signal are all inside the
-  implemented algebra already.
+  Every other member of the lifecycle is generated already, so `start()` is the
+  only operation that cannot be expressed.
 - **GObject identity, weak handles, and native invalidation** have no general
   policy yet.
 - **Non-scalar signal payloads and results**, detailed signals, and broader
