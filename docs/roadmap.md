@@ -136,9 +136,21 @@ TypeScript declaration is foreign. The importing package proves the storage
 with its own Clang probe, maps the type to the owning module in
 `declarations.types`, and imports the branded name in its declaration file.
 Composition already coalesces source types by declaration identity, so a
-disagreement about the underlying scalar fails there. The work is in
-generation: resolve a qualified GIR type reference in a parameter position, and
-admit a foreign enum as a probe candidate.
+disagreement about the underlying scalar fails there.
+
+The probe half is in place: a package's probe already admits an enum another
+namespace owns when its selected callables reach it, and Clang evidence is
+matched to declarations by probe identity rather than by array position. The
+generation half remains, and starts with a refactor. Enumerations are currently
+resolved through three parallel maps keyed by unqualified name
+(`enumerationByName`, `enumerationTypeIds`, `typeIdByEnumeration`); a foreign
+enum arrives qualified, as `Gio.ApplicationFlags`, and carries a distinct
+TypeScript alias. Unifying those into one lookup keyed by GIR name, whose entry
+holds the C type, ABI type ID, GIR spelling, and source name, is what makes the
+foreign case a value rather than a fourth branch at every site.
+
+`gtk_application_new()` is otherwise already inside the algebra: it does not
+throw, and its nullable UTF-8 `application_id` is supported.
 
 **A GError error convention.** `g_application_register()` is `throws=1`.
 `ErrorContract` already reserves an out-parameter error family for this shape,

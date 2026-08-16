@@ -332,9 +332,9 @@ These are deliberate, not oversights. Each is a named future slice.
     probe, maps the type to the owning module in `declarations.types`, and
     imports the branded name in its declaration file. Composition coalesces
     source types by declaration identity, so a disagreement about the
-    underlying scalar fails there. The remaining work is in the generator:
-    resolving a qualified GIR type reference in a parameter, and admitting a
-    foreign enum as a probe candidate.
+    underlying scalar fails there. The probe half is implemented — a package
+    admits a foreign enum as a candidate when its selected callables reach it —
+    and the generation half is specified in the roadmap.
 
   `g_application_activate()`, `g_application_quit()`,
   `g_application_get_is_remote()`, and the `activate` signal are all inside the
