@@ -422,7 +422,7 @@ test(
       );
       assert.match(
         generatedGtkDeclarations,
-        /class Window extends Widget \{[^}]*get title\(\): string \| null;[^}]*set title\(value: string \| null\);/su,
+        /class Window extends Widget \{[^}]*getTitle\(\): string \| null;[^}]*setTitle\(title: string \| null\): void;/su,
       );
       const gobjectAdapter = JSON.parse(
         readFileSync(join(generatedGtkPath, "gobject-adapter.json"), "utf8"),

@@ -1569,6 +1569,28 @@ export function generateGObjectScabiPackage(
       }
       propertyAccessors.set(propertyName, accessors);
     }
+    /**
+     * Whether a getter returns a string it may report as absent.
+     *
+     * Such a pair projects as methods rather than as a property. A property
+     * claims field-like stability, and a native getter has none: it calls into
+     * the library on every read and may answer differently each time. That is
+     * exactly why a narrowed read of one is refused — the callee still returns
+     * what its declaration allows — so `if (w.title !== null) use(w.title)`,
+     * the first thing anyone writes against a nullable value, does not compile
+     * when `title` is a property. As a method the narrowing never arises, and
+     * the shape says what is true: each call is a fresh read that can be
+     * absent.
+     *
+     * Only nullable strings need this. Every other projected type survives a
+     * narrowing, because none of them has to match an exact two-arm union.
+     */
+    function reportsAbsentString(getter: GirCallable): boolean {
+      return getter.result.nullable &&
+        getter.result.type.kind === "named" &&
+        getter.result.type.name === "utf8";
+    }
+
     for (const [propertyName, accessors] of propertyAccessors) {
       if (accessors.getter === undefined || accessors.setter === undefined) {
         continue;
@@ -1589,7 +1611,7 @@ export function generateGObjectScabiPackage(
         );
         invalidPropertyMethods.add(accessors.getter);
         invalidPropertyMethods.add(accessors.setter);
-      } else {
+      } else if (!reportsAbsentString(accessors.getter)) {
         projectedPropertyMethods.add(accessors.getter);
         projectedPropertyMethods.add(accessors.setter);
       }

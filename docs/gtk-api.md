@@ -148,8 +148,8 @@ one coherent property contract:
 
 ```ts
 export declare class Button extends Widget {
-  get label(): string | null;
-  set label(value: string);
+  getLabel(): string | null;
+  setLabel(label: string): void;
 
   setChild(child: Widget | null): void;
 }
@@ -282,7 +282,7 @@ idempotent and exists for early cancellation:
 
 ```ts
 button.onClicked((source) => {
-  source.label = "Clicked";
+  source.setLabel("Clicked");
 });
 
 const temporary = button.onClicked(showTemporaryState);
@@ -498,8 +498,8 @@ export declare class Box extends Widget {
 export declare class Button extends Widget {
   constructor();
   static withLabel(label: string): Button;
-  get label(): string | null;
-  set label(value: string);
+  getLabel(): string | null;
+  setLabel(label: string): void;
   onClicked(callback: (button: Button) => void): SignalConnection;
 }
 ```
@@ -531,13 +531,13 @@ app.onActivate((application) => {
 
   button.onClicked((source) => {
     count += 1;
-    source.label = `Count: ${count}`;
+    source.setLabel(`Count: ${count}`);
   });
 
   const window = new ApplicationWindow({ application });
   const content = new Box(Orientation.Vertical, 8 as gint);
   content.append(button);
-  window.title = "Native TypeScript";
+  window.setTitle("Native TypeScript");
   window.setChild(content);
   window.onCloseRequest(() => {
     app.quit();

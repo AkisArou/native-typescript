@@ -46,14 +46,8 @@ import {
 
 if (!applicationStart()) throw new Error("the GTK target did not start");
 
-/* Returns the declared type rather than a literal: assigning a literal narrows
- * every later read, and a native getter cannot honour a narrowing. */
-function windowTitle(): string | null {
-  return "Native TypeScript";
-}
-
 const window = new Window();
-window.title = windowTitle();
+window.setTitle("Native TypeScript");
 window.setDefaultSize(720 as gint, 480 as gint);
 window.setResizable(true);
 
@@ -193,7 +187,10 @@ const deadline = setTimeout((): void => {
 
 const clicked = action.onClicked((sender): void => {
   clearTimeout(deadline);
-  check_(sender.label === "Run", "the button forgot its label");
+  /* Button's label can be absent, so it reads as a call; Label's cannot, so it
+   * stays a property. The split is the point: a property claims a stability
+   * only a non-nullable read has. */
+  check_(sender.getLabel() === "Run", "the button forgot its label");
   check_(heading.getText() === "Native TypeScript", "the heading text is wrong");
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
   check_(entry.maxLength === (32 as gint), "the entry length limit is wrong");

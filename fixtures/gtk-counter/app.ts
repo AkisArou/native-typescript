@@ -51,9 +51,9 @@ function selectedTitle(present: boolean): string | null {
 }
 
 const window = new Window();
-window.title = selectedTitle(false);
-window.title = selectedTitle(true);
-if (window.title !== "Native TypeScript GTK") failed = true;
+window.setTitle(selectedTitle(false));
+window.setTitle(selectedTitle(true));
+if (window.getTitle() !== "Native TypeScript GTK") failed = true;
 const button = Button.withLabel("Generated: initial");
 const drawingArea = new DrawingArea();
 const overlay = new Overlay();
@@ -74,8 +74,8 @@ if (
 } else {
   failed = true;
 }
-const initial = button.label;
-button.label = "Generated: updated";
+const initial = button.getLabel();
+button.setLabel("Generated: updated");
 button.setVisible(false);
 button.setVisible(true);
 button.opacity = 0.75 as gdouble;
@@ -95,7 +95,7 @@ window.setDefaultSize(640 as gint, 480 as gint);
 window.present();
 window.setDefaultSize(button.getWidth(), 480 as gint);
 const clicked = button.onClicked((sender): void => {
-  const updated = sender.label;
+  const updated = sender.getLabel();
   if (
     initial === "Generated: initial" &&
     updated === "Generated: updated"

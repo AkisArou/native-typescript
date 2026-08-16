@@ -148,7 +148,7 @@ let count = 0;
 const button = Button.withLabel("Count: 0");
 button.onClicked((sender): void => {
   count += 1;
-  sender.label = `Count: ${count}`;
+  sender.setLabel(`Count: ${count}`);
 });
 
 const window = new Window();
@@ -160,13 +160,12 @@ Which classes and members exist is the project's own decision — generation is
 closed over exactly what `native-typescript.json` selects, so an unlisted
 member is absent rather than merely unused.
 
-One rough edge is worth knowing before you meet it. A nullable string property
-cannot be read through a narrowing, because a native getter returns what its
-declaration allows on every call. `if (window.title !== null) use(window.title)`
-does not compile; reading once into a local and testing that does. The compiler
-explains this at the call site, and
-[Implementation status](docs/status.md) records why it is refused rather than
-accepted.
+A getter that can report its value as absent projects as a method, not a
+property — `window.getTitle()`, not `window.title`. A property claims
+field-like stability, and a native getter has none: it calls into the library
+on every read. Modelling it as a call is also what keeps
+`if (w.getTitle() !== null) use(w.getTitle())` working, which as a property it
+would not.
 
 ### Windows
 

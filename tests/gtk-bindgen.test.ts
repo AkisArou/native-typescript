@@ -366,9 +366,14 @@ test(
         generated.declarations,
         /static withLabel\(label: string\): Button;/u,
       );
-      assert.match(generated.declarations, /set label\(value: string\);/u);
-      assert.match(generated.declarations, /get label\(\): string \| null;/u);
-      assert.doesNotMatch(generated.declarations, /getLabel|setLabel/u);
+      /* A getter that can report the value as absent projects as a method:
+       * a property would claim a stability a native read does not have. */
+      assert.match(generated.declarations, /setLabel\(label: string\): void;/u);
+      assert.match(generated.declarations, /getLabel\(\): string \| null;/u);
+      /* A nullable getter keeps its method shape: a property would claim a
+   * stability a native read does not have, and would break the null check
+   * anyone writes first. */
+  assert.doesNotMatch(generated.declarations, /get label|set label/u);
       assert.match(generated.declarations, /class Button extends Widget/u);
       assert.match(generated.declarations, /class Window extends Widget/u);
       assert.match(

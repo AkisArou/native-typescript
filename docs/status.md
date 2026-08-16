@@ -337,25 +337,17 @@ Two things a project author meets immediately, both deliberate:
 
 - An exact native scalar is constructed from a literal, never from an arbitrary
   number, because the compiler proves the value is in range.
-- **A nullable string property cannot be read through a narrowing.** A native
-  getter returns what its declaration allows on every call, so a read narrowed
-  to `string` has nowhere to put a null the callee can still produce.
+- **A narrowed read of a nullable native result is refused**, because the
+  callee returns what its declaration allows on every call and a read narrowed
+  to `string` has nowhere to put a null. The compiler names the cause and the
+  fix at the call site: a guard needs the value read once into a local, an
+  assignment needs the assigned value widened.
 
-  Two ordinary shapes hit it, and they need different fixes. The common one is
-  the null-check idiom — `if (window.title !== null) use(window.title)` — where
-  the guard narrows the second read; reading once into a local and testing that
-  works. The other is assigning a literal and reading back, where the read is
-  already narrowed and the assigned value has to be widened instead. The
-  compiler names both at the call site.
-
-  Only nullable string getters are affected. Booleans, enumerations and branded
-  scalars survive set-then-read, and so do non-nullable strings, because none
-  of them requires an exact two-arm match.
-
-  It is the property projection that creates the exposure: a getter method is
-  never narrowed by anything. Properties read better and this is what they
-  cost, which is worth revisiting if it proves to be the common case rather
-  than the occasional one.
+  This is no longer reachable through a generated property. A getter that can
+  report its value as absent projects as a method — `window.getTitle()` — so
+  the narrowing never arises, and the shape says what is true: each read is a
+  call. Properties remain for everything else, where a narrowing is harmless
+  because no exact two-arm match is required.
 - An array of exact native scalars is not implemented. `[0 as gint]` is
   refused by name; a union carrying one — `gint | undefined`, which is what a
   narrowing or an absent value produces — does work.

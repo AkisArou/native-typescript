@@ -13,17 +13,11 @@ import {
 
 if (!applicationStart()) throw new Error("the GTK target did not start");
 
-/* Returns the declared type rather than a literal. Assigning a literal would
- * narrow every later read of window.title to that literal, and a native getter
- * cannot honour a narrowing — GTK is free to return anything the declaration
- * allows. */
-function chosenTitle(present: boolean): string | null {
-  return present ? "Native TypeScript" : null;
-}
-
+/* A getter that can report its value as absent projects as a method, so each
+ * read is plainly a fresh call into GTK rather than a field. */
 const window = new Window();
-window.title = chosenTitle(true);
-if (window.title !== "Native TypeScript") {
+window.setTitle("Native TypeScript");
+if (window.getTitle() !== "Native TypeScript") {
   throw new Error("the window did not keep its title");
 }
 window.present();
