@@ -125,43 +125,21 @@ Recorded in [Implementation status](status.md).
 
 ### Next slices
 
-Two contracts block the application lifecycle. Both are foundation work that
-several later targets need, not GTK glue, so both belong to their owning
+One contract still blocks the application lifecycle. It is foundation work
+that several later targets need, not GTK glue, so it belongs to its owning
 boundary rather than to the GTK package.
-
-**Cross-namespace value parameters.** `gtk_application_new()` takes a
-`Gio.ApplicationFlags`. No SCABI type import is involved: an enum or flags type
-lowers to a bare scalar with no instance-scoped identity, so only the
-TypeScript declaration is foreign. The importing package proves the storage
-with its own Clang probe, maps the type to the owning module in
-`declarations.types`, and imports the branded name in its declaration file.
-Composition already coalesces source types by declaration identity, so a
-disagreement about the underlying scalar fails there.
-
-The probe half is in place: a package's probe already admits an enum another
-namespace owns when its selected callables reach it, and Clang evidence is
-matched to declarations by probe identity rather than by array position. The
-generation half remains, and starts with a refactor. Enumerations are currently
-resolved through three parallel maps keyed by unqualified name
-(`enumerationByName`, `enumerationTypeIds`, `typeIdByEnumeration`); a foreign
-enum arrives qualified, as `Gio.ApplicationFlags`, and carries a distinct
-TypeScript alias. Unifying those into one lookup keyed by GIR name, whose entry
-holds the C type, ABI type ID, GIR spelling, and source name, is what makes the
-foreign case a value rather than a fourth branch at every site.
-
-`gtk_application_new()` is otherwise already inside the algebra: it does not
-throw, and its nullable UTF-8 `application_id` is supported.
 
 **A GError error convention.** `g_application_register()` is `throws=1`.
 `ErrorContract` already reserves an out-parameter error family for this shape,
 but only `errno` sentinels and nullable owned handles are implemented. GError
 needs an out-parameter whose address is passed to native code, a read of the
 resulting foreign struct, and a cleanup call, so it extends Native IR rather
-than SCABI alone. It unblocks a large fraction of Gio and GTK, which makes it
-the higher-value of the two.
+than SCABI alone. It also needs owned C-string results, since only borrowed,
+receiver-anchored strings exist today and a GError carries an owned message.
+Discarding the message instead would be a lossy projection, which this
+architecture does not permit. It unblocks a large fraction of Gio and GTK.
 
-Until both land the lifecycle cannot be constructed at all, so there is no
-partial version of it worth shipping. `g_application_activate()`,
+`gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`
 signal are already inside the implemented algebra and need no new contract.
 

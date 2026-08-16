@@ -237,7 +237,7 @@ and provenance. A second build root reuses that package from the local cache.
 Gio-2.0 ingests through the same namespace-neutral path as Gtk-4.0.
 
 A class whose parent lives in another namespace projects across the package
-boundary. SCABI records an imported type owned by the other package, the
+boundary, and so does a parameter typed by another namespace's enumeration. SCABI records an imported type owned by the other package, the
 generated handle carries an identity upcast to it, and the declaration file
 imports the parent under a namespace-qualified alias. Imported type identities
 are derived by the same function that produced them in the owning package, so
@@ -319,24 +319,16 @@ These are deliberate, not oversights. Each is a named future slice.
 - **GTK application lifecycle** is specified in [gtk-api.md](gtk-api.md) but
   not generated. The fixture still starts the GLib runtime and requests its
   stop through hand-authored C.
-- **Two contracts still block the GTK application lifecycle**, both foundation
-  work rather than target glue:
+- **One contract still blocks the GTK application lifecycle**, and it is
+  foundation work rather than target glue:
   - `g_application_register()` is `throws=1`, and GError is not an implemented
     native error convention. Only exact-integer `errno` sentinels and nullable
     owned handle results are.
-  - `gtk_application_new()` takes a `Gio.ApplicationFlags`, and generation
-    cannot yet project a parameter whose GIR type belongs to another
-    namespace. This needs no SCABI type import: an enum or flags type lowers
-    to a bare scalar with no instance-scoped identity, so only the TypeScript
-    declaration is foreign. The package proves the storage with its own Clang
-    probe, maps the type to the owning module in `declarations.types`, and
-    imports the branded name in its declaration file. Composition coalesces
-    source types by declaration identity, so a disagreement about the
-    underlying scalar fails there. The probe half is implemented — a package
-    admits a foreign enum as a candidate when its selected callables reach it —
-    and the generation half is specified in the roadmap.
+  - `g_application_register()` additionally needs owned C-string results. Only
+    borrowed, receiver-anchored strings are implemented, and a GError carries
+    an owned message, so the error is not representable without discarding it.
 
-  `g_application_activate()`, `g_application_quit()`,
+  `gtk_application_new()`, `g_application_activate()`, `g_application_quit()`,
   `g_application_get_is_remote()`, and the `activate` signal are all inside the
   implemented algebra already.
 - **GObject identity, weak handles, and native invalidation** have no general

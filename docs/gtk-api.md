@@ -362,7 +362,7 @@ It must not lower to `g_application_run()`, which owns its own `GMainLoop`.
 
 ```ts
 export declare class Application {
-  constructor(applicationId: string);
+  constructor(applicationId: string | null, flags: ApplicationFlags);
   onActivate(callback: (application: Application) => void): SignalConnection;
   start(): void;
   quit(): void;
@@ -407,15 +407,24 @@ been forwarded and it has no primary-instance work to do. `start()` requests
 runtime stop in that case rather than activating, so the process exits through
 the ordinary shutdown path instead of presenting a second set of windows.
 
-Applications that need non-default single-instance behavior select it through
-`GApplicationFlags` once that binding is generated.
+`ApplicationFlags` belongs to `Gio`, so it is imported from
+`@native-typescript/gio2` rather than redeclared here. GIR gives the
+constructor no default, and the projection does not invent one: the flags are
+an ordinary parameter.
+
+```ts
+import { Application } from "@native-typescript/gtk4";
+import { ApplicationFlags } from "@native-typescript/gio2";
+
+const app = new Application("dev.native_typescript.Counter", ApplicationFlags.DefaultFlags);
+```
 
 ## Representative declaration surface
 
 ```ts
 // @native-typescript/gtk4
 export declare class Application {
-  constructor(applicationId: string);
+  constructor(applicationId: string | null, flags: ApplicationFlags);
   onActivate(callback: (application: Application) => void): SignalConnection;
   start(): void;
   quit(): void;
@@ -489,6 +498,7 @@ ownership, nullability, executor, and lifecycle contracts are proven.
 ## Counter application
 
 ```ts
+import { ApplicationFlags } from "@native-typescript/gio2";
 import {
   Application,
   ApplicationWindow,
@@ -497,7 +507,10 @@ import {
   Orientation,
 } from "@native-typescript/gtk4";
 
-const app = new Application("dev.native_typescript.Counter");
+const app = new Application(
+  "dev.native_typescript.Counter",
+  ApplicationFlags.DefaultFlags,
+);
 
 app.onActivate((application) => {
   let count = 0;
