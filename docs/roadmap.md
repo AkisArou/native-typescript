@@ -129,15 +129,49 @@ One contract still blocks the application lifecycle. It is foundation work
 that several later targets need, not GTK glue, so it belongs to its owning
 boundary rather than to the GTK package.
 
-**A GError error convention.** `g_application_register()` is `throws=1`.
-`ErrorContract` already reserves an out-parameter error family for this shape,
-but only `errno` sentinels and nullable owned handles are implemented. GError
-needs an out-parameter whose address is passed to native code, a read of the
-resulting foreign struct, and a cleanup call, so it extends Native IR rather
-than SCABI alone. It also needs owned C-string results, since only borrowed,
-receiver-anchored strings exist today and a GError carries an owned message.
-Discarding the message instead would be a lossy projection, which this
-architecture does not permit. It unblocks a large fraction of Gio and GTK.
+**A GError error convention.** `g_application_register()` is `throws=1`. Only
+`errno` sentinels and nullable owned handles are implemented, so this is the
+one contract left. It unblocks a large fraction of Gio and GTK, not just the
+lifecycle.
+
+The obvious reading — that this needs out-parameters, foreign struct reads, and
+owned C-string results in Native IR — is not the cheapest correct one. A
+generated adapter can absorb the out-parameter, exactly as the caller-allocated
+record-output adapter already does for `gtk_widget_get_preferred_size()`:
+
+```c
+GError *nts_gio_application_register(GApplication *self, GCancellable *c) {
+  GError *error = NULL;
+  if (g_application_register(self, c, &error)) return NULL;
+  return error;
+}
+
+const char *nts_glib_error_message(GError *error) { return error->message; }
+```
+
+The `GError **` never crosses the ABI boundary. What does cross is a nullable
+owned handle whose destructor is `g_error_free`, and a borrowed
+receiver-anchored C string — both already implemented and proven. The message
+is borrowed from a handle the runtime owns, so owned string results are not
+required either.
+
+Two things are genuinely new:
+
+1. A result-position error contract that reads a handle: when the returned
+   handle is non-null, read its message, release the handle, and throw. Today a
+   nullable owned handle result throws *on* null, which is the opposite
+   polarity, so the contract has to own the interpretation rather than reusing
+   that rule.
+2. The SCABI `ErrorContract` member describing it, naming the error handle type
+   and the message binding.
+
+Both compose primitives that already pass their gates, rather than extending
+Native IR with a general out-parameter model before a second consumer needs
+one. Absorbing C out-parameters into a narrow, mechanical adapter is an
+established decision in this architecture, not a shortcut around it.
+
+If a later binding family needs true out-parameters at the boundary, that
+remains its own slice.
 
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`

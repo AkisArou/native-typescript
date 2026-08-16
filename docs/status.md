@@ -347,10 +347,11 @@ These are deliberate, not oversights. Each is a named future slice.
   - `g_application_register()` is `throws=1`, and GError is not an implemented
     native error convention. Only exact-integer `errno` sentinels and nullable
     owned handle results are. It additionally needs owned C-string results:
-    only borrowed, receiver-anchored strings are implemented, and a GError
-    carries an owned message, so the error is not representable without
-    discarding it. Its `GCancellable` parameter is an ordinary nullable handle
-    and needs nothing new.
+    Its `GCancellable` parameter is an ordinary nullable handle and needs
+    nothing new. The design in the [roadmap](roadmap.md) absorbs the
+    `GError **` out-parameter into a generated adapter, so the boundary sees
+    only a nullable owned handle and a borrowed receiver-anchored string, both
+    already proven.
 
   Every other member of the lifecycle is generated already, so `start()` is the
   only operation that cannot be expressed.
