@@ -201,6 +201,24 @@ pointer is not ignored; it is read for its message and released. The `errno`
 contract already sets the precedent that a contract inspects the physical
 result; GError differs only in returning nothing to the source.
 
+Three conventions in the existing emitters are worth knowing before writing
+this, because each is load-bearing and none is obvious from the contract alone:
+
+- `scr_throw_error_msg()` is the general throw primitive. The three
+  `scr_native_throw_*` helpers are thin wrappers that build a message and call
+  it, so a fourth follows the same dozen lines.
+- A contract must check `scr_exc_pending()` before throwing. A callback invoked
+  during the native call may already have thrown, and that exception wins.
+- A handle result is staged through prepare/commit/abandon so a runtime
+  allocation failure cannot strand the native resource. A GError result is
+  released rather than committed, and the release has to happen on both the
+  throwing and the already-pending paths.
+
+The last two are where this slice is easy to get nearly right: a happy-path
+test passes while an error raised during an in-flight exception leaks the
+GError or releases it twice. The sanitizer gate is the check that matters, not
+the functional one.
+
 Selecting a `throws=1` member already fails with a diagnostic naming GError, so
 the gap reports itself until this lands.
 
