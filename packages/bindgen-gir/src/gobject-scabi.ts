@@ -891,9 +891,20 @@ export function generateGObjectScabiPackage(
     options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
   );
   const typeIdByRecord = new Map<string, string>();
-  for (const [enumIndex, enum_] of options.snapshot.enumerations.entries()) {
+  // The probe carries candidates from more than this snapshot once a foreign
+  // enum is reached, so evidence is matched by probe identity. Matching by
+  // array position silently pairs a type with another type's layout.
+  const enumEvidenceById = new Map(
+    options.evidence.enums.map((entry) => [entry.id, entry]),
+  );
+  const recordEvidenceById = new Map(
+    options.evidence.records.map((entry) => [entry.id, entry]),
+  );
+  for (const enum_ of options.snapshot.enumerations) {
     const path = `${options.snapshot.namespace.name}/${enum_.kind}/${enum_.name}`;
-    const evidence = options.evidence.enums[enumIndex];
+    const evidence = enumEvidenceById.get(
+      `${options.snapshot.namespace.name}.${enum_.name}.${enum_.kind}`,
+    );
     const typeId = `${namespacePrefix}_${snakeCase(enum_.name)}`;
     const storageId = `${typeId}_storage`;
     const bits = evidence === undefined ? 0 : evidence.size * 8;
@@ -980,9 +991,11 @@ export function generateGObjectScabiPackage(
       "",
     );
   }
-  for (const [recordIndex, record] of options.snapshot.records.entries()) {
+  for (const record of options.snapshot.records) {
     const path = `${options.snapshot.namespace.name}/${record.name}`;
-    const evidence = options.evidence.records[recordIndex];
+    const evidence = recordEvidenceById.get(
+      `${options.snapshot.namespace.name}.${record.name}.record`,
+    );
     const typeId = `${namespacePrefix}_${record.cSymbolPrefix ?? snakeCase(record.name)}`;
     const fields = record.fields.map((field, fieldIndex) => {
       const scalar = sourceScalarType(field.type);

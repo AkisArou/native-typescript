@@ -75,22 +75,75 @@ function functionCandidate(
   };
 }
 
-export function generateGirClangAbiProbe(
-  snapshot: GirSnapshot,
-  adapter: GObjectAdapterSource,
-): ClangAbiProbe {
-  const diagnostics: CBindgenDiagnostic[] = [];
-  const functions: CFunctionCandidate[] = [];
-  const records: CRecordCandidate[] = [];
-  const enums: CEnumCandidate[] = snapshot.enumerations.map((enum_) => ({
-    id: `${snapshot.namespace.name}.${enum_.name}.${enum_.kind}`,
+function enumCandidate(
+  namespace: string,
+  enum_: GirSnapshot["enumerations"][number],
+): CEnumCandidate {
+  return {
+    id: `${namespace}.${enum_.name}.${enum_.kind}`,
     typeName: enum_.cType,
     members: enum_.members.map((member) => ({
       name: member.name,
       cIdentifier: member.cIdentifier,
       value: member.value,
     })),
-  }));
+  };
+}
+
+/**
+ * Qualified GIR type names this snapshot's selected callables reach, such as
+ * `Gio.ApplicationFlags` on `gtk_application_new()`.
+ *
+ * Only reached names are collected so a package's evidence depends on what it
+ * actually uses rather than on everything the imported namespace selected.
+ */
+function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<string> {
+  const names = new Set<string>();
+  function visit(type: GirTypeReference): void {
+    if (type.kind === "array") {
+      visit(type.element);
+      return;
+    }
+    if (type.name.includes(".")) names.add(type.name);
+    for (const argument of type.arguments) visit(argument);
+  }
+  for (const class_ of snapshot.classes) {
+    for (const callable of [
+      ...class_.constructors,
+      ...class_.methods,
+      ...class_.signals,
+    ]) {
+      visit(callable.result.type);
+      for (const parameter of callable.parameters) visit(parameter.type);
+    }
+  }
+  return names;
+}
+
+export function generateGirClangAbiProbe(
+  snapshot: GirSnapshot,
+  adapter: GObjectAdapterSource,
+  importedSnapshots: readonly GirSnapshot[] = [],
+): ClangAbiProbe {
+  const diagnostics: CBindgenDiagnostic[] = [];
+  const functions: CFunctionCandidate[] = [];
+  const records: CRecordCandidate[] = [];
+  // A package proves the storage of every enum it reaches against its own SDK
+  // headers, including one another namespace owns. Independent proof is what
+  // catches SDK skew between two packages built from different headers.
+  const reachedForeign = reachedForeignTypeNames(snapshot);
+  const enums: CEnumCandidate[] = [
+    ...snapshot.enumerations.map((enum_) =>
+      enumCandidate(snapshot.namespace.name, enum_)
+    ),
+    ...importedSnapshots.flatMap((imported) =>
+      imported.enumerations
+        .filter((enum_) =>
+          reachedForeign.has(`${imported.namespace.name}.${enum_.name}`)
+        )
+        .map((enum_) => enumCandidate(imported.namespace.name, enum_))
+    ),
+  ].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
   for (const class_ of snapshot.classes) {
     for (const callable of [...class_.constructors, ...class_.methods]) {
       const candidate = functionCandidate(
