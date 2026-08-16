@@ -345,36 +345,45 @@ executable's host scheduler. Its poll operation runs at most one
 deadline to the wait. Attached-loop liveness, not a suspended call frame, is
 what keeps the process running after top-level TypeScript returns.
 
-`start()` therefore lowers to registration followed by activation:
+Starting the application is therefore registration followed by activation, and
+must never lower to `g_application_run()`, which owns its own `GMainLoop`:
 
 ```text
-Application.start()
+register()    acquire the primary instance, or detect that another owns the id
     │
-    ├─ g_application_register()      acquire or detect the primary instance
-    │
-    ├─ remote instance?  ──yes──▶    activation forwarded; request runtime stop
-    │
-    └─ g_application_activate()      emits `activate` on the primary instance
-                                     returns immediately
+getIsRemote() ──true──▶  activation was forwarded; this process has no
+    │                    primary-instance work and should quit
+    ▼
+activate()    emits `activate` on the primary instance and returns
 ```
 
-It must not lower to `g_application_run()`, which owns its own `GMainLoop`.
+The projection is those GIR members, not a synthesized `start()`. GIR has no
+such member, and the generator emits what the introspected surface has rather
+than inventing a composite:
 
 ```ts
 export declare class Application {
   constructor(applicationId: string | null, flags: ApplicationFlags);
   onActivate(callback: (application: Application) => void): SignalConnection;
-  start(): void;
+  register(cancellable: Cancellable): void;
+  getIsRemote(): boolean;
+  activate(): void;
   quit(): void;
 }
 ```
 
-- `start()` registers and activates the application, then returns. Calling it
-  more than once on one instance is a contract violation.
-- `onActivate` registers before `start()`. It is an ordinary receiver-owned
+- `register()` reports failure through a GError, so it projects as a throwing
+  method: a generated adapter absorbs the `GError **` and the runtime raises an
+  ordinary catchable `Error` carrying the message.
+- `onActivate` registers before activation. It is an ordinary receiver-owned
   signal with the same lifetime rules as every other GTK signal.
+- `activate()` returns immediately. Nothing suspends around the UI loop.
 - `quit()` ends attached-loop liveness and requests runtime shutdown. Already
   admitted callbacks still drain before the owner observes quiescence.
+
+`register()`'s `GCancellable` is nullable in C, but a nullable handle currently
+projects as its non-null source subset, so a cancellable must be constructed
+rather than omitted. Exposing null needs nullable managed-handle IR of its own.
 
 ### Process lifetime is explicit
 
@@ -403,9 +412,11 @@ constructor option with its own gate, never a default.
 
 `g_application_register()` may determine that another process already owns the
 application ID. The local process is then a remote instance: its activation has
-been forwarded and it has no primary-instance work to do. `start()` requests
-runtime stop in that case rather than activating, so the process exits through
-the ordinary shutdown path instead of presenting a second set of windows.
+been forwarded and it has no primary-instance work to do. `getIsRemote()`
+reports that, and the application quits instead of activating, so the process
+exits through the ordinary shutdown path rather than presenting a second set of
+windows. The projection reports the condition; it does not decide for the
+application.
 
 `ApplicationFlags` belongs to `Gio`, so it is imported from
 `@native-typescript/gio2` rather than redeclared here. GIR gives the
@@ -414,7 +425,7 @@ an ordinary parameter.
 
 ```ts
 import { Application } from "@native-typescript/gtk4";
-import { ApplicationFlags } from "@native-typescript/gio2";
+import { ApplicationFlags, Cancellable } from "@native-typescript/gio2";
 
 const app = new Application("dev.native_typescript.Counter", ApplicationFlags.DefaultFlags);
 ```
@@ -426,7 +437,9 @@ const app = new Application("dev.native_typescript.Counter", ApplicationFlags.De
 export declare class Application {
   constructor(applicationId: string | null, flags: ApplicationFlags);
   onActivate(callback: (application: Application) => void): SignalConnection;
-  start(): void;
+  register(cancellable: Cancellable): void;
+  getIsRemote(): boolean;
+  activate(): void;
   quit(): void;
 }
 
@@ -532,10 +545,15 @@ app.onActivate((application) => {
   window.present();
 });
 
-app.start();
+app.register(new Cancellable());
+if (app.getIsRemote()) {
+  app.quit();
+} else {
+  app.activate();
+}
 ```
 
-`start()` returns as soon as the application is activated. Top-level module
+`activate()` returns as soon as the signal has been emitted. Top-level module
 evaluation then completes, and the attached GLib main context owns waiting from
 that point on. No signal handle or GObject release call is required in the
 ordinary path.
