@@ -516,9 +516,34 @@ And a method with two boxed outputs — `get_bounds` — has nowhere to put them
 because a value-return record's fields cannot be handles. Both wait on the
 answer-as-a-field shape the out-parameter bullet above describes.
 
-**Proposed: a value record another namespace owns is imported by identity.**
-This is 24 live members — `Gdk.RGBA` on 14, `Gdk.Rectangle` on 10 — and it is
-the smaller change of the two, but it needs one addition to the manifest.
+**Corrected, and not built: a value record another namespace owns.** The
+proposal called this 24 live members and one manifest field. Measured by
+direction, that was optimistic twice over, and the correction is the useful
+part.
+
+The 24 split into 14 members that take one as an argument and 7 that fill a
+caller-allocated one — and **neither shape exists even for a record this
+namespace owns**. A record-typed parameter is refused everywhere: the input
+families are exact scalars, booleans, borrowed UTF-8, enumerations and handles,
+and a struct crossing by value is not among them. So the typed import unlocks
+nothing on its own; it needs records-as-arguments first, and that capability is
+worth about one member locally.
+
+The output half is worse. A caller-allocated record output becomes a field of
+the value-return record, so an imported one would be a struct field of an
+imported struct type — and a field needs its type's size to validate the
+layout, which is exactly what an importer does not have. That is the case the
+enumeration precedent cannot reach and the handle precedent cannot either.
+
+And of the 14 argument members, 8 are `GtkSnapshot` drawing calls that also
+take a `Graphene.Rect` or a `Gsk.RoundedRect`, so they do not land until those
+namespaces project too. What would actually land is four:
+`gtk_popover_set_pointing_to`, `gtk_tooltip_set_tip_area`,
+`gtk_im_context_set_cursor_location`, and `gtk_color_dialog_button_set_rgba`.
+
+So the order is: records as by-value arguments first, then the typed import,
+and the nested-imported-field question needs its own answer before the output
+half is reachable at all. Four members is not a reason to start.
 
 The enumeration precedent does not transfer, and it is worth saying why,
 because the two look alike. An enumeration lowers to a **bare scalar**: the
@@ -543,10 +568,14 @@ layout is the owner's evidence. That is the honest trade rather than a gap. A
 struct has one layout, and proving it twice would only give composition a
 second thing to reconcile.
 
-**Sequence.** Boxed records first: they are worth three times as much, need no
-compiler change, and their cross-namespace half rides the import path that
-already exists. Then the typed import, which is one field and unlocks colours
-and rectangles.
+**Sequence.** Boxed records landed first, and the measurement after them says
+what the sequence should have been all along: an opaque record needs no field
+selection at all, so `PangoTabArray`, `PangoFontDescription`, `GtkPaperSize`,
+`GskStroke`, `GLib.Error` and `GLib.String` come with the same mechanism — 27
+live members beyond `GtkTextIter`'s 48 — and reading the duplicate and release
+pair GIR states on the record adds `GLib.Variant` and `GLib.Bytes`. The value
+record's cross-namespace question waits behind a capability the proposal
+assumed it already had.
 
 ### Acceptance application
 

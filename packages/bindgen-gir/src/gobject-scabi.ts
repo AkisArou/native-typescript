@@ -1867,10 +1867,20 @@ export function generateGObjectScabiPackage(
      * destructor is, so there is no adapter and no dependency on one. */
     if (boxed) {
       const free = class_.boxed?.free;
+      /* A release takes the value and answers nothing. Its receiver may be
+       * nullable — `g_bytes_unref` accepts null — which changes nothing here:
+       * the runtime calls a destructor only with a live pointer, so the
+       * binding declares the narrower contract it actually uses. */
+      const releaseReceiver = free?.parameters[0];
       const releasesOne = free !== undefined &&
         free.cIdentifier !== null &&
         free.parameters.length === 1 &&
-        isExactInstanceReceiver(free.parameters[0], class_) &&
+        releaseReceiver?.kind === "instance" &&
+        releaseReceiver.type.kind === "named" &&
+        instancePointerSpelling(releaseReceiver.type.cType, class_.cType, true) &&
+        releaseReceiver.direction === "in" &&
+        !releaseReceiver.optional &&
+        !releaseReceiver.skip &&
         free.result.type.kind === "named" &&
         free.result.type.cType === "void" &&
         !free.throws;

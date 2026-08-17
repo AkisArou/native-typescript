@@ -130,6 +130,11 @@ interface MutableClass {
   readonly selection: NormalizedClassSelection;
   readonly kind: "class" | "interface" | "record";
   readonly name: string;
+  /** The C identifiers GIR names as this record's duplicate and release, when
+   * it names them. `GVariant` says `g_variant_ref_sink` and `g_variant_unref`,
+   * which are neither called `copy` nor `free`. */
+  readonly boxedCopySymbol: string | null;
+  readonly boxedFreeSymbol: string | null;
   boxedCopy: GirCallable | null;
   boxedFree: GirCallable | null;
   readonly cType: string;
@@ -1023,6 +1028,8 @@ export function ingestGir(
           constructors: [],
           methods: [],
           signals: [],
+          boxedCopySymbol: attribute(tag, "copy-function") ?? null,
+          boxedFreeSymbol: attribute(tag, "free-function") ?? null,
           boxedCopy: null,
           boxedFree: null,
           foundConstructors: new Set(),
@@ -1318,8 +1325,28 @@ export function ingestGir(
          * surface: the projection needs both to allocate one and to release
          * one, so they are read whether or not the project asked for them,
          * and only what it asked for becomes a member. */
+        const memberPath = `${activeClass.path}/${kind}/${name}`;
+        /* Which methods duplicate and release a boxed record. GIR states the
+         * pair on the record where it knows it, and that is authoritative:
+         * `GVariant` duplicates by taking a reference, which no naming
+         * convention would find. Where it does not, the convention GLib
+         * follows throughout is a `copy` and a `free`. */
+        const contractSymbols = activeClass.boxedCopySymbol !== null ||
+            activeClass.boxedFreeSymbol !== null
+          ? [activeClass.boxedCopySymbol, activeClass.boxedFreeSymbol]
+          : null;
         const boxedContract = activeClass.kind === "record" &&
-          kind === "method" && (name === "copy" || name === "free");
+          kind === "method" &&
+          (contractSymbols === null
+            ? name === "copy" || name === "free"
+            : contractSymbols.includes(
+              attribute(tag, "identifier", cNamespace) ?? null,
+            )) &&
+          /* A contract nobody can introspect is a contract this projection
+           * does not have: `GObject.ValueArray` declares a `free` GIR marks
+           * unintrospectable, and the record refuses for the reason that
+           * matters — no free — rather than for a method nobody selected. */
+          booleanAttribute(tag, "introspectable", memberPath, diagnostics, true);
         if (selected.has(name) || boxedContract) {
           const found = kind === "constructor"
             ? activeClass.foundConstructors
@@ -1332,13 +1359,15 @@ export function ingestGir(
               diagnostic("NTS4002", path, `Selected GIR ${kind} '${name}' is duplicated`),
             );
           }
-          if (selected.has(name)) found.add(name);
-          requireIntrospectable(
-            tag,
-            path,
-            diagnostics,
-            `Selected GIR ${kind} '${name}'`,
-          );
+          if (selected.has(name)) {
+            found.add(name);
+            requireIntrospectable(
+              tag,
+              path,
+              diagnostics,
+              `Selected GIR ${kind} '${name}'`,
+            );
+          }
           const cIdentifier = kind === "signal"
             ? null
             : requiredAttribute(tag, "identifier", cNamespace, path, diagnostics);
@@ -1661,10 +1690,16 @@ export function ingestGir(
         const callable = freezeCallable(activeCallable);
         if (callable.kind === "constructor") activeClass!.constructors.push(callable);
         if (callable.kind === "method") {
-          if (activeClass!.kind === "record" && callable.name === "copy") {
+          const duplicates = activeClass!.boxedCopySymbol === null
+            ? callable.name === "copy"
+            : callable.cIdentifier === activeClass!.boxedCopySymbol;
+          const releases = activeClass!.boxedFreeSymbol === null
+            ? callable.name === "free"
+            : callable.cIdentifier === activeClass!.boxedFreeSymbol;
+          if (activeClass!.kind === "record" && duplicates) {
             activeClass!.boxedCopy = callable;
           }
-          if (activeClass!.kind === "record" && callable.name === "free") {
+          if (activeClass!.kind === "record" && releases) {
             activeClass!.boxedFree = callable;
           }
           if (activeClass!.selection.methods.has(callable.name)) {

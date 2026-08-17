@@ -591,6 +591,43 @@ test("GIR ingestion rejects provenance, syntax, and ownership ambiguity", () => 
 });
 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
+const systemGlibGir = "/usr/share/gir-1.0/GLib-2.0.gir";
+
+test(
+  "a boxed record reads the duplicate and release GIR names for it",
+  { skip: !existsSync(systemGlibGir) },
+  () => {
+    /* The pair is a contract rather than a surface, so it is read whether or
+     * not the selection asks for it — and where GIR states the pair on the
+     * record, that is authoritative: `GVariant` duplicates by taking a
+     * reference, which no naming convention would find. */
+    const snapshot = ingestGir(readFileSync(systemGlibGir, "utf8"), {
+      logicalPath: "system-sdk/gir/GLib-2.0.gir",
+      namespace: { name: "GLib", version: "2.0" },
+      classes: [],
+      records: [
+        { name: "Bytes", methods: ["get_size"] },
+        { name: "Variant", methods: ["get_type_string"] },
+      ],
+    });
+    assert.deepEqual(
+      snapshot.boxedRecords.map((record) => [
+        record.name,
+        record.boxed?.copy.cIdentifier,
+        record.boxed?.free.cIdentifier,
+      ]),
+      [
+        ["Bytes", "g_bytes_ref", "g_bytes_unref"],
+        ["Variant", "g_variant_ref_sink", "g_variant_unref"],
+      ],
+    );
+    // Neither is a member: the selection asked for one method and got one.
+    assert.deepEqual(
+      snapshot.boxedRecords.map((record) => record.methods.map(({ name }) => name)),
+      [["get_size"], ["get_type_string"]],
+    );
+  },
+);
 
 test(
   "installed Gtk-4.0 GIR satisfies selected Button, Requisition, and Orientation contracts",
