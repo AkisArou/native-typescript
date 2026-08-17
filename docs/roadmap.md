@@ -279,6 +279,44 @@ five `GtkMediaStream` members are what that price currently buys, and the
 trigger for paying it is a general BigInt primitive — which would serve far
 more than this boundary and has to be justified on its own.
 
+**Implementing BigInt, if it is justified.** It is a language feature, not a
+boundary one, and it should be sized as such. Measured surface: 30 files in
+the compiler switch on a primitive's type kind, and `ir/validate.ts` alone
+carries 38 sites for `string`; the runtime needs an arbitrary-precision
+integer of its own, because the QuickJS the island embeds is linked only under
+`--dynamic` and Phase 2's acceptance criteria say the product ships no
+JavaScript engine. That is days of work across the frontend, both backends,
+and the differential corpus — a bignum core of perhaps 500 lines before a
+single line of wiring.
+
+It is also the change in this tree with the least fork-specific content:
+nothing about it is GTK, GIR, or FFI. `SC2001` names bigint and symbol
+primitives as values outside the compilable set, which is upstream's own
+statement of the gap, and their differential corpus — every program run under
+Node and as a binary, stdout compared byte for byte — is where `toString`
+parity has to be proven. [The evolution policy](scriptc-evolution.md) says to
+propose generally useful changes upstream early enough for design feedback,
+and this is the clearest case of one in the repository.
+
+The slices, in dependency order:
+
+1. **The runtime integer.** Refcounted, sign and magnitude, base-2³² limbs;
+   add, subtract, multiply, compare, decimal parse and format. Testable on its
+   own in C, and the base everything else stands on.
+2. **The thin vertical slice.** A `bigint` type kind in the IR, literals,
+   comparison, `typeof`, `toString`, and the conversions to and from `number`
+   — through the frontend, both backends, and a Node-differential fixture.
+   Arithmetic refuses precisely until slice 3, which is narrow but not a stub.
+3. **Arithmetic.** `+ - *` first, then division, remainder, exponentiation,
+   the shifts and the bitwise operators over two's complement at infinity,
+   then `asIntN`/`asUintN`. Plus the mixing rules — `1n + 1` is a `TypeError`,
+   `1n === 1` is false, `1n == 1` is true.
+4. **The carrier.** A 64-bit position declares `bigint` the way a 32-bit one
+   declares `number`, and the last casts in generated bindings disappear.
+
+Only slice 4 pays the boundary anything, and only five members' worth. Slices
+1 to 3 are worth doing because the language is incomplete without them.
+
 **Adjacent, and worth more than either: `gsize`.** Platform-width integers are
 absent from the scalar table, which refuses 17 live GTK members across
 `Snapshot`, `Builder`, `EntryBuffer` and `Text` — more callers than the two
