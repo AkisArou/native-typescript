@@ -2904,7 +2904,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 2,
+    schemaVersion: 3,
     package: options.package,
     target: {
       ...options.target,
@@ -2921,7 +2921,7 @@ export function generateGObjectScabiPackage(
     generator: {
       name: "native-typescript.gobject-gir",
       version: "1",
-      revision: "gobject-scabi-v4",
+      revision: "gobject-scabi-v5",
       arguments: [
         ...[
           ...options.snapshot.classes,

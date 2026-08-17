@@ -55,7 +55,7 @@ Conceptually, every manifest contains:
 ```ts
 interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 3;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
@@ -64,6 +64,8 @@ interface ScabiManifest {
     readonly digest: string;
     readonly types: Readonly<Record<string, DeclarationReference>>;
   };
+  /** Native types another package defines. Only a handle may be imported. */
+  readonly imports?: Readonly<Record<string, TypeImport>>;
   readonly types: Readonly<Record<string, NativeType>>;
   readonly bindings: Readonly<Record<string, NativeBinding>>;
   readonly linkInputs: readonly LinkInput[];
@@ -218,8 +220,9 @@ their direct C signature has been accepted. GIR supplies the explicit `none` or
 `full` result-transfer fact; the adapter queries actual floating state when
 required and presents exactly one strong, non-floating reference to the future
 managed-handle projection. Its C source and object are declared artifact-graph
-nodes. The generated constructor SCABI binding enters through the adapter symbol
-and names its generated release binding as the owned-handle destructor. Repeated
+nodes. The generated constructor SCABI binding enters through the adapter symbol,
+and the handle type names the generated release binding as its destructor —
+once, for every position that comes to own one. Repeated
 native identity, weak/invalidation policy, and broader method adapters remain
 separate work.
 
@@ -340,10 +343,11 @@ This applies to borrowed inputs only. An owned `to-native` handle is marked
 nullable because the C slot accepts NULL, but its source value is a non-null
 managed handle — a destructor takes the handle it destroys.
 
-A derived handle does not currently reach an optional parameter, because union
-re-tagging does not consult identity upcasts. Generation therefore still
-projects the non-null subset for GObject, where passing a derived widget is the
-common case, rather than an API that would reject ordinary calls.
+A derived handle reaches an optional parameter: the declared identity upcast
+widens it into the union's ancestor arm, whether the value is written at the
+call or computed into a `T | null` first. That is what makes an honest
+nullable projection usable for GObject, where passing a derived widget is the
+common case.
 
 ### Error-object failures
 

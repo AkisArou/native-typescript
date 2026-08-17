@@ -542,7 +542,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
