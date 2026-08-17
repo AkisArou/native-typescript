@@ -251,13 +251,16 @@ projection decide each other:
   something constructors bring.
 - A release that nothing names as a destructor is refused: *general
   ownership-consuming calls are outside the exact-destructor slice*. So a class
-  may not be given one speculatively. Releases are emitted for exactly the
+  may not be given one speculatively. Releases were emitted for exactly the
   classes something destroys — those with constructors, plus those returned
-  borrowed or delivered as a payload.
+  borrowed or delivered as a payload. (That constraint is gone: a handle type
+  names its own destructor now, so every projected class has a release and
+  none of them is unnamed.)
 
-Giving those classes a release also gives them a `dispose()`, abstract ones
-included. That is the intended reading: disposing drops the reference this
-program took, not the object.
+The release is the runtime's, performed when the managed cell dies. It reserves
+the declaration name `Class.dispose` and emits no `dispose()` member: a
+GObject class gets one only where early release is semantically useful, which
+is the rule [the GTK API contract](gtk-api.md) states.
 
 With that settled each projection is small. A result binds an adapter
 returning `value == NULL ? NULL : g_object_ref(value)`, which makes it an owned

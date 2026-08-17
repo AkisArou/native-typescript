@@ -680,10 +680,10 @@ These are deliberate, not oversights. Each is a named future slice.
   is refused; and a package that imported a handle could not own one, because
   a destructor is a binding and a manifest could only name its own. Both were
   the same missing statement. The type names it now, so every projected class
-  has a release and `dispose()` means the same thing on all of them, and an
-  importer receives the destructor with the type. Owned *pointer* results keep
-  naming theirs on the position, where the producer really does decide the
-  free.
+  has a release — performed by the runtime when the cell dies, not exposed as
+  a `dispose()` member — and an importer receives the destructor with the
+  type. Owned *pointer* results keep naming theirs on the position, where the
+  producer really does decide the free.
 
 - **A handle input may be absent.** GIR states whether a callee accepts NULL,
   and absence is what clears a child, unsets a transient parent, or declines a
