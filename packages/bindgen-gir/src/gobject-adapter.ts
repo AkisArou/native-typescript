@@ -452,12 +452,18 @@ function generateSignal(
   const validParameters = parameters.filter(
     (parameter): parameter is NonNullable<typeof parameter> => parameter !== null,
   );
+  /* A signal that answers `gboolean` is asking whether the handler consumed
+   * the event, and the answer has to exist before the emission returns. That
+   * is the one non-void result this adapter forwards; anything else would be
+   * a value the handler has to construct, which is a different question. */
+  const answersBoolean = result !== null && result.kind === "named" &&
+    result.name === "gboolean";
   if (
     nativeClass === null ||
     nativeClass.kind !== "named" ||
     result === null ||
     result.kind !== "named" ||
-    result.name !== "void" ||
+    (result.name !== "void" && !answersBoolean) ||
     callable.result.transferOwnership !== "none" ||
     callable.result.nullable ||
     callable.result.skip ||
@@ -471,8 +477,8 @@ function generateSignal(
       severity: "error",
       path,
       message:
-        `Only non-detailed void GObject signals with ${signalPayloadFamilies} ` +
-        "payloads are implemented",
+        `Only non-detailed GObject signals answering void or gboolean, with ` +
+        `${signalPayloadFamilies} payloads, are implemented`,
     });
     return null;
   }
@@ -492,15 +498,16 @@ function generateSignal(
   const callbackArguments = validParameters.map(
     (_, index) => `parameter_${index.toString().padStart(4, "0")}`,
   );
+  const answerType = answersBoolean ? "gboolean" : "void";
   const lines = [
-    `typedef void (*${callbackType})(${[...callbackParameters, "void *context"].join(", ")});`,
+    `typedef ${answerType} (*${callbackType})(${[...callbackParameters, "void *context"].join(", ")});`,
     `typedef struct ${connectionType} {`,
     `  ${signalConnection.nativeType} base;`,
     `  ${callbackType} callback;`,
     "  void *context;",
     `} ${connectionType};`,
     "",
-    `static void ${dispatchSymbol}(${[`${nativeClassPointer}instance`, ...callbackParameters, "void *opaque"].join(", ")}) {`,
+    `static ${answerType} ${dispatchSymbol}(${[`${nativeClassPointer}instance`, ...callbackParameters, "void *opaque"].join(", ")}) {`,
     "  (void)instance;",
     `  ${connectionType} *connection = opaque;`,
     /* Delivery is queued, so an object payload has to survive the emission
@@ -523,7 +530,7 @@ function generateSignal(
           ]
         : [];
     }),
-    `  connection->callback(${[...callbackArguments, "connection->context"].join(", ")});`,
+    `  ${answersBoolean ? "return " : ""}connection->callback(${[...callbackArguments, "connection->context"].join(", ")});`,
     "}",
     "",
     `${signalConnection.nativeType} *${connectSymbol}(`,

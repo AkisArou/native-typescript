@@ -2346,6 +2346,30 @@ export function generateGObjectScabiPackage(
           `${lowerCamel(parameter.name)}: ${sourceName}`,
         );
       }
+      /* A signal that answers gboolean is asking whether the handler consumed
+       * the event, so its handler runs during the emission rather than in a
+       * later turn — the answer has to exist before the emitting call
+       * returns. Only values can cross that way: nothing here outlives the
+       * call, so a copied string or a referenced object payload would have
+       * no owner. */
+      const answersBoolean = callable.result.type.kind === "named" &&
+        callable.result.type.name === "gboolean";
+      if (
+        answersBoolean &&
+        signalParameters.some((parameter) => {
+          const type = types[parameter.type];
+          return type === undefined ||
+            (type.kind !== "integer" && type.kind !== "float" &&
+              type.kind !== "enum" && type.kind !== "flags" &&
+              type.kind !== "boolean");
+        })
+      ) {
+        diagnostics.push(diagnostic(
+          path,
+          "A signal answering gboolean is delivered during its emission, so its payloads must be values",
+        ));
+        continue;
+      }
       if (!signalValid || signalParameters.length !== adapter.parameters.length) continue;
       if (
         types[callbackTypeId] !== undefined ||
@@ -2371,7 +2395,7 @@ export function generateGObjectScabiPackage(
           variadic: false,
           parameters: Object.freeze(signalParameters),
           result: Object.freeze({
-            type: "void",
+            type: answersBoolean ? "gboolean" : "void",
             passMode: "value",
             nullable: false,
             ownership: Object.freeze({ kind: "value" }),
@@ -2410,16 +2434,26 @@ export function generateGObjectScabiPackage(
               allowedInvocationExecutors: Object.freeze([
                 Object.freeze({ kind: "same-as-caller" as const }),
               ]),
-              deliveryExecutor: Object.freeze({ kind: "runtime-owner" }),
-              synchronousReturn: false,
+              deliveryExecutor: Object.freeze(
+                answersBoolean
+                  ? { kind: "same-as-caller" as const }
+                  : { kind: "runtime-owner" as const },
+              ),
+              synchronousReturn: answersBoolean,
               arguments: Object.freeze(signalParameters.map((parameter) =>
                 Object.freeze({
                   parameter: parameter.name,
-                  transport: "copy" as const,
+                  transport: answersBoolean ? "borrow" as const : "copy" as const,
                 })
               )),
               sourceArguments: Object.freeze([
-                Object.freeze({ kind: "registration-owner" as const }),
+                /* An answering handler receives no sender: injecting one
+                 * would mean a managed handle for the length of the call,
+                 * and a borrowed payload is exactly what this delivery does
+                 * not have. */
+                ...(answersBoolean
+                  ? []
+                  : [Object.freeze({ kind: "registration-owner" as const })]),
                 ...signalParameters.map((parameter) =>
                   Object.freeze({
                     kind: "callback-parameter" as const,
@@ -2427,7 +2461,7 @@ export function generateGObjectScabiPackage(
                   })
                 ),
               ]),
-              reentrancy: "allowed",
+              reentrancy: answersBoolean ? "required" : "allowed",
               postDisposal: "not-invoked",
               shutdown: "drain",
             }),
@@ -2467,9 +2501,9 @@ export function generateGObjectScabiPackage(
       classLines.push(
         ...deprecationDoc(callable, "  "),
         `  on${upperCamel(callable.name)}(callback: (${[
-          `${lowerCamel(class_.name)}: ${class_.name}`,
+          ...(answersBoolean ? [] : [`${lowerCamel(class_.name)}: ${class_.name}`]),
           ...sourceSignalParameters,
-        ].join(", ")}) => void): SignalConnection;`,
+        ].join(", ")}) => ${answersBoolean ? "boolean" : "void"}): SignalConnection;`,
       );
     }
     let hasCanonicalConstructor = false;

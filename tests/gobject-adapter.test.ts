@@ -472,8 +472,9 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
         severity: "error",
         path: "Button/signal/clicked",
         message:
-          "Only non-detailed void GObject signals with exact scalar, " +
-          "enumeration, UTF-8, and selected class payloads are implemented",
+          "Only non-detailed GObject signals answering void or gboolean, " +
+          "with exact scalar, enumeration, UTF-8, and selected class " +
+          "payloads, are implemented",
       }]);
       return true;
     },

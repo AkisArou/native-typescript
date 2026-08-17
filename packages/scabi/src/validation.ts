@@ -1430,8 +1430,13 @@ function validateCallback(
   }
   const resultType = manifest.types[callbackType.signature.result.type];
   if (contract.synchronousReturn) {
+    /* An answer has to exist before the call that asks for it returns, so
+     * the handler runs on the calling executor. The registration may be
+     * call-scoped or until-cancelled — a toolkit signal is registered once
+     * and asked many times — but never foreign: answering means reading a
+     * closure, and a foreign producer may never read one. */
     if (
-      contract.lifetime !== "call" ||
+      (contract.lifetime !== "call" && contract.lifetime !== "until-cancelled") ||
       callbackIsForeign(contract) ||
       contract.deliveryExecutor.kind !== "same-as-caller"
     ) {
@@ -1439,7 +1444,19 @@ function validateCallback(
         diagnostic(
           "NTS2040",
           `${path}/synchronousReturn`,
-          "Synchronous callback returns require call lifetime on the calling executor",
+          "Synchronous callback returns require call or until-cancelled lifetime on the calling executor",
+        ),
+      );
+    }
+    if (
+      contract.lifetime === "until-cancelled" &&
+      contract.arguments.some(({ transport }) => transport !== "borrow")
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS2040",
+          `${path}/synchronousReturn`,
+          "A synchronously answered registration borrows its payloads: nothing outlives the call that asks",
         ),
       );
     }

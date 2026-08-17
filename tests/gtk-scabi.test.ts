@@ -961,6 +961,49 @@ test(
 );
 
 test(
+  "a signal that asks a question is answered during its emission",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `Window::close-request` asks whether the application handled the
+     * request and consumes the answer while deciding what to do, so its
+     * handler cannot be delivered in a later turn. It is registered once and
+     * asked many times, which is why the contract is until-cancelled with a
+     * synchronous answer rather than call-scoped. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Window", constructors: ["new"], signals: ["close-request"] },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    /* A boolean answer, and no sender: a borrowed managed handle is exactly
+     * what this delivery cannot hand over. */
+    assert.match(
+      generated.declarations,
+      /onCloseRequest\(callback: \(\) => boolean\): SignalConnection;/u,
+    );
+    const connect = generated.manifest.bindings.gtk_window_connect_close_request;
+    assert.ok(connect && connect.kind !== "constant");
+    const contract = connect.signature.parameters[1]?.callback;
+    assert.equal(contract?.synchronousReturn, true);
+    assert.equal(contract?.lifetime, "until-cancelled");
+    assert.deepEqual(contract?.deliveryExecutor, { kind: "same-as-caller" });
+    assert.deepEqual(contract?.allowedInvocationExecutors, [
+      { kind: "same-as-caller" },
+    ]);
+    assert.deepEqual(contract?.sourceArguments, []);
+    const callback = generated.manifest.types.gtk_window_close_request_callback;
+    assert.equal(
+      callback?.kind === "callback" ? callback.signature.result.type : undefined,
+      "gboolean",
+    );
+  },
+);
+
+test(
   "a 32-bit float projects as a plain number over its own width",
   { skip: !existsSync(systemGtkGir) },
   () => {

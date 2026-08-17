@@ -216,6 +216,18 @@ const deadline = setTimeout((): void => {
   applicationQuit();
 }, 10_000);
 
+/* A signal that asks a question. GTK emits `close-request` while deciding
+ * whether to close the window and consumes the answer immediately, so this
+ * handler runs during the emission rather than in a later runtime turn —
+ * which is why it can answer at all. Returning true says the application
+ * handled the request and the window must stay open. */
+let closeRequests = 0;
+const closeRequested = window.onCloseRequest((): boolean => {
+  closeRequests = closeRequests + 1;
+  return closeRequests < 2;
+});
+if (!closeRequested.connected) throw new Error("close-request did not connect");
+
 const clicked = action.onClicked((sender): void => {
   clearTimeout(deadline);
   /* Button's label can be absent, so it reads as a call; Label's cannot, so it
@@ -354,6 +366,17 @@ const clicked = action.onClicked((sender): void => {
     "a negative crossed into an unsigned slot",
   );
   check_(entry.maxLength === 32, "a refused conversion changed the widget");
+
+  /* The answer decides what GTK does next, and it decides it now: the first
+   * request is refused and the window survives, the second is allowed. A
+   * queued handler could not have said either. */
+  check_(closeRequests === 0, "close-request fired before it was asked");
+  window.close();
+  check_(closeRequests === 1, "the close-request handler did not run during the emission");
+  check_(window.visible, "a refused close request closed the window anyway");
+  window.close();
+  check_(closeRequests === 2, "the second close request never reached the handler");
+  check_(!window.visible, "an allowed close request left the window open");
 
   console.log(failure.length > 0 ? failure : "widgets ok");
   window.destroy();

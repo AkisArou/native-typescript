@@ -217,6 +217,17 @@ ordinary compiler-generated unwinding. Physical foreign-pointer, callback, and
 context types are ABI-only and are not members of the TypeScript/language-IR
 value model.
 
+A retained callback is ordinarily delivered by copying its payloads onto the
+runtime owner and answering the producer with nothing, which is what lets a
+foreign thread raise one at all. A registration whose answer the producer
+consumes cannot work that way, so it declares a synchronous delivery instead:
+the handler runs on the calling thread and its result is the producing call's
+result. That is admissible only where the contract admits no foreign invoker —
+answering means reading a closure, and a foreign thread may never read one —
+and it carries values only, because nothing crossing it outlives the call. Its
+exception stays pending and the next owner turn reports it, since a producer's
+frame is not one the runtime may unwind through.
+
 A projection may also change a slot's source carrier without changing the slot.
 A position over an integer of at most 32 bits may declare that its source
 carrier is an ordinary `number`: an argument is checked into the exact slot at

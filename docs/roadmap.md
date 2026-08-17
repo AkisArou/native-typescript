@@ -284,6 +284,16 @@ What remains is the link itself, which is one action by nature: its inputs
 include the program, so it re-runs whenever the application changes. That is
 correct, and it is also the whole remaining cost.
 
+**Answering a signal that asks a question.** Done. GTK's 57
+`gboolean`-returning signals — `close-request`, `key-pressed`, `scroll` —
+consume their answer while the emission is still running, so a queued handler
+could never supply one. Retained callbacks gained a second delivery:
+same-caller, synchronous, answering with the handler's own `boolean`. It is
+admissible because the invocation is on the thread that owns the runtime and
+nothing foreign may read a closure; it carries values only, because nothing
+outlives the call; and an exception it leaves pending is reported by the next
+turn rather than thrown into the toolkit's frame.
+
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a
 generated adapter absorbs the `GError **`, one accessor pair per namespace

@@ -473,7 +473,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Branded 64-bit integers | `gint64`, `guint64`, exact with BigInt carriers |
 | Nominal enums and flags | Clang-proven storage and member values |
 | Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
-| Signals | non-detailed `void`, payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
+| Signals | non-detailed, answering `void` (queued) or `gboolean` (answered during the emission); payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
 | Deprecated members | bind normally, marked `@deprecated` in the declaration |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
@@ -647,7 +647,33 @@ These are deliberate, not oversights. Each is a named future slice.
   handle. A payload GIR marks nullable is still refused, because absence would
   have to become a union arm the callback signature does not carry.
 
-- **Detailed signals and non-void signal results** fail generation, as do
+- **A signal that asks a question is answered during its emission.** GTK has
+  57 signals returning `gboolean` — `close-request`, `key-pressed`, `scroll`
+  — and every one asks whether the handler consumed the event. The answer has
+  to exist before the emitting call returns, so those handlers run inside the
+  emission rather than in a later runtime turn, and they return an ordinary
+  `boolean`:
+
+  ```ts
+  window.onCloseRequest(() => {
+    return unsavedChanges;   // true keeps the window open
+  });
+  ```
+
+  That delivery is admissible for one reason: the invocation is same-as-caller
+  on the thread that owns the runtime, and answering means reading a closure,
+  which a foreign producer may never do. Only values cross it — nothing
+  outlives the call, so a copied string or a referenced object payload would
+  have no owner — and no sender is injected, for the same reason. A handler
+  that throws leaves the exception pending, answers the toolkit with the ABI
+  zero, and the next runtime turn reports it, exactly as it would an uncaught
+  exception from a queued delivery.
+
+  Every other signal stays queued. That is not an inconsistency to remove: a
+  void signal's result is nothing, and keeping the toolkit's frames out of the
+  runtime is worth having wherever it costs nothing.
+
+- **Detailed signals** fail generation, as do non-`gboolean` signal results and
   broader value-method input/output families.
 - **`gfloat` is the one crossing that is not exact.** It projects as a plain
   `number`, because a 32-bit float in a foreign signature is a slot rather

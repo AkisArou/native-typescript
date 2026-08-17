@@ -95,7 +95,15 @@ export type ScriptCNativeCallbackArgumentType = {
     | { readonly kind: "string" }
     | { readonly kind: "f64" }
   )[];
-  readonly ret: ScriptCNativeCallbackSignature["result"];
+  /** A handler's answer. `bool` is an ordinary TypeScript boolean over an ABI
+   * boolean's storage, carrying the two values that storage means. */
+  readonly ret:
+    | ScriptCNativeCallbackSignature["result"]
+    | {
+        readonly kind: "bool";
+        readonly falseValue: string;
+        readonly trueValue: string;
+      };
 };
 
 export type ScriptCNativeCallbackSourceArgument =
@@ -136,6 +144,26 @@ export type ScriptCNativeCallbackContract =
       readonly transports: readonly { readonly kind: "copy" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
       readonly reentrancy: "allowed" | "required";
+      readonly postDisposal: "not-invoked";
+      readonly shutdown: "drain";
+    }
+  /** A registration the native side asks: the handler runs during the call
+   * that invokes it and its answer is that call's result. Admissible only
+   * because the invocation is same-as-caller — answering means reading a
+   * closure, which a foreign producer may never do — and only over values,
+   * because nothing here outlives the call. */
+  | {
+      readonly lifetime: "until-cancelled";
+      readonly registrationOwner:
+        | { readonly kind: "result" }
+        | { readonly kind: "argument"; readonly argument: number };
+      readonly cancellationBinding: string;
+      readonly allowedInvocationExecutors: readonly ["same-as-caller"];
+      readonly deliveryExecutor: "same-as-caller";
+      readonly synchronousReturn: true;
+      readonly transports: readonly { readonly kind: "borrow" }[];
+      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
+      readonly reentrancy: "required";
       readonly postDisposal: "not-invoked";
       readonly shutdown: "drain";
     };
@@ -1319,13 +1347,18 @@ function supportedRetainedCallbackPair(
       (executor) => executor !== "same-as-caller" && executor !== "any-attached-thread",
     ) ||
     new Set(allowedInvocationExecutors).size !== allowedInvocationExecutors.length ||
-    contract.deliveryExecutor.kind !== "runtime-owner" ||
-    contract.synchronousReturn ||
+    /* Two deliveries: the ordinary one queues onto the runtime owner and
+     * answers nothing, and the answering one runs on the caller's thread
+     * because its result is the emitting call's result. The pairing is
+     * checked below, once the callback's own shape is known. */
+    (contract.synchronousReturn
+      ? contract.deliveryExecutor.kind !== "same-as-caller"
+      : contract.deliveryExecutor.kind !== "runtime-owner") ||
     (contract.reentrancy !== "allowed" && contract.reentrancy !== "required") ||
     contract.postDisposal !== "not-invoked" ||
     contract.shutdown !== "drain"
   ) {
-    return "only until-cancelled callbacks copied onto the runtime owner with explicit result or receiver ownership are supported";
+    return "only until-cancelled callbacks delivered onto the runtime owner, or answered on the caller's thread, with explicit result or receiver ownership are supported";
   }
   if (
     callbackType.signature.callingConvention !== "c" ||
@@ -1401,7 +1434,48 @@ function supportedRetainedCallbackPair(
       (typeof borrowedUtf8CString(manifest, position) === "object" &&
         !position.nullable);
   }
-  if (
+  /* A registration the native side ASKS: the handler runs during the
+   * emitting call and its answer is that call's result. Only values can
+   * cross, because nothing here outlives the call — a copied string or a
+   * referenced object payload would have no owner — and the answer is a
+   * boolean, which is the question a toolkit asks a handler. */
+  const answered = contract.synchronousReturn === true;
+  const answerType = manifest.types[callbackType.signature.result.type];
+  if (answered) {
+    const answerStorage = answerType?.kind === "boolean"
+      ? manifest.types[answerType.storage]
+      : undefined;
+    const answerPosition = callbackType.signature.result;
+    if (
+      callbackType.signature.parameters.some(
+        (position) => !supportedScalarPosition(position),
+      ) ||
+      answerStorage?.kind !== "integer" ||
+      answerPosition.passMode !== "value" ||
+      answerPosition.nullable ||
+      answerPosition.ownership.kind !== "value" ||
+      answerPosition.marshal !== undefined
+    ) {
+      return "a synchronously answered callback takes exact scalar values and answers with an ABI boolean";
+    }
+    if (
+      contract.arguments.some((argument, index) =>
+        argument.parameter !== callbackType.signature.parameters[index]?.name ||
+        argument.transport !== "borrow"
+      )
+    ) {
+      return "a synchronously answered callback borrows every parameter in ABI order";
+    }
+    if (
+      contract.deliveryExecutor.kind !== "same-as-caller" ||
+      allowedInvocationExecutors.some((executor) => executor !== "same-as-caller")
+    ) {
+      return "a synchronously answered callback is invoked and delivered on the caller's thread";
+    }
+    if (contract.reentrancy !== "required") {
+      return "a synchronously answered callback runs inside the call that asks it";
+    }
+  } else if (
     callbackType.signature.parameters.some(
       (position) => !supportedRetainedPosition(position),
     ) ||
@@ -1411,10 +1485,10 @@ function supportedRetainedCallbackPair(
   }
   if (
     contract.arguments.length !== callbackType.signature.parameters.length ||
-    contract.arguments.some((argument, index) =>
+    (!answered && contract.arguments.some((argument, index) =>
       argument.parameter !== callbackType.signature.parameters[index]?.name ||
       argument.transport !== "copy"
-    )
+    ))
   ) {
     return "retained callback transport must copy every callback parameter in ABI order";
   }
@@ -1437,6 +1511,48 @@ function supportedRetainedCallbackPair(
   ) {
     return `retained callback registration must return a nullable owned handle with declared cancellation dependency '${contract.cancellationBinding}'`;
   }
+  const loweredRegistrationOwner = contract.registrationOwner === "result"
+    ? Object.freeze({ kind: "result" } as const)
+    : Object.freeze({
+      kind: "argument" as const,
+      argument: registrationOwnerIndex,
+    });
+  const cancellation = `${manifest.package.instance}#${contract.cancellationBinding}`;
+  const loweredSourceArguments = Object.freeze(sourceArguments.map((argument) =>
+    argument.kind === "callback-parameter"
+      ? Object.freeze({
+          kind: "callback-parameter" as const,
+          parameter: argument.parameter,
+          ...(argument.destructor === undefined
+            ? {}
+            : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
+        })
+      : Object.freeze({ kind: "registration-owner" as const })
+  ));
+  if (answered) {
+    return {
+      functionIndex: callbackIndex,
+      contextIndex,
+      parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+      sourceArguments,
+      resultTypeId: callbackType.signature.result.type,
+      contract: Object.freeze({
+        lifetime: "until-cancelled",
+        registrationOwner: loweredRegistrationOwner,
+        cancellationBinding: cancellation,
+        allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
+        deliveryExecutor: "same-as-caller",
+        synchronousReturn: true,
+        transports: Object.freeze(
+          contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
+        ),
+        sourceArguments: loweredSourceArguments,
+        reentrancy: "required",
+        postDisposal: "not-invoked",
+        shutdown: "drain",
+      }),
+    };
+  }
   return {
     functionIndex: callbackIndex,
     contextIndex,
@@ -1445,13 +1561,8 @@ function supportedRetainedCallbackPair(
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
       lifetime: "until-cancelled",
-      registrationOwner: contract.registrationOwner === "result"
-        ? Object.freeze({ kind: "result" } as const)
-        : Object.freeze({
-          kind: "argument" as const,
-          argument: registrationOwnerIndex,
-        }),
-      cancellationBinding: `${manifest.package.instance}#${contract.cancellationBinding}`,
+      registrationOwner: loweredRegistrationOwner,
+      cancellationBinding: cancellation,
       allowedInvocationExecutors: Object.freeze(
         allowedInvocationExecutors as ("same-as-caller" | "any-attached-thread")[],
       ),
@@ -1460,17 +1571,7 @@ function supportedRetainedCallbackPair(
       transports: Object.freeze(
         contract.arguments.map(() => Object.freeze({ kind: "copy" } as const)),
       ),
-      sourceArguments: Object.freeze(sourceArguments.map((argument) =>
-        argument.kind === "callback-parameter"
-          ? Object.freeze({
-              kind: "callback-parameter" as const,
-              parameter: argument.parameter,
-              ...(argument.destructor === undefined
-                ? {}
-                : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
-            })
-          : Object.freeze({ kind: "registration-owner" as const })
-      )),
+      sourceArguments: loweredSourceArguments,
       reentrancy: contract.reentrancy,
       postDisposal: "not-invoked",
       shutdown: "drain",
@@ -2522,9 +2623,18 @@ export function translateScabiNativeProgram(
             callbackParameters.push(type);
           }
         }
+        /* An answering handler returns an ordinary boolean over an ABI
+         * boolean's storage: the physical slot is that storage, and the
+         * source answer carries the two values it means. */
+        const answerBoolean = manifest.types[callback.resultTypeId];
+        const answersBoolean = callback.contract.synchronousReturn &&
+          answerBoolean?.kind === "boolean";
         const callbackResult = lowerType(
-          callback.resultTypeId,
+          answersBoolean && answerBoolean?.kind === "boolean"
+            ? answerBoolean.storage
+            : callback.resultTypeId,
           `${parameterPath}/type/signature/result/type`,
+          false,
         );
         if (
           callbackResult === null ||
@@ -2587,7 +2697,13 @@ export function translateScabiNativeProgram(
           type: Object.freeze({
             kind: "func",
             params: Object.freeze(callbackParameters),
-            ret: signature.result,
+            ret: answersBoolean && answerBoolean?.kind === "boolean"
+              ? Object.freeze({
+                  kind: "bool" as const,
+                  falseValue: answerBoolean.falseValue,
+                  trueValue: answerBoolean.trueValue,
+                })
+              : signature.result,
           } as const),
           callback: sourceCallbackContract,
         }));
