@@ -260,10 +260,24 @@ either way. For genuine machine arithmetic, masking and rotating a register,
 the exact branded type is what you want, and it stays: the policy is per
 position, so a manifest that wants machine semantics declares nothing.
 
-Its cost is a checked bigint ingress in both backends, beside the ≤32-bit one
-that exists, and a row in the profile's policy table. Its payoff is that the
-five `GtkMediaStream` members lose their casts entirely — which is more than
-either declined item offers, for less surface.
+Its cost is larger than first written here, and the correction is the point. A
+`bigint` carrier means real JavaScript BigInts in the language, and the
+compiler does not have them: `SC2001` names bigint and symbol primitives as
+values outside the compilable set, and the BigInt literals that exist today are
+construction syntax for an exact scalar rather than a value type. So this is
+not a checked ingress beside the ≤32-bit one — it is arbitrary-precision
+arithmetic in the runtime first, and a boundary policy second.
+
+That ordering matters, because the shortcut is a trap. Spelling the source type
+plain `bigint` over the exact machine value would remove the casts today and
+make `a + b` wrap modulo 2⁶⁴ while claiming a type that never wraps — a silent
+divergence from JavaScript in the one place this project refuses them. The
+brand is what prevents that lie, and it stays until the carrier is real.
+
+So the honest statement is: **the cast is the price of not having BigInt**, the
+five `GtkMediaStream` members are what that price currently buys, and the
+trigger for paying it is a general BigInt primitive — which would serve far
+more than this boundary and has to be justified on its own.
 
 **Adjacent, and worth more than either: `gsize`.** Platform-width integers are
 absent from the scalar table, which refuses 17 live GTK members across
