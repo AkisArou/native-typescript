@@ -47,7 +47,10 @@ import {
   borrowedResultClass,
   generateGObjectAdapterSource,
 } from "./gobject-adapter.ts";
-import type { GObjectAdapterSource } from "./gobject-adapter.ts";
+import type {
+  GObjectAdapterSource,
+  GObjectValueMethodInputAdapter,
+} from "./gobject-adapter.ts";
 
 /**
  * Another namespace's generated package, made available so this package can
@@ -461,7 +464,9 @@ function validateInputs(
     canonicalizeJson(options.gobjectAdapter.notifications) !==
       canonicalizeJson(expectedAdapter.notifications) ||
     canonicalizeJson(options.gobjectAdapter.valueMethods) !==
-      canonicalizeJson(expectedAdapter.valueMethods)
+      canonicalizeJson(expectedAdapter.valueMethods) ||
+    canonicalizeJson(options.gobjectAdapter.boxedResultMethods) !==
+      canonicalizeJson(expectedAdapter.boxedResultMethods)
   ) {
     diagnostics.push(
       diagnostic(
@@ -588,6 +593,14 @@ interface HandleProjection {
   readonly typeId: string;
   readonly sourceName: string;
   readonly cType: string;
+  /** True for a record projected as a handle. GIR spells such a pointer
+   * `const GtkTextIter *` wherever the callee does not write through it, so
+   * the receiver and the arguments have two accepted spellings for one
+   * pointer. */
+  readonly boxed: boolean;
+  /** The binding this package must depend on to own one, or null when
+   * another package declares the type and carries its destructor. */
+  readonly localDestructor: string | null;
 }
 
 function handleParameter(
@@ -624,7 +637,7 @@ function handleParameter(
   if (
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
-    parameter.type.cType !== `${class_.cType}*` ||
+    !instancePointerSpelling(parameter.type.cType, class_.cType, class_.boxed) ||
     parameter.direction !== "in" ||
     (parameter.transferOwnership !== "none" && !transferred) ||
     parameter.optional ||
@@ -668,10 +681,30 @@ function methodResult(
   receiverName: string,
   nullableUtf8Type: string,
   enumerations: ReadonlyMap<string, EnumerationProjection>,
+  resolveHandle: (girName: string, path: string) => HandleProjection | undefined,
   diagnostics: CBindgenDiagnostic[],
   path: string,
 ): AbiResult | null {
   const result = callable.result;
+  /* A result the callee has already transferred. It handed back a reference
+   * this side owns, so nothing has to take one: the call is direct, and what
+   * releases the value is what its handle type names. A transfer of `none` is
+   * the other shape, and goes through the adapter that references it. */
+  if (
+    result.type.kind === "named" &&
+    result.transferOwnership === "full" &&
+    !callable.throws
+  ) {
+    const handle = resolveHandle(result.type.name, path);
+    if (handle !== undefined && result.type.cType === `${handle.cType}*`) {
+      return Object.freeze({
+        type: handle.typeId,
+        passMode: "pointer",
+        nullable: result.nullable,
+        ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
+      });
+    }
+  }
   if (result.type.kind === "named" && result.type.cType === "void") {
     if (
       result.transferOwnership !== "none" ||
@@ -780,13 +813,28 @@ function methodResult(
   return null;
 }
 
+/** The pointer spellings that name one instance: a bare pointer, and for a
+ * boxed record the const one GIR uses wherever the callee only reads. */
+function instancePointerSpelling(
+  cType: string | null,
+  nativeName: string,
+  boxed: boolean,
+): boolean {
+  return cType === `${nativeName}*` ||
+    (boxed && cType === `const ${nativeName}*`);
+}
+
 function isExactInstanceReceiver(
   parameter: GirParameter | undefined,
   class_: GirClass,
 ): parameter is GirParameter {
   return parameter?.kind === "instance" &&
     parameter.type.kind === "named" &&
-    parameter.type.cType === `${class_.cType}*` &&
+    instancePointerSpelling(
+      parameter.type.cType,
+      class_.cType,
+      class_.kind === "record",
+    ) &&
     parameter.direction === "in" &&
     parameter.transferOwnership === "none" &&
     !parameter.nullable &&
@@ -904,6 +952,7 @@ export function generateGObjectScabiPackage(
   // package's generation used, so the two agree by construction.
   const importedClasses = new Map<string, {
     readonly typeId: string;
+    readonly boxed: boolean;
     readonly releaseId: string;
     readonly package: PackageIdentity;
     readonly name: string;
@@ -923,11 +972,15 @@ export function generateGObjectScabiPackage(
       const class_ of [
         ...imported.snapshot.classes,
         ...imported.snapshot.interfaces,
+        ...imported.snapshot.boxedRecords,
       ]
     ) {
       importedClasses.set(`${namespace}.${class_.name}`, Object.freeze({
         typeId: handleTypeId(namespace, class_),
-        releaseId: `${namespace.toLowerCase()}_${class_.cSymbolPrefix}_release`,
+        boxed: class_.kind === "record",
+        releaseId: class_.kind === "record"
+          ? `${namespace.toLowerCase()}_${class_.cSymbolPrefix}_free`
+          : `${namespace.toLowerCase()}_${class_.cSymbolPrefix}_release`,
         package: imported.package,
         name: class_.name,
         alias: `${namespace}${class_.name}`,
@@ -947,6 +1000,7 @@ export function generateGObjectScabiPackage(
   const declaredClasses = [
     ...options.snapshot.classes,
     ...options.snapshot.interfaces,
+    ...options.snapshot.boxedRecords,
   ];
   /* Keyed as GIR spells the reference — bare for this namespace's own,
    * qualified for an imported one — so a result naming another namespace's
@@ -955,7 +1009,11 @@ export function generateGObjectScabiPackage(
   const classByName = new Map([
     ...declaredClasses.map((class_) => [class_.name, class_] as const),
     ...(options.importedNamespaces ?? []).flatMap((imported) =>
-      [...imported.snapshot.classes, ...imported.snapshot.interfaces].map((class_) =>
+      [
+        ...imported.snapshot.classes,
+        ...imported.snapshot.interfaces,
+        ...imported.snapshot.boxedRecords,
+      ].map((class_) =>
         [`${imported.snapshot.namespace.name}.${class_.name}`, class_] as const
       )
     ),
@@ -1006,6 +1064,8 @@ export function generateGObjectScabiPackage(
       typeId: imported.typeId,
       sourceName: imported.alias,
       cType: imported.cType,
+      boxed: imported.boxed,
+      localDestructor: null,
     });
   }
 
@@ -1047,10 +1107,15 @@ export function generateGObjectScabiPackage(
     const local = girName.includes(".") ? undefined : classByName.get(girName);
     if (local !== undefined) {
       const typeId = typeIdByClass.get(local.name);
+      const prefix = options.snapshot.namespace.name.toLowerCase();
       return typeId === undefined ? undefined : Object.freeze({
         typeId,
         sourceName: local.name,
         cType: local.cType,
+        boxed: local.kind === "record",
+        localDestructor: local.kind === "record"
+          ? `${prefix}_${local.cSymbolPrefix}_free`
+          : `${prefix}_${local.cSymbolPrefix}_release`,
       });
     }
     return girName.includes(".")
@@ -1214,6 +1279,9 @@ export function generateGObjectScabiPackage(
   );
   const adapterByValueMethod = new Map(
     options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
+  );
+  const adapterByBoxedResult = new Map(
+    options.gobjectAdapter.boxedResultMethods.map((method) => [method.id, method]),
   );
   const typeIdByRecord = new Map<string, string>();
   /* A scalar's SCABI identity is its own abiType, so a scalar output resolves
@@ -1664,15 +1732,66 @@ export function generateGObjectScabiPackage(
     adapterBindings.push(errorMessageBindingId, errorReleaseBindingId);
   }
 
+  /* The SCABI position for one argument an adapter forwards untouched. Each
+   * family names its type by its own route, and each is already registered by
+   * whatever else in this package reached it — so this is a lookup rather than
+   * a projection, shared by every adapter that forwards rather than replaces. */
+  function forwardedInputProjection(
+    input: GObjectValueMethodInputAdapter,
+  ): { readonly abi: AbiParameter; readonly sourceName: string } | null {
+    const value = (type: string, sourceName: string, conversion: NumberConversion | null) =>
+      Object.freeze({
+        abi: Object.freeze({
+          name: input.parameterName,
+          type,
+          passMode: "value" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" as const }),
+          ...(conversion === null ? {} : { conversion }),
+        }),
+        sourceName,
+      });
+    if (input.kind === "scalar") {
+      const scalar = scalarByGirName.get(input.sourceName);
+      return scalar === undefined
+        ? null
+        : value(scalar.abiType, scalar.girName, scalar.conversion);
+    }
+    if (input.kind === "enumeration") {
+      const enumeration = enumerations.get(input.sourceName);
+      return enumeration === undefined
+        ? null
+        : value(enumeration.typeId, enumeration.sourceName, null);
+    }
+    const handle = typeIdByClass.get(input.sourceName);
+    return handle === undefined ? null : Object.freeze({
+      abi: Object.freeze({
+        name: input.parameterName,
+        type: handle,
+        passMode: "pointer" as const,
+        nullable: false,
+        ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
+      }),
+      sourceName: input.sourceName,
+    });
+  }
+
   for (const class_ of declaredClasses) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
-    const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
+    /* A GObject is released by dropping a reference, which is one generated
+     * adapter symbol per class; a boxed record is released by the free it
+     * declares, which is already a destructor and needs no wrapper. Both are
+     * what the handle type names, so both reserve the same declaration. */
+    const boxed = class_.kind === "record";
+    const releaseId = boxed
+      ? `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_free`
+      : `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
     const releaseDeclaration = `${class_.name}.dispose`;
     if (
       types[typeId] !== undefined ||
       declarationTypes[typeId] !== undefined ||
-      (releaseByClass.has(class_.name) &&
+      ((boxed || releaseByClass.has(class_.name)) &&
         (bindings[releaseId] !== undefined || declarations.has(releaseDeclaration)))
     ) {
       diagnostics.push(diagnostic(classPath, "Generated GObject class identity collides"));
@@ -1709,17 +1828,15 @@ export function generateGObjectScabiPackage(
       kind: "handle",
       nativeName: class_.cType,
       threadSafety: "confined",
-      /* How a GObject is released follows the object rather than the call
-       * that produced a reference to one, so the type names it. That is what
-       * lets a package that imports this type own one. */
+      /* How a value is released follows what it names rather than the call
+       * that produced one, so the type names it. That is what lets a package
+       * that imports this type own one. */
       destructor: releaseId,
-      /* A GObject's identity is its pointer for as long as a reference is
-       * held, which is what ownership.md means by identity following the
-       * underlying object reference. Declaring it lets the runtime intern the
-       * handle, so two projections of one widget are one managed cell and
-       * equality answers about the widget rather than about which call
-       * produced the reference. */
-      identity: "pointer",
+      /* A GObject's identity is its pointer, so two projections of one widget
+       * intern to one cell. A boxed record's is not: `copy` makes a second
+       * object with its own address and the same contents, and `equal` is
+       * how GTK asks whether two of them mean the same thing. */
+      identity: boxed ? "none" : "pointer",
       // Canonically ordered, because more than one edge is now ordinary: a
       // class upcasts to its parent and to each interface it adds.
       upcasts: Object.freeze([
@@ -1745,6 +1862,62 @@ export function generateGObjectScabiPackage(
       ].sort((left, right) => compareText(left.target, right.target))),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: class_.name });
+    /* A boxed record's destructor is the free it declares: an ordinary direct
+     * call that takes the pointer and returns nothing, which is what a
+     * destructor is, so there is no adapter and no dependency on one. */
+    if (boxed) {
+      const free = class_.boxed?.free;
+      const releasesOne = free !== undefined &&
+        free.cIdentifier !== null &&
+        free.parameters.length === 1 &&
+        isExactInstanceReceiver(free.parameters[0], class_) &&
+        free.result.type.kind === "named" &&
+        free.result.type.cType === "void" &&
+        !free.throws;
+      /* GIR annotates the instance parameter of every GLib free function as
+       * `transfer-ownership="none"`, which is wrong of it and uniformly so,
+       * so what the contract rests on is the pairing GIR does state — a copy
+       * that hands back a full transfer — and the shapes of the two. */
+      const duplicatesOne = class_.boxed !== null &&
+        class_.boxed.copy.cIdentifier !== null &&
+        class_.boxed.copy.parameters.length === 1 &&
+        isExactInstanceReceiver(class_.boxed.copy.parameters[0], class_) &&
+        class_.boxed.copy.result.transferOwnership === "full" &&
+        class_.boxed.copy.result.type.kind === "named" &&
+        class_.boxed.copy.result.type.name === class_.name &&
+        !class_.boxed.copy.result.nullable;
+      if (!releasesOne || !duplicatesOne) {
+        diagnostics.push(diagnostic(
+          classPath,
+          "A boxed record projects through a copy that hands back a full " +
+            "transfer of itself and a free that takes one and returns nothing",
+        ));
+        continue;
+      }
+      bindings[releaseId] = callableBase({
+        declaration: releaseDeclaration,
+        kind: "method",
+        entryKind: "c-symbol",
+        symbol: free.cIdentifier!,
+        parameters: [Object.freeze({
+          name: class_.cSymbolPrefix,
+          type: typeId,
+          passMode: "pointer",
+          /* Unlike a reference drop, a free is not defined on a null pointer,
+           * and the runtime never calls a destructor without a live one. */
+          nullable: false,
+          ownership: Object.freeze({ kind: "owned", transfer: "to-native" }),
+        })],
+        result: Object.freeze({
+          type: "void",
+          passMode: "value",
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" }),
+        }),
+        dependencies: dependencies({ links: linkIds }),
+      });
+      declarations.add(releaseDeclaration);
+    }
     /* Exactly the classes something destroys: constructed here, or handed back
      * without a reference by a method whose adapter takes one. A release
      * nothing names is refused as an ownership-consuming call outside the
@@ -1787,9 +1960,9 @@ export function generateGObjectScabiPackage(
      * than redeclaring its members: the member keeps one declaration, so one
      * binding serves every implementer, exactly as an inherited method does. */
     const classLines = [
-      class_.kind === "interface"
-        ? `export interface ${class_.name} {`
-        : `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${extendsName === undefined ? "" : ` extends ${extendsName}`} {`,
+      class_.kind === "class"
+        ? `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${extendsName === undefined ? "" : ` extends ${extendsName}`} {`
+        : `export interface ${class_.name} {`,
       `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
     const constructorLines: string[] = [];
@@ -2103,6 +2276,71 @@ export function generateGObjectScabiPackage(
         diagnostics.push(diagnostic(`${path}/receiver`, "Method receiver does not match its GObject class"));
         continue;
       }
+      /* A method that fills caller-allocated storage with a boxed record: the
+       * adapter reserved the storage and handed back a copy, so what reaches
+       * here is an ordinary owned handle whose type names what frees it. */
+      const boxedResult = adapterByBoxedResult.get(
+        `${class_.name}.method.${callable.name}`,
+      );
+      if (boxedResult !== undefined) {
+        const resultHandle = resolveHandle(boxedResult.resultName, path);
+        const inputs = boxedResult.inputs.map(forwardedInputProjection);
+        if (
+          resultHandle === undefined ||
+          resultHandle.localDestructor === null ||
+          inputs.some((input) => input === null)
+        ) {
+          diagnostics.push(diagnostic(
+            path,
+            "A boxed record result must name a record this package projects",
+          ));
+          continue;
+        }
+        const sourceMember = lowerCamel(callable.name);
+        const declaration = `${class_.name}.${sourceMember}`;
+        const bindingId = boxedResult.adapterSymbol;
+        if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
+          diagnostics.push(diagnostic(path, "Generated boxed result identity collides"));
+          continue;
+        }
+        declarations.add(declaration);
+        bindings[bindingId] = callableBase({
+          declaration,
+          kind: "method",
+          entryKind: "adapter-symbol",
+          symbol: boxedResult.adapterSymbol,
+          parameters: [
+            Object.freeze({
+              name: receiver.name,
+              type: typeId,
+              passMode: "pointer",
+              nullable: false,
+              ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+            }),
+            ...inputs.map((input) => input!.abi),
+          ],
+          result: Object.freeze({
+            type: resultHandle.typeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
+          }),
+          dependencies: dependencies({
+            bindings: [resultHandle.localDestructor],
+            links: linkIds,
+            adapter: options.adapterInput.id,
+          }),
+          availability: availability(class_, callable),
+        });
+        adapterBindings.push(bindingId);
+        classLines.push(
+          ...deprecationDoc(callable, "  "),
+          `  ${sourceMember}(${inputs.map((input, index) =>
+            `${lowerCamel(boxedResult.inputs[index]!.parameterName)}: ${input!.sourceName}`
+          ).join(", ")}): ${resultHandle.sourceName};`,
+        );
+        continue;
+      }
       const valueMethod = adapterByValueMethod.get(
         `${class_.name}.method.${callable.name}`,
       );
@@ -2111,35 +2349,7 @@ export function generateGObjectScabiPackage(
         const declaration = `${class_.name}.${sourceMember}`;
         const bindingId = valueMethod.adapterSymbol;
         const resultTypeId = `${namespacePrefix}_${snakeCase(valueMethod.resultName)}`;
-        /* Each input family names a SCABI type by its own route, and each is
-         * already registered by whatever else in this package reached it. */
-        const inputProjections = valueMethod.inputs.map((input) => {
-          if (input.kind === "scalar") {
-            const scalar = scalarByGirName.get(input.sourceName);
-            return scalar === undefined ? null : {
-              type: scalar.abiType,
-              sourceName: scalar.girName,
-              passMode: "value" as const,
-              conversion: scalar.conversion,
-            };
-          }
-          if (input.kind === "enumeration") {
-            const enumeration = enumerations.get(input.sourceName);
-            return enumeration === undefined ? null : {
-              type: enumeration.typeId,
-              sourceName: enumeration.sourceName,
-              passMode: "value" as const,
-              conversion: null,
-            };
-          }
-          const handle = typeIdByClass.get(input.sourceName);
-          return handle === undefined ? null : {
-            type: handle,
-            sourceName: input.sourceName,
-            passMode: "pointer" as const,
-            conversion: null,
-          };
-        });
+        const inputProjections = valueMethod.inputs.map(forwardedInputProjection);
         if (
           callable.parameters.length !==
             valueMethod.outputs.length + valueMethod.inputs.length + 1 ||
@@ -2172,16 +2382,7 @@ export function generateGObjectScabiPackage(
               nullable: false,
               ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
             }),
-            ...inputProjections.map((input, index) => Object.freeze({
-              name: valueMethod.inputs[index]!.parameterName,
-              type: input!.type,
-              passMode: input!.passMode,
-              nullable: false,
-              ownership: input!.passMode === "pointer"
-                ? Object.freeze({ kind: "borrowed" as const, scope: "call" as const })
-                : Object.freeze({ kind: "value" as const }),
-              ...(input!.conversion === null ? {} : { conversion: input!.conversion }),
-            })),
+            ...inputProjections.map((input) => input!.abi),
           ],
           result: Object.freeze({
             type: resultTypeId,
@@ -2315,6 +2516,7 @@ export function generateGObjectScabiPackage(
         receiver.name,
         callable.result.nullable ? "nullable_const_utf8" : "const_utf8",
         enumerations,
+        resolveHandle,
         diagnostics,
         `${path}/result`,
       );
@@ -2339,6 +2541,13 @@ export function generateGObjectScabiPackage(
         kinds.add(propertyKind);
         projectedPropertyKinds.set(declaration, kinds);
       }
+      /* Owning the result means depending on whatever releases it, which is
+       * this package's binding for a type it declares and nothing at all for
+       * one it imports. */
+      const resultDestructor = result.ownership.kind === "owned" &&
+          callable.result.type.kind === "named"
+        ? resolveHandle(callable.result.type.name, `${path}/result`)?.localDestructor
+        : undefined;
       bindings[bindingId] = callableBase({
         declaration,
         kind: propertyKind ?? "method",
@@ -2346,15 +2555,24 @@ export function generateGObjectScabiPackage(
         symbol: callable.cIdentifier,
         parameters: abiParameters,
         result,
-        dependencies: dependencies({ links: linkIds }),
+        dependencies: dependencies({
+          ...(resultDestructor == null ? {} : { bindings: [resultDestructor] }),
+          links: linkIds,
+        }),
         availability: availability(class_, callable),
       });
       const scalarResult = sourceScalarType(callable.result.type);
       const enumerationResult = callable.result.type.kind === "named"
         ? enumerations.get(callable.result.type.name)
         : undefined;
+      const handleResult = result.ownership.kind === "owned" &&
+          callable.result.type.kind === "named"
+        ? resolveHandle(callable.result.type.name, `${path}/result`)
+        : undefined;
       const sourceResult = callable.result.type.cType === "void"
         ? "void"
+        : handleResult !== undefined
+          ? `${handleResult.sourceName}${callable.result.nullable ? " | null" : ""}`
         : callable.result.type.kind === "named" &&
             callable.result.type.name === "gboolean"
           ? "boolean"

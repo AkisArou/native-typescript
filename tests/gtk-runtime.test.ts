@@ -128,6 +128,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
       signals: [],
       notifications: [],
       valueMethods: [],
+      boxedResultMethods: [],
       classReleases: [],
       errorSupport: null,
       retainedResultMethods: [],

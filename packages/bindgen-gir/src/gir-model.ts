@@ -49,9 +49,18 @@ export interface GirClassSelection {
   readonly notify?: readonly string[];
 }
 
+/**
+ * A `<record>` to project, and which of the two projections to give it.
+ *
+ * `fields` asks for a value: a layout that crosses by copy, which requires
+ * every selected field to be an exact scalar. `methods` asks for a boxed
+ * handle: an owned pointer released by the record's own `free`, which is what
+ * a record whose fields are not readable has to be. Exactly one of the two.
+ */
 export interface GirRecordSelection {
   readonly name: string;
-  readonly fields: readonly string[];
+  readonly fields?: readonly string[];
+  readonly methods?: readonly string[];
 }
 
 export interface GirEnumerationSelection {
@@ -183,16 +192,18 @@ export interface GirCallable {
 }
 
 /**
- * A GObject class or interface: one declaration that owns members.
+ * A GObject class, interface, or boxed record: one declaration that owns
+ * members.
  *
- * The two are one shape because everything downstream treats them alike — a
+ * The three are one shape because everything downstream treats them alike — a
  * handle type, methods over its own pointer, signals, observed properties.
  * They differ in construction (an interface has none), in the hierarchy (a
- * class has one parent; an interface is reached by implementation), and in
- * how the declaration file spells them.
+ * class has one parent; an interface is reached by implementation; a record
+ * has neither), in how the declaration file spells them, and in what releases
+ * one: a GObject unrefs, and a boxed record calls its own free.
  */
 export interface GirClass {
-  readonly kind: "class" | "interface";
+  readonly kind: "class" | "interface" | "record";
   readonly name: string;
   readonly cType: string;
   readonly cSymbolPrefix: string;
@@ -218,6 +229,22 @@ export interface GirClass {
   readonly signals: readonly GirCallable[];
   /** The GObject property names this selection observes. */
   readonly notify: readonly string[];
+  /**
+   * How a boxed record is duplicated and released, for the records that
+   * project as a handle. Null for a class or an interface, which are released
+   * by the reference count every GObject has.
+   *
+   * These are the record's contract rather than its surface, so they are read
+   * whether or not the project selected them, and selecting `copy` projects an
+   * ordinary method beside this.
+   */
+  readonly boxed: GirBoxedContract | null;
+}
+
+/** The `copy` and `free` a boxed record declares. */
+export interface GirBoxedContract {
+  readonly copy: GirCallable;
+  readonly free: GirCallable;
 }
 
 export interface GirRecordField {
@@ -296,5 +323,7 @@ export interface GirSnapshot {
   readonly classes: readonly GirClass[];
   readonly interfaces: readonly GirClass[];
   readonly records: readonly GirRecord[];
+  /** Records projected as handles rather than as layouts. */
+  readonly boxedRecords: readonly GirClass[];
   readonly enumerations: readonly GirEnumeration[];
 }

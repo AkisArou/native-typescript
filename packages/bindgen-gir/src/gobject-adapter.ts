@@ -17,6 +17,7 @@ import type {
 import type {
   GirCallable,
   GirClass,
+  GirParameter,
   GirRecord,
   GirSnapshot,
   GirTransferOwnership,
@@ -113,6 +114,27 @@ export interface GObjectValueMethodInputAdapter {
   readonly nativeType: string;
 }
 
+/**
+ * A method that fills storage the caller reserves with a boxed record.
+ *
+ * GTK's own shape for handing one back is to write into a stack value —
+ * `gtk_text_buffer_get_start_iter(buffer, &iter)` — which is not a value this
+ * boundary can carry, because the record's contents are not readable. The
+ * adapter reserves the storage, makes the call, and hands back the record's
+ * own `copy` of the result: one owned pointer, released by the `free` that
+ * pairs with the `copy` that made it.
+ */
+export interface GObjectBoxedResultMethodAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly sourceSymbol: string;
+  readonly adapterSymbol: string;
+  /** The boxed record's GIR name, and the C spelling of one. */
+  readonly resultName: string;
+  readonly resultNativeType: string;
+  readonly inputs: readonly GObjectValueMethodInputAdapter[];
+}
+
 export interface GObjectValueMethodAdapter {
   readonly id: string;
   readonly className: string;
@@ -184,6 +206,7 @@ export interface GObjectAdapterSource {
   readonly signals: readonly GObjectSignalAdapter[];
   readonly notifications: readonly GObjectNotifyAdapter[];
   readonly valueMethods: readonly GObjectValueMethodAdapter[];
+  readonly boxedResultMethods: readonly GObjectBoxedResultMethodAdapter[];
   readonly errorSupport: GObjectErrorSupportAdapter | null;
   readonly classReleases: readonly GObjectClassReleaseAdapter[];
   readonly retainedResultMethods: readonly GObjectRetainedResultMethodAdapter[];
@@ -659,6 +682,189 @@ function generateNotify(
   };
 }
 
+/**
+ * One argument an adapter forwards untouched.
+ *
+ * Forwarding is all it does, so what may cross is what already crosses as a
+ * plain argument: an exact scalar, a selected enumeration, or a selected
+ * object. Shared by every adapter that wraps a call rather than replacing it,
+ * so they agree on the answer by construction.
+ */
+function forwardedInput(
+  parameter: GirParameter,
+  index: number,
+  enumerationCTypes: ReadonlyMap<string, string>,
+  classByName: ReadonlyMap<string, GirClass>,
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): GObjectValueMethodInputAdapter | null {
+    const named = parameter.type.kind === "named" ? parameter.type : null;
+    const scalar = sourceScalarType(parameter.type);
+    const enumerationCType = named === null
+      ? undefined
+      : enumerationCTypes.get(named.name);
+    const inputClass = named === null ? undefined : classByName.get(named.name);
+    const shared = parameter.kind === "parameter" &&
+      parameter.direction === "in" &&
+      parameter.transferOwnership === "none" &&
+      !parameter.nullable &&
+      !parameter.optional &&
+      !parameter.callerAllocates &&
+      !parameter.skip &&
+      parameter.scope === null &&
+      parameter.closureParameter === null &&
+      parameter.destroyParameter === null &&
+      named !== null;
+    if (shared && scalar !== undefined && named!.cType !== null &&
+      scalar.cTypes.includes(named!.cType)) {
+      return Object.freeze({
+        kind: "scalar" as const,
+        parameterName: parameter.name,
+        sourceName: scalar.girName,
+        nativeType: scalar.girName,
+      });
+    }
+    /* GIR gives an enumeration parameter no c:type of its own often enough
+     * that the spelling comes from the enumeration's declaration, exactly as
+     * it does for a signal payload. */
+    if (shared && enumerationCType !== undefined &&
+      (named!.cType === null || named!.cType === enumerationCType)) {
+      return Object.freeze({
+        kind: "enumeration" as const,
+        parameterName: parameter.name,
+        sourceName: named!.name,
+        nativeType: enumerationCType,
+      });
+    }
+    /* An object input is borrowed for the duration of the call: the adapter
+     * forwards the pointer and takes no reference, because the callee does not
+     * keep one either. */
+    if (shared && inputClass !== undefined &&
+      named!.cType === `${inputClass.cType}*`) {
+      return Object.freeze({
+        kind: "class" as const,
+        parameterName: parameter.name,
+        sourceName: inputClass.name,
+        nativeType: `${inputClass.cType} *`,
+      });
+    }
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path: `${path}/parameters/${index + 1}`,
+      message:
+        "Value-return adapter inputs must be exact scalars, selected enumerations, or selected classes",
+    });
+    return null;
+}
+
+/** Whether a method's outputs make it a boxed producer rather than a
+ * value-return: exactly one output, naming a record that projects as a
+ * handle. Its own rule reports why it does not project. */
+function boxedProducerShape(
+  callable: GirCallable,
+  boxedByName: ReadonlyMap<string, GirClass>,
+): boolean {
+  const outputs = callable.parameters
+    .slice(1)
+    .filter((parameter) => parameter.direction === "out");
+  const [output] = outputs;
+  return outputs.length === 1 && output?.type.kind === "named" &&
+    boxedByName.has(output.type.name);
+}
+
+function generateBoxedResultMethod(
+  class_: GirClass,
+  callable: GirCallable,
+  boxedByName: ReadonlyMap<string, GirClass>,
+  enumerationCTypes: ReadonlyMap<string, string>,
+  classByName: ReadonlyMap<string, GirClass>,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectBoxedResultMethodAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/${callable.kind}/${callable.name}`;
+  const receiver = callable.parameters[0];
+  const declared = callable.parameters.slice(1);
+  const outputs = declared.filter((parameter) => parameter.direction === "out");
+  const inputParameters = declared.filter(
+    (parameter) => parameter.direction !== "out",
+  );
+  const [output] = outputs;
+  const boxed = output?.type.kind === "named"
+    ? boxedByName.get(output.type.name)
+    : undefined;
+  if (outputs.length !== 1 || boxed === undefined) return null;
+  if (
+    callable.cIdentifier === null ||
+    callable.throws ||
+    receiver?.kind !== "instance" ||
+    !isInstancePointer(receiver.type.cType, class_) ||
+    callable.result.type.cType !== "void" ||
+    !output!.callerAllocates ||
+    output!.transferOwnership !== "none" ||
+    output!.type.cType !== `${boxed.cType}*` ||
+    output!.skip ||
+    boxed.boxed === null
+  ) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path,
+      message:
+        "A boxed record is handed back by a direct non-throwing void instance " +
+        "method that fills one caller-allocated output",
+    });
+    return null;
+  }
+  const inputs = inputParameters.map((parameter, index) =>
+    forwardedInput(
+      parameter,
+      index,
+      enumerationCTypes,
+      classByName,
+      path,
+      diagnostics,
+    )
+  );
+  if (inputs.some((input) => input === null)) return null;
+  const validInputs = inputs.filter(
+    (input): input is GObjectValueMethodInputAdapter => input !== null,
+  );
+  const adapterSymbol = `nts_gobject_boxed_${callable.cIdentifier}`;
+  const inputByName = new Map(
+    validInputs.map((input) => [input.parameterName, input]),
+  );
+  const callArguments = declared.map((parameter) =>
+    inputByName.has(parameter.name) ? parameter.name : "&value"
+  );
+  const lines = [
+    `${boxed.cType} *${adapterSymbol}(${[
+      `${class_.cType} *instance`,
+      ...validInputs.map((input) => `${input.nativeType} ${input.parameterName}`),
+    ].join(", ")}) {`,
+    `  ${boxed.cType} value;`,
+    "  memset(&value, 0, sizeof value);",
+    `  ${callable.cIdentifier}(${["instance", ...callArguments].join(", ")});`,
+    `  return ${boxed.boxed.copy.cIdentifier}(&value);`,
+    "}",
+    "",
+  ];
+  return {
+    adapter: Object.freeze({
+      id: `${class_.name}.method.${callable.name}`,
+      className: class_.name,
+      sourceSymbol: callable.cIdentifier,
+      adapterSymbol,
+      resultName: boxed.name,
+      resultNativeType: boxed.cType,
+      inputs: Object.freeze(validInputs),
+    }),
+    lines: Object.freeze(lines),
+  };
+}
+
 function generateValueMethod(
   namespace: string,
   class_: GirClass,
@@ -682,7 +888,7 @@ function generateValueMethod(
   const receiver = callable.parameters[0];
   const validReceiver = receiver?.kind === "instance" &&
     receiver.type.kind === "named" &&
-    receiver.type.cType === `${class_.cType}*` &&
+    isInstancePointer(receiver.type.cType, class_) &&
     receiver.direction === "in" &&
     receiver.transferOwnership === "none" &&
     !receiver.nullable &&
@@ -771,69 +977,17 @@ function generateValueMethod(
     });
     return null;
   });
-  /* An input is forwarded untouched, so it is limited to the families that
-   * already cross this boundary as a plain argument. */
   const inputs: readonly (GObjectValueMethodInputAdapter | null)[] =
-    inputParameters.map((parameter, index) => {
-    const named = parameter.type.kind === "named" ? parameter.type : null;
-    const scalar = sourceScalarType(parameter.type);
-    const enumerationCType = named === null
-      ? undefined
-      : enumerationCTypes.get(named.name);
-    const inputClass = named === null ? undefined : classByName.get(named.name);
-    const shared = parameter.kind === "parameter" &&
-      parameter.direction === "in" &&
-      parameter.transferOwnership === "none" &&
-      !parameter.nullable &&
-      !parameter.optional &&
-      !parameter.callerAllocates &&
-      !parameter.skip &&
-      parameter.scope === null &&
-      parameter.closureParameter === null &&
-      parameter.destroyParameter === null &&
-      named !== null;
-    if (shared && scalar !== undefined && named!.cType !== null &&
-      scalar.cTypes.includes(named!.cType)) {
-      return Object.freeze({
-        kind: "scalar" as const,
-        parameterName: parameter.name,
-        sourceName: scalar.girName,
-        nativeType: scalar.girName,
-      });
-    }
-    /* GIR gives an enumeration parameter no c:type of its own often enough
-     * that the spelling comes from the enumeration's declaration, exactly as
-     * it does for a signal payload. */
-    if (shared && enumerationCType !== undefined &&
-      (named!.cType === null || named!.cType === enumerationCType)) {
-      return Object.freeze({
-        kind: "enumeration" as const,
-        parameterName: parameter.name,
-        sourceName: named!.name,
-        nativeType: enumerationCType,
-      });
-    }
-    /* An object input is borrowed for the duration of the call: the adapter
-     * forwards the pointer and takes no reference, because the callee does not
-     * keep one either. */
-    if (shared && inputClass !== undefined &&
-      named!.cType === `${inputClass.cType}*`) {
-      return Object.freeze({
-        kind: "class" as const,
-        parameterName: parameter.name,
-        sourceName: inputClass.name,
-        nativeType: `${inputClass.cType} *`,
-      });
-    }
-    diagnostics.push({
-      code: "NTS5001",
-      severity: "error",
-      path: `${path}/parameters/${index + 1}`,
-      message:
-        "Value-return adapter inputs must be exact scalars, selected enumerations, or selected classes",
-    });
-    return null;
-  });
+    inputParameters.map((parameter, index) =>
+      forwardedInput(
+        parameter,
+        index,
+        enumerationCTypes,
+        classByName,
+        path,
+        diagnostics,
+      )
+    );
   if (
     callable.cIdentifier === null ||
     callable.throws ||
@@ -942,7 +1096,7 @@ function generateThrowingMethod(
   const receiver = callable.parameters[0];
   if (
     receiver?.kind !== "instance" ||
-    receiver.type.cType !== `${class_.cType}*`
+    !isInstancePointer(receiver.type.cType, class_)
   ) {
     diagnostics.push({
       code: "NTS5001",
@@ -998,6 +1152,19 @@ function generateThrowingMethod(
  * path — a class given a destructor nothing names is refused, and a class
  * denied one a projection needs cannot bind.
  */
+/**
+ * Whether a parameter is the instance this declaration's methods run on.
+ *
+ * GIR spells a record's non-mutating receiver `const GtkTextIter *` and its
+ * mutating one `GtkTextIter *`. Both name the same pointer, and a handle
+ * passes the same value either way, so both are the receiver; the constness
+ * is a promise the callee makes to itself.
+ */
+function isInstancePointer(cType: string | null, class_: GirClass): boolean {
+  return cType === `${class_.cType}*` ||
+    (class_.kind === "record" && cType === `const ${class_.cType}*`);
+}
+
 export function borrowedResultClass(
   callable: GirCallable,
   classByName: ReadonlyMap<string, GirClass>,
@@ -1034,7 +1201,7 @@ function generateRetainedResultMethod(
   const receiver = callable.parameters[0];
   if (
     receiver?.kind !== "instance" ||
-    receiver.type.cType !== `${class_.cType}*`
+    !isInstancePointer(receiver.type.cType, class_)
   ) {
     diagnostics.push({
       code: "NTS5001",
@@ -1089,10 +1256,15 @@ export function generateGObjectAdapterSource(
   const signals: GObjectSignalAdapter[] = [];
   const notifications: GObjectNotifyAdapter[] = [];
   const valueMethods: GObjectValueMethodAdapter[] = [];
+  const boxedResultMethods: GObjectBoxedResultMethodAdapter[] = [];
   /* A `notify::` registration is a signal connection like any other, so it
    * needs the same shared connection type even when no GIR signal is
    * selected. */
-  const declaredClasses = [...snapshot.classes, ...snapshot.interfaces];
+  const declaredClasses = [
+    ...snapshot.classes,
+    ...snapshot.interfaces,
+    ...snapshot.boxedRecords,
+  ];
   const hasSignals = declaredClasses.some((class_) =>
     class_.signals.length > 0 || class_.notify.length > 0
   );
@@ -1198,7 +1370,11 @@ export function generateGObjectAdapterSource(
   const classByName = new Map([
     ...declaredClasses.map((class_) => [class_.name, class_] as const),
     ...importedSnapshots.flatMap((imported) =>
-      [...imported.classes, ...imported.interfaces].map((class_) =>
+      [
+        ...imported.classes,
+        ...imported.interfaces,
+        ...imported.boxedRecords,
+      ].map((class_) =>
         [`${imported.namespace.name}.${class_.name}`, class_] as const
       )
     ),
@@ -1209,8 +1385,20 @@ export function generateGObjectAdapterSource(
    * symbol as its destructor, and a type that names one is never a release
    * nobody named. That is also what lets another package own an object this
    * one declares: it imports the type, and the destructor comes with it. */
+  const boxedByName = new Map([
+    ...snapshot.boxedRecords.map((record) => [record.name, record] as const),
+    ...importedSnapshots.flatMap((imported) =>
+      imported.boxedRecords.map((record) =>
+        [`${imported.namespace.name}.${record.name}`, record] as const
+      )
+    ),
+  ]);
   const releasedClasses = new Set<string>(
-    declaredClasses.map((class_) => class_.name),
+    /* A boxed record is not released by a reference count: its own `free` is
+     * the destructor its type names, so there is nothing to generate. */
+    declaredClasses
+      .filter((class_) => class_.kind !== "record")
+      .map((class_) => class_.name),
   );
   for (const class_ of declaredClasses) {
     const classConstructors: GObjectConstructorAdapter[] = [];
@@ -1289,6 +1477,23 @@ export function generateGObjectAdapterSource(
         lines.push(...referenced.lines);
         continue;
       }
+      /* A caller-allocated output whose type is a boxed record is the one
+       * output the value-return shape cannot carry: its contents are not
+       * readable, so it leaves as an owned pointer rather than as a field. */
+      const boxedResult = generateBoxedResultMethod(
+        class_,
+        callable,
+        boxedByName,
+        enumerationCTypes,
+        classByName,
+        diagnostics,
+      );
+      if (boxedResult !== null) {
+        boxedResultMethods.push(boxedResult.adapter);
+        lines.push(...boxedResult.lines);
+        continue;
+      }
+      if (boxedProducerShape(callable, boxedByName)) continue;
       const generated = generateValueMethod(
         snapshot.namespace.name,
         class_,
@@ -1303,34 +1508,11 @@ export function generateGObjectAdapterSource(
       lines.push(...generated.lines);
     }
   }
-  /* A selection of classes that produced nothing to wrap is a mistake worth
-   * reporting: something the project asked for did not project. A selection
-   * with no classes at all is not — a namespace reached only for the
-   * enumerations another one imports has nothing to wrap by construction,
-   * and its adapter is empty because that is what it should be. */
-  if (
-    declaredClasses.length > 0 &&
-    constructors.length === 0 &&
-    signals.length === 0 &&
-    notifications.length === 0 &&
-    valueMethods.length === 0 &&
-    throwingMethods.length === 0 &&
-    /* A method handing back a borrowed object is wrapped too, and may be the
-     * only thing a selection asks for: `DropDown.get_model` answers an object
-     * the toolkit keeps owning and nothing else about that class needs an
-     * adapter. Class releases are not counted — they are derived from what
-     * projects rather than asked for, and every projected class has one. */
-    retainedResultMethods.length === 0 &&
-    diagnostics.length === 0
-  ) {
-    diagnostics.push({
-      code: "NTS5001",
-      severity: "error",
-      path: "adapters",
-      message:
-        "GObject adapter generation requires a selected constructor, signal, or method it must wrap",
-    });
-  }
+  /* An empty adapter is not a mistake and never was a reliable sign of one.
+   * Every member that fails to project reports itself, and a member that
+   * needs no wrapper — a direct call, or a boxed record whose free is already
+   * a destructor — produces nothing here because that is what it should
+   * produce. */
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
 
   const source = lines.join("\n");
@@ -1344,6 +1526,7 @@ export function generateGObjectAdapterSource(
     signals: Object.freeze(signals),
     notifications: Object.freeze(notifications),
     valueMethods: Object.freeze(valueMethods),
+    boxedResultMethods: Object.freeze(boxedResultMethods),
     errorSupport,
     classReleases: Object.freeze(classReleases),
     retainedResultMethods: Object.freeze(retainedResultMethods),

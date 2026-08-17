@@ -27,6 +27,7 @@ import {
   generateGObjectAdapterSource,
   generateGObjectScabiPackage,
   generateGirClangAbiProbe,
+  GirIngestionError,
   ingestGir,
   planGirBindingAnalysis,
   planGirBindingPackage,
@@ -1050,6 +1051,117 @@ test(
   },
 );
 
+test(
+  "a record whose contents are not readable projects as a handle",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* GtkTextIter is fourteen opaque fields, a copy and a free. It is not a
+     * layout, so it crosses as an owned pointer whose destructor is the free
+     * GTK declares — and the method that fills caller-allocated storage with
+     * one hands it back through an adapter that reserved the storage. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "TextBuffer", methods: ["get_start_iter", "get_iter_at_offset"] },
+      ],
+      records: [{ name: "TextIter", methods: ["forward_char", "get_offset"] }],
+    });
+
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    // No construction and no hierarchy, so it is declared as what it is.
+    assert.match(generated.declarations, /export interface TextIter \{/u);
+    assert.doesNotMatch(generated.declarations, /class TextIter/u);
+    assert.match(generated.declarations, /forwardChar\(\): boolean;/u);
+    assert.match(generated.declarations, /getStartIter\(\): TextIter;/u);
+    assert.match(
+      generated.declarations,
+      /getIterAtOffset\(charOffset: gint\): TextIter;/u,
+    );
+    /* The contract is not the surface: `copy` and `free` are read because the
+     * projection needs them, and neither becomes a member unless asked for. */
+    assert.doesNotMatch(generated.declarations, /copy\(\)|free\(\)/u);
+
+    const iter = generated.manifest.types.gtk_text_iter;
+    assert.ok(iter && iter.kind === "handle");
+    if (!iter || iter.kind !== "handle") return;
+    assert.deepEqual(iter, {
+      kind: "handle",
+      nativeName: "GtkTextIter",
+      threadSafety: "confined",
+      /* Not the pointer: `copy` makes a second object with the same contents,
+       * so two of these are not one cell. */
+      identity: "none",
+      upcasts: [],
+      destructor: "gtk_text_iter_free",
+    });
+
+    // The free is already a destructor, so it binds directly with no wrapper.
+    const free = generated.manifest.bindings.gtk_text_iter_free;
+    assert.ok(free && free.kind !== "constant");
+    assert.equal(free.entry.kind, "c-symbol");
+    assert.equal(free.entry.symbol, "gtk_text_iter_free");
+    assert.deepEqual(free.dependencies.adapterInputs, []);
+
+    const start =
+      generated.manifest.bindings.nts_gobject_boxed_gtk_text_buffer_get_start_iter;
+    assert.ok(start && start.kind !== "constant");
+    assert.equal(start.entry.kind, "adapter-symbol");
+    assert.deepEqual(start.signature.result.ownership, {
+      kind: "owned",
+      transfer: "to-runtime",
+    });
+    assert.equal(start.signature.result.type, "gtk_text_iter");
+    assert.deepEqual(start.dependencies.bindings, ["gtk_text_iter_free"]);
+    assert.match(
+      generateGObjectAdapterSource(gtk).source,
+      /GtkTextIter value;[\s\S]*?gtk_text_buffer_get_start_iter\(instance, &value\);\n\s*return gtk_text_iter_copy\(&value\);/u,
+    );
+  },
+);
+
+test(
+  "a record selects one projection or the other, never both",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    const source = readFileSync(systemGtkGir, "utf8");
+    const select = (record: Record<string, unknown>) =>
+      ingestionError(() =>
+        ingestGir(source, {
+          logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+          namespace: { name: "Gtk", version: "4.0" },
+          classes: [{ name: "Widget" }],
+          records: [record as never],
+        })
+      );
+    for (const record of [
+      { name: "Requisition" },
+      { name: "Requisition", fields: ["width"], methods: ["copy"] },
+    ]) {
+      assert.match(
+        select(record).diagnostics[0]?.message ?? "",
+        /must select either fields or methods/u,
+      );
+    }
+    /* A record asked for as a handle has to be one. `GtkBitset` declares a
+     * copy and no free, so there would be nothing to release what the
+     * allocation produced. */
+    assert.match(
+      ingestionError(() =>
+        ingestGir(source, {
+          logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+          namespace: { name: "Gtk", version: "4.0" },
+          classes: [{ name: "Widget" }],
+          records: [{ name: "Bitset", methods: ["get_size"] }],
+        })
+      ).diagnostics.map(({ message }) => message).join("\n"),
+      /requires the copy and free it is duplicated and released by/u,
+    );
+  },
+);
+
 test("a namespace cannot be supplied as its own import", () => {
   // Easy to reach by wiring a build's imported namespaces carelessly, and
   // meaningless: a package's own declarations are not foreign to it.
@@ -1333,6 +1445,16 @@ function assertDeepFrozen(value: unknown, seen = new Set<object>()): void {
   for (const child of Object.values(value as Readonly<Record<string, unknown>>)) {
     assertDeepFrozen(child, seen);
   }
+}
+
+function ingestionError(action: () => unknown): GirIngestionError {
+  try {
+    action();
+  } catch (error) {
+    assert.ok(error instanceof GirIngestionError);
+    return error;
+  }
+  assert.fail("Expected GIR ingestion to fail");
 }
 
 function generationError(action: () => unknown): CBindgenError {

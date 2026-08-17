@@ -50,6 +50,10 @@ interface NormalizedClassSelection {
 interface NormalizedRecordSelection {
   readonly name: string;
   readonly fields: ReadonlySet<string>;
+  /** True when the selection asked for methods: the record projects as a
+   * handle, and `fields` is empty. */
+  readonly boxed: boolean;
+  readonly methods: ReadonlySet<string>;
 }
 
 interface NormalizedEnumerationSelection {
@@ -124,8 +128,10 @@ interface MutableClass {
   readonly depth: number;
   readonly path: string;
   readonly selection: NormalizedClassSelection;
-  readonly kind: "class" | "interface";
+  readonly kind: "class" | "interface" | "record";
   readonly name: string;
+  boxedCopy: GirCallable | null;
+  boxedFree: GirCallable | null;
   readonly cType: string;
   readonly cSymbolPrefix: string;
   readonly parent: GirDeclarationReference | null;
@@ -549,8 +555,19 @@ function normalizeRecordSelections(
       );
       continue;
     }
+    /* The two projections are exclusive: a record crosses as a layout whose
+     * fields are readable, or as a handle whose contents are not. Asking for
+     * both, or for neither, names no projection at all. */
+    if ((selection.fields === undefined) === (selection.methods === undefined)) {
+      diagnostics.push(diagnostic(
+        "NTS4001",
+        path,
+        `GIR record selection '${selection.name}' must select either fields or methods`,
+      ));
+      continue;
+    }
     const fields = new Set<string>();
-    for (const [fieldIndex, name] of selection.fields.entries()) {
+    for (const [fieldIndex, name] of (selection.fields ?? []).entries()) {
       if (!selectionNamePattern.test(name)) {
         diagnostics.push(
           diagnostic("NTS4001", `${path}/fields/${fieldIndex}`, `Invalid GIR field selection '${name}'`),
@@ -562,7 +579,25 @@ function normalizeRecordSelections(
       }
       fields.add(name);
     }
-    result.set(selection.name, { name: selection.name, fields });
+    const methods = new Set<string>();
+    for (const [methodIndex, name] of (selection.methods ?? []).entries()) {
+      if (!selectionNamePattern.test(name)) {
+        diagnostics.push(
+          diagnostic("NTS4001", `${path}/methods/${methodIndex}`, `Invalid GIR method selection '${name}'`),
+        );
+      } else if (methods.has(name)) {
+        diagnostics.push(
+          diagnostic("NTS4001", `${path}/methods/${methodIndex}`, `Duplicate GIR method selection '${name}'`),
+        );
+      }
+      methods.add(name);
+    }
+    result.set(selection.name, {
+      name: selection.name,
+      fields,
+      boxed: selection.methods !== undefined,
+      methods,
+    });
   }
   return result;
 }
@@ -769,6 +804,7 @@ export function ingestGir(
   const cIncludes: string[] = [];
   const classes: GirClass[] = [];
   const interfaces: GirClass[] = [];
+  const boxedRecords: GirClass[] = [];
   const records: GirRecord[] = [];
   const enumerations: GirEnumeration[] = [];
   const foundClasses = new Set<string>();
@@ -899,17 +935,34 @@ export function ingestGir(
       namespaceDepth !== null &&
       depth === namespaceDepth + 1 &&
       isCore &&
-      (tag.local === "class" || tag.local === "interface")
+      (tag.local === "class" || tag.local === "interface" ||
+        (tag.local === "record" &&
+          recordSelections.get(attribute(tag, "name") ?? "")?.boxed === true))
     ) {
-      /* A GObject interface declares members exactly as a class does, so one
-       * ingestion serves both; what it does not have is construction or a
-       * parent, and those attributes are simply absent rather than
+      /* A GObject interface declares members exactly as a class does, and so
+       * does a record projected as a handle, so one ingestion serves all
+       * three. What they do not have is construction, a parent, or a
+       * hierarchy, and those attributes are simply absent rather than
        * defaulted-and-wrong. */
+      const isRecord = tag.local === "record";
       const isInterface = tag.local === "interface";
-      const kindWord = isInterface ? "interface" : "class";
+      const kindWord = isRecord ? "record" : isInterface ? "interface" : "class";
       const name = attribute(tag, "name") ?? "<missing>";
-      const selection = (isInterface ? interfaceSelections : selections).get(name);
-      const found = isInterface ? foundInterfaces : foundClasses;
+      const recordSelection = isRecord ? recordSelections.get(name) : undefined;
+      const selection = isRecord
+        ? recordSelection === undefined ? undefined : {
+          name,
+          constructors: new Set<string>(),
+          methods: recordSelection.methods,
+          signals: new Set<string>(),
+          notify: new Set<string>(),
+        }
+        : (isInterface ? interfaceSelections : selections).get(name);
+      const found = isRecord
+        ? foundRecords
+        : isInterface
+          ? foundInterfaces
+          : foundClasses;
       if (selection !== undefined) {
         const path = `namespace/${options.namespace.name}/${kindWord}/${name}`;
         if (found.has(name)) {
@@ -923,7 +976,7 @@ export function ingestGir(
           depth,
           path,
           selection,
-          kind: isInterface ? "interface" : "class",
+          kind: isRecord ? "record" : isInterface ? "interface" : "class",
           name,
           cType: requiredAttribute(tag, "type", cNamespace, path, diagnostics),
           cSymbolPrefix: requiredAttribute(
@@ -934,7 +987,7 @@ export function ingestGir(
             diagnostics,
           ),
           parent: ((): GirDeclarationReference | null => {
-            const raw = isInterface ? undefined : attribute(tag, "parent");
+            const raw = isInterface || isRecord ? undefined : attribute(tag, "parent");
             return raw === undefined
               ? null
               : parseDeclarationReference(
@@ -970,6 +1023,8 @@ export function ingestGir(
           constructors: [],
           methods: [],
           signals: [],
+          boxedCopy: null,
+          boxedFree: null,
           foundConstructors: new Set(),
           foundMethods: new Set(),
           foundSignals: new Set(),
@@ -1259,7 +1314,13 @@ export function ingestGir(
           : kind === "method"
             ? activeClass.selection.methods
             : activeClass.selection.signals;
-        if (selected.has(name)) {
+        /* A boxed record's `copy` and `free` are its contract rather than its
+         * surface: the projection needs both to allocate one and to release
+         * one, so they are read whether or not the project asked for them,
+         * and only what it asked for becomes a member. */
+        const boxedContract = activeClass.kind === "record" &&
+          kind === "method" && (name === "copy" || name === "free");
+        if (selected.has(name) || boxedContract) {
           const found = kind === "constructor"
             ? activeClass.foundConstructors
             : kind === "method"
@@ -1271,7 +1332,7 @@ export function ingestGir(
               diagnostic("NTS4002", path, `Selected GIR ${kind} '${name}' is duplicated`),
             );
           }
-          found.add(name);
+          if (selected.has(name)) found.add(name);
           requireIntrospectable(
             tag,
             path,
@@ -1599,7 +1660,17 @@ export function ingestGir(
       } else {
         const callable = freezeCallable(activeCallable);
         if (callable.kind === "constructor") activeClass!.constructors.push(callable);
-        if (callable.kind === "method") activeClass!.methods.push(callable);
+        if (callable.kind === "method") {
+          if (activeClass!.kind === "record" && callable.name === "copy") {
+            activeClass!.boxedCopy = callable;
+          }
+          if (activeClass!.kind === "record" && callable.name === "free") {
+            activeClass!.boxedFree = callable;
+          }
+          if (activeClass!.selection.methods.has(callable.name)) {
+            activeClass!.methods.push(callable);
+          }
+        }
         if (callable.kind === "signal") activeClass!.signals.push(callable);
       }
       activeCallable = null;
@@ -1669,9 +1740,29 @@ export function ingestGir(
       missing("signal", activeClass.selection.signals, activeClass.foundSignals);
       const byName = (left: GirCallable, right: GirCallable): number =>
         compareText(left.name, right.name);
-      (activeClass.kind === "interface" ? interfaces : classes).push(Object.freeze({
+      const boxed = activeClass.kind !== "record" ||
+          activeClass.boxedCopy === null || activeClass.boxedFree === null
+        ? null
+        : Object.freeze({
+          copy: activeClass.boxedCopy,
+          free: activeClass.boxedFree,
+        });
+      if (activeClass.kind === "record" && boxed === null) {
+        diagnostics.push(diagnostic(
+          "NTS4004",
+          activeClass.path,
+          `Selected GIR record '${activeClass.name}' projects as a handle, ` +
+            "which requires the copy and free it is duplicated and released by",
+        ));
+      }
+      (activeClass.kind === "interface"
+        ? interfaces
+        : activeClass.kind === "record"
+          ? boxedRecords
+          : classes).push(Object.freeze({
         kind: activeClass.kind,
         name: activeClass.name,
+        boxed,
         cType: activeClass.cType,
         cSymbolPrefix: activeClass.cSymbolPrefix,
         parent: activeClass.parent,
@@ -1869,6 +1960,9 @@ export function ingestGir(
     classes: Object.freeze(classes.sort((left, right) => compareText(left.name, right.name))),
     interfaces: Object.freeze(
       interfaces.sort((left, right) => compareText(left.name, right.name)),
+    ),
+    boxedRecords: Object.freeze(
+      boxedRecords.sort((left, right) => compareText(left.name, right.name)),
     ),
     records: Object.freeze(records.sort((left, right) => compareText(left.name, right.name))),
     enumerations: Object.freeze(enumerations.sort((left, right) => compareText(left.name, right.name))),

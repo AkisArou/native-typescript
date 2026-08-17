@@ -185,6 +185,41 @@ record is an explicit Clang-probe input, so size, alignment, nested field
 offsets, and physical return convention are evidence rather than generator
 guesses.
 
+That is one of the two projections a `<record>` has, and its fields decide
+which one it gets. A record whose fields are all exact scalars is a value, as
+above. A record whose fields are not readable — `GtkTextIter` is fourteen
+opaque words — is a **boxed handle**: an owned pointer released by the `free`
+GTK declares for it, selected by asking for methods rather than fields:
+
+```json
+{ "records": [{ "name": "TextIter",
+                "methods": ["forward_char", "get_offset", "compare"] }] }
+```
+
+```ts
+export interface TextIter {
+  compare(rhs: TextIter): gint;
+  forwardChar(): boolean;
+  getOffset(): gint;
+}
+
+export declare class TextBuffer {
+  getStartIter(): TextIter;
+}
+```
+
+A mutating method mutates what the handle names, which is what the C does, and
+identity is not the pointer: `copy` makes a second object with the same
+contents, so `gtk_text_iter_equal` is how two of them are compared rather than
+`===`.
+
+GTK hands one back by filling storage the caller reserves, which is not a value
+this boundary can carry. So the adapter reserves it, makes the call, and returns
+the record's own `copy` of the result — one allocation, released by the `free`
+that pairs with the `copy` that made it. Those two are the record's contract
+rather than its surface: they are read whether or not the project asked for
+them, and neither becomes a member unless it does.
+
 Exact C integers and flags remain exact in SCABI. The public GTK API uses
 ordinary `number`, `boolean`, or generated enum/flag types only where a checked
 projection proves the value is lossless and within the declared range. Values

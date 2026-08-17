@@ -313,6 +313,31 @@ const clicked = action.onClicked((sender): void => {
     "the observer read the property before the change it reported",
   );
   check_(!notes.editable, "the text view is editable");
+  /* A boxed record. A text iterator is not a layout — its fields are opaque —
+   * so it crosses as an owned pointer released by the free GTK declares for
+   * it, and a method that fills caller-allocated storage hands one back
+   * through an adapter that reserved the storage and copied the result. It
+   * reads as an object with methods, and a mutating one mutates what the
+   * handle names, which is what the C does. */
+  const buffer = notes.getBuffer();
+  buffer.insertAtCursor("iterate", -1);
+  check_(buffer.getCharCount() === 7, "the buffer did not take its text");
+  const cursor = buffer.getStartIter();
+  check_(cursor.getOffset() === 0, "a start iterator is not at the start");
+  check_(cursor.forwardChar(), "an iterator would not advance over text");
+  check_(cursor.getOffset() === 1, "advancing an iterator moved nothing");
+  const third = buffer.getIterAtOffset(3);
+  check_(cursor.compare(third) < 0, "an earlier iterator did not compare first");
+  check_(third.compare(cursor) > 0, "a later iterator did not compare second");
+  /* `copy` is the record's own duplication: a second object with the same
+   * position, which is why identity is not the pointer here. */
+  const snapshot = third.copy();
+  check_(snapshot.getOffset() === 3, "a copied iterator lost its position");
+  check_(third.forwardChar(), "the original iterator would not advance");
+  check_(
+    snapshot.getOffset() === 3 && third.getOffset() === 4,
+    "advancing one iterator moved its copy",
+  );
   check_(content.spacing === 12, "the box spacing is wrong");
   check_(window.visible, "the window is not visible");
   /* Objects this program never constructed. GTK owns them; the adapter takes a

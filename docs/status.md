@@ -673,6 +673,27 @@ These are deliberate, not oversights. Each is a named future slice.
   transfers, so keyboard, scroll, and gesture handling were unreachable
   whatever else worked.
 
+- **A record projects as a value or as a handle, and its fields decide
+  which.** Every field an exact scalar is a layout that crosses by copy, which
+  is what `GtkRequisition` and `Gdk.Rectangle` are. Anything else is a boxed
+  handle: `GtkTextIter` is fourteen opaque words with a `copy` and a `free`, so
+  it crosses as an owned pointer whose destructor is that free — no reference
+  count involved, and no interning, because `copy` makes a second object with
+  the same contents.
+
+  GTK hands one back by filling storage the caller reserves, so the adapter
+  reserves it, calls, and returns the record's own copy of the result: one
+  allocation, freed by the function that pairs with the one that made it. The
+  copy and the free are the record's contract rather than its surface — read
+  whether or not the project selected them, and projected only if it did.
+
+  This is 79 live GTK members, led by `GtkTextIter` on 48. The allocation is
+  the price: GTK allocates none, and an iterator here costs one, though a loop
+  that advances one iterator allocates once rather than per step. The
+  allocation-free alternative is a caller-allocated opaque value, which needs
+  an IR value kind for a fixed-size blob that does not exist;
+  [the roadmap](roadmap.md) records the comparison.
+
 - **How a handle is released is a property of its type.** It was a property of
   each position that owned one, which was the same binding every time and had
   two consequences that looked unrelated. A class was given a release only if

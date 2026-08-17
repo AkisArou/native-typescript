@@ -35,7 +35,13 @@ export interface GtkProjectNamespace {
   /** GObject interfaces to project. Selected as a class is; a class that
    * implements one reaches its members without redeclaring them. */
   readonly interfaces: readonly GtkProjectNamespaceMember[];
-  readonly records: readonly { readonly name: string; readonly fields: readonly string[] }[];
+  /** Records to project. `fields` asks for a value that crosses by copy;
+   * `methods` asks for a handle released by the record's own free. */
+  readonly records: readonly {
+    readonly name: string;
+    readonly fields?: readonly string[];
+    readonly methods?: readonly string[];
+  }[];
   readonly enumerations: readonly {
     readonly name: string;
     readonly members: readonly string[];
@@ -164,10 +170,13 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
   ).map((entry, index) => {
     const recordPath = `${path}/records/${index}`;
     const value_ = record(entry, recordPath);
-    reject(value_, ["name", "fields"], recordPath);
+    reject(value_, ["name", "fields", "methods"], recordPath);
+    const fields = optionalTextList(value_, "fields", recordPath);
+    const methods = optionalTextList(value_, "methods", recordPath);
     return Object.freeze({
       name: text(value_["name"], `${recordPath}/name`),
-      fields: textList(value_["fields"], `${recordPath}/fields`),
+      ...(fields === undefined ? {} : { fields }),
+      ...(methods === undefined ? {} : { methods }),
     });
   });
   const enumerations = (source["enumerations"] === undefined

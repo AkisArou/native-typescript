@@ -401,11 +401,21 @@
           ]
         },
         {
+          "name": "TextBuffer",
+          "methods": [
+            "get_char_count",
+            "get_iter_at_offset",
+            "get_start_iter",
+            "insert_at_cursor"
+          ]
+        },
+        {
           "name": "TextView",
           "constructors": [
             "new"
           ],
           "methods": [
+            "get_buffer",
             "set_editable",
             "get_editable",
             "set_monospace"
@@ -491,6 +501,17 @@
           "methods": [
             "get_orientation",
             "set_orientation"
+          ]
+        }
+      ],
+      "records": [
+        {
+          "name": "TextIter",
+          "methods": [
+            "compare",
+            "copy",
+            "forward_char",
+            "get_offset"
           ]
         }
       ],

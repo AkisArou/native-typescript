@@ -503,10 +503,18 @@ honest projection of a stack iterator is that: caller-allocated storage of a
 known size with no readable fields. Nothing lowers it. The compiler has no
 value kind for a fixed-size blob — a struct's fields are scalars or structs,
 and neither an array nor an opaque field is expressible — so it would be a new
-IR value with storage, copy and address-of in both backends. **Recommend the
-boxed handle now and the opaque value only if a measurement shows the
-allocation matters**, because the source surface barely differs between them:
-a nominal `TextIter` with methods either way.
+IR value with storage, copy and address-of in both backends. The boxed handle
+is what landed; the opaque value waits on a measurement that shows the
+allocation matters, because the source surface barely differs between them — a
+nominal `TextIter` with methods either way.
+
+Two things the slice does not do, both refused precisely. A method that answers
+`gboolean` alongside its output stays out: `gtk_text_buffer_get_iter_at_line`
+answers whether the exact line was found and fills the iterator either way, so
+turning the answer into absence would discard a usable value and misstate why.
+And a method with two boxed outputs — `get_bounds` — has nowhere to put them,
+because a value-return record's fields cannot be handles. Both wait on the
+answer-as-a-field shape the out-parameter bullet above describes.
 
 **Proposed: a value record another namespace owns is imported by identity.**
 This is 24 live members — `Gdk.RGBA` on 14, `Gdk.Rectangle` on 10 — and it is
