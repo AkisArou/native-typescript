@@ -919,7 +919,12 @@ export function generateGObjectScabiPackage(
       ));
       continue;
     }
-    for (const class_ of imported.snapshot.classes) {
+    for (
+      const class_ of [
+        ...imported.snapshot.classes,
+        ...imported.snapshot.interfaces,
+      ]
+    ) {
       importedClasses.set(`${namespace}.${class_.name}`, Object.freeze({
         typeId: handleTypeId(namespace, class_),
         releaseId: `${namespace.toLowerCase()}_${class_.cSymbolPrefix}_release`,

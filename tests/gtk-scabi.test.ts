@@ -1008,6 +1008,48 @@ test(
   },
 );
 
+test(
+  "an imported interface is an object like any other",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGioGir) },
+  () => {
+    /* `gtk_drop_down_get_model` answers a `GListModel`, which Gio declares as
+     * an interface rather than a class. Nothing downstream distinguishes
+     * them — both are a handle another package owns — and this is also the
+     * shape where the borrowed result is the only thing the adapter has to
+     * wrap for the class. */
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [],
+      interfaces: [{ name: "ListModel", methods: ["get_n_items"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "DropDown", methods: ["get_model"] },
+      ],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gio, package: gio2Package }]),
+    );
+
+    assert.match(
+      generated.declarations,
+      /getModel\(\): GioListModel \| null;/u,
+    );
+    assert.deepEqual(generated.manifest.imports, {
+      gio_list_model: {
+        package: gio2Package,
+        type: "gio_list_model",
+        destructor: "gio_list_model_release",
+      },
+    });
+  },
+);
+
 test("a namespace cannot be supplied as its own import", () => {
   // Easy to reach by wiring a build's imported namespaces carelessly, and
   // meaningless: a package's own declarations are not foreign to it.

@@ -390,6 +390,11 @@ number describes the algebra's reach rather than any project's, since no
 application selects everything, but what it refuses is the ordered list of
 what to build next:
 
+*(Re-measured after the cross-namespace work below landed, and with the five
+namespaces GTK references supplied as imports: **2389 of 3006**. The bucket
+list that follows is from the earlier run and its shares are unchanged; what
+moved is the cross-namespace item.)*
+
 The largest bucket by raw count is misleading, so it is worth stating what it
 is: `TreePath` blocks 47 methods, `TreeIter` 42, and `TreeModel` 46 — and GTK
 deprecated every one of them. Counting only members neither the class nor the

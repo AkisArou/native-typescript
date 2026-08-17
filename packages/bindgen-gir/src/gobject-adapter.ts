@@ -1315,6 +1315,12 @@ export function generateGObjectAdapterSource(
     notifications.length === 0 &&
     valueMethods.length === 0 &&
     throwingMethods.length === 0 &&
+    /* A method handing back a borrowed object is wrapped too, and may be the
+     * only thing a selection asks for: `DropDown.get_model` answers an object
+     * the toolkit keeps owning and nothing else about that class needs an
+     * adapter. Class releases are not counted — they are derived from what
+     * projects rather than asked for, and every projected class has one. */
+    retainedResultMethods.length === 0 &&
     diagnostics.length === 0
   ) {
     diagnostics.push({
