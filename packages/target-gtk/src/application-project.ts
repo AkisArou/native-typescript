@@ -19,6 +19,9 @@ export interface GtkProjectNamespaceMember {
   readonly constructors?: readonly string[];
   readonly methods?: readonly string[];
   readonly signals?: readonly string[];
+  /** GObject property names to observe, spelled as GIR spells them
+   * (`reveal-child`). Each becomes one `notify::` registration. */
+  readonly notify?: readonly string[];
 }
 
 export interface GtkProjectNamespace {
@@ -127,15 +130,17 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
   ).map((entry, index) => {
     const classPath = `${path}/classes/${index}`;
     const class_ = record(entry, classPath);
-    reject(class_, ["name", "constructors", "methods", "signals"], classPath);
+    reject(class_, ["name", "constructors", "methods", "signals", "notify"], classPath);
     const constructors = optionalTextList(class_, "constructors", classPath);
     const methods = optionalTextList(class_, "methods", classPath);
     const signals = optionalTextList(class_, "signals", classPath);
+    const notify = optionalTextList(class_, "notify", classPath);
     return Object.freeze({
       name: text(class_["name"], `${classPath}/name`),
       ...(constructors === undefined ? {} : { constructors }),
       ...(methods === undefined ? {} : { methods }),
       ...(signals === undefined ? {} : { signals }),
+      ...(notify === undefined ? {} : { notify }),
     });
   });
   const records = (source["records"] === undefined

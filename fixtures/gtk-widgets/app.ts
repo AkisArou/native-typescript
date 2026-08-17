@@ -167,6 +167,23 @@ frame.setChild(grid);
 
 const revealer = new Revealer();
 revealer.setChild(frame);
+
+/* Observing a property. GObject reports every property change through one
+ * signal whose detail names the property, and the notification carries no
+ * value — so the handler is told that `reveal-child` changed and reads the
+ * new one off the sender, which is what the widget itself would do. Delivery
+ * is queued like any other listening signal, so this runs in a later turn:
+ * the assertions below are made from inside a handler that runs after it. */
+let revealNotifications = 0;
+let revealedWhenNotified = false;
+const revealObserver = revealer.onNotifyRevealChild((sender): void => {
+  revealNotifications = revealNotifications + 1;
+  revealedWhenNotified = sender.revealChild;
+});
+if (!revealObserver.connected) {
+  throw new Error("notify::reveal-child did not connect");
+}
+
 revealer.revealChild = true;
 
 const expander = new Expander("Details");
@@ -264,6 +281,14 @@ const clicked = action.onClicked((sender): void => {
   check_(scale.getValue() === 25, "the scale did not share its adjustment");
   check_(expander.expanded, "the expander is collapsed");
   check_(revealer.revealChild, "the revealer is hidden");
+  check_(
+    revealNotifications === 1,
+    "the property observer did not run exactly once",
+  );
+  check_(
+    revealedWhenNotified,
+    "the observer read the property before the change it reported",
+  );
   check_(!notes.editable, "the text view is editable");
   check_(content.spacing === 12, "the box spacing is wrong");
   check_(window.visible, "the window is not visible");

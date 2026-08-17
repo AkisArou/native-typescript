@@ -458,6 +458,8 @@ function validateInputs(
       canonicalizeJson(expectedAdapter.signalConnection) ||
     canonicalizeJson(options.gobjectAdapter.signals) !==
       canonicalizeJson(expectedAdapter.signals) ||
+    canonicalizeJson(options.gobjectAdapter.notifications) !==
+      canonicalizeJson(expectedAdapter.notifications) ||
     canonicalizeJson(options.gobjectAdapter.valueMethods) !==
       canonicalizeJson(expectedAdapter.valueMethods)
   ) {
@@ -1011,7 +1013,11 @@ export function generateGObjectScabiPackage(
     }
   }
 
-  const hasSignals = options.snapshot.classes.some((class_) => class_.signals.length > 0);
+  /* A `notify::` registration is a signal connection like any other, so it
+   * needs the shared connection type even when no GIR signal is selected. */
+  const hasSignals = options.snapshot.classes.some((class_) =>
+    class_.signals.length > 0 || class_.notify.length > 0
+  );
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
   const releaseByClass = new Map(
     options.gobjectAdapter.classReleases.map((release) => [
@@ -1102,6 +1108,9 @@ export function generateGObjectScabiPackage(
   );
   const adapterBySignal = new Map(
     options.gobjectAdapter.signals.map((signal) => [signal.id, signal]),
+  );
+  const adapterByNotify = new Map(
+    options.gobjectAdapter.notifications.map((notify) => [notify.id, notify]),
   );
   const adapterByValueMethod = new Map(
     options.gobjectAdapter.valueMethods.map((method) => [method.id, method]),
@@ -2229,6 +2238,160 @@ export function generateGObjectScabiPackage(
         );
       }
     }
+    /* One connect binding, shared by GIR signals and `notify::` registrations.
+     * Both hand the runtime a callback anchored to the instance and get back a
+     * cancellable connection; they differ only in what the emission carries,
+     * which is settled before this runs. */
+    function emitSignalRegistration(registration: {
+      readonly path: string;
+      /** The GIR member this registration inherits availability and
+       * deprecation from: the signal itself, or a property's getter. */
+      readonly callable: GirCallable;
+      readonly callbackTypeId: string;
+      readonly connectId: string;
+      readonly declaration: string;
+      readonly member: string;
+      readonly connectSymbol: string;
+      readonly parameters: readonly AbiParameter[];
+      readonly sourceParameters: readonly string[];
+      readonly answersBoolean: boolean;
+    }): void {
+      if (
+        types[registration.callbackTypeId] !== undefined ||
+        bindings[registration.connectId] !== undefined ||
+        declarations.has(registration.declaration)
+      ) {
+        diagnostics.push(diagnostic(registration.path, "Generated GObject signal identity collides"));
+        return;
+      }
+      if (types.void_ptr === undefined) {
+        types.void_ptr = Object.freeze({
+          kind: "pointer",
+          pointee: "void",
+          mutability: "mutable",
+          nullable: true,
+          addressSpace: 0,
+        });
+      }
+      types[registration.callbackTypeId] = Object.freeze({
+        kind: "callback",
+        signature: Object.freeze({
+          callingConvention: "c",
+          variadic: false,
+          parameters: Object.freeze(registration.parameters),
+          result: Object.freeze({
+            type: registration.answersBoolean ? "gboolean" : "void",
+            passMode: "value",
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" }),
+          }),
+        }),
+        context: Object.freeze({ placement: "last", type: "void_ptr" }),
+      });
+      bindings[registration.connectId] = callableBase({
+        declaration: registration.declaration,
+        kind: "method",
+        entryKind: "adapter-symbol",
+        symbol: registration.connectSymbol,
+        parameters: [
+          Object.freeze({
+            name: class_.cSymbolPrefix,
+            type: typeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+          }),
+          Object.freeze({
+            name: "callback",
+            type: registration.callbackTypeId,
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "borrowed",
+              scope: "registration",
+              anchor: class_.cSymbolPrefix,
+            }),
+            callback: Object.freeze({
+              lifetime: "until-cancelled",
+              registrationOwner: class_.cSymbolPrefix,
+              cancellationBinding: signalDisconnectId,
+              contextParameter: "context",
+              allowedInvocationExecutors: Object.freeze([
+                Object.freeze({ kind: "same-as-caller" as const }),
+              ]),
+              deliveryExecutor: Object.freeze(
+                registration.answersBoolean
+                  ? { kind: "same-as-caller" as const }
+                  : { kind: "runtime-owner" as const },
+              ),
+              synchronousReturn: registration.answersBoolean,
+              arguments: Object.freeze(registration.parameters.map((parameter) =>
+                Object.freeze({
+                  parameter: parameter.name,
+                  transport: registration.answersBoolean ? "borrow" as const : "copy" as const,
+                })
+              )),
+              sourceArguments: Object.freeze([
+                /* An answering handler receives no sender: injecting one
+                 * would mean a managed handle for the length of the call,
+                 * and a borrowed payload is exactly what this delivery does
+                 * not have. */
+                ...(registration.answersBoolean
+                  ? []
+                  : [Object.freeze({ kind: "registration-owner" as const })]),
+                ...registration.parameters.map((parameter) =>
+                  Object.freeze({
+                    kind: "callback-parameter" as const,
+                    parameter: parameter.name,
+                  })
+                ),
+              ]),
+              reentrancy: registration.answersBoolean ? "required" : "allowed",
+              postDisposal: "not-invoked",
+              shutdown: "drain",
+            }),
+          }),
+          Object.freeze({
+            name: "context",
+            type: "void_ptr",
+            passMode: "pointer",
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "borrowed",
+              scope: "registration",
+              anchor: "callback",
+            }),
+          }),
+        ],
+        result: Object.freeze({
+          type: signalConnectionTypeId,
+          passMode: "pointer",
+          nullable: true,
+          ownership: Object.freeze({
+            kind: "owned",
+            transfer: "to-runtime",
+            destructor: signalReleaseId,
+          }),
+        }),
+        error: Object.freeze({ kind: "nullable" }),
+        dependencies: dependencies({
+          bindings: [signalDisconnectId, signalReleaseId],
+          links: linkIds,
+          adapter: options.adapterInput.id,
+        }),
+        availability: availability(class_, registration.callable),
+      });
+      declarations.add(registration.declaration);
+      adapterBindings.push(registration.connectId);
+      classLines.push(
+        ...deprecationDoc(registration.callable, "  "),
+        `  ${registration.member}(callback: (${[
+          ...(registration.answersBoolean ? [] : [`${lowerCamel(class_.name)}: ${class_.name}`]),
+          ...registration.sourceParameters,
+        ].join(", ")}) => ${registration.answersBoolean ? "boolean" : "void"}): SignalConnection;`,
+      );
+    }
+
     for (const callable of class_.signals) {
       const path = `${classPath}/signal/${callable.name}`;
       const adapter = adapterBySignal.get(`${class_.name}.signal.${callable.name}`);
@@ -2386,140 +2549,55 @@ export function generateGObjectScabiPackage(
         continue;
       }
       if (!signalValid || signalParameters.length !== adapter.parameters.length) continue;
-      if (
-        types[callbackTypeId] !== undefined ||
-        bindings[connectId] !== undefined ||
-        declarations.has(declaration)
-      ) {
-        diagnostics.push(diagnostic(path, "Generated GObject signal identity collides"));
+      emitSignalRegistration({
+        path,
+        callable,
+        callbackTypeId,
+        connectId,
+        declaration,
+        member: `on${upperCamel(callable.name)}`,
+        connectSymbol: adapter.connectSymbol,
+        parameters: signalParameters,
+        sourceParameters: sourceSignalParameters,
+        answersBoolean,
+      });
+    }
+    for (const propertyName of class_.notify) {
+      const path = `${classPath}/notify/${propertyName}`;
+      const adapter = adapterByNotify.get(`${class_.name}.notify.${propertyName}`);
+      /* Observing a property you cannot read is a subscription to nothing:
+       * the notification carries no value, so the handler learns what changed
+       * only by calling the getter. Requiring the getter to be selected also
+       * gives the property name one authority — GIR's own annotation on that
+       * method — rather than a second spelling to keep in step. */
+      const getter = propertyAccessors.get(propertyName)?.getter;
+      if (getter === undefined || invalidPropertyMethods.has(getter)) {
+        diagnostics.push(diagnostic(
+          path,
+          "An observed GObject property must have a selected getter on this class",
+        ));
         continue;
       }
-      if (types.void_ptr === undefined) {
-        types.void_ptr = Object.freeze({
-          kind: "pointer",
-          pointee: "void",
-          mutability: "mutable",
-          nullable: true,
-          addressSpace: 0,
-        });
+      if (adapter === undefined) {
+        diagnostics.push(diagnostic(path, "GObject adapter is missing this property observer"));
+        continue;
       }
-      types[callbackTypeId] = Object.freeze({
-        kind: "callback",
-        signature: Object.freeze({
-          callingConvention: "c",
-          variadic: false,
-          parameters: Object.freeze(signalParameters),
-          result: Object.freeze({
-            type: answersBoolean ? "gboolean" : "void",
-            passMode: "value",
-            nullable: false,
-            ownership: Object.freeze({ kind: "value" }),
-          }),
-        }),
-        context: Object.freeze({ placement: "last", type: "void_ptr" }),
+      if (!signalConnectionReady) continue;
+      const propertyPart = propertyName.replaceAll("-", "_");
+      emitSignalRegistration({
+        path,
+        callable: getter,
+        callbackTypeId:
+          `${namespacePrefix}_${class_.cSymbolPrefix}_notify_${propertyPart}_callback`,
+        connectId:
+          `${namespacePrefix}_${class_.cSymbolPrefix}_connect_notify_${propertyPart}`,
+        declaration: `${class_.name}.onNotify${upperCamel(propertyName)}`,
+        member: `onNotify${upperCamel(propertyName)}`,
+        connectSymbol: adapter.connectSymbol,
+        parameters: [],
+        sourceParameters: [],
+        answersBoolean: false,
       });
-      bindings[connectId] = callableBase({
-        declaration,
-        kind: "method",
-        entryKind: "adapter-symbol",
-        symbol: adapter.connectSymbol,
-        parameters: [
-          Object.freeze({
-            name: class_.cSymbolPrefix,
-            type: typeId,
-            passMode: "pointer",
-            nullable: false,
-            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-          }),
-          Object.freeze({
-            name: "callback",
-            type: callbackTypeId,
-            passMode: "pointer",
-            nullable: false,
-            ownership: Object.freeze({
-              kind: "borrowed",
-              scope: "registration",
-              anchor: class_.cSymbolPrefix,
-            }),
-            callback: Object.freeze({
-              lifetime: "until-cancelled",
-              registrationOwner: class_.cSymbolPrefix,
-              cancellationBinding: signalDisconnectId,
-              contextParameter: "context",
-              allowedInvocationExecutors: Object.freeze([
-                Object.freeze({ kind: "same-as-caller" as const }),
-              ]),
-              deliveryExecutor: Object.freeze(
-                answersBoolean
-                  ? { kind: "same-as-caller" as const }
-                  : { kind: "runtime-owner" as const },
-              ),
-              synchronousReturn: answersBoolean,
-              arguments: Object.freeze(signalParameters.map((parameter) =>
-                Object.freeze({
-                  parameter: parameter.name,
-                  transport: answersBoolean ? "borrow" as const : "copy" as const,
-                })
-              )),
-              sourceArguments: Object.freeze([
-                /* An answering handler receives no sender: injecting one
-                 * would mean a managed handle for the length of the call,
-                 * and a borrowed payload is exactly what this delivery does
-                 * not have. */
-                ...(answersBoolean
-                  ? []
-                  : [Object.freeze({ kind: "registration-owner" as const })]),
-                ...signalParameters.map((parameter) =>
-                  Object.freeze({
-                    kind: "callback-parameter" as const,
-                    parameter: parameter.name,
-                  })
-                ),
-              ]),
-              reentrancy: answersBoolean ? "required" : "allowed",
-              postDisposal: "not-invoked",
-              shutdown: "drain",
-            }),
-          }),
-          Object.freeze({
-            name: "context",
-            type: "void_ptr",
-            passMode: "pointer",
-            nullable: false,
-            ownership: Object.freeze({
-              kind: "borrowed",
-              scope: "registration",
-              anchor: "callback",
-            }),
-          }),
-        ],
-        result: Object.freeze({
-          type: signalConnectionTypeId,
-          passMode: "pointer",
-          nullable: true,
-          ownership: Object.freeze({
-            kind: "owned",
-            transfer: "to-runtime",
-            destructor: signalReleaseId,
-          }),
-        }),
-        error: Object.freeze({ kind: "nullable" }),
-        dependencies: dependencies({
-          bindings: [signalDisconnectId, signalReleaseId],
-          links: linkIds,
-          adapter: options.adapterInput.id,
-        }),
-        availability: availability(class_, callable),
-      });
-      declarations.add(declaration);
-      adapterBindings.push(connectId);
-      classLines.push(
-        ...deprecationDoc(callable, "  "),
-        `  on${upperCamel(callable.name)}(callback: (${[
-          ...(answersBoolean ? [] : [`${lowerCamel(class_.name)}: ${class_.name}`]),
-          ...sourceSignalParameters,
-        ].join(", ")}) => ${answersBoolean ? "boolean" : "void"}): SignalConnection;`,
-      );
     }
     let hasCanonicalConstructor = false;
     for (const callable of class_.constructors) {
@@ -2708,6 +2786,7 @@ export function generateGObjectScabiPackage(
           ...class_.constructors.map(({ name }) => `--constructor=${class_.name}.${name}`),
           ...class_.methods.map(({ name }) => `--method=${class_.name}.${name}`),
           ...class_.signals.map(({ name }) => `--signal=${class_.name}.${name}`),
+          ...class_.notify.map((property) => `--notify=${class_.name}.${property}`),
         ]),
         ...options.snapshot.enumerations.flatMap((enum_) => [
           `--${enum_.kind}=${enum_.name}`,

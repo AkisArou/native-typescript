@@ -41,6 +41,12 @@ export interface GirClassSelection {
   readonly constructors?: readonly string[];
   readonly methods?: readonly string[];
   readonly signals?: readonly string[];
+  /** GObject property names to observe, spelled as GIR spells them
+   * (`reveal-child`). Each becomes one `notify::` registration, which is a
+   * detail of the class's `notify` signal rather than a signal of its own —
+   * so it is selected here rather than beside the signals, and the property
+   * it names has to be one this class projects. */
+  readonly notify?: readonly string[];
 }
 
 export interface GirRecordSelection {
@@ -197,6 +203,8 @@ export interface GirClass {
   readonly constructors: readonly GirCallable[];
   readonly methods: readonly GirCallable[];
   readonly signals: readonly GirCallable[];
+  /** The GObject property names this selection observes. */
+  readonly notify: readonly string[];
 }
 
 export interface GirRecordField {

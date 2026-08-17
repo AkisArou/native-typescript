@@ -323,6 +323,38 @@ projection is therefore same-caller only. A signal requiring a synchronous
 cross-thread return is unsupported until a separate deadlock and reentrancy
 contract exists.
 
+### Property observation
+
+GObject reports every property change through one signal, `notify`, whose
+detail names the property that changed. That is why observing one is selected
+beside the class's methods rather than beside its signals — `notify::label` is
+not a signal a class declares, it is a detail of one every GObject has:
+
+```json
+{ "name": "Revealer",
+  "methods": ["get_reveal_child", "set_reveal_child"],
+  "notify": ["reveal-child"] }
+```
+
+```ts
+export declare class Revealer extends Widget {
+  onNotifyRevealChild(callback: (revealer: Revealer) => void): SignalConnection;
+}
+```
+
+The notification carries no value. GObject passes a `GParamSpec` saying which
+property changed, which the registration detail already fixed, so the adapter
+absorbs it and the boundary never learns the type exists; the handler is told
+that the property changed and reads the new value off the sender, which is
+what the widget itself would do. Delivery, cancellation, ownership, and cycle
+collection are a listening signal's in every respect.
+
+An observed property must have a selected getter on the class. Without one the
+notification is a subscription to nothing — it carries no value, and the only
+way to learn the new one is gone. Requiring the getter also gives the property
+name a single authority: GIR's own `glib:get-property` annotation on that
+method, rather than a second spelling to keep in step.
+
 ## Resource release
 
 Ordinary GObject code does not call `dispose()` after every use. Managed handle

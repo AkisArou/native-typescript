@@ -319,6 +319,9 @@
             "get_reveal_child",
             "set_child",
             "set_reveal_child"
+          ],
+          "notify": [
+            "reveal-child"
           ]
         },
         {

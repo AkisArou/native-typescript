@@ -693,8 +693,24 @@ These are deliberate, not oversights. Each is a named future slice.
   void signal's result is nothing, and keeping the toolkit's frames out of the
   runtime is worth having wherever it costs nothing.
 
+- **A property change is observable.** GObject reports every one through the
+  same signal, `notify`, whose detail names the property — so a project
+  selects the property beside the class's methods (`"notify": ["reveal-child"]`)
+  rather than beside its signals, and gets `onNotifyRevealChild`. The
+  notification carries no value: the `GParamSpec` GObject passes says which
+  property changed, which the detail already fixed, so the adapter absorbs it
+  and the boundary never learns the type exists. The handler reads the new
+  value off the sender. Delivery is queued and the registration is owned by
+  the emitter, exactly as a listening signal's is.
+
+  An observed property must have a selected getter on the class. Without one
+  the notification is a subscription to nothing, and the getter's
+  `glib:get-property` annotation is what gives the property name its single
+  authority.
+
 - **Detailed signals** fail generation, as do non-`gboolean` signal results and
-  broader value-method input/output families.
+  broader value-method input/output families. `notify::` is the exception, and
+  it is not one in kind: a property observer is not a selected signal.
 - **`gfloat` is the one crossing that is not exact.** It projects as a plain
   `number`, because a 32-bit float in a foreign signature is a slot rather
   than a second precision to compute in: reading one is lossless, since every

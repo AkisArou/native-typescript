@@ -54,6 +54,26 @@ export interface GObjectSignalParameterAdapter {
   readonly sourceType: string;
 }
 
+/**
+ * One `notify::` registration: a class observing one of its own properties.
+ *
+ * GObject delivers every property change through one signal, `notify`, whose
+ * detail names the property — so this is not a signal of its own and carries
+ * no payload of its own either. The `GParamSpec` GObject passes says which
+ * property changed, which the detail already fixed, so the dispatch drops it
+ * and the boundary never sees it. What crosses is the bare fact that the
+ * property changed; the handler reads the new value through the getter.
+ */
+export interface GObjectNotifyAdapter {
+  readonly id: string;
+  readonly className: string;
+  readonly nativeType: string;
+  /** The GObject property name, spelled as GIR spells it (`reveal-child`). */
+  readonly propertyName: string;
+  readonly connectSymbol: string;
+  readonly callbackType: string;
+}
+
 export interface GObjectSignalConnectionAdapter {
   readonly nativeType: string;
   readonly disconnectSymbol: string;
@@ -156,12 +176,13 @@ export interface GObjectThrowingMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 9;
+  readonly schemaVersion: 10;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
   readonly signalConnection: GObjectSignalConnectionAdapter | null;
   readonly signals: readonly GObjectSignalAdapter[];
+  readonly notifications: readonly GObjectNotifyAdapter[];
   readonly valueMethods: readonly GObjectValueMethodAdapter[];
   readonly errorSupport: GObjectErrorSupportAdapter | null;
   readonly classReleases: readonly GObjectClassReleaseAdapter[];
@@ -561,6 +582,78 @@ function generateSignal(
       connectSymbol,
       callbackType,
       parameters: Object.freeze(validParameters),
+    }),
+    lines,
+  };
+}
+
+function generateNotify(
+  namespace: string,
+  class_: GirClass,
+  propertyName: string,
+  signalConnection: GObjectSignalConnectionAdapter,
+  diagnostics: CBindgenDiagnostic[],
+): {
+  readonly adapter: GObjectNotifyAdapter;
+  readonly lines: readonly string[];
+} | null {
+  const path = `${class_.name}/notify/${propertyName}`;
+  const nativeClass = physicalType(class_.cType, `${path}/class`, diagnostics);
+  if (nativeClass === null || nativeClass.kind !== "named") return null;
+
+  const classPart = class_.cSymbolPrefix;
+  const propertyPart = signalSymbolPart(propertyName);
+  const typeStem = `NtsGObject${upperCamel(namespace)}${upperCamel(class_.name)}Notify${upperCamel(propertyName)}`;
+  const callbackType = `${typeStem}Callback`;
+  const connectionType = `${typeStem}Connection`;
+  const connectSymbol = `nts_gobject_connect_${namespace}_${classPart}_notify_${propertyPart}`;
+  const dispatchSymbol = `nts_gobject_dispatch_${namespace}_${classPart}_notify_${propertyPart}`;
+  const nativeClassPointer = `${renderCType(nativeClass)} *`;
+  const lines = [
+    `typedef void (*${callbackType})(void *context);`,
+    `typedef struct ${connectionType} {`,
+    `  ${signalConnection.nativeType} base;`,
+    `  ${callbackType} callback;`,
+    "  void *context;",
+    `} ${connectionType};`,
+    "",
+    `static void ${dispatchSymbol}(${nativeClassPointer}instance, GParamSpec *pspec, void *opaque) {`,
+    "  (void)instance;",
+    /* The detail on the registration already named the property, so the
+     * spec carries nothing this handler could learn from it. Dropping it
+     * here is what keeps `GParamSpec` out of the boundary vocabulary. */
+    "  (void)pspec;",
+    `  ${connectionType} *connection = opaque;`,
+    "  connection->callback(connection->context);",
+    "}",
+    "",
+    `${signalConnection.nativeType} *${connectSymbol}(`,
+    `    ${nativeClassPointer}instance, ${callbackType} callback, void *context) {`,
+    "  if (instance == NULL || callback == NULL) return NULL;",
+    `  ${connectionType} *connection = calloc(1, sizeof *connection);`,
+    "  if (connection == NULL) return NULL;",
+    "  connection->base.instance = G_OBJECT(g_object_ref(instance));",
+    "  connection->callback = callback;",
+    "  connection->context = context;",
+    `  connection->base.handler = g_signal_connect(instance, "notify::${propertyName}",`,
+    `      G_CALLBACK(${dispatchSymbol}), connection);`,
+    "  if (connection->base.handler == 0) {",
+    "    g_object_unref(connection->base.instance);",
+    "    free(connection);",
+    "    return NULL;",
+    "  }",
+    "  return &connection->base;",
+    "}",
+    "",
+  ];
+  return {
+    adapter: Object.freeze({
+      id: `${class_.name}.notify.${propertyName}`,
+      className: class_.name,
+      nativeType: class_.cType,
+      propertyName,
+      connectSymbol,
+      callbackType,
     }),
     lines,
   };
@@ -994,8 +1087,14 @@ export function generateGObjectAdapterSource(
   const diagnostics: CBindgenDiagnostic[] = [];
   const constructors: GObjectConstructorAdapter[] = [];
   const signals: GObjectSignalAdapter[] = [];
+  const notifications: GObjectNotifyAdapter[] = [];
   const valueMethods: GObjectValueMethodAdapter[] = [];
-  const hasSignals = snapshot.classes.some((class_) => class_.signals.length > 0);
+  /* A `notify::` registration is a signal connection like any other, so it
+   * needs the same shared connection type even when no GIR signal is
+   * selected. */
+  const hasSignals = snapshot.classes.some((class_) =>
+    class_.signals.length > 0 || class_.notify.length > 0
+  );
   /* Only a selected enumeration projects. An unselected one has no members and
    * no proven storage, so a payload naming it is refused like any other
    * unprojectable type. */
@@ -1151,6 +1250,18 @@ export function generateGObjectAdapterSource(
       signals.push(generated.adapter);
       lines.push(...generated.lines);
     }
+    for (const propertyName of class_.notify) {
+      const generated = generateNotify(
+        namespacePart,
+        class_,
+        propertyName,
+        signalConnection!,
+        diagnostics,
+      );
+      if (generated === null) continue;
+      notifications.push(generated.adapter);
+      lines.push(...generated.lines);
+    }
     for (const callable of class_.methods) {
       if (callable.throws) {
         const generated = generateThrowingMethod(class_, callable, diagnostics);
@@ -1195,6 +1306,7 @@ export function generateGObjectAdapterSource(
     snapshot.classes.length > 0 &&
     constructors.length === 0 &&
     signals.length === 0 &&
+    notifications.length === 0 &&
     valueMethods.length === 0 &&
     throwingMethods.length === 0 &&
     diagnostics.length === 0
@@ -1212,12 +1324,13 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 9,
+    schemaVersion: 10,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
     signalConnection,
     signals: Object.freeze(signals),
+    notifications: Object.freeze(notifications),
     valueMethods: Object.freeze(valueMethods),
     errorSupport,
     classReleases: Object.freeze(classReleases),

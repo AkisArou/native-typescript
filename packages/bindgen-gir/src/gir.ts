@@ -40,6 +40,11 @@ interface NormalizedClassSelection {
   readonly constructors: ReadonlySet<string>;
   readonly methods: ReadonlySet<string>;
   readonly signals: ReadonlySet<string>;
+  /** GObject property names to observe. Unlike the others these name no GIR
+   * member of their own: a `notify::` registration is a detail of the class's
+   * inherited `notify` signal, and the projection checks the name against the
+   * properties this class actually projects. */
+  readonly notify: ReadonlySet<string>;
 }
 
 interface NormalizedRecordSelection {
@@ -487,7 +492,7 @@ function normalizeSelections(
       continue;
     }
     const normalizeMembers = (
-      kind: "constructors" | "methods" | "signals",
+      kind: "constructors" | "methods" | "signals" | "notify",
       values: readonly string[] | undefined,
     ): ReadonlySet<string> => {
       const names = new Set<string>();
@@ -518,6 +523,7 @@ function normalizeSelections(
       constructors: normalizeMembers("constructors", selection.constructors),
       methods: normalizeMembers("methods", selection.methods),
       signals: normalizeMembers("signals", selection.signals),
+      notify: normalizeMembers("notify", selection.notify),
     });
   }
   return result;
@@ -1675,6 +1681,7 @@ export function ingestGir(
         constructors: Object.freeze([...activeClass.constructors].sort(byName)),
         methods: Object.freeze([...activeClass.methods].sort(byName)),
         signals: Object.freeze([...activeClass.signals].sort(byName)),
+        notify: Object.freeze([...activeClass.selection.notify].sort(compareText)),
       }));
       activeClass = null;
     }

@@ -51,6 +51,8 @@ function sha256(value: string): `sha256:${string}` {
 function snapshot(
   signals: readonly string[] = [],
   withOrientation = false,
+  notify: readonly string[] = [],
+  methods: readonly string[] = ["get_label", "set_label"],
 ): GirSnapshot {
   return ingestGir(girSource, {
     logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
@@ -60,8 +62,9 @@ function snapshot(
       {
         name: "Button",
         constructors: ["new_with_label"],
-        methods: ["get_label", "set_label"],
+        methods,
         signals,
+        notify,
       },
     ],
     records: [{ name: "Requisition", fields: ["width", "height"] }],
@@ -1734,6 +1737,62 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     "gtk_signal_connection_release",
   ]);
   assertDeepFrozen(generated);
+});
+
+test("GTK SCABI lowers a property observer to a payload-free connection", () => {
+  const selected = snapshot([], false, ["label"]);
+  const generated = generateGObjectScabiPackage(options(selected));
+  /* The observer's shape is a zero-payload listening signal: GObject reports
+   * the change, and the value is read back off the sender. */
+  assert.match(
+    generated.declarations,
+    /onNotifyLabel\(callback: \(button: Button\) => void\): SignalConnection;/u,
+  );
+  const connect = generated.manifest.bindings.gtk_button_connect_notify_label;
+  assert.ok(connect && connect.kind !== "constant");
+  assert.equal(
+    connect.entry.symbol,
+    "nts_gobject_connect_gtk_button_notify_label",
+  );
+  assert.deepEqual(connect.signature.parameters[1]?.callback, {
+    lifetime: "until-cancelled",
+    registrationOwner: "button",
+    cancellationBinding: "gtk_signal_connection_disconnect",
+    contextParameter: "context",
+    allowedInvocationExecutors: [{ kind: "same-as-caller" }],
+    deliveryExecutor: { kind: "runtime-owner" },
+    synchronousReturn: false,
+    arguments: [],
+    sourceArguments: [{ kind: "registration-owner" }],
+    reentrancy: "allowed",
+    postDisposal: "not-invoked",
+    shutdown: "drain",
+  });
+  const callback = generated.manifest.types.gtk_button_notify_label_callback;
+  assert.ok(callback && callback.kind === "callback");
+  /* The `GParamSpec` GObject passes says which property changed, which the
+   * registration detail already fixed. The adapter absorbs it, so it never
+   * becomes part of the boundary's vocabulary. */
+  assert.deepEqual(callback.signature.parameters, []);
+  const source = generateGObjectAdapterSource(selected).source;
+  assert.match(source, /g_signal_connect\(instance, "notify::label"/u);
+  assert.match(source, /GParamSpec \*pspec, void \*opaque/u);
+  assert.match(source, /\(void\)pspec;/u);
+});
+
+test("GTK SCABI refuses to observe a property it cannot read", () => {
+  /* Without the getter the notification is a subscription to nothing: it
+   * carries no value, and the only way to learn the new one is gone. */
+  const error = generationError(() =>
+    generateGObjectScabiPackage(
+      options(snapshot([], false, ["label"], ["set_label"])),
+    ),
+  );
+  assert.equal(error.diagnostics.length, 1);
+  assert.match(
+    error.diagnostics[0]?.message ?? "",
+    /observed GObject property must have a selected getter/u,
+  );
 });
 
 test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
