@@ -132,8 +132,14 @@ exact type: `(a / b) as i64`, `(a << b) as i64`. Each throws where its width
 has no answer: a zero divisor, a signed minimum over `-1`, and a shift count
 outside `[0, width)`, which is never masked. A signed minimum's remainder over
 `-1` does not throw, because 0 is the mathematically correct answer and it
-fits. The explicit checked, saturating, and wrapping helper families remain a
-future slice.
+fits.
+
+The explicit checked, saturating, and wrapping helper families remain a future
+slice, and deliberately so: at 32 bits and below a checked add already exists
+as `T.fromNumber(T.toNumber(a) + T.toNumber(b))`, since a double holds every
+sum of two 32-bit integers exactly and the conversion back is checked. Only a
+64-bit width would need a primitive. [The roadmap](roadmap.md) records the
+comparison and the trigger for revisiting it.
 
 Comparison is implemented, ordering included: `===`, `!==`, `<`, `<=`, `>`,
 and `>=` over two operands of one exact type compare in that type's own

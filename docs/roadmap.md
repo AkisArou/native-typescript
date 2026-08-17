@@ -191,32 +191,61 @@ shifts with the traps the profile specifies, and — as declared operations —
 the conversions to and from an ordinary number.
 
 What remains: **the checked, saturating, and explicitly wrapping helper
-families**, which name an overflow policy the primitives do not have. Also
-open, and smaller: converting between two exact widths without going through a
-number, which today costs a `toNumber`/`fromNumber` pair and a range check
-that a direct conversion would not need.
+families**, which name an overflow policy the primitives do not have, and
+converting between two exact widths without going through a number. Both were
+held for a written comparison rather than built, on the grounds that they
+would add members to `i64.…` and that surface had already been half wrong
+once. Here is the comparison. **The answer is to build neither.**
 
-**To reevaluate before building either: whether a declared namespace on the
-type is the right surface at all.** Both remaining items would add more
-members to `i64.…`, and that surface has been questioned once already and was
-half wrong when it was: division and the shifts were declared operations for
-one commit before it became clear they are ordinary operator expressions
-inside a construction, like every other exact operation. What survived the
-correction is a narrow claim — a *conversion* has no operator to be, and
-cannot borrow `Number(v)` or `BigInt(n)` because those mean something else at
-an exact width — and it is worth re-testing rather than extending on
-momentum. Three questions to answer with a written comparison, not by
-building:
+*Would a real binding reach them?* Measured against GTK 4: no. Everything
+narrower than 64 bits carries the number conversion, so the only exact family
+a GIR binding reaches is 64-bit — and `gint64` appears on **five live
+members**, all of them `GtkMediaStream`: `get_duration`, `get_timestamp`,
+`seek`, `stream_prepared`, `update`. They pass microsecond timestamps through.
+Every expression such a caller needs already compiles: `(stream.timestamp +
+5_000_000n) as gint64` to seek forward, `(t / 1_000_000n) as gint64` to reach
+seconds, `gint64.toNumber(t)` to print one. A media timeline does not overflow
+an `i64`, and none of the five converts between widths.
 
-- Does an overflow policy belong on the operation (`i32.addChecked`) or on
-  the type, so that a manifest chooses wrapping or checked once and every
-  operator obeys it? The second is a smaller surface and a bigger change.
-- Is a width conversion a member of the source type, of the destination type,
-  or neither — a single `convert<T>` the checker resolves?
-- Would any of it be reached by a real binding, or only by this repository's
-  own fixtures? Nothing in the tree divides a `gint64` today. The numeric
-  model is complete for everything the project actually uses, so the cost of
-  guessing wrong here is paid in surface that never carries a caller.
+*Does an overflow policy belong on the operation or on the type?* On the
+operation if anywhere — but at 32 bits and below it belongs on neither,
+because it is already there. `fromNumber` is checked, and `number` is exact
+for every sum, difference and product of two 32-bit integers, so
+`i32.fromNumber(i32.toNumber(a) + i32.toNumber(b))` *is* the checked add, and
+clamping before the conversion is the saturating one. Only 64-bit would need a
+primitive, and 64-bit has no caller. Putting the policy on the type is the
+tempting shape and is wrong twice: `(a + b) as i32` would mean different
+things depending on a manifest the reader is not looking at, and a checked `+`
+would make every arithmetic site a throwing site — a cost every user of the
+type pays so that a few can skip a conversion.
+
+*Is a width conversion a member of the source type or the destination?* The
+destination. `i32.from(v)` reads as construction, the check it performs is the
+destination's — does this fit in an `i32` — and it is one member per type
+rather than one per ordered pair, where `i64.toI32` and its ninety siblings do
+not scale. But it is a refinement rather than a capability:
+`i32.fromNumber(i64.toNumber(v))` already produces the right value or throws,
+and differs only in which error a large `i64` fails with.
+
+**Decision: build neither. The trigger to revisit is a manifest that reaches a
+64-bit exact scalar a caller must compute with rather than pass through** —
+Phase 3's terminal surface or Phase 4's platform SDKs may bring one, and the
+answers above say what to build when it arrives.
+
+**Adjacent, and worth more than either: `gsize`.** Platform-width integers are
+absent from the scalar table, which refuses 17 live GTK members across
+`Snapshot`, `Builder`, `EntryBuffer` and `Text` — more callers than the two
+items above have between them. Two ways to admit them. Add `isize`/`usize`
+exact scalars with BigInt carriers, which the compiler already has, and give a
+string length the ergonomics of a bignum. Or extend the number conversion past
+32 bits with a **checked egress**: a `RangeError` where the double would not
+denote the same integer, which is exactly what `gint64.toNumber` already does
+and what the conversion vocabulary already names. The second is the better
+trade for a length — every `gsize` a real program produces fits in a double
+and reads as a plain number, and one that does not fails loudly rather than
+silently. Its cost is that egress stops being total: a widened result becomes
+a throwing expression, which both backends must carry and `mayThrow` must
+know. Measure it against the ingress checks already there before building.
 
 One thing is deliberately not on that list. The construction form
 `(a + b) as u32` stays, and the earlier claim that it was a mere lowering seam
@@ -433,6 +462,83 @@ Two things are deliberately absent from that list. `filename` (17 live
 members) is a distinct GIR type from `utf8` and needs a decision about path
 encoding rather than a projection. Arrays and lists are not counted at all,
 because the selection above cannot reach them.
+
+**Proposed: a boxed record projects as an owned handle.** Counting only live
+members, records the projection refuses divide cleanly by what their fields
+are, and the fields should decide the shape:
+
+- *Every field an exact scalar* — a **value record**, which is what
+  `Gdk.Rectangle`, `Gdk.RGBA` and `GtkRequisition` are, and what already
+  projects. Having a `copy`/`free` pair does not change that: `rgba.red` is a
+  field read and a colour is a literal, and hiding either behind a handle
+  would be a poor trade.
+- *Anything else* — a **boxed handle**: an owned pointer whose destructor is
+  the record's own `free`. This is 79 live members, led by `GtkTextIter` on
+  48, `PangoTabArray` on 8, `PangoFontDescription` and `GtkPaperSize` on 6
+  each, `GLib.Error` on 5. What these have instead of readable fields is a
+  `copy` that hands back a full transfer of itself and a `free` that consumes
+  one, which GIR states and the generator can check.
+
+`GtkTextIter` becomes a nominal type with methods; a mutating method mutates
+the object the handle names, which is what the C does; identity is `none`,
+because two copies are two objects, and `gtk_text_iter_equal` answers the
+question reference equality would answer wrongly.
+
+The case for it is that it needs no new compiler concept. A boxed handle is an
+owned handle, and owned handles have everything they need: a type-level
+destructor, nullable inputs, and crossing a package boundary in both
+directions. Most of the 79 name a record another namespace owns, so they
+arrive through the import path rather than through anything new. The one piece
+of real work is the caller-allocated output — GTK fills storage the caller
+reserves, so the adapter reserves it on the stack, calls, and hands back
+`gtk_text_iter_copy` of the result: one allocation, freed by the function that
+pairs with the one that made it. A transfer-full result is already an owned
+handle with no wrapper; an input is a borrowed one.
+
+The cost, stated plainly: one heap allocation per iterator where GTK allocates
+none. It is per iterator rather than per step — a loop that advances one
+iterator allocates once — but it is real, and it is why the alternative
+exists. SCABI already has an `opaque-value` type with a proven layout, and the
+honest projection of a stack iterator is that: caller-allocated storage of a
+known size with no readable fields. Nothing lowers it. The compiler has no
+value kind for a fixed-size blob — a struct's fields are scalars or structs,
+and neither an array nor an opaque field is expressible — so it would be a new
+IR value with storage, copy and address-of in both backends. **Recommend the
+boxed handle now and the opaque value only if a measurement shows the
+allocation matters**, because the source surface barely differs between them:
+a nominal `TextIter` with methods either way.
+
+**Proposed: a value record another namespace owns is imported by identity.**
+This is 24 live members — `Gdk.RGBA` on 14, `Gdk.Rectangle` on 10 — and it is
+the smaller change of the two, but it needs one addition to the manifest.
+
+The enumeration precedent does not transfer, and it is worth saying why,
+because the two look alike. An enumeration lowers to a **bare scalar**: the
+importing package defines it locally for its ABI, declares it as the owner's
+for its identity, and the two packages agree because a scalar's compiler
+identity is structural — both write `{kind: "nativeScalar", scalar: "u32"}`
+and composition finds one declaration mapped to one type. A struct's identity
+is nominal, `<owner instance>#type:<id>`, so two packages that each defined
+`Gdk.Rectangle` would register one declaration against two types, which
+composition refuses — correctly, since a caller passing one to the other would
+otherwise be passing an unrelated type that happens to have the same layout.
+
+So a value record crosses the way a handle does: imported by identity, defined
+once by its owner, and named through `import type { Rectangle as GdkRectangle }`.
+The addition is that an import must say what kind of type it is. `lowerType`
+builds every imported reference as a native handle today, because a handle was
+all that could be imported; `TypeImport` gains a `kind`, the importer states
+what it assumed, and composition proves it against the definition — the same
+trust model the imported type ID and destructor already have. What an imported
+struct does not get is the local Clang proof an imported enumeration gets: its
+layout is the owner's evidence. That is the honest trade rather than a gap. A
+struct has one layout, and proving it twice would only give composition a
+second thing to reconcile.
+
+**Sequence.** Boxed records first: they are worth three times as much, need no
+compiler change, and their cross-namespace half rides the import path that
+already exists. Then the typed import, which is one field and unlocks colours
+and rectangles.
 
 ### Acceptance application
 
