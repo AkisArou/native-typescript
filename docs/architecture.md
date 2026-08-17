@@ -217,6 +217,16 @@ ordinary compiler-generated unwinding. Physical foreign-pointer, callback, and
 context types are ABI-only and are not members of the TypeScript/language-IR
 value model.
 
+An argument may also transfer ownership into the callee. The runtime treats
+that as a disposal the callee performs: the managed cell stops naming the
+pointer, its owner edge and children are torn down, and its lifecycle hooks
+run exactly as an explicit disposal's would — everything except freeing the
+object, which after a transfer belongs to the callee. The handle is spent
+afterwards, so a later use is the ordinary use-after-dispose error rather than
+a stale pointer crossing the boundary. A destructor is the one consuming call
+the runtime performs rather than emits, because the cell holds its symbol and
+knows the order its teardown must happen in.
+
 A retained callback is ordinarily delivered by copying its payloads onto the
 runtime owner and answering the producer with nothing, which is what lets a
 foreign thread raise one at all. A registration whose answer the producer

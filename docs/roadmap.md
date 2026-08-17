@@ -294,6 +294,14 @@ nothing foreign may read a closure; it carries values only, because nothing
 outlives the call; and an exception it leaves pending is reported by the next
 turn rather than thrown into the toolkit's frame.
 
+**Taking ownership of a handle argument.** Done. GIR's `transfer-ownership`
+was projected only as `none`, which left every event controller unreachable:
+`gtk_widget_add_controller` takes the reference, so keyboard, scroll, and
+gesture handling were out regardless of what else worked. A transfer is now a
+disposal the callee performs — the runtime's own teardown minus freeing the
+object — and the handle is spent afterwards, with the same use-after-dispose
+guarantee an explicit disposal gives.
+
 **A GError error convention.** Done, contract and generation both. A member
 that reports failure through a GError projects as a throwing method: a
 generated adapter absorbs the `GError **`, one accessor pair per namespace

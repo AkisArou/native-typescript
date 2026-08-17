@@ -985,6 +985,11 @@ function generateRetainedResultMethod(
 
 export function generateGObjectAdapterSource(
   snapshot: GirSnapshot,
+  /* The namespaces this one imports. A payload may name an enumeration
+   * another namespace owns — `EventControllerKey::key-pressed` carries a
+   * `Gdk.ModifierType` — and GIR spells such a reference with no `c:type` of
+   * its own, so the spelling has to come from the declaration that owns it. */
+  importedSnapshots: readonly GirSnapshot[] = [],
 ): GObjectAdapterSource {
   const diagnostics: CBindgenDiagnostic[] = [];
   const constructors: GObjectConstructorAdapter[] = [];
@@ -994,12 +999,22 @@ export function generateGObjectAdapterSource(
   /* Only a selected enumeration projects. An unselected one has no members and
    * no proven storage, so a payload naming it is refused like any other
    * unprojectable type. */
-  const enumerationCTypes: ReadonlyMap<string, string> = new Map(
-    snapshot.enumerations.map((enumeration) => [
-      enumeration.name,
-      enumeration.cType,
+  const enumerationCTypes: ReadonlyMap<string, string> = new Map([
+    ...snapshot.enumerations.flatMap((enumeration) => [
+      [enumeration.name, enumeration.cType] as const,
+      /* GIR normally spells a same-namespace reference bare; a
+       * self-qualified spelling names the same declaration. */
+      [`${snapshot.namespace.name}.${enumeration.name}`, enumeration.cType] as const,
     ]),
-  );
+    ...importedSnapshots.flatMap((imported) =>
+      imported.enumerations.map((enumeration) =>
+        [
+          `${imported.namespace.name}.${enumeration.name}`,
+          enumeration.cType,
+        ] as const
+      )
+    ),
+  ]);
   const namespacePart = snapshot.namespace.name.toLowerCase();
   const signalConnection = hasSignals
     ? Object.freeze({
@@ -1171,7 +1186,13 @@ export function generateGObjectAdapterSource(
       lines.push(...generated.lines);
     }
   }
+  /* A selection of classes that produced nothing to wrap is a mistake worth
+   * reporting: something the project asked for did not project. A selection
+   * with no classes at all is not — a namespace reached only for the
+   * enumerations another one imports has nothing to wrap by construction,
+   * and its adapter is empty because that is what it should be. */
   if (
+    snapshot.classes.length > 0 &&
     constructors.length === 0 &&
     signals.length === 0 &&
     valueMethods.length === 0 &&

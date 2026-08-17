@@ -1657,19 +1657,47 @@ test("SCABI distinguishes native-resource sharing from managed handle transfer",
     true,
   );
 
-  const generalConsumer = structuredClone(manifest);
-  const counterAdd = generalConsumer.bindings.counter_add;
+  /* A call the callee takes the handle from is an ordinary consuming call:
+   * the reference moves and the handle is spent, which is the same guarantee
+   * an explicit disposal makes. */
+  const consumer = structuredClone(manifest);
+  const counterAdd = consumer.bindings.counter_add;
   assert.notEqual(counterAdd?.kind, "constant");
   if (counterAdd === undefined || counterAdd.kind === "constant") return;
   Object.assign(counterAdd.signature.parameters[0]!.ownership, {
     kind: "owned" as const,
     transfer: "to-native" as const,
   });
-  const generalConsumerResult = translateScabiNativeProgram(generalConsumer, selectImports(["counter_add"]));
-  assert.equal(generalConsumerResult.ok, false);
-  if (generalConsumerResult.ok) return;
+  const consumerResult = translateScabiNativeProgram(consumer, selectImports(["counter_add"]));
+  assert.equal(consumerResult.ok, true);
+  if (!consumerResult.ok) return;
+  const consuming = consumerResult.input.bindings.find(({ id }) =>
+    id.endsWith("#counter_add")
+  );
+  assert.deepEqual(consuming?.parameters[0]?.ownership, {
+    kind: "owned",
+    transfer: "to-native",
+  });
+
+  /* What it may not be is a position with nothing to hand over. A null arm
+   * has no reference, so the transfer would have no meaning. */
+  const nullableConsumer = structuredClone(manifest);
+  const nullableAdd = nullableConsumer.bindings.counter_add;
+  assert.notEqual(nullableAdd?.kind, "constant");
+  if (nullableAdd === undefined || nullableAdd.kind === "constant") return;
+  Object.assign(nullableAdd.signature.parameters[0]!, { nullable: true });
+  Object.assign(nullableAdd.signature.parameters[0]!.ownership, {
+    kind: "owned" as const,
+    transfer: "to-native" as const,
+  });
+  const nullableResult = translateScabiNativeProgram(
+    nullableConsumer,
+    selectImports(["counter_add"]),
+  );
+  assert.equal(nullableResult.ok, false);
+  if (nullableResult.ok) return;
   assert.equal(
-    generalConsumerResult.diagnostics.some((diagnostic) =>
+    nullableResult.diagnostics.some((diagnostic) =>
       diagnostic.path === "/bindings/counter_add/signature/parameters"
     ),
     true,

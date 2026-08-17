@@ -119,7 +119,10 @@ export function planGirBindingAnalysis(input: {
   const artifactIds = girBindingAnalysisArtifactIds(input.snapshot.namespace);
   const slug = girPackageSlug(input.snapshot.namespace);
 
-  const adapter = generateGObjectAdapterSource(input.snapshot);
+  const adapter = generateGObjectAdapterSource(
+    input.snapshot,
+    input.importedSnapshots ?? [],
+  );
   const probe = generateGirClangAbiProbe(
     input.snapshot,
     adapter,

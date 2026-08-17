@@ -474,6 +474,7 @@ delivered" from "signal delivered late" rather than hanging.
 | Nominal enums and flags | Clang-proven storage and member values |
 | Output parameters | records and exact scalars, returned as one value: `Widget.getSizeRequest()` |
 | Signals | non-detailed, answering `void` (queued) or `gboolean` (answered during the emission); payloads of any exact scalar, selected enumeration, UTF-8 string, or selected class |
+| Handle inputs | borrowed for the call, or moved when GIR says the callee takes them |
 | Deprecated members | bind normally, marked `@deprecated` in the declaration |
 
 Selected constructors generate a content-addressed ownership adapter: GIR
@@ -620,6 +621,25 @@ These are deliberate, not oversights. Each is a named future slice.
   needed at all. What remains exact by necessity — the 64-bit integers, and
   manifests that deliberately keep exact scalars such as the `scabi-c-v1`
   fixture — reaches the same capabilities by name.
+
+- **A callee may take ownership of a handle argument.** GIR states which side
+  owns the object after a call, and both answers now project: `none` borrows
+  it for the call, `full` moves the reference. A moved handle is spent —
+  `widget.addController(controller)` hands the widget the only reference, and
+  a later use of the controller handle is a use-after-dispose, which is the
+  same guarantee `dispose()` makes and for the same reason.
+
+  The runtime shares one teardown for both: a transfer is a disposal minus
+  freeing the object, since after a transfer that is not this side's to do.
+  What had to be separated is that a destructor was previously the only
+  consumer the emitters had seen, so "takes an owned handle" had come to mean
+  "is a destructor" — a destructor is performed by the runtime, which holds
+  its symbol and knows the teardown order, while every other consumer is an
+  ordinary call.
+
+  This is what makes event controllers reachable: `gtk_widget_add_controller`
+  transfers, so keyboard, scroll, and gesture handling were unreachable
+  whatever else worked.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars

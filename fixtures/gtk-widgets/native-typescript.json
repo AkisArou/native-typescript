@@ -49,6 +49,24 @@
       ]
     },
     {
+      "name": "Gdk",
+      "version": "4.0",
+      "sdkModules": [
+        "gtk4"
+      ],
+      "classes": [],
+      "enumerations": [
+        {
+          "name": "ModifierType",
+          "members": [
+            "shift_mask",
+            "control_mask",
+            "alt_mask"
+          ]
+        }
+      ]
+    },
+    {
       "name": "Gtk",
       "version": "4.0",
       "sdkModules": [
@@ -56,39 +74,15 @@
       ],
       "imports": [
         {
+          "name": "Gdk",
+          "version": "4.0"
+        },
+        {
           "name": "Gio",
           "version": "2.0"
         }
       ],
       "classes": [
-        {
-          "name": "Widget",
-          "methods": [
-            "activate",
-            "get_first_child",
-            "get_height",
-            "get_last_child",
-            "get_next_sibling",
-            "get_parent",
-            "get_sensitive",
-            "get_size_request",
-            "get_visible",
-            "get_width",
-            "grab_focus",
-            "measure",
-            "queue_draw",
-            "set_hexpand",
-            "set_margin_bottom",
-            "set_margin_end",
-            "set_margin_start",
-            "set_margin_top",
-            "set_sensitive",
-            "set_size_request",
-            "set_vexpand",
-            "set_visible",
-            "show"
-          ]
-        },
         {
           "name": "Adjustment",
           "constructors": [
@@ -104,39 +98,146 @@
           ]
         },
         {
-          "name": "Range",
-          "methods": [
-            "get_adjustment",
-            "get_value",
-            "set_increments",
-            "set_range",
-            "set_value"
-          ]
-        },
-        {
-          "name": "Window",
+          "name": "Application",
           "constructors": [
             "new"
-          ],
-          "methods": [
-            "close",
-            "destroy",
-            "get_child",
-            "get_title",
-            "present",
-            "set_child",
-            "set_default_size",
-            "set_resizable",
-            "set_title"
-          ],
-          "signals": [
-            "close-request"
           ]
         },
         {
           "name": "ApplicationWindow",
           "constructors": [
             "new"
+          ]
+        },
+        {
+          "name": "Box",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "append",
+            "prepend",
+            "remove",
+            "set_spacing",
+            "get_spacing",
+            "set_homogeneous"
+          ]
+        },
+        {
+          "name": "Button",
+          "constructors": [
+            "new",
+            "new_with_label"
+          ],
+          "methods": [
+            "set_label",
+            "get_label",
+            "set_has_frame"
+          ],
+          "signals": [
+            "clicked"
+          ]
+        },
+        {
+          "name": "CheckButton",
+          "constructors": [
+            "new",
+            "new_with_label"
+          ],
+          "methods": [
+            "set_active",
+            "get_active",
+            "set_label"
+          ],
+          "signals": [
+            "toggled"
+          ]
+        },
+        {
+          "name": "Entry",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "set_max_length",
+            "get_max_length",
+            "set_visibility",
+            "get_text_length"
+          ],
+          "signals": [
+            "activate"
+          ]
+        },
+        {
+          "name": "EventController",
+          "methods": [
+            "get_widget"
+          ]
+        },
+        {
+          "name": "EventControllerKey",
+          "constructors": [
+            "new"
+          ],
+          "signals": [
+            "key-pressed"
+          ]
+        },
+        {
+          "name": "Expander",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "get_child",
+            "get_expanded",
+            "set_child",
+            "set_expanded"
+          ]
+        },
+        {
+          "name": "Frame",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "get_child",
+            "set_child",
+            "set_label"
+          ]
+        },
+        {
+          "name": "Grid",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "attach",
+            "query_child",
+            "set_column_spacing",
+            "set_row_spacing"
+          ]
+        },
+        {
+          "name": "HeaderBar",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "set_title_widget",
+            "pack_start",
+            "pack_end",
+            "set_show_title_buttons"
+          ]
+        },
+        {
+          "name": "Image",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "set_from_icon_name",
+            "set_pixel_size"
           ]
         },
         {
@@ -156,100 +257,6 @@
             "get_xalign",
             "set_yalign",
             "get_yalign"
-          ]
-        },
-        {
-          "name": "Entry",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "set_max_length",
-            "get_max_length",
-            "set_visibility",
-            "get_text_length"
-          ],
-          "signals": [
-            "activate"
-          ]
-        },
-        {
-          "name": "Button",
-          "constructors": [
-            "new",
-            "new_with_label"
-          ],
-          "methods": [
-            "set_label",
-            "get_label",
-            "set_has_frame"
-          ],
-          "signals": [
-            "clicked"
-          ]
-        },
-        {
-          "name": "ToggleButton",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "set_active",
-            "get_active"
-          ],
-          "signals": [
-            "toggled"
-          ]
-        },
-        {
-          "name": "CheckButton",
-          "constructors": [
-            "new",
-            "new_with_label"
-          ],
-          "methods": [
-            "set_active",
-            "get_active",
-            "set_label"
-          ],
-          "signals": [
-            "toggled"
-          ]
-        },
-        {
-          "name": "Switch",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "set_active",
-            "get_active"
-          ]
-        },
-        {
-          "name": "Box",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "append",
-            "prepend",
-            "remove",
-            "set_spacing",
-            "get_spacing",
-            "set_homogeneous"
-          ]
-        },
-        {
-          "name": "Grid",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "attach",
-            "query_child",
-            "set_column_spacing",
-            "set_row_spacing"
           ]
         },
         {
@@ -281,6 +288,50 @@
           ]
         },
         {
+          "name": "ProgressBar",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "set_fraction",
+            "get_fraction",
+            "set_text",
+            "pulse"
+          ]
+        },
+        {
+          "name": "Range",
+          "methods": [
+            "get_adjustment",
+            "get_value",
+            "set_increments",
+            "set_range",
+            "set_value"
+          ]
+        },
+        {
+          "name": "Revealer",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "get_child",
+            "get_reveal_child",
+            "set_child",
+            "set_reveal_child"
+          ]
+        },
+        {
+          "name": "Scale",
+          "constructors": [
+            "new"
+          ],
+          "methods": [
+            "set_draw_value",
+            "set_digits"
+          ]
+        },
+        {
           "name": "ScrolledWindow",
           "constructors": [
             "new"
@@ -299,48 +350,15 @@
           ]
         },
         {
-          "name": "ProgressBar",
+          "name": "SpinButton",
           "constructors": [
             "new"
           ],
           "methods": [
-            "set_fraction",
-            "get_fraction",
-            "set_text",
-            "pulse"
-          ]
-        },
-        {
-          "name": "Scale",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "set_draw_value",
-            "set_digits"
-          ]
-        },
-        {
-          "name": "Frame",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "get_child",
-            "set_child",
-            "set_label"
-          ]
-        },
-        {
-          "name": "Expander",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "get_child",
-            "get_expanded",
-            "set_child",
-            "set_expanded"
+            "get_adjustment",
+            "get_value",
+            "set_digits",
+            "set_value"
           ]
         },
         {
@@ -354,27 +372,13 @@
           ]
         },
         {
-          "name": "Revealer",
+          "name": "Switch",
           "constructors": [
             "new"
           ],
           "methods": [
-            "get_child",
-            "get_reveal_child",
-            "set_child",
-            "set_reveal_child"
-          ]
-        },
-        {
-          "name": "SpinButton",
-          "constructors": [
-            "new"
-          ],
-          "methods": [
-            "get_adjustment",
-            "get_value",
-            "set_digits",
-            "set_value"
+            "set_active",
+            "get_active"
           ]
         },
         {
@@ -389,31 +393,65 @@
           ]
         },
         {
-          "name": "HeaderBar",
+          "name": "ToggleButton",
           "constructors": [
             "new"
           ],
           "methods": [
-            "set_title_widget",
-            "pack_start",
-            "pack_end",
-            "set_show_title_buttons"
+            "set_active",
+            "get_active"
+          ],
+          "signals": [
+            "toggled"
           ]
         },
         {
-          "name": "Image",
+          "name": "Widget",
+          "methods": [
+            "activate",
+            "add_controller",
+            "get_first_child",
+            "get_height",
+            "get_last_child",
+            "get_next_sibling",
+            "get_parent",
+            "get_sensitive",
+            "get_size_request",
+            "get_visible",
+            "get_width",
+            "grab_focus",
+            "measure",
+            "queue_draw",
+            "set_hexpand",
+            "set_margin_bottom",
+            "set_margin_end",
+            "set_margin_start",
+            "set_margin_top",
+            "set_sensitive",
+            "set_size_request",
+            "set_vexpand",
+            "set_visible",
+            "show"
+          ]
+        },
+        {
+          "name": "Window",
           "constructors": [
             "new"
           ],
           "methods": [
-            "set_from_icon_name",
-            "set_pixel_size"
-          ]
-        },
-        {
-          "name": "Application",
-          "constructors": [
-            "new"
+            "close",
+            "destroy",
+            "get_child",
+            "get_title",
+            "present",
+            "set_child",
+            "set_default_size",
+            "set_resizable",
+            "set_title"
+          ],
+          "signals": [
+            "close-request"
           ]
         }
       ],

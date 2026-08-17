@@ -2343,18 +2343,33 @@ export function translateScabiNativeProgram(
       );
       continue;
     }
+    /* A call the callee takes a handle from is an ordinary call that consumes
+     * the reference: the cell gives it up and the handle is spent, the same
+     * guarantee an explicit disposal makes. What it may not be is a pointer
+     * the callee frees while this side still names it, so the position has to
+     * be a required handle passed by pointer. A destructor is the one such
+     * call the runtime performs rather than emits: it never receives the
+     * source value at all, so its own contract — checked where the ownership
+     * that names it is — is what constrains its parameter instead. */
+    const consumed = binding.signature.parameters.filter(
+      (parameter) =>
+        parameter.ownership.kind === "owned" && parameter.ownership.transfer === "to-native",
+    );
     if (
-      binding.signature.parameters.some(
-        (parameter) =>
-          parameter.ownership.kind === "owned" && parameter.ownership.transfer === "to-native",
-      ) &&
-      !destructorIds.has(bindingId)
+      !destructorIds.has(bindingId) &&
+      consumed.some((parameter) =>
+        manifest.types[parameter.type]?.kind !== "handle" ||
+        parameter.passMode !== "pointer" ||
+        parameter.nullable ||
+        parameter.marshal !== undefined ||
+        parameter.callback !== undefined
+      )
     ) {
       diagnostics.push(
         diagnostic(
           "NTS3002",
           `${path}/signature/parameters`,
-          "General ownership-consuming calls are outside the exact-destructor slice",
+          "An ownership-consuming parameter must be a required handle passed by pointer",
         ),
       );
       continue;

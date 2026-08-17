@@ -444,7 +444,10 @@ function validateInputs(
       diagnostic("gobjectAdapter/sourceDigest", "GObject adapter source digest is invalid"),
     );
   }
-  const expectedAdapter = generateGObjectAdapterSource(options.snapshot);
+  const expectedAdapter = generateGObjectAdapterSource(
+    options.snapshot,
+    (options.importedNamespaces ?? []).map(({ snapshot }) => snapshot),
+  );
   if (
     options.gobjectAdapter.schema !== expectedAdapter.schema ||
     options.gobjectAdapter.schemaVersion !== expectedAdapter.schemaVersion ||
@@ -596,12 +599,19 @@ function handleParameter(
     ));
     return null;
   }
+  /* GIR states which side owns the object after the call. `none` leaves the
+   * reference here and the callee borrows it for the call; `full` moves it,
+   * which is what `gtk_widget_add_controller` does and what every event
+   * controller needs. A moved handle is spent afterwards — the reference it
+   * held is the callee's now — so the two are different contracts rather
+   * than a detail of the same one. */
+  const transferred = parameter.transferOwnership === "full";
   if (
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
     parameter.type.cType !== `${class_.cType}*` ||
     parameter.direction !== "in" ||
-    parameter.transferOwnership !== "none" ||
+    (parameter.transferOwnership !== "none" && !transferred) ||
     parameter.optional ||
     parameter.callerAllocates ||
     parameter.skip ||
@@ -610,7 +620,10 @@ function handleParameter(
     parameter.destroyParameter !== null
   ) {
     diagnostics.push(
-      diagnostic(path, "Only selected borrowed GObject handle inputs are implemented"),
+      diagnostic(
+        path,
+        "Only selected GObject handle inputs the callee borrows or takes are implemented",
+      ),
     );
     return null;
   }
@@ -625,7 +638,9 @@ function handleParameter(
       // re-tagging consults identity upcasts, this projects the non-null
       // subset rather than an API that rejects ordinary calls.
       nullable: false,
-      ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+      ownership: transferred
+        ? Object.freeze({ kind: "owned", transfer: "to-native" })
+        : Object.freeze({ kind: "borrowed", scope: "call" }),
     }),
     sourceType: class_.name,
   });

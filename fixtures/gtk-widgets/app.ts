@@ -8,6 +8,7 @@
  *
  * Nothing here is hand-written C, and nothing is a mock. */
 
+import { ModifierType } from "@native-typescript/gdk4";
 import {
   applicationQuit,
   applicationStart,
@@ -37,6 +38,7 @@ import {
   Switch,
   TextView,
   ToggleButton,
+  EventControllerKey,
   Window,
   type gint,
 } from "@native-typescript/gtk4";
@@ -216,6 +218,20 @@ const deadline = setTimeout((): void => {
   applicationQuit();
 }, 10_000);
 
+/* An event controller the widget takes ownership of. GIR says the argument
+ * transfers, so `addController` consumes the handle: the reference moves to
+ * the widget and this side's handle is spent — which is why the connection
+ * is made before the handover rather than after. The handler answers whether
+ * it consumed the key, so it runs during the emission like any question. */
+const keys = new EventControllerKey();
+let keysHandled = 0;
+const keyPressed = keys.onKeyPressed((keyval, _keycode, state): boolean => {
+  keysHandled = keysHandled + 1;
+  return keyval === 65307 && state === ModifierType.ControlMask;
+});
+if (!keyPressed.connected) throw new Error("key-pressed did not connect");
+window.addController(keys);
+
 /* A signal that asks a question. GTK emits `close-request` while deciding
  * whether to close the window and consumes the answer immediately, so this
  * handler runs during the emission rather than in a later runtime turn —
@@ -370,6 +386,16 @@ const clicked = action.onClicked((sender): void => {
   /* The answer decides what GTK does next, and it decides it now: the first
    * request is refused and the window survives, the second is allowed. A
    * queued handler could not have said either. */
+  /* The controller handle was spent by the transfer: the widget owns it, and
+   * this side has no reference left to use. */
+  check_(
+    rejects((): void => {
+      keys.getWidget();
+    }),
+    "a transferred controller handle was still usable",
+  );
+  check_(keysHandled === 0, "a key was handled without one being pressed");
+
   check_(closeRequests === 0, "close-request fired before it was asked");
   window.close();
   check_(closeRequests === 1, "the close-request handler did not run during the emission");

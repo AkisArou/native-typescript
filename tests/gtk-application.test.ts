@@ -306,12 +306,16 @@ test(
     const project = parseGtkApplicationProject(
       readFileSync(join(widgetsFixtureRoot, "native-typescript.json"), "utf8"),
     );
-    assert.equal(project.namespaces[1]?.classes.length, 28);
+    /* Looked up by name: the project states its namespaces in dependency
+     * order, and Gdk joining it ahead of Gtk is not a fact about the Gtk
+     * selection. */
+    const gtk = project.namespaces.find(({ name }) => name === "Gtk");
+    assert.equal(gtk?.classes.length, 30);
     /* Breadth is the point, and it is the thing a fixture loses quietly: a
      * member the application does not call still has to generate and link, and
      * three real defects were found by widening this selection rather than by
      * running it. The count guards against it shrinking unnoticed. */
-    const members = project.namespaces[1]!.classes.reduce(
+    const members = gtk!.classes.reduce(
       (total, class_) =>
         total + (class_.methods?.length ?? 0) +
         (class_.constructors?.length ?? 0) + (class_.signals?.length ?? 0),
@@ -337,8 +341,14 @@ test(
           sandbox: executable("bwrap"),
         },
       });
+      /* By slug rather than by position: the project lists its namespaces in
+       * dependency order, and which index Gtk lands on is not a fact about
+       * the Gtk surface. */
+      const gtkPackage = built.generatedPackages.find(
+        ({ slug }) => slug === "gtk4",
+      );
       const declarations = readFileSync(
-        join(built.generatedPackages[1]!.path, "package.d.ts"),
+        join(gtkPackage!.path, "package.d.ts"),
         "utf8",
       );
       // Ancestry crosses several levels, and one class comes from gio2.

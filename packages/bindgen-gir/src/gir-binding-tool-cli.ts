@@ -46,8 +46,11 @@ async function normalizeEvidence(
   importedSnapshotPaths: readonly string[],
 ): Promise<void> {
   const { snapshot, request } = await readInputs(snapshotPath, requestPath);
-  const gobjectAdapter = generateGObjectAdapterSource(snapshot);
   const imported = await readImportedNamespaces(request, importedSnapshotPaths);
+  const gobjectAdapter = generateGObjectAdapterSource(
+    snapshot,
+    imported.map(({ snapshot: importedSnapshot }) => importedSnapshot),
+  );
   const evidence = parseClangAbiEvidence(
     await readFile(rawAstPath, "utf8"),
     await readFile(rawLlvmPath, "utf8"),
@@ -113,10 +116,13 @@ async function generatePackage(
   const evidence = JSON.parse(
     await readFile(evidencePath, "utf8"),
   ) as ClangAbiEvidenceSnapshot;
-  const gobjectAdapter = generateGObjectAdapterSource(snapshot);
   const importedNamespaces = await readImportedNamespaces(
     request,
     importedSnapshotPaths,
+  );
+  const gobjectAdapter = generateGObjectAdapterSource(
+    snapshot,
+    importedNamespaces.map(({ snapshot: importedSnapshot }) => importedSnapshot),
   );
   const generated = generateGObjectScabiPackage({
     snapshot,
