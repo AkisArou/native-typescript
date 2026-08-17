@@ -358,37 +358,42 @@ number describes the algebra's reach rather than any project's, since no
 application selects everything, but what it refuses is the ordered list of
 what to build next:
 
-- **User data and the callbacks that carry it** — `gpointer` on 62 methods,
-  `GLib.DestroyNotify` on 32, `Gio.AsyncReadyCallback` on 20. The async ones
-  need the asynchronous story; the rest are sort/filter/foreach functions,
-  and the retained and call-scoped contracts they need already exist.
-- **Boxed records whose fields are not scalars** — `TreePath` on 47 methods,
-  `TextIter` on 44, `TreeIter` on 42. A record projects today only when every
-  field is an exact scalar, and these carry pointers, so they are refused as
-  layouts rather than as the opaque values GTK treats them as. What they want
-  is the boxed-handle projection: an owned pointer with a declared copy and
-  free, which is a different thing from a struct that crosses by value.
-- **Types another namespace owns** — `Gio.Cancellable` on 20 methods,
-  `Gdk.Rectangle` on 18, `Gio.File` on 13, `Gio.ListModel` on 12,
-  `Gio.MenuModel` on 11, and a long tail. Passing one is done; returning one
-  waits on the destructor question above, and the records among them wait on
-  a value type crossing a package boundary, which is a different question
-  again: an enumeration lowers to a bare scalar and needs no identity, while
-  a struct's layout would have to be proven in one package and named in
-  another.
+The largest bucket by raw count is misleading, so it is worth stating what it
+is: `TreePath` blocks 47 methods, `TreeIter` 42, and `TreeModel` 46 — and GTK
+deprecated every one of them. Counting only members neither the class nor the
+method marks deprecated, the order is:
+
+- **Types another namespace owns** — `Gio.ListModel` on 34 live members,
+  `Gio.MenuModel` on 22, `Gio.File` on 22, `Gio.Cancellable` on 20,
+  `Gdk.Rectangle` on 10. Passing one is done; returning one waits on the
+  destructor question above, which makes that question the largest single
+  thing standing between the toolkit and its own API. The records among them
+  wait on a different question again: an enumeration lowers to a bare scalar
+  and needs no identity, while a struct's layout would have to be proven in
+  one package and named in another.
+- **User data and the callbacks that carry it** — `gpointer` on 41 live
+  members, `Gio.AsyncReadyCallback` on 20, `GLib.DestroyNotify` on 17. The
+  async ones need the asynchronous story; the rest are sort, filter and
+  foreach functions, and the retained and call-scoped contracts they need
+  already exist.
+- **`GtkTextIter`, on 50 live members** — the one boxed record the live
+  surface leans on. A record projects today only when every field is an exact
+  scalar, and this one carries pointers, so it is refused as a layout rather
+  than as the opaque value GTK treats it as. What it wants is the boxed
+  projection: a value with a declared copy and free, which is a different
+  thing from a struct that crosses in registers.
 - **The out-parameter families** — 65 methods have an output outside
   caller-allocated records and exact scalars, 47 an input outside the
   families a plain parameter accepts, and 60 answer `gboolean` alongside
-  their outputs rather than `void`. That last one is the most idiomatic shape
-  GTK has for "did it work, and here is the value", and it needs the answer
-  to become a field of the returned record, which needs a boolean projection
-  over a struct field the IR does not have. Only 10 of the 60 would be
-  unlocked on its own; the rest also name a boxed record, so the record work
-  comes first.
+  their outputs rather than `void`. That last is the most idiomatic shape GTK
+  has for "did it work, and here is the value", and it needs the answer to
+  become a field of the returned record, which needs a boolean projection
+  over a struct field the IR does not have. On its own it unlocks 10 of the
+  60; the other 50 also name a boxed record, so that work comes first.
 
-Two things are deliberately absent from that list. `filename` (14 methods) is
-a distinct GIR type from `utf8` and needs a decision about path encoding
-rather than a projection. Arrays and lists are not counted at all here,
+Two things are deliberately absent from that list. `filename` (17 live
+members) is a distinct GIR type from `utf8` and needs a decision about path
+encoding rather than a projection. Arrays and lists are not counted at all,
 because the selection above cannot reach them.
 
 ### Acceptance application
