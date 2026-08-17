@@ -471,6 +471,15 @@
       ],
       "interfaces": [
         {
+          "name": "Editable",
+          "methods": [
+            "get_editable",
+            "get_text",
+            "set_editable",
+            "set_text"
+          ]
+        },
+        {
           "name": "Orientable",
           "methods": [
             "get_orientation",

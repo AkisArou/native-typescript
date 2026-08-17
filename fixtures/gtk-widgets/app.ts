@@ -282,6 +282,18 @@ const clicked = action.onClicked((sender): void => {
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
   check_(entry.maxLength === 32, "the entry length limit is wrong");
   check_(entry.getTextLength() === 0, "the entry is not empty");
+  /* A second interface, whose members are a string property and a boolean
+   * one. GtkEditable declares both and GtkEntry implements it, so the entry
+   * reaches them through the merged declaration exactly as the box reaches
+   * its orientation. */
+  check_(entry.text === "", "a fresh entry is not empty");
+  entry.text = "typed";
+  check_(entry.text === "typed", "an interface string property did not write");
+  check_(entry.editable, "a fresh entry is not editable");
+  entry.editable = false;
+  check_(!entry.editable, "an interface boolean property did not write");
+  entry.editable = true;
+  entry.text = "";
   check_(check.active, "the check button is not active");
   check_(toggle.active, "the toggle button is not active");
   check_(switch_.active, "the switch is not active");
