@@ -426,6 +426,13 @@ export declare class Application {
 - `quit()` ends attached-loop liveness and requests runtime shutdown. Already
   admitted callbacks still drain before the owner observes quiescence.
 
+A parameter typed by another namespace's object projects too: the declaration
+imports it under a namespace-qualified alias
+(`setCursor(cursor: GdkCursor | null)`), and the type is the one gdk4 defines
+rather than a second declaration of the same class. A *result* of another
+namespace's object does not project yet, because naming its destructor means
+referencing a binding in another package.
+
 `register()`'s `GCancellable` is nullable in C, and it projects that way:
 `register(null)` is what "do not cancel this" means, rather than an object
 constructed to stand for nothing. Every nullable handle input reads the same —

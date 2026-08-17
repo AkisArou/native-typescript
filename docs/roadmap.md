@@ -266,9 +266,22 @@ the trampoline turns that reference into a cell — reusing the interned one if
 the object already has it. Either way the identity map releases the surplus
 reference.
 
-What remains is the same projection across a namespace boundary: 179 GTK
-methods return a Gio or Gdk object, and naming their destructor means
-referencing a binding in another package.
+Across a namespace boundary the two directions came apart. **Passing** one is
+done: 87 GTK methods take an object another namespace owns, and an imported
+handle now crosses a signature, because the pointer is the whole
+representation a signature needs — the definition stays the owner's and
+composition proves it. **Returning** one is not: 179 GTK methods hand back a
+Gio or Gdk object, and naming its destructor means referencing a *binding* in
+another package, which SCABI has no vocabulary for. Two things have to be
+settled together there, and neither is obviously right yet:
+
+- Whether an importer references the owner's release binding — the symmetric
+  move to a type import, and a schema addition — or emits its own, which is
+  duplication the composition rule against two packages declaring one member
+  exists to prevent.
+- Which of those 179 results are even reachable. Of them 64 name a class, 54 a
+  boxed record, and 46 an interface, so the destructor question unlocks only
+  the first third; the rest wait on projections that do not exist at all.
 
 **Splitting the ScriptC runtime out of the link.** Done. The runtime was
 4253 ms of a 7.2 s build because one Clang invocation compiled 19 runtime

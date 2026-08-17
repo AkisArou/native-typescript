@@ -905,13 +905,30 @@ function normalizeDeclaration(
   return Object.freeze({ module, name: declaration.name });
 }
 
+/**
+ * The kind of the type a position names.
+ *
+ * An imported type is a handle: only a handle may be imported, because a
+ * handle is the one thing a signature can carry without its definition — the
+ * pointer is the whole representation. The definition is the owning package's,
+ * and composition proves it is there and is what this assumed.
+ */
+function positionTypeKind(
+  manifest: ScabiManifest,
+  typeId: NativeTypeId,
+): NativeType["kind"] | undefined {
+  const declared = manifest.types[typeId];
+  if (declared !== undefined) return declared.kind;
+  return manifest.imports?.[typeId] === undefined ? undefined : "handle";
+}
+
 function positionUnsupported(
   position: AbiResult,
   isParameter: boolean,
-  type: NativeType | undefined,
+  kind: NativeType["kind"] | undefined,
   allowNullable = false,
 ): string | null {
-  const handle = type?.kind === "handle";
+  const handle = kind === "handle";
   if (position.passMode !== (handle ? "pointer" : "value")) {
     return `pass mode '${position.passMode}'`;
   }
@@ -2455,7 +2472,7 @@ export function translateScabiNativeProgram(
         const unsupportedPosition = positionUnsupported(
           parameter,
           true,
-          declaredParameterType,
+          declaredParameterType?.kind,
         );
         if (unsupportedPosition !== null) {
           diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
@@ -2730,7 +2747,7 @@ export function translateScabiNativeProgram(
       const unsupportedPosition = positionUnsupported(
         parameter,
         true,
-        manifest.types[parameter.type],
+        positionTypeKind(manifest, parameter.type),
       );
       if (unsupportedPosition !== null) {
         diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
@@ -2977,7 +2994,7 @@ export function translateScabiNativeProgram(
       const unsupportedResult = positionUnsupported(
         binding.signature.result,
         false,
-        booleanType,
+        booleanType.kind,
       );
       if (unsupportedResult !== null) {
         diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
@@ -3044,7 +3061,7 @@ export function translateScabiNativeProgram(
       const unsupportedResult = positionUnsupported(
         binding.signature.result,
         false,
-        manifest.types[binding.signature.result.type],
+        positionTypeKind(manifest, binding.signature.result.type),
       );
       if (unsupportedResult !== null) {
         diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));
@@ -3083,7 +3100,7 @@ export function translateScabiNativeProgram(
       const unsupportedResult = positionUnsupported(
         binding.signature.result,
         false,
-        manifest.types[binding.signature.result.type],
+        positionTypeKind(manifest, binding.signature.result.type),
         binding.error.kind === "nullable",
       );
       if (unsupportedResult !== null) {
@@ -3280,7 +3297,7 @@ export function translateScabiNativeProgram(
       const unsupportedPosition = positionUnsupported(
         parameter,
         true,
-        manifest.types[parameter.type],
+        positionTypeKind(manifest, parameter.type),
       );
       if (unsupportedPosition !== null) {
         diagnostics.push(diagnostic("NTS3002", parameterPath, unsupportedPosition));
@@ -3311,7 +3328,7 @@ export function translateScabiNativeProgram(
     const unsupportedResult = positionUnsupported(
       binding.signature.result,
       false,
-      manifest.types[binding.signature.result.type],
+      positionTypeKind(manifest, binding.signature.result.type),
     );
     if (unsupportedResult !== null) {
       diagnostics.push(diagnostic("NTS3002", resultPath, unsupportedResult));

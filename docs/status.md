@@ -319,12 +319,25 @@ and provenance. A second build root reuses that package from the local cache.
 Gio-2.0 ingests through the same namespace-neutral path as Gtk-4.0.
 
 A class whose parent lives in another namespace projects across the package
-boundary, and so does a parameter typed by another namespace's enumeration. SCABI records an imported type owned by the other package, the
-generated handle carries an identity upcast to it, and the declaration file
-imports the parent under a namespace-qualified alias. Imported type identities
-are derived by the same function that produced them in the owning package, so
-the two agree by construction rather than by a hand-kept table. Importing is
-opt-in: an external parent whose namespace was not supplied still truncates.
+boundary, and so do a parameter typed by another namespace's object and one
+typed by its enumeration. SCABI records an imported type owned by the other
+package, the generated handle carries an identity upcast to it, and the
+declaration file imports the type under a namespace-qualified alias. Imported
+type identities are derived by the same function that produced them in the
+owning package, so the two agree by construction rather than by a hand-kept
+table. Importing is opt-in: an external parent whose namespace was not
+supplied still truncates, and a parameter naming an unsupplied namespace's
+class is refused like any unselected one.
+
+A handle is the one thing a signature can carry without its definition,
+because the pointer is the whole representation — which is why an imported
+type may appear in a signature position at all, and why it may only cross by
+pointer. `gtk_widget_set_cursor` takes Gdk's object, so gtk4 imports the
+handle gdk4 defines rather than declaring a second one for the same class:
+one type in two packages, and a cursor constructed through gdk4 is the same
+type at gtk4's call. What still does not cross is a result: naming its
+destructor means referencing a binding in another package, which SCABI cannot
+express yet.
 
 Composition is the only stage that sees both packages, so it proves every
 handle upcast target is provided, is a handle, and shares its derived handle's

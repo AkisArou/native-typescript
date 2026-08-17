@@ -179,6 +179,35 @@ function importedTypeIds(manifest: ScabiManifest): ReadonlySet<string> {
  * package, is not also defined locally, and carries the TypeScript declaration
  * identity the projection imports from.
  */
+/**
+ * A handle this package imports rather than defines.
+ *
+ * Only a handle may be imported: an upcast target needs no local structure,
+ * and neither does a handle crossing a signature as a pointer. Every other
+ * position needs the definition here, so nothing else resolves. The contracts
+ * that do need the definition — thread-safety, identity, and the layout of
+ * anything with one — are proven at composition, where both packages are
+ * present; locally the kind is all any rule can act on, and this is it.
+ */
+const importedHandleReference = Object.freeze({
+  kind: "handle" as const,
+  imported: true as const,
+});
+
+type ReferencedType = NativeType | typeof importedHandleReference;
+
+/** The type a signature position names, defined here or imported. */
+function referencedType(
+  manifest: ScabiManifest,
+  typeId: NativeTypeId,
+): ReferencedType | undefined {
+  const defined = manifest.types[typeId];
+  if (defined !== undefined) return defined;
+  return manifest.imports?.[typeId] === undefined
+    ? undefined
+    : importedHandleReference;
+}
+
 function validateTypeImports(
   manifest: ScabiManifest,
   diagnostics: ScabiDiagnostic[],
@@ -370,17 +399,30 @@ function validateTypeReferences(
       binding.signature.result,
     ];
     for (const position of positions) {
-      if (manifest.types[position.type] === undefined) {
-        diagnostics.push(
-          diagnostic(
-            "NTS2010",
-            `/bindings/${id}/signature`,
-            imported.has(position.type)
-              ? `Native type ${position.type} is imported and may only be a handle upcast target`
-              : `Native type ${position.type} does not exist`,
-          ),
-        );
+      if (manifest.types[position.type] !== undefined) continue;
+      /* An imported handle crosses a signature as the pointer it is. The
+       * position rules need only its kind, and everything that needs the
+       * definition is proven at composition. */
+      if (imported.has(position.type)) {
+        if (position.passMode !== "pointer") {
+          diagnostics.push(
+            diagnostic(
+              "NTS2010",
+              `/bindings/${id}/signature`,
+              `Imported native type ${position.type} is a handle, so it can ` +
+                "only cross by pointer",
+            ),
+          );
+        }
+        continue;
       }
+      diagnostics.push(
+        diagnostic(
+          "NTS2010",
+          `/bindings/${id}/signature`,
+          `Native type ${position.type} does not exist`,
+        ),
+      );
     }
   }
 }
@@ -1065,7 +1107,7 @@ function validatePositionOwnership(
   isResult: boolean,
   diagnostics: ScabiDiagnostic[],
 ): void {
-  const type = manifest.types[position.type];
+  const type = referencedType(manifest, position.type);
   if (type === undefined) {
     return;
   }
@@ -1194,7 +1236,7 @@ function validatePositionOwnership(
  * losslessly and writes by rounding to nearest float, which is the one lossy
  * crossing in the family and the only thing a 32-bit slot can mean; the slot
  * type is what declares it, since no other carrier would be more honest. */
-function carriesNumber(type: NativeType): boolean {
+function carriesNumber(type: ReferencedType): boolean {
   if (type.kind === "float") return type.bits === 32 || type.bits === 64;
   return type.kind === "integer" &&
     (type.bits === 8 || type.bits === 16 || type.bits === 32);
@@ -1209,7 +1251,7 @@ function validateConversion(
   if (position.conversion === undefined) {
     return;
   }
-  const type = manifest.types[position.type];
+  const type = referencedType(manifest, position.type);
   if (type === undefined) {
     return;
   }
@@ -1400,7 +1442,7 @@ function validateCallback(
       binding.kind !== "method" ||
       ownerIndex !== 0 ||
       owner === undefined ||
-      manifest.types[owner.type]?.kind !== "handle" ||
+      referencedType(manifest, owner.type)?.kind !== "handle" ||
       owner.passMode !== "pointer" ||
       owner.nullable ||
       owner.ownership.kind !== "borrowed" ||

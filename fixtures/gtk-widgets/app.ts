@@ -8,7 +8,7 @@
  *
  * Nothing here is hand-written C, and nothing is a mock. */
 
-import { ModifierType } from "@native-typescript/gdk4";
+import { Cursor, ModifierType } from "@native-typescript/gdk4";
 import {
   applicationQuit,
   applicationStart,
@@ -75,6 +75,16 @@ heading.setSelectable(false);
 heading.xalign = 0.25;
 heading.yalign = 0.1;
 content.append(heading);
+
+/* A handle another namespace owns. `gtk_widget_set_cursor` is declared over a
+ * Gdk type, so gtk4 imports the handle gdk4 defines rather than declaring a
+ * second one for the same object — one type, two packages. The parameter is
+ * nullable, and passing null is how a widget goes back to inheriting its
+ * parent's cursor. */
+const pointer = Cursor.fromName("pointer", null);
+heading.setCursor(pointer);
+heading.setCursor(null);
+heading.setCursor(pointer);
 
 const entry = new Entry();
 entry.maxLength = 32;
@@ -268,6 +278,7 @@ const clicked = action.onClicked((sender): void => {
    * only a non-nullable read has. */
   check_(sender.getLabel() === "Run", "the button forgot its label");
   check_(heading.getText() === "Native TypeScript", "the heading text is wrong");
+  check_(pointer.getName() === "pointer", "the imported cursor forgot its name");
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
   check_(entry.maxLength === 32, "the entry length limit is wrong");
   check_(entry.getTextLength() === 0, "the entry is not empty");

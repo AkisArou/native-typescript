@@ -344,11 +344,18 @@ function options(
 
 const systemGtkGir = "/usr/share/gir-1.0/Gtk-4.0.gir";
 const systemGioGir = "/usr/share/gir-1.0/Gio-2.0.gir";
+const systemGdkGir = "/usr/share/gir-1.0/Gdk-4.0.gir";
 const gio2Package = {
   name: "@native-typescript/gio2",
   version: "0.0.0",
   namespace: "native-typescript.gio2",
   instance: "native-typescript.gio2@0.0.0",
+} as const;
+const gdk4Package = {
+  name: "@native-typescript/gdk4",
+  version: "0.0.0",
+  namespace: "native-typescript.gdk4",
+  instance: "native-typescript.gdk4@0.0.0",
 } as const;
 
 test(
@@ -815,6 +822,60 @@ test(
   },
 );
 
+test(
+  "a method taking another namespace's object imports the handle it names",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
+  () => {
+    /* gtk_widget_set_cursor(GtkWidget *, GdkCursor *). The cursor is Gdk's
+     * object, and there is exactly one of it: gtk4 imports the handle type
+     * gdk4 defines rather than declaring a second one for the same class,
+     * which is what makes a value constructed through gdk4 the same type
+     * here. */
+    const gdk = ingestGir(readFileSync(systemGdkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gdk-4.0.gir",
+      namespace: { name: "Gdk", version: "4.0" },
+      classes: [{ name: "Cursor", constructors: ["new_from_name"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget", methods: ["set_cursor"] },
+        { name: "Label", constructors: ["new"] },
+      ],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gdk, package: gdk4Package }]),
+    );
+
+    assert.match(
+      generated.declarations,
+      /^import type \{ Cursor as GdkCursor \} from "@native-typescript\/gdk4";$/mu,
+    );
+    // GIR marks the cursor nullable, and clearing one is what that means.
+    assert.match(
+      generated.declarations,
+      /setCursor\(cursor: GdkCursor \| null\): void;/u,
+    );
+    assert.deepEqual(generated.manifest.imports, {
+      gdk_cursor: { package: gdk4Package, type: "gdk_cursor" },
+    });
+    // Imported, so defined nowhere here: the pointer is the whole
+    // representation a signature needs, and composition proves the rest.
+    assert.equal(generated.manifest.types.gdk_cursor, undefined);
+    const setCursor = generated.manifest.bindings.gtk_widget_set_cursor;
+    assert.ok(setCursor && setCursor.kind !== "constant");
+    assert.deepEqual(setCursor.signature.parameters[1], {
+      name: "cursor",
+      type: "gdk_cursor",
+      passMode: "pointer",
+      nullable: true,
+      ownership: { kind: "borrowed", scope: "call" },
+    });
+  },
+);
+
 test("a namespace cannot be supplied as its own import", () => {
   // Easy to reach by wiring a build's imported namespaces carelessly, and
   // meaningless: a package's own declarations are not foreign to it.
@@ -868,23 +929,6 @@ test(
   },
 );
 
-test("a namespace cannot be supplied as its own import", () => {
-  // Easy to reach by wiring a build's imported namespaces carelessly, and
-  // meaningless: a package's own declarations are not foreign to it.
-  const selected = snapshot();
-  const failure = generationError(() =>
-    generateGObjectScabiPackage(
-      options(selected, [{ snapshot: selected, package: options().package }]),
-    )
-  );
-  assert.equal(
-    failure.diagnostics.some(({ message }) =>
-      message.includes("cannot be the namespace being generated")
-    ),
-    true,
-    failure.diagnostics.map(({ message }) => message).join("\n"),
-  );
-});
 
 test(
   "an unsupplied parent namespace leaves the hierarchy rooted here",

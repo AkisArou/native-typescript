@@ -209,20 +209,37 @@ test("SCABI handle upcasts may target a type another package owns", () => {
   };
   assert.deepEqual(validationCodes(selfImport), ["NTS2010"]);
 
-  // An imported type is opaque here, so it is only usable where no local
-  // structure is required. A binding signature is not such a position.
+  /* An imported type is opaque here, and a handle is the one thing a
+   * signature can carry without its definition: the pointer is the whole
+   * representation, so a parameter naming one is as complete as a local
+   * handle's. What it may not do is cross any other way. */
   const inSignature = structuredClone(imported);
   const callable = Object.values(inSignature.bindings).find(
     (binding) => "signature" in binding,
   );
   assert.ok(callable && "signature" in callable);
   if (!callable || !("signature" in callable)) return;
-  Object.assign(callable.signature.result, { type: "base_handle" });
-  assert.equal(
-    validateScabiManifest(inSignature).ok,
-    false,
-    "an imported type must not be accepted in a binding signature",
-  );
+  Object.assign(callable.signature, {
+    parameters: [
+      {
+        name: "base",
+        type: "base_handle",
+        passMode: "pointer",
+        nullable: false,
+        ownership: { kind: "borrowed", scope: "call" },
+      },
+    ],
+  });
+  assert.equal(validateScabiManifest(inSignature).ok, true);
+
+  const byValue = structuredClone(inSignature);
+  const byValueCallable = byValue.bindings[
+    Object.keys(byValue.bindings).find((id) => "signature" in byValue.bindings[id]!)!
+  ]!;
+  assert.ok("signature" in byValueCallable);
+  if (!("signature" in byValueCallable)) return;
+  Object.assign(byValueCallable.signature.parameters[0]!, { passMode: "value" });
+  assert.deepEqual(validationCodes(byValue), ["NTS2010", "NTS2021"]);
 });
 
 test("SCABI constants and scalar member representations are validated eagerly", () => {

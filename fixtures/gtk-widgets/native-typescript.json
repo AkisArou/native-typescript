@@ -54,7 +54,17 @@
       "sdkModules": [
         "gtk4"
       ],
-      "classes": [],
+      "classes": [
+        {
+          "name": "Cursor",
+          "constructors": [
+            "new_from_name"
+          ],
+          "methods": [
+            "get_name"
+          ]
+        }
+      ],
       "enumerations": [
         {
           "name": "ModifierType",
@@ -429,6 +439,7 @@
             "set_margin_bottom",
             "set_margin_end",
             "set_margin_start",
+            "set_cursor",
             "set_margin_top",
             "set_sensitive",
             "set_size_request",

@@ -576,17 +576,29 @@ function requiredValueParameter(
   });
 }
 
+/**
+ * A GObject class a projection may name.
+ *
+ * `sourceName` is the spelling the declaration file uses — the class's own
+ * name locally, its import alias otherwise — and `cType` is what GIR must have
+ * spelled to be naming this class at all. Local and imported classes differ in
+ * where those come from and in nothing else, so one resolution serves both.
+ */
+interface HandleProjection {
+  readonly typeId: string;
+  readonly sourceName: string;
+  readonly cType: string;
+}
+
 function handleParameter(
   parameter: GirParameter,
-  classByName: ReadonlyMap<string, GirClass>,
-  typeIdByClass: ReadonlyMap<string, string>,
+  resolveHandle: (girName: string, path: string) => HandleProjection | undefined,
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): { readonly abi: AbiParameter; readonly sourceType: string } | null {
   const className = parameter.type.kind === "named" ? parameter.type.name : null;
-  const class_ = className === null ? undefined : classByName.get(className);
-  const typeId = className === null ? undefined : typeIdByClass.get(className);
-  if (class_ === undefined || typeId === undefined) {
+  const class_ = className === null ? undefined : resolveHandle(className, path);
+  if (class_ === undefined) {
     /* This is the last projection attempted, so anything that reaches it and
      * is not a selected class is simply outside the implemented slice. Saying
      * "handle inputs are implemented" of a guint sends the reader looking for
@@ -597,7 +609,8 @@ function handleParameter(
         ? "Parameter type is outside the implemented slice"
         : `Parameter type '${className}' is outside the implemented slice: ` +
           "exact scalars, booleans, enumerations, borrowed UTF-8, and " +
-          "selected GObject classes project; nothing else does yet",
+          "selected GObject classes — this namespace's or a supplied " +
+          "import's — project; nothing else does yet",
     ));
     return null;
   }
@@ -632,7 +645,7 @@ function handleParameter(
   return Object.freeze({
     abi: Object.freeze({
       name: parameter.name,
-      type: typeId,
+      type: class_.typeId,
       passMode: "pointer",
       /* GIR says whether the callee accepts absence, and absence is what
        * clears a child, unsets a transient parent, or declines a
@@ -644,7 +657,9 @@ function handleParameter(
         ? Object.freeze({ kind: "owned", transfer: "to-native" })
         : Object.freeze({ kind: "borrowed", scope: "call" }),
     }),
-    sourceType: parameter.nullable ? `${class_.name} | null` : class_.name,
+    sourceType: parameter.nullable
+      ? `${class_.sourceName} | null`
+      : class_.sourceName,
   });
 }
 
@@ -892,6 +907,7 @@ export function generateGObjectScabiPackage(
     readonly package: PackageIdentity;
     readonly name: string;
     readonly alias: string;
+    readonly cType: string;
   }>();
   for (const imported of options.importedNamespaces ?? []) {
     const namespace = imported.snapshot.namespace.name;
@@ -908,6 +924,7 @@ export function generateGObjectScabiPackage(
         package: imported.package,
         name: class_.name,
         alias: `${namespace}${class_.name}`,
+        cType: class_.cType,
       }));
     }
   }
@@ -923,17 +940,14 @@ export function generateGObjectScabiPackage(
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
   /**
-   * Resolves a class's cross-namespace parent to an imported type, recording
-   * the manifest import and the declaration-file import the first time it is
-   * reached. Returns undefined when the parent's namespace was not supplied,
-   * which leaves the hierarchy deliberately rooted here.
+   * Resolves a class another namespace declares, recording the manifest import
+   * and the declaration-file import the first time it is reached. Returns
+   * undefined when that namespace was not supplied to this generation.
    */
-  function resolveImportedParent(
-    class_: GirClass,
+  function resolveImportedClass(
+    key: string,
     path: string,
-  ): { readonly typeId: string; readonly alias: string } | undefined {
-    if (class_.parent?.kind !== "external") return undefined;
-    const key = `${class_.parent.namespace}.${class_.parent.name}`;
+  ): HandleProjection | undefined {
     const imported = importedClasses.get(key);
     if (imported === undefined) return undefined;
     if (classByName.has(imported.alias) || declarations.has(imported.alias)) {
@@ -956,7 +970,57 @@ export function generateGObjectScabiPackage(
         `import type { ${imported.name} as ${imported.alias} } from "${imported.package.name}";`,
       );
     }
-    return Object.freeze({ typeId: imported.typeId, alias: imported.alias });
+    return Object.freeze({
+      typeId: imported.typeId,
+      sourceName: imported.alias,
+      cType: imported.cType,
+    });
+  }
+
+  /**
+   * Resolves a class's cross-namespace parent. Returns undefined when the
+   * parent's namespace was not supplied, which leaves the hierarchy
+   * deliberately rooted here.
+   */
+  function resolveImportedParent(
+    class_: GirClass,
+    path: string,
+  ): { readonly typeId: string; readonly alias: string } | undefined {
+    if (class_.parent?.kind !== "external") return undefined;
+    const imported = resolveImportedClass(
+      `${class_.parent.namespace}.${class_.parent.name}`,
+      path,
+    );
+    return imported === undefined
+      ? undefined
+      : Object.freeze({ typeId: imported.typeId, alias: imported.sourceName });
+  }
+
+  /**
+   * The class a GIR type name denotes, wherever it is declared.
+   *
+   * A bare name is this namespace's; a qualified one is an import's, and
+   * reaching it records the type import and the declaration-file import the
+   * first time. An import that was not supplied resolves to nothing, so the
+   * member naming it is refused with the same diagnostic an unselected local
+   * class gets — the projection has no class either way.
+   */
+  function resolveHandle(
+    girName: string,
+    path: string,
+  ): HandleProjection | undefined {
+    const local = classByName.get(girName);
+    if (local !== undefined) {
+      const typeId = typeIdByClass.get(local.name);
+      return typeId === undefined ? undefined : Object.freeze({
+        typeId,
+        sourceName: local.name,
+        cType: local.cType,
+      });
+    }
+    return girName.includes(".")
+      ? resolveImportedClass(girName, path)
+      : undefined;
   }
 
   /**
@@ -1794,8 +1858,7 @@ export function generateGObjectScabiPackage(
         for (const [index, parameter] of callable.parameters.slice(1).entries()) {
           const handle = handleParameter(
             parameter,
-            classByName,
-            typeIdByClass,
+            resolveHandle,
             `${path}/parameters/${index}`,
             diagnostics,
           );
@@ -1887,8 +1950,7 @@ export function generateGObjectScabiPackage(
         for (const [index, parameter] of callable.parameters.slice(1).entries()) {
           const handle = handleParameter(
             parameter,
-            classByName,
-            typeIdByClass,
+            resolveHandle,
             `${path}/parameters/${index}`,
             diagnostics,
           );
@@ -2145,8 +2207,7 @@ export function generateGObjectScabiPackage(
         } else {
           const handle = handleParameter(
             parameter,
-            classByName,
-            typeIdByClass,
+            resolveHandle,
             parameterPath,
             diagnostics,
           );
@@ -2672,8 +2733,7 @@ export function generateGObjectScabiPackage(
         } else {
           const handle = handleParameter(
             parameter,
-            classByName,
-            typeIdByClass,
+            resolveHandle,
             parameterPath,
             diagnostics,
           );
