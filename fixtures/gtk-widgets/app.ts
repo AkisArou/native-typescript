@@ -445,6 +445,22 @@ const clicked = action.onClicked((sender): void => {
   );
   check_(keysHandled === 0, "a key was handled without one being pressed");
 
+  /* A member the class does not declare. GObject puts `orientation` on the
+   * GtkOrientable interface, which 24 widgets implement, so the projection
+   * declares it once there and merges the interface into each class rather
+   * than redeclaring it: one binding, and the identity upcast the handle
+   * carries is what makes a Box a legal receiver for it. */
+  check_(
+    content.orientation === Orientation.Vertical,
+    "the box did not report the orientation it was built with",
+  );
+  content.orientation = Orientation.Horizontal;
+  check_(
+    content.orientation === Orientation.Horizontal,
+    "an interface property did not write through",
+  );
+  content.orientation = Orientation.Vertical;
+
   check_(closeRequests === 0, "close-request fired before it was asked");
   window.close();
   check_(closeRequests === 1, "the close-request handler did not run during the emission");

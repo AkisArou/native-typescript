@@ -469,6 +469,15 @@
           ]
         }
       ],
+      "interfaces": [
+        {
+          "name": "Orientable",
+          "methods": [
+            "get_orientation",
+            "set_orientation"
+          ]
+        }
+      ],
       "enumerations": [
         {
           "name": "Orientation",

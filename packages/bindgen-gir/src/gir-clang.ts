@@ -119,7 +119,7 @@ export function reachedForeignTypeNames(snapshot: GirSnapshot): ReadonlySet<stri
     }
     for (const argument of type.arguments) visit(argument);
   }
-  for (const class_ of snapshot.classes) {
+  for (const class_ of [...snapshot.classes, ...snapshot.interfaces]) {
     for (const callable of [
       ...class_.constructors,
       ...class_.methods,
@@ -159,7 +159,7 @@ export function generateGirClangAbiProbe(
         .map((enum_) => enumCandidate(imported.namespace.name, enum_))
     ),
   ].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
-  for (const class_ of snapshot.classes) {
+  for (const class_ of [...snapshot.classes, ...snapshot.interfaces]) {
     for (const callable of [...class_.constructors, ...class_.methods]) {
       const candidate = functionCandidate(
         snapshot.namespace.name,

@@ -67,6 +67,10 @@ export interface GirIngestionOptions {
     readonly version: string;
   };
   readonly classes: readonly GirClassSelection[];
+  /** GObject interfaces to project. Selected exactly as a class is: an
+   * interface declares members the same way and differs only in having no
+   * construction and no single parent. */
+  readonly interfaces?: readonly GirClassSelection[];
   readonly records?: readonly GirRecordSelection[];
   readonly enumerations?: readonly GirEnumerationSelection[];
 }
@@ -178,8 +182,17 @@ export interface GirCallable {
   readonly parameters: readonly GirParameter[];
 }
 
+/**
+ * A GObject class or interface: one declaration that owns members.
+ *
+ * The two are one shape because everything downstream treats them alike — a
+ * handle type, methods over its own pointer, signals, observed properties.
+ * They differ in construction (an interface has none), in the hierarchy (a
+ * class has one parent; an interface is reached by implementation), and in
+ * how the declaration file spells them.
+ */
 export interface GirClass {
-  readonly kind: "class";
+  readonly kind: "class" | "interface";
   readonly name: string;
   readonly cType: string;
   readonly cSymbolPrefix: string;
@@ -281,6 +294,7 @@ export interface GirSnapshot {
     readonly symbolPrefixes: readonly string[];
   };
   readonly classes: readonly GirClass[];
+  readonly interfaces: readonly GirClass[];
   readonly records: readonly GirRecord[];
   readonly enumerations: readonly GirEnumeration[];
 }

@@ -876,6 +876,71 @@ test(
   },
 );
 
+test(
+  "an implemented interface declares its members once for every class",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* GObject puts `orientation` on GtkOrientable, which 24 widgets
+     * implement. The interface declares the member and each class merges with
+     * it, so the binding's receiver is the interface's own handle and the
+     * identity upcast is what makes a Box a legal one. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Box", constructors: ["new"] },
+      ],
+      interfaces: [
+        { name: "Orientable", methods: ["get_orientation", "set_orientation"] },
+      ],
+      enumerations: [
+        { name: "Orientation", members: ["horizontal", "vertical"] },
+      ],
+    });
+
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    // Declared as what it is: no construction, no parent.
+    assert.match(generated.declarations, /export interface Orientable \{/u);
+    assert.doesNotMatch(generated.declarations, /class Orientable/u);
+    assert.match(
+      generated.declarations,
+      /get orientation\(\): Orientation;/u,
+    );
+    // Merging, not redeclaration: Box's own body never mentions the member.
+    assert.match(
+      generated.declarations,
+      /^export interface Box extends Orientable \{\}$/mu,
+    );
+    assert.equal(
+      /export declare class Box[\s\S]*?\n\}/u.exec(generated.declarations)?.[0]
+        .includes("get orientation("),
+      false,
+    );
+
+    const box = generated.manifest.types.gtk_box;
+    assert.ok(box && box.kind === "handle");
+    if (!box || box.kind !== "handle") return;
+    assert.deepEqual(box.upcasts, [
+      { kind: "identity", target: "gtk_orientable" },
+      { kind: "identity", target: "gtk_widget" },
+    ]);
+    /* GIR lists an inherited interface on every subclass; the edge is stated
+     * where it is added. Widget does not implement Orientable, so Box does. */
+    const widget = generated.manifest.types.gtk_widget;
+    assert.ok(widget && widget.kind === "handle");
+    if (!widget || widget.kind !== "handle") return;
+    assert.deepEqual(widget.upcasts, []);
+
+    const setter = generated.manifest.bindings.gtk_orientable_set_orientation;
+    assert.ok(setter && setter.kind !== "constant");
+    assert.equal(setter.kind, "setter");
+    assert.equal(setter.declaration.name, "Orientable.orientation");
+    assert.equal(setter.signature.parameters[0]?.type, "gtk_orientable");
+  },
+);
+
 test("a namespace cannot be supplied as its own import", () => {
   // Easy to reach by wiring a build's imported namespaces carelessly, and
   // meaningless: a package's own declarations are not foreign to it.

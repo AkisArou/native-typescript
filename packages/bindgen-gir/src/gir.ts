@@ -124,6 +124,7 @@ interface MutableClass {
   readonly depth: number;
   readonly path: string;
   readonly selection: NormalizedClassSelection;
+  readonly kind: "class" | "interface";
   readonly name: string;
   readonly cType: string;
   readonly cSymbolPrefix: string;
@@ -752,6 +753,10 @@ export function ingestGir(
     );
   }
   const selections = normalizeSelections(options.classes, diagnostics);
+  const interfaceSelections = normalizeSelections(
+    options.interfaces ?? [],
+    diagnostics,
+  );
   const recordSelections = normalizeRecordSelections(options.records ?? [], diagnostics);
   const enumerationSelections = normalizeEnumerationSelections(
     options.enumerations ?? [],
@@ -763,9 +768,11 @@ export function ingestGir(
   const packages: string[] = [];
   const cIncludes: string[] = [];
   const classes: GirClass[] = [];
+  const interfaces: GirClass[] = [];
   const records: GirRecord[] = [];
   const enumerations: GirEnumeration[] = [];
   const foundClasses = new Set<string>();
+  const foundInterfaces = new Set<string>();
   const foundRecords = new Set<string>();
   const foundEnumerations = new Set<string>();
   const stack: SaxesTagNS[] = [];
@@ -892,23 +899,31 @@ export function ingestGir(
       namespaceDepth !== null &&
       depth === namespaceDepth + 1 &&
       isCore &&
-      tag.local === "class"
+      (tag.local === "class" || tag.local === "interface")
     ) {
+      /* A GObject interface declares members exactly as a class does, so one
+       * ingestion serves both; what it does not have is construction or a
+       * parent, and those attributes are simply absent rather than
+       * defaulted-and-wrong. */
+      const isInterface = tag.local === "interface";
+      const kindWord = isInterface ? "interface" : "class";
       const name = attribute(tag, "name") ?? "<missing>";
-      const selection = selections.get(name);
+      const selection = (isInterface ? interfaceSelections : selections).get(name);
+      const found = isInterface ? foundInterfaces : foundClasses;
       if (selection !== undefined) {
-        const path = `namespace/${options.namespace.name}/class/${name}`;
-        if (foundClasses.has(name)) {
+        const path = `namespace/${options.namespace.name}/${kindWord}/${name}`;
+        if (found.has(name)) {
           diagnostics.push(
-            diagnostic("NTS4002", path, `Selected GIR class '${name}' is duplicated`),
+            diagnostic("NTS4002", path, `Selected GIR ${kindWord} '${name}' is duplicated`),
           );
         }
-        foundClasses.add(name);
-        requireIntrospectable(tag, path, diagnostics, `Selected GIR class '${name}'`);
+        found.add(name);
+        requireIntrospectable(tag, path, diagnostics, `Selected GIR ${kindWord} '${name}'`);
         activeClass = {
           depth,
           path,
           selection,
+          kind: isInterface ? "interface" : "class",
           name,
           cType: requiredAttribute(tag, "type", cNamespace, path, diagnostics),
           cSymbolPrefix: requiredAttribute(
@@ -919,7 +934,7 @@ export function ingestGir(
             diagnostics,
           ),
           parent: ((): GirDeclarationReference | null => {
-            const raw = attribute(tag, "parent");
+            const raw = isInterface ? undefined : attribute(tag, "parent");
             return raw === undefined
               ? null
               : parseDeclarationReference(
@@ -1654,8 +1669,8 @@ export function ingestGir(
       missing("signal", activeClass.selection.signals, activeClass.foundSignals);
       const byName = (left: GirCallable, right: GirCallable): number =>
         compareText(left.name, right.name);
-      classes.push(Object.freeze({
-        kind: "class",
+      (activeClass.kind === "interface" ? interfaces : classes).push(Object.freeze({
+        kind: activeClass.kind,
         name: activeClass.name,
         cType: activeClass.cType,
         cSymbolPrefix: activeClass.cSymbolPrefix,
@@ -1781,6 +1796,17 @@ export function ingestGir(
       );
     }
   }
+  for (const name of interfaceSelections.keys()) {
+    if (!foundInterfaces.has(name)) {
+      diagnostics.push(
+        diagnostic(
+          "NTS4003",
+          `namespace/${options.namespace.name}/interface/${name}`,
+          `Selected GIR interface '${name}' does not exist`,
+        ),
+      );
+    }
+  }
   for (const name of recordSelections.keys()) {
     if (!foundRecords.has(name)) {
       diagnostics.push(
@@ -1841,6 +1867,9 @@ export function ingestGir(
     cIncludes: Object.freeze([...new Set(cIncludes)].sort(compareText)),
     namespace: namespaceMetadata!,
     classes: Object.freeze(classes.sort((left, right) => compareText(left.name, right.name))),
+    interfaces: Object.freeze(
+      interfaces.sort((left, right) => compareText(left.name, right.name)),
+    ),
     records: Object.freeze(records.sort((left, right) => compareText(left.name, right.name))),
     enumerations: Object.freeze(enumerations.sort((left, right) => compareText(left.name, right.name))),
   });

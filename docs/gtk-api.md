@@ -272,6 +272,33 @@ evaluation, C adapter, or hidden target-specific compiler rule. The generator
 does not weaken flags parameters to `number`, require consumer assertions, or
 pretend an untyped built-in `|` result is still nominal.
 
+## Interfaces
+
+A GObject interface is selected beside the classes, and projects as a
+TypeScript interface with the members it declares:
+
+```json
+{ "interfaces": [{ "name": "Orientable",
+                   "methods": ["get_orientation", "set_orientation"] }] }
+```
+
+```ts
+export interface Orientable {
+  get orientation(): Orientation;
+  set orientation(value: Orientation);
+}
+
+export declare class Box extends Widget { /* ... */ }
+export interface Box extends Orientable {}
+```
+
+The merged declaration is what gives `Box` the member, so the member keeps one
+declaration and one binding for all 24 widgets that implement it — the same
+economy an inherited method has. The receiver of that binding is the
+interface's own handle, and the class's handle declares an identity upcast to
+it: the same pointer under another nominal type, which is what implementing an
+interface means at the ABI.
+
 ## Signals
 
 Signals become typed `onSignalName` methods. The callback receives the emitter

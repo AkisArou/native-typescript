@@ -1092,7 +1092,8 @@ export function generateGObjectAdapterSource(
   /* A `notify::` registration is a signal connection like any other, so it
    * needs the same shared connection type even when no GIR signal is
    * selected. */
-  const hasSignals = snapshot.classes.some((class_) =>
+  const declaredClasses = [...snapshot.classes, ...snapshot.interfaces];
+  const hasSignals = declaredClasses.some((class_) =>
     class_.signals.length > 0 || class_.notify.length > 0
   );
   /* Only a selected enumeration projects. An unselected one has no members and
@@ -1166,7 +1167,7 @@ export function generateGObjectAdapterSource(
   const throwingMethods: GObjectThrowingMethodAdapter[] = [];
   const classReleases: GObjectClassReleaseAdapter[] = [];
   const retainedResultMethods: GObjectRetainedResultMethodAdapter[] = [];
-  const hasThrowingMethods = snapshot.classes.some((class_) =>
+  const hasThrowingMethods = declaredClasses.some((class_) =>
     class_.methods.some((callable) => callable.throws)
   );
   const errorSupport: GObjectErrorSupportAdapter | null = hasThrowingMethods
@@ -1190,23 +1191,23 @@ export function generateGObjectAdapterSource(
     );
   }
   const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
-  const classByName = new Map(snapshot.classes.map((class_) => [class_.name, class_]));
+  const classByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
   /* A class needs a release when something destroys one: it was constructed
    * here, or a method hands it back without a reference and the adapter takes
    * one. Emitting a release nobody names is refused downstream, so the set is
    * computed rather than assumed. */
   const releasedClasses = new Set<string>(
-    snapshot.classes
+    declaredClasses
       .filter((class_) => class_.constructors.length > 0)
       .map((class_) => class_.name),
   );
-  for (const class_ of snapshot.classes) {
+  for (const class_ of declaredClasses) {
     for (const callable of class_.methods) {
       const resultClass = borrowedResultClass(callable, classByName);
       if (resultClass !== undefined) releasedClasses.add(resultClass.name);
     }
   }
-  for (const class_ of snapshot.classes) {
+  for (const class_ of declaredClasses) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {
       const generated = generateConstructor(
@@ -1303,7 +1304,7 @@ export function generateGObjectAdapterSource(
    * enumerations another one imports has nothing to wrap by construction,
    * and its adapter is empty because that is what it should be. */
   if (
-    snapshot.classes.length > 0 &&
+    declaredClasses.length > 0 &&
     constructors.length === 0 &&
     signals.length === 0 &&
     notifications.length === 0 &&

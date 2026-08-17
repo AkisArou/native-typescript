@@ -32,6 +32,9 @@ export interface GtkProjectNamespace {
   /** Namespaces this one references. Each must be listed before it. */
   readonly imports: readonly { readonly name: string; readonly version: string }[];
   readonly classes: readonly GtkProjectNamespaceMember[];
+  /** GObject interfaces to project. Selected as a class is; a class that
+   * implements one reaches its members without redeclaring them. */
+  readonly interfaces: readonly GtkProjectNamespaceMember[];
   readonly records: readonly { readonly name: string; readonly fields: readonly string[] }[];
   readonly enumerations: readonly {
     readonly name: string;
@@ -110,7 +113,16 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
   const source = record(value, path);
   reject(
     source,
-    ["name", "version", "sdkModules", "imports", "classes", "records", "enumerations"],
+    [
+      "name",
+      "version",
+      "sdkModules",
+      "imports",
+      "classes",
+      "interfaces",
+      "records",
+      "enumerations",
+    ],
     path,
   );
   const imports = (source["imports"] === undefined
@@ -124,11 +136,12 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
       version: text(imported["version"], `${path}/imports/${index}/version`),
     });
   });
-  const classes = (source["classes"] === undefined
-    ? []
-    : list(source["classes"], `${path}/classes`)
-  ).map((entry, index) => {
-    const classPath = `${path}/classes/${index}`;
+  const members = (key: "classes" | "interfaces") =>
+    (source[key] === undefined ? [] : list(source[key], `${path}/${key}`)).map((
+      entry,
+      index,
+    ) => {
+    const classPath = `${path}/${key}/${index}`;
     const class_ = record(entry, classPath);
     reject(class_, ["name", "constructors", "methods", "signals", "notify"], classPath);
     const constructors = optionalTextList(class_, "constructors", classPath);
@@ -143,6 +156,8 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
       ...(notify === undefined ? {} : { notify }),
     });
   });
+  const classes = members("classes");
+  const interfaces = members("interfaces");
   const records = (source["records"] === undefined
     ? []
     : list(source["records"], `${path}/records`)
@@ -173,6 +188,7 @@ function parseNamespace(value: unknown, path: string): GtkProjectNamespace {
     sdkModules: textList(source["sdkModules"], `${path}/sdkModules`),
     imports: Object.freeze(imports),
     classes: Object.freeze(classes),
+    interfaces: Object.freeze(interfaces),
     records: Object.freeze(records),
     enumerations: Object.freeze(enumerations),
   });

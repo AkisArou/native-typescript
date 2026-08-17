@@ -159,6 +159,7 @@ export async function buildGtkApplication(input: {
       logicalPath: `system-sdk/gir/${namespace.name}-${namespace.version}.gir`,
       namespace: { name: namespace.name, version: namespace.version },
       classes: namespace.classes,
+      interfaces: namespace.interfaces,
       records: namespace.records,
       enumerations: namespace.enumerations,
     });

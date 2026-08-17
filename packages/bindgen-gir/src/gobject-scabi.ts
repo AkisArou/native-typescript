@@ -869,7 +869,7 @@ export function generateGObjectScabiPackage(
     { readonly module: string; readonly name: string }
   > = {};
   const usedSourceScalars = sourceScalarTypes.filter((scalar) =>
-    options.snapshot.classes.some((class_) =>
+    [...options.snapshot.classes, ...options.snapshot.interfaces].some((class_) =>
       class_.constructors.some((constructor) =>
         constructor.parameters.some((parameter) =>
           sourceScalarType(parameter.type)?.abiType === scalar.abiType
@@ -934,8 +934,18 @@ export function generateGObjectScabiPackage(
   }> = {};
   const importedDeclarationLines: string[] = [];
 
-  const classByName = new Map(options.snapshot.classes.map((class_) => [class_.name, class_]));
-  const typeIdByClass = new Map(options.snapshot.classes.map((class_) => [
+  /* A GObject interface is a handle with members, so every resolution that
+   * asks "what class does this name?" answers for one too: a parameter typed
+   * by an interface is as much a handle input as one typed by a class. */
+  const declaredClasses = [
+    ...options.snapshot.classes,
+    ...options.snapshot.interfaces,
+  ];
+  const classByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
+  const interfaceNames = new Set(
+    options.snapshot.interfaces.map((interface_) => interface_.name),
+  );
+  const typeIdByClass = new Map(declaredClasses.map((class_) => [
     class_.name,
     handleTypeId(options.snapshot.namespace.name, class_),
   ]));
@@ -1079,9 +1089,10 @@ export function generateGObjectScabiPackage(
 
   /* A `notify::` registration is a signal connection like any other, so it
    * needs the shared connection type even when no GIR signal is selected. */
-  const hasSignals = options.snapshot.classes.some((class_) =>
-    class_.signals.length > 0 || class_.notify.length > 0
-  );
+  const hasSignals = [
+    ...options.snapshot.classes,
+    ...options.snapshot.interfaces,
+  ].some((class_) => class_.signals.length > 0 || class_.notify.length > 0);
   const namespacePrefix = options.snapshot.namespace.name.toLowerCase();
   const releaseByClass = new Map(
     options.gobjectAdapter.classReleases.map((release) => [
@@ -1127,7 +1138,7 @@ export function generateGObjectScabiPackage(
     ...(hasExactSourceTypes
       ? ["declare const nativeScalar: unique symbol;"]
       : []),
-    ...options.snapshot.classes.map((class_) =>
+    ...[...options.snapshot.classes, ...options.snapshot.interfaces].map((class_) =>
       `declare const ${handleBrand(class_.name)}: unique symbol;`
     ),
     ...(hasSignals ? ["declare const nativeResourceSignalConnection: unique symbol;"] : []),
@@ -1627,7 +1638,7 @@ export function generateGObjectScabiPackage(
     adapterBindings.push(errorMessageBindingId, errorReleaseBindingId);
   }
 
-  for (const class_ of options.snapshot.classes) {
+  for (const class_ of declaredClasses) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
     const releaseId = `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
@@ -1644,6 +1655,30 @@ export function generateGObjectScabiPackage(
     // Resolved after the collision guard so a rejected class cannot leave an
     // import behind it.
     const importedParent = resolveImportedParent(class_, classPath);
+    /* GIR lists every interface a class implements, inherited ones included,
+     * so the edges an ancestor already carries are dropped: the upcast graph
+     * states each relationship once, and the merged declarations do too. */
+    const inheritedInterfaces = new Set<string>();
+    for (
+      let ancestor = class_.parent?.kind === "internal"
+        ? classByName.get(class_.parent.name)
+        : undefined;
+      ancestor !== undefined;
+      ancestor = ancestor.parent?.kind === "internal"
+        ? classByName.get(ancestor.parent.name)
+        : undefined
+    ) {
+      for (const implemented of ancestor.interfaces) {
+        if (implemented.kind === "internal") inheritedInterfaces.add(implemented.name);
+      }
+    }
+    const implementedInterfaces = class_.interfaces
+      .filter((implemented) =>
+        implemented.kind === "internal" &&
+        !inheritedInterfaces.has(implemented.name) &&
+        interfaceNames.has(implemented.name)
+      )
+      .map((implemented) => implemented.name);
     types[typeId] = Object.freeze({
       kind: "handle",
       nativeName: class_.cType,
@@ -1655,8 +1690,10 @@ export function generateGObjectScabiPackage(
        * equality answers about the widget rather than about which call
        * produced the reference. */
       identity: "pointer",
-      upcasts: Object.freeze(
-        class_.parent?.kind === "internal"
+      // Canonically ordered, because more than one edge is now ordinary: a
+      // class upcasts to its parent and to each interface it adds.
+      upcasts: Object.freeze([
+        ...(class_.parent?.kind === "internal"
           ? [Object.freeze({
               kind: "identity" as const,
               target: typeIdByClass.get(class_.parent.name)!,
@@ -1666,8 +1703,16 @@ export function generateGObjectScabiPackage(
             : [Object.freeze({
                 kind: "identity" as const,
                 target: importedParent.typeId,
-              })],
-      ),
+              })]),
+        /* An implemented interface is the same pointer under another
+         * nominal type, which is exactly what an identity upcast says. */
+        ...implementedInterfaces.map((name) =>
+          Object.freeze({
+            kind: "identity" as const,
+            target: typeIdByClass.get(name)!,
+          })
+        ),
+      ].sort((left, right) => compareText(left.target, right.target))),
     });
     declarationTypes[typeId] = Object.freeze({ module: ".", name: class_.name });
     /* Exactly the classes something destroys: constructed here, or handed back
@@ -1707,8 +1752,14 @@ export function generateGObjectScabiPackage(
         ? classByName.get(class_.parent.name)
         : undefined;
     const extendsName = parent?.name ?? importedParent?.alias;
+    /* An interface has no construction and no parent, so it is declared as
+     * what it is. A class that implements one merges with it below rather
+     * than redeclaring its members: the member keeps one declaration, so one
+     * binding serves every implementer, exactly as an inherited method does. */
     const classLines = [
-      `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${extendsName === undefined ? "" : ` extends ${extendsName}`} {`,
+      class_.kind === "interface"
+        ? `export interface ${class_.name} {`
+        : `export declare ${class_.abstract ? "abstract " : ""}class ${class_.name}${extendsName === undefined ? "" : ` extends ${extendsName}`} {`,
       `  readonly [${handleBrand(class_.name)}]: true;`,
     ];
     const constructorLines: string[] = [];
@@ -2799,13 +2850,20 @@ export function generateGObjectScabiPackage(
         );
       }
     }
-    if (!hasCanonicalConstructor) {
+    if (!hasCanonicalConstructor && class_.kind === "class") {
       constructorLines.unshift(
         `  ${class_.final ? "private" : "protected"} constructor();`,
       );
     }
     classLines.splice(2, 0, ...constructorLines);
     classLines.push("}", "");
+    /* Declaration merging is what makes an implemented interface's members
+     * reachable on the class without a second declaration of each: the
+     * member resolves to the interface that declares it, which is the
+     * binding's declaration, so the class needs no bindings of its own. */
+    for (const name of implementedInterfaces) {
+      classLines.push(`export interface ${class_.name} extends ${name} {}`, "");
+    }
     declarationLines.push(...classLines);
   }
   if (diagnostics.length > 0) throw new CBindgenError(diagnostics);
@@ -2841,8 +2899,11 @@ export function generateGObjectScabiPackage(
       version: "1",
       revision: "gobject-scabi-v4",
       arguments: [
-        ...options.snapshot.classes.flatMap((class_) => [
-          `--class=${class_.name}`,
+        ...[
+          ...options.snapshot.classes,
+          ...options.snapshot.interfaces,
+        ].flatMap((class_) => [
+          `--${class_.kind}=${class_.name}`,
           ...class_.constructors.map(({ name }) => `--constructor=${class_.name}.${name}`),
           ...class_.methods.map(({ name }) => `--method=${class_.name}.${name}`),
           ...class_.signals.map(({ name }) => `--signal=${class_.name}.${name}`),

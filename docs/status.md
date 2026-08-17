@@ -310,6 +310,20 @@ Class references resolve against the namespace boundary: a same-namespace
 parent must be selected, and a cross-namespace parent is preserved as an
 explicit external reference where the generated package stops.
 
+**A GObject interface projects as one.** GTK declares 196 methods on its own
+29 interfaces — `orientation` is GtkOrientable's, which 24 widgets implement —
+and none of them were reachable, because a class carries the members it
+declares and nothing else. An interface is now selected as a class is and
+ingests through the same path: the two are one shape, differing in
+construction, in the hierarchy, and in how the declaration file spells them.
+The class's handle gains an identity upcast to each interface it adds, which
+is exactly true — the same pointer under another nominal type — and the
+declaration merges (`export interface Box extends Orientable {}`) rather than
+redeclaring. So the member has one declaration and one binding, over the
+interface's own handle, and every implementer reaches it the way it reaches an
+inherited method. GIR lists inherited interfaces on every subclass; the edge
+is stated where the class adds it.
+
 A dependent binding-package action consumes stable evidence, the exact selected
 GIR snapshot, and a canonical generation request. Its content-addressed host
 tool regenerates the GObject adapter and emits one immutable package directory
