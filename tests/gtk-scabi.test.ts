@@ -297,7 +297,10 @@ function options(
   selected = snapshot(),
   importedNamespaces: GObjectScabiGenerationOptions["importedNamespaces"] = [],
 ): GObjectScabiGenerationOptions {
-  const gobjectAdapter = generateGObjectAdapterSource(selected);
+  const gobjectAdapter = generateGObjectAdapterSource(
+    selected,
+    importedNamespaces.map(({ snapshot: imported }) => imported),
+  );
   return {
     snapshot: selected,
     evidence: evidence(
@@ -393,7 +396,11 @@ test(
 
     // The ABI side names the owning package and the type inside it.
     assert.deepEqual(generated.manifest.imports, {
-      gio_application: { package: gio2Package, type: "gio_application" },
+      gio_application: {
+        package: gio2Package,
+        type: "gio_application",
+        destructor: "gio_application_release",
+      },
     });
     // The TypeScript side names the module it is imported from.
     assert.deepEqual(
@@ -817,7 +824,11 @@ test(
       /export declare class Application extends GioApplication \{/u,
     );
     assert.deepEqual(generated.manifest.imports, {
-      gio_application: { package: gio2Package, type: "gio_application" },
+      gio_application: {
+        package: gio2Package,
+        type: "gio_application",
+        destructor: "gio_application_release",
+      },
     });
   },
 );
@@ -859,7 +870,13 @@ test(
       /setCursor\(cursor: GdkCursor \| null\): void;/u,
     );
     assert.deepEqual(generated.manifest.imports, {
-      gdk_cursor: { package: gdk4Package, type: "gdk_cursor" },
+      gdk_cursor: {
+        package: gdk4Package,
+        type: "gdk_cursor",
+        /* Derived exactly as gdk4 derives it, so owning one of these here
+         * releases it through the binding that package declares. */
+        destructor: "gdk_cursor_release",
+      },
     });
     // Imported, so defined nowhere here: the pointer is the whole
     // representation a signature needs, and composition proves the rest.
@@ -938,6 +955,56 @@ test(
     assert.equal(setter.kind, "setter");
     assert.equal(setter.declaration.name, "Orientable.orientation");
     assert.equal(setter.signature.parameters[0]?.type, "gtk_orientable");
+  },
+);
+
+test(
+  "a method handing back another namespace's object owns it through the owner",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
+  () => {
+    /* gtk_widget_get_display() answers a GdkDisplay it keeps owning. The
+     * adapter takes a reference, which makes the result an owned handle whose
+     * type gdk4 declares — so what releases it is gdk4's binding, carried by
+     * the import rather than declared a second time here. */
+    const gdk = ingestGir(readFileSync(systemGdkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gdk-4.0.gir",
+      namespace: { name: "Gdk", version: "4.0" },
+      classes: [{ name: "Display", methods: ["is_closed"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget", methods: ["get_display"] },
+        { name: "Label", constructors: ["new"] },
+      ],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gdk, package: gdk4Package }]),
+    );
+
+    assert.match(
+      generated.declarations,
+      /getDisplay\(\): GdkDisplay;/u,
+    );
+    const getDisplay = generated.manifest.bindings.gtk_widget_get_display;
+    assert.ok(getDisplay && getDisplay.kind !== "constant");
+    assert.deepEqual(getDisplay.signature.result.ownership, {
+      kind: "owned",
+      transfer: "to-runtime",
+    });
+    assert.equal(getDisplay.signature.result.type, "gdk_display");
+    // Nothing local releases it, so nothing local is depended on for it.
+    assert.deepEqual(getDisplay.dependencies.bindings, []);
+    assert.equal(generated.manifest.bindings.gdk_display_release, undefined);
+    assert.deepEqual(generated.manifest.imports, {
+      gdk_display: {
+        package: gdk4Package,
+        type: "gdk_display",
+        destructor: "gdk_display_release",
+      },
+    });
   },
 );
 

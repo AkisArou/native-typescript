@@ -63,6 +63,12 @@
           "methods": [
             "get_name"
           ]
+        },
+        {
+          "name": "Display",
+          "methods": [
+            "is_closed"
+          ]
         }
       ],
       "enumerations": [
@@ -439,6 +445,7 @@
             "set_margin_bottom",
             "set_margin_end",
             "set_margin_start",
+            "get_display",
             "set_cursor",
             "set_margin_top",
             "set_sensitive",

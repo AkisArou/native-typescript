@@ -335,6 +335,13 @@ const clicked = action.onClicked((sender): void => {
   scroller.setChild(restored);
   check_(scroller.getChild() !== null, "the scroller did not take its child back");
 
+  /* An object another namespace owns, handed back without a reference. The
+   * adapter takes one, so the handle is owned here — and what releases it is
+   * gdk4's binding, reached because gtk4 imports the type and the type names
+   * its destructor. Nothing about the display is declared twice. */
+  const display = heading.getDisplay();
+  check_(!display.isClosed(), "the display a live widget reports is closed");
+
   const windowChild = window.getChild();
   check_(windowChild !== null, "the window forgot its child");
   const rowChild = alpha.getChild();

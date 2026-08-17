@@ -276,7 +276,7 @@ another package, which SCABI has no vocabulary for. Of those 179, 64 name a
 class, 54 a boxed record and 46 an interface, so this unlocks the classes and
 the interfaces; the records wait on a projection that does not exist at all.
 
-**Decided: a handle type names its own destructor.** Three shapes were
+**Done: a handle type names its own destructor.** Three shapes were
 considered.
 
 *An importer references the owner's release binding* — the symmetric move to
@@ -306,11 +306,14 @@ allocator that produced it and another is not — so the rule is that an owned
 handle position must not name a destructor and an owned pointer position
 must.
 
-The cost is an atomic refactor of one field: SCABI's model, schema and
-validation, both hand-written fixture manifests, the target runtime's, the
-generator, the translator, and their tests. The compiler needs no change at
-all — the translator already resolves a destructor to a qualified binding id
-before the fork sees it, and it will resolve this one the same way.
+It cost an atomic refactor of one field — SCABI's model, schema and
+validation, both hand-written fixture manifests, the generator, the
+translator, and their tests — and no compiler change at all: the translator
+already resolved a destructor to a qualified binding ID before the fork saw
+one, and it resolves this one the same way. The widget gate reads a
+`Gdk.Display` off a widget and asks whether it is closed, which is an object
+one package declares, another package's method hands back, and a third thing
+entirely releases.
 
 **Projecting a GObject interface.** Done. GTK declares 196 methods on its own
 29 interfaces, and a class carried only the members it declared, so none were
@@ -394,12 +397,10 @@ method marks deprecated, the order is:
 
 - **Types another namespace owns** — `Gio.ListModel` on 34 live members,
   `Gio.MenuModel` on 22, `Gio.File` on 22, `Gio.Cancellable` on 20,
-  `Gdk.Rectangle` on 10. Passing one is done; returning one waits on the
-  destructor question above, which makes that question the largest single
-  thing standing between the toolkit and its own API. The records among them
-  wait on a different question again: an enumeration lowers to a bare scalar
-  and needs no identity, while a struct's layout would have to be proven in
-  one package and named in another.
+  `Gdk.Rectangle` on 10. Classes and interfaces now cross in both directions.
+  The records among them do not, and wait on a different question: an
+  enumeration lowers to a bare scalar and needs no identity, while a struct's
+  layout would have to be proven in one package and named in another.
 - **User data and the callbacks that carry it** — `gpointer` on 41 live
   members, `Gio.AsyncReadyCallback` on 20, `GLib.DestroyNotify` on 17. The
   async ones need the asynchronous story; the rest are sort, filter and

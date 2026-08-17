@@ -349,9 +349,14 @@ type may appear in a signature position at all, and why it may only cross by
 pointer. `gtk_widget_set_cursor` takes Gdk's object, so gtk4 imports the
 handle gdk4 defines rather than declaring a second one for the same class:
 one type in two packages, and a cursor constructed through gdk4 is the same
-type at gtk4's call. What still does not cross is a result: naming its
-destructor means referencing a binding in another package, which SCABI cannot
-express yet.
+type at gtk4's call.
+
+Results cross too, now that a handle type names its own destructor.
+`gtk_widget_get_display()` answers an object gtk4 does not declare: the
+adapter takes a reference, which makes the result owned, and what releases it
+is gdk4's binding — carried by the import, derived by the same function that
+produced it there, and proven present at composition. Nothing about the
+display is declared twice, and gtk4 depends on no local binding for it.
 
 Composition is the only stage that sees both packages, so it proves every
 handle upcast target is provided, is a handle, and shares its derived handle's
@@ -667,6 +672,18 @@ These are deliberate, not oversights. Each is a named future slice.
   This is what makes event controllers reachable: `gtk_widget_add_controller`
   transfers, so keyboard, scroll, and gesture handling were unreachable
   whatever else worked.
+
+- **How a handle is released is a property of its type.** It was a property of
+  each position that owned one, which was the same binding every time and had
+  two consequences that looked unrelated. A class was given a release only if
+  something in its own package destroyed one, because a release nothing names
+  is refused; and a package that imported a handle could not own one, because
+  a destructor is a binding and a manifest could only name its own. Both were
+  the same missing statement. The type names it now, so every projected class
+  has a release and `dispose()` means the same thing on all of them, and an
+  importer receives the destructor with the type. Owned *pointer* results keep
+  naming theirs on the position, where the producer really does decide the
+  free.
 
 - **A handle input may be absent.** GIR states whether a callee accepts NULL,
   and absence is what clears a child, unsets a transient parent, or declines a

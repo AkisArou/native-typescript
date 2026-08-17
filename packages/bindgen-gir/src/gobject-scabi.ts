@@ -904,6 +904,7 @@ export function generateGObjectScabiPackage(
   // package's generation used, so the two agree by construction.
   const importedClasses = new Map<string, {
     readonly typeId: string;
+    readonly releaseId: string;
     readonly package: PackageIdentity;
     readonly name: string;
     readonly alias: string;
@@ -921,6 +922,7 @@ export function generateGObjectScabiPackage(
     for (const class_ of imported.snapshot.classes) {
       importedClasses.set(`${namespace}.${class_.name}`, Object.freeze({
         typeId: handleTypeId(namespace, class_),
+        releaseId: `${namespace.toLowerCase()}_${class_.cSymbolPrefix}_release`,
         package: imported.package,
         name: class_.name,
         alias: `${namespace}${class_.name}`,
@@ -941,7 +943,18 @@ export function generateGObjectScabiPackage(
     ...options.snapshot.classes,
     ...options.snapshot.interfaces,
   ];
-  const classByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
+  /* Keyed as GIR spells the reference — bare for this namespace's own,
+   * qualified for an imported one — so a result naming another namespace's
+   * object resolves to the class that describes it. Which package owns it
+   * decides the identity, not the shape rule. */
+  const classByName = new Map([
+    ...declaredClasses.map((class_) => [class_.name, class_] as const),
+    ...(options.importedNamespaces ?? []).flatMap((imported) =>
+      [...imported.snapshot.classes, ...imported.snapshot.interfaces].map((class_) =>
+        [`${imported.snapshot.namespace.name}.${class_.name}`, class_] as const
+      )
+    ),
+  ]);
   const interfaceNames = new Set(
     options.snapshot.interfaces.map((interface_) => interface_.name),
   );
@@ -971,6 +984,10 @@ export function generateGObjectScabiPackage(
       typeImports[imported.typeId] = Object.freeze({
         package: imported.package,
         type: imported.typeId,
+        /* Owning one of these means releasing it through the owner's binding,
+         * whose ID is derived by the same function that produced it there —
+         * so the two agree by construction, and composition proves it. */
+        destructor: imported.releaseId,
       });
       declarationTypes[imported.typeId] = Object.freeze({
         module: imported.package.name,
@@ -1019,7 +1036,10 @@ export function generateGObjectScabiPackage(
     girName: string,
     path: string,
   ): HandleProjection | undefined {
-    const local = classByName.get(girName);
+    /* A qualified name is another namespace's however `classByName` spells
+     * it: that map answers "which class is this" for both, and only this
+     * namespace's own classes have a local identity. */
+    const local = girName.includes(".") ? undefined : classByName.get(girName);
     if (local !== undefined) {
       const typeId = typeIdByClass.get(local.name);
       return typeId === undefined ? undefined : Object.freeze({
@@ -1881,12 +1901,19 @@ export function generateGObjectScabiPackage(
         const retained = adapterByRetainedResult.get(
           `${class_.name}.method.${callable.name}`,
         );
-        const resultTypeId = typeIdByClass.get(borrowedResult.name);
-        const resultRelease = releaseByClass.get(borrowedResult.name);
+        /* Local or imported, one resolution: the type is whichever package
+         * declares the class, and the release is that package's. */
+        const resultHandle = callable.result.type.kind === "named"
+          ? resolveHandle(callable.result.type.name, path)
+          : undefined;
+        const resultTypeId = resultHandle?.typeId;
+        const resultLocal = typeIdByClass.has(borrowedResult.name) &&
+          typeIdByClass.get(borrowedResult.name) === resultTypeId;
         if (
           retained === undefined ||
           resultTypeId === undefined ||
-          resultRelease === undefined
+          resultHandle === undefined ||
+          (resultLocal && !releaseByClass.has(borrowedResult.name))
         ) {
           diagnostics.push(diagnostic(
             path,
@@ -1932,8 +1959,12 @@ export function generateGObjectScabiPackage(
         const declaration = `${class_.name}.${sourceMember}`;
         const bindingId =
           `${namespacePrefix}_${class_.cSymbolPrefix}_${snakeCase(callable.name)}`;
-        const resultReleaseId =
-          `${namespacePrefix}_${borrowedResult.cSymbolPrefix}_release`;
+        /* An imported class's release is the owner's binding, carried by the
+         * import rather than declared here, so this package depends on
+         * nothing for it. */
+        const resultReleaseId = resultLocal
+          ? `${namespacePrefix}_${borrowedResult.cSymbolPrefix}_release`
+          : null;
         if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
           diagnostics.push(diagnostic(path, "Generated method identity collides"));
           continue;
@@ -1957,7 +1988,7 @@ export function generateGObjectScabiPackage(
            * the library broke its own contract and traps on commit. */
           error: Object.freeze({ kind: "no-fail" }),
           dependencies: dependencies({
-            bindings: [resultReleaseId],
+            bindings: resultReleaseId === null ? [] : [resultReleaseId],
             links: linkIds,
             adapter: options.adapterInput.id,
           }),
@@ -1968,7 +1999,7 @@ export function generateGObjectScabiPackage(
         classLines.push(
           ...deprecationDoc(callable, "  "),
           `  ${sourceMember}(${retainedSourceParameters.join(", ")}): ${
-            borrowedResult.name
+            resultHandle.sourceName
           }${callable.result.nullable ? " | null" : ""};`,
         );
         continue;

@@ -1191,7 +1191,18 @@ export function generateGObjectAdapterSource(
     );
   }
   const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
-  const classByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
+  /* Keyed as GIR spells the reference: bare for this namespace's own, and
+   * qualified for an imported one, which is how a result naming another
+   * namespace's object resolves to the class that describes it. The adapter
+   * needs only its C spelling, which is the same fact either way. */
+  const classByName = new Map([
+    ...declaredClasses.map((class_) => [class_.name, class_] as const),
+    ...importedSnapshots.flatMap((imported) =>
+      [...imported.classes, ...imported.interfaces].map((class_) =>
+        [`${imported.namespace.name}.${class_.name}`, class_] as const
+      )
+    ),
+  ]);
   /* Every projected class gets a release. How a GObject is released is a
    * property of the object — one `g_object_unref` ends this program's claim
    * on it, whatever produced the reference — so the handle type names this
