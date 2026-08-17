@@ -299,6 +299,19 @@ const clicked = action.onClicked((sender): void => {
    * GIR says these can be absent, so absence is an answer rather than a throw.
    * The parent was constructed here, which means interning has to find its
    * existing cell — committing a second for one object traps. */
+  /* A handle argument that may be absent. GIR says `set_child` accepts NULL,
+   * and clearing a child is what passing it means — so absence is an ordinary
+   * argument rather than an object constructed to stand for nothing. The
+   * declared parameter is a Widget, and a TextView is one: an identity upcast
+   * widens the handle into the union's ancestor arm, both when the value is
+   * written at the call and when a computed `TextView | null` re-tags into
+   * `Widget | null` on its way in. */
+  scroller.setChild(null);
+  check_(scroller.getChild() === null, "clearing a child with null left one");
+  const restored = window.visible ? notes : null;
+  scroller.setChild(restored);
+  check_(scroller.getChild() !== null, "the scroller did not take its child back");
+
   const windowChild = window.getChild();
   check_(windowChild !== null, "the window forgot its child");
   const rowChild = alpha.getChild();

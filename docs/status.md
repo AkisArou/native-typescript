@@ -655,7 +655,9 @@ These are deliberate, not oversights. Each is a named future slice.
   has. A handle now widens into a union's ancestor arm through its declared
   identity upcast, the same rule the plain slot already had — nearest arm
   wins, and two arms the same distance away decline rather than being picked
-  between.
+  between. A whole union re-tags the same way, so
+  `setChild(visible ? notes : null)` crosses as readily as the two calls it
+  stands for.
 
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars
