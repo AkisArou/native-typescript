@@ -52,7 +52,8 @@ both backends with no JavaScript-number carrier.
 Fixed 64-bit and `isize`/`usize` source boundaries accept only exact BigInt
 literals or values already carrying that native type. Pointer-sized ranges come
 from SCABI target metadata and are checked against the selected backend. This
-is not general JavaScript BigInt support.
+is separate from the general `bigint` value kind described below — the exact
+carriers are branded intersections and never widen into it.
 
 Exact same-type `+`, `-`, and `*` wrap at their declared width without C
 undefined behavior. `&`, `|`, and `^` operate at exact native width without
@@ -82,6 +83,30 @@ Egress is a cast up to 32 bits and a checked round trip past it: 2^60 crosses
 because it is exactly a double, 2^60 + 1 does not. Ingress is the same check
 the boundary performs and raises a `TypeError`, the same answer for the same
 reason.
+
+### JavaScript `bigint`
+
+The compiler carries JavaScript's own arbitrary-precision integer as a value
+kind. Implemented: literals in every radix, with numeric separators and a
+folded sign; `===`, `!==`, and the four orderings, exact at any magnitude;
+`typeof`; truthiness, where `0n` alone is falsy; `String()`, template holes,
+`toString()`, and `util.inspect`'s `n` suffix; `Number(b)`, rounded to
+nearest with ties to even against the exact value; and `BigInt(x)` over
+numbers, strings, and booleans, raising V8's own `RangeError` and
+`SyntaxError` texts on the two failures. Bigints live in arrays, records,
+class fields, union arms, capture boxes, and function signatures.
+
+The arithmetic operators refuse by name until they are implemented, as does
+mixing a bigint with a number in an operator — which JavaScript answers with
+a `TypeError` rather than a conversion. `Map` keys, `Set` elements,
+`.join()`, and `JSON.stringify` refuse too: the checked-dynamic tree has no
+bigint tag yet. `JSON.stringify(1n)` throws in JavaScript as well, so that
+one is a refusal of something that never had an answer.
+
+The bignum itself is sign and magnitude over base-2³² limbs, refcounted, and
+depends on nothing else in the runtime — its formatter writes into a
+caller's buffer rather than returning a string, so it links and unit-tests as
+one translation unit.
 
 ### Checked JavaScript-number boundaries
 

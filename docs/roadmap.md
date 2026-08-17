@@ -308,10 +308,28 @@ The slices, in dependency order:
    links one translation unit and checks the arithmetic on its own, plain and
    under the sanitizers. It is not in `RUNTIME_SOURCES` yet, because nothing
    emitted references it until slice 2.
-2. **The thin vertical slice.** A `bigint` type kind in the IR, literals,
-   comparison, `typeof`, `toString`, and the conversions to and from `number`
-   — through the frontend, both backends, and a Node-differential fixture.
-   Arithmetic refuses precisely until slice 3, which is narrow but not a stub.
+2. **The thin vertical slice.** Done. A `bigint` type kind in the IR;
+   literals in every radix with separators and a folded sign; `===`/`!==`
+   and the four orderings; `typeof`; truthiness; `String()`, template holes,
+   `toString()`, and `util.inspect`'s `n` suffix; `Number(b)` and
+   `BigInt(x)` over numbers, strings, and booleans, with V8's own
+   `RangeError` and `SyntaxError` texts on the two failures. Through the
+   frontend, both backends, and a Node-differential corpus program.
+   Arithmetic refuses precisely until slice 3, which is narrow but not a
+   stub.
+
+   Two things the slice had to settle beyond the obvious. `Number(b)` reads
+   the top 54 bits at once with a sticky bit rather than accumulating limb
+   by limb, because accumulating rounds at every step and lands an ulp away
+   from V8 on wide values. And an array of bigints is the first `SCR_ELEM_REF`
+   element whose `===` is not its address — a heap-allocated *primitive* —
+   so an array carries an element-equality predicate beside its RC entry
+   points, `NULL` meaning the pointer identity every object element keeps.
+
+   Still outside: bigint in the checked-dynamic tree. `dyn` has no bigint
+   tag, so `Map`/`Set` keys, `.join()`, and `JSON.stringify` refuse by name
+   — the last correctly, since `JSON.stringify(1n)` throws in JavaScript
+   too. That tag is the natural head of slice 3.
 3. **Arithmetic.** `+ - *` first, then division, remainder, exponentiation,
    the shifts and the bitwise operators over two's complement at infinity,
    then `asIntN`/`asUintN`. Plus the mixing rules — `1n + 1` is a `TypeError`,
