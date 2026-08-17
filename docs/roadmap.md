@@ -272,16 +272,45 @@ handle now crosses a signature, because the pointer is the whole
 representation a signature needs — the definition stays the owner's and
 composition proves it. **Returning** one is not: 179 GTK methods hand back a
 Gio or Gdk object, and naming its destructor means referencing a *binding* in
-another package, which SCABI has no vocabulary for. Two things have to be
-settled together there, and neither is obviously right yet:
+another package, which SCABI has no vocabulary for. Of those 179, 64 name a
+class, 54 a boxed record and 46 an interface, so this unlocks the classes and
+the interfaces; the records wait on a projection that does not exist at all.
 
-- Whether an importer references the owner's release binding — the symmetric
-  move to a type import, and a schema addition — or emits its own, which is
-  duplication the composition rule against two packages declaring one member
-  exists to prevent.
-- Which of those 179 results are even reachable. Of them 64 name a class, 54 a
-  boxed record, and 46 an interface, so the destructor question unlocks only
-  the first third; the rest wait on projections that do not exist at all.
+**Decided: a handle type names its own destructor.** Three shapes were
+considered.
+
+*An importer references the owner's release binding* — the symmetric move to
+a type import, and the obvious one. It fails on its own, because the owner
+emits a release only for a class it destroys itself, and a class the owner
+never constructs and never hands back has none to reference. Making the owner
+emit one anyway needs the rule that a release nothing names is refused to be
+relaxed, and telling the owner what its importers need inverts the generation
+graph. So this shape needs a second change before it works, and the second
+change is the third shape below.
+
+*An importer emits its own release* — refused. The release binding declares
+`Display.dispose`, and the importing package does not declare `Display`; two
+packages declaring one member is exactly what composition already rejects,
+for the reason the imported-flags finding recorded above.
+
+*The handle type names its destructor* — chosen. How to release a GdkDisplay
+is a property of GdkDisplay, not of the call that produced one, which is why
+every manifest in the tree already names the same binding at every position
+of a given handle type. Moving the field where the fact lives dissolves both
+problems rather than working around either: a release is never unnamed,
+because its type names it, so every selected class may have one; and an
+importer needs no new vocabulary, because importing the type imports its
+destructor. The per-position `ownership.destructor` stays for owned *pointer*
+results, where it is genuinely per-position — one `u8*` is freed by the
+allocator that produced it and another is not — so the rule is that an owned
+handle position must not name a destructor and an owned pointer position
+must.
+
+The cost is an atomic refactor of one field: SCABI's model, schema and
+validation, both hand-written fixture manifests, the target runtime's, the
+generator, the translator, and their tests. The compiler needs no change at
+all — the translator already resolves a destructor to a qualified binding id
+before the fork sees it, and it will resolve this one the same way.
 
 **Projecting a GObject interface.** Done. GTK declares 196 methods on its own
 29 interfaces, and a class carried only the members it declared, so none were
