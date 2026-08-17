@@ -207,6 +207,21 @@ export interface HandleType {
   readonly threadSafety: "confined" | "sendable" | "shared";
   readonly identity: "none" | "pointer" | "binding" | "platform";
   readonly upcasts: readonly IdentityHandleUpcast[];
+  /**
+   * The binding that releases one reference to this object.
+   *
+   * How a handle is released is a property of what it names rather than of
+   * the call that produced one: every producer of a GdkDisplay hands back the
+   * same object, and one function ends this program's claim on it. Naming it
+   * here is what lets an owned position exist at all — a position of this
+   * type names no destructor of its own — and what lets a package that
+   * imports the type receive one, since importing the type imports this.
+   *
+   * Absent when nothing owns one: a handle only ever borrowed needs no way to
+   * be released, and inventing one would be an ownership-consuming call
+   * outside the destructor slice.
+   */
+  readonly destructor?: NativeBindingId;
 }
 
 export interface CallbackContext {
@@ -259,7 +274,14 @@ export type OwnershipContract =
   | {
       readonly kind: "owned";
       readonly transfer: "to-runtime";
-      readonly destructor: NativeBindingId;
+      /**
+       * The binding that releases this value, named here because its type
+       * cannot name one: one `u8*` is freed by the allocator that produced it
+       * and another is not, so the producer is the only honest place to say
+       * so. A handle names its destructor on the type instead, and an owned
+       * handle position that repeats it here is refused.
+       */
+      readonly destructor?: NativeBindingId;
     }
   | { readonly kind: "owned"; readonly transfer: "to-native" }
   | {
@@ -505,6 +527,17 @@ export interface PermissionRequirement {
 export interface TypeImport {
   readonly package: PackageIdentity;
   readonly type: NativeTypeId;
+  /**
+   * The owning package's binding that releases one reference, when this
+   * import is owned here.
+   *
+   * A handle names its destructor on its type, and an importer never sees the
+   * definition — so owning one means restating which binding that is, in the
+   * owner's identity. Like the type ID itself this is derived by the same
+   * function that produced it in the owning package rather than kept by hand,
+   * and composition proves the two agree.
+   */
+  readonly destructor?: NativeBindingId;
 }
 
 export interface ScabiManifest {

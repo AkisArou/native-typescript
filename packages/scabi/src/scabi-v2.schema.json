@@ -961,6 +961,9 @@
           "items": {
             "$ref": "#/$defs/identityHandleUpcast"
           }
+        },
+        "destructor": {
+          "$ref": "#/$defs/id"
         }
       }
     },
@@ -1140,8 +1143,7 @@
           "additionalProperties": false,
           "required": [
             "kind",
-            "transfer",
-            "destructor"
+            "transfer"
           ],
           "properties": {
             "kind": {
@@ -2103,6 +2105,9 @@
           "$ref": "#/$defs/packageIdentity"
         },
         "type": {
+          "$ref": "#/$defs/id"
+        },
+        "destructor": {
           "$ref": "#/$defs/id"
         }
       }

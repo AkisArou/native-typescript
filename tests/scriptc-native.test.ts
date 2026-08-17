@@ -1473,6 +1473,7 @@ test("an imported handle resolves to the package that defines it", () => {
     threadSafety: "confined",
     identity: "pointer",
     upcasts: [{ kind: "identity", target: "counter_base" }],
+    destructor: "counter_destroy",
   };
   // Drop bindings that mention the types this package no longer defines: an
   // imported type is opaque, so it is legal only as an upcast target.

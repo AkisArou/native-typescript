@@ -352,6 +352,7 @@ test(
         "gtk_widget_activate",
         "gtk_widget_get_opacity",
         "gtk_widget_get_width",
+        "gtk_widget_release",
         "gtk_widget_set_opacity",
         "gtk_widget_set_visible",
         "gtk_window_destroy",
@@ -431,6 +432,7 @@ test(
         threadSafety: "confined",
         identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
+        destructor: "gtk_button_release",
       });
       assert.deepEqual(generated.manifest.types.gtk_orientation_storage, {
         kind: "integer",
@@ -448,6 +450,7 @@ test(
         threadSafety: "confined",
         identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
+        destructor: "gtk_window_release",
       });
       const constructor = generated.manifest.bindings.gtk_button_new_with_label;
       assert.ok(constructor && constructor.kind !== "constant");
@@ -470,6 +473,7 @@ test(
           "gtk_widget_activate",
           "gtk_widget_get_opacity",
           "gtk_widget_get_width",
+          "gtk_widget_release",
           "gtk_widget_set_opacity",
           "gtk_widget_set_visible",
           "gtk_window_destroy",

@@ -10,6 +10,7 @@ import type {
   NativeType,
   NativePhysicalAbiType,
   NativePhysicalAbiValue,
+  OwnershipContract,
   ScabiManifest,
 } from "@native-typescript/scabi";
 
@@ -110,8 +111,10 @@ export type ScriptCNativeCallbackSourceArgument =
   | {
       readonly kind: "callback-parameter";
       readonly parameter: number;
-      /** Present when the payload is an owned handle: the binding that gives
-       * the reference back, whether the delivery runs or is dropped. */
+      /** Present when the payload is an owned handle: the compiler identity of
+       * the binding that gives the reference back, whether the delivery runs
+       * or is dropped. Already resolved against the package that owns the
+       * handle, which is not always this one. */
       readonly destructor?: string;
     }
   | { readonly kind: "registration-owner" };
@@ -811,6 +814,39 @@ export function composeScriptCNativePrograms(
       }
     }
   }
+  /* A handle's destructor may be the owning package's binding, named by an
+   * importer that never saw the definition. Composition is the first stage
+   * that sees both, so an unresolved one fails here rather than as an
+   * anonymous missing symbol at emission. */
+  for (const binding of bindings.values()) {
+    const ownership = binding.result.ownership;
+    const named = [
+      ...(ownership.kind === "owned" && ownership.transfer === "to-runtime"
+        ? [ownership.destructor]
+        : []),
+      ...binding.arguments.flatMap((argument) =>
+        argument.callback === undefined
+          ? []
+          : argument.callback.sourceArguments.flatMap((source) =>
+            source.kind === "callback-parameter" && source.destructor !== undefined
+              ? [source.destructor]
+              : []
+          )
+      ),
+    ];
+    for (const destructor of named) {
+      if (bindings.has(destructor)) continue;
+      const owner = destructor.split("#")[0] ?? "";
+      diagnostics.push(diagnostic(
+        "NTS3002",
+        `/input/bindings/${binding.id}`,
+        composedInstances.has(owner)
+          ? `Destructor '${destructor}' is owned by composed package '${owner}', ` +
+            "which did not reach it. Select a binding that reaches the handle in that package."
+          : `Destructor '${destructor}' is not provided by any composed package`,
+      ));
+    }
+  }
   /* Collector visibility is derived per package, but the invariant behind it
    * is global: upcast-connected declarations can denote one managed cell, so
    * the collector must trace all of them or none. Each package propagates over
@@ -920,6 +956,36 @@ function positionTypeKind(
   const declared = manifest.types[typeId];
   if (declared !== undefined) return declared.kind;
   return manifest.imports?.[typeId] === undefined ? undefined : "handle";
+}
+
+/**
+ * The compiler identity of the binding that releases an owned value.
+ *
+ * A handle names its destructor on its type, because how it is released
+ * follows the object rather than the call that produced one — and an imported
+ * handle's is the owning package's, restated by the import in the owner's
+ * identity because no definition is visible here. Everything else owned names
+ * one on the position, where the producer really does decide the free.
+ */
+function ownedDestructor(
+  manifest: ScabiManifest,
+  typeId: NativeTypeId,
+  ownership: OwnershipContract,
+): string | null {
+  if (ownership.kind !== "owned" || ownership.transfer !== "to-runtime") return null;
+  if (ownership.destructor !== undefined) {
+    return `${manifest.package.instance}#${ownership.destructor}`;
+  }
+  const declared = manifest.types[typeId];
+  if (declared !== undefined) {
+    return declared.kind === "handle" && declared.destructor !== undefined
+      ? `${manifest.package.instance}#${declared.destructor}`
+      : null;
+  }
+  const imported = manifest.imports?.[typeId];
+  return imported?.destructor === undefined
+    ? null
+    : `${imported.package.instance}#${imported.destructor}`;
 }
 
 function positionUnsupported(
@@ -1137,10 +1203,8 @@ function supportedCallbackSourceArguments(
       const physical = callbackType.signature.parameters[parameter]!;
       const string = borrowedUtf8CString(manifest, physical);
       if (typeof string === "string") return string;
-      const ownership = physical.ownership;
-      const owned = manifest.types[physical.type]?.kind === "handle" &&
-          ownership.kind === "owned" && ownership.transfer === "to-runtime"
-        ? ownership.destructor
+      const owned = positionTypeKind(manifest, physical.type) === "handle"
+        ? ownedDestructor(manifest, physical.type, physical.ownership) ?? undefined
         : undefined;
       result.push(Object.freeze({
         kind: "callback-parameter",
@@ -1304,7 +1368,7 @@ function supportedCallScopedCallbackPair(
               parameter: argument.parameter,
               ...(argument.destructor === undefined
                 ? {}
-                : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
+                : { destructor: argument.destructor }),
             })
           : Object.freeze({ kind: "registration-owner" as const })
       )),
@@ -1542,7 +1606,7 @@ function supportedRetainedCallbackPair(
           parameter: argument.parameter,
           ...(argument.destructor === undefined
             ? {}
-            : { destructor: `${manifest.package.instance}#${argument.destructor}` }),
+            : { destructor: argument.destructor }),
         })
       : Object.freeze({ kind: "registration-owner" as const })
   ));
@@ -2249,7 +2313,14 @@ export function translateScabiNativeProgram(
     }
   }
 
-  const destructorIds = new Set<string>();
+  /* Every binding a destructor position names, plus every one a handle type
+   * names: a handle's release is a destructor because its type says so, and
+   * it is one even in a package where nothing happens to own that handle. */
+  const destructorIds = new Set<string>(
+    Object.values(manifest.types).flatMap((type) =>
+      type.kind === "handle" && type.destructor !== undefined ? [type.destructor] : []
+    ),
+  );
   /** Bindings an error contract names for their symbols. They read and release
    * a foreign error object, so they traffic in raw pointers and are never
    * callable from TypeScript: the emitters declare and call them directly, and
@@ -2260,7 +2331,10 @@ export function translateScabiNativeProgram(
     const binding = manifest.bindings[bindingId];
     if (binding === undefined || binding.kind === "constant") continue;
     const ownership = binding.signature.result.ownership;
-    if (ownership.kind === "owned" && ownership.transfer === "to-runtime") {
+    if (
+      ownership.kind === "owned" && ownership.transfer === "to-runtime" &&
+      ownership.destructor !== undefined
+    ) {
       destructorIds.add(ownership.destructor);
     }
     if (binding.error.kind === "error-handle") {
@@ -3033,23 +3107,27 @@ export function translateScabiNativeProgram(
        * a failure. A binding that declares the nullable error contract instead
        * says NULL means the call failed, which is right for a constructor and
        * wrong for a reader: a container with no child has answered. */
-      const destructor = binding.signature.result.ownership.destructor;
+      const destructor = ownedDestructor(
+        manifest,
+        binding.signature.result.type,
+        binding.signature.result.ownership,
+      );
       resultType = lowerType(
         binding.signature.result.type,
         `${resultPath}/type`,
       );
-      if (resultType === null || resultType.kind !== "nativeHandle") {
+      if (resultType === null || resultType.kind !== "nativeHandle" || destructor === null) {
         diagnostics.push(diagnostic(
           "NTS3002",
           resultPath,
-          "A nullable handle result must lower to a native handle",
+          "A nullable handle result must lower to a native handle its type releases",
         ));
         valid = false;
       } else {
         resultOwnership = Object.freeze({
           kind: "owned",
           transfer: "to-runtime",
-          destructor: `${manifest.package.instance}#${destructor}`,
+          destructor,
         } as const);
         resultProjection = Object.freeze({ kind: "nullableHandle" } as const);
       }
@@ -3111,16 +3189,28 @@ export function translateScabiNativeProgram(
         binding.signature.result.type,
         `${resultPath}/type`,
       );
-      if (resultType === null) {
+      const destructor = ownedDestructor(
+        manifest,
+        binding.signature.result.type,
+        binding.signature.result.ownership,
+      );
+      const owns = binding.signature.result.ownership.kind === "owned" &&
+        binding.signature.result.ownership.transfer === "to-runtime";
+      if (resultType === null || (owns && destructor === null)) {
+        if (resultType !== null) {
+          diagnostics.push(diagnostic(
+            "NTS3002",
+            resultPath,
+            "An owned result must name the binding that releases it, on the position or on its handle type",
+          ));
+        }
         valid = false;
       } else {
-        resultOwnership =
-          binding.signature.result.ownership.kind === "owned" &&
-            binding.signature.result.ownership.transfer === "to-runtime"
+        resultOwnership = owns
           ? Object.freeze({
               kind: "owned",
               transfer: "to-runtime",
-              destructor: `${manifest.package.instance}#${binding.signature.result.ownership.destructor}`,
+              destructor: destructor!,
             } as const)
           : Object.freeze({ kind: "value" } as const);
         resultProjection = Object.freeze({ kind: "direct" });

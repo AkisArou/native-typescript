@@ -1192,21 +1192,15 @@ export function generateGObjectAdapterSource(
   }
   const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
   const classByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
-  /* A class needs a release when something destroys one: it was constructed
-   * here, or a method hands it back without a reference and the adapter takes
-   * one. Emitting a release nobody names is refused downstream, so the set is
-   * computed rather than assumed. */
+  /* Every projected class gets a release. How a GObject is released is a
+   * property of the object — one `g_object_unref` ends this program's claim
+   * on it, whatever produced the reference — so the handle type names this
+   * symbol as its destructor, and a type that names one is never a release
+   * nobody named. That is also what lets another package own an object this
+   * one declares: it imports the type, and the destructor comes with it. */
   const releasedClasses = new Set<string>(
-    declaredClasses
-      .filter((class_) => class_.constructors.length > 0)
-      .map((class_) => class_.name),
+    declaredClasses.map((class_) => class_.name),
   );
-  for (const class_ of declaredClasses) {
-    for (const callable of class_.methods) {
-      const resultClass = borrowedResultClass(callable, classByName);
-      if (resultClass !== undefined) releasedClasses.add(resultClass.name);
-    }
-  }
   for (const class_ of declaredClasses) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {

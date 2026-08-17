@@ -1508,6 +1508,7 @@ export function generateGObjectScabiPackage(
         threadSafety: "confined",
         identity: "none",
         upcasts: Object.freeze([]),
+        destructor: signalReleaseId,
       });
       declarationTypes[signalConnectionTypeId] = Object.freeze({
         module: ".",
@@ -1683,6 +1684,10 @@ export function generateGObjectScabiPackage(
       kind: "handle",
       nativeName: class_.cType,
       threadSafety: "confined",
+      /* How a GObject is released follows the object rather than the call
+       * that produced a reference to one, so the type names it. That is what
+       * lets a package that imports this type own one. */
+      destructor: releaseId,
       /* A GObject's identity is its pointer for as long as a reference is
        * held, which is what ownership.md means by identity following the
        * underlying object reference. Declaring it lets the runtime intern the
@@ -1943,11 +1948,7 @@ export function generateGObjectScabiPackage(
             type: resultTypeId,
             passMode: "pointer",
             nullable: callable.result.nullable,
-            ownership: Object.freeze({
-              kind: "owned",
-              transfer: "to-runtime",
-              destructor: resultReleaseId,
-            }),
+            ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
           }),
           /* Never the nullable error contract: that one says NULL means the
            * call failed, and a reader's NULL does not. GIR decides which shape
@@ -2479,11 +2480,7 @@ export function generateGObjectScabiPackage(
           type: signalConnectionTypeId,
           passMode: "pointer",
           nullable: true,
-          ownership: Object.freeze({
-            kind: "owned",
-            transfer: "to-runtime",
-            destructor: signalReleaseId,
-          }),
+          ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
         }),
         error: Object.freeze({ kind: "nullable" }),
         dependencies: dependencies({
@@ -2566,12 +2563,7 @@ export function generateGObjectScabiPackage(
             type: payloadTypeId,
             passMode: "pointer",
             nullable: false,
-            ownership: Object.freeze({
-              kind: "owned",
-              transfer: "to-runtime",
-              destructor:
-                `${namespacePrefix}_${payloadClass.cSymbolPrefix}_release`,
-            }),
+            ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
           }));
           sourceSignalParameters.push(
             `${lowerCamel(parameter.name)}: ${payloadClass.name}`,
@@ -2820,11 +2812,7 @@ export function generateGObjectScabiPackage(
           type: typeId,
           passMode: "pointer",
           nullable: callable.result.nullable,
-          ownership: Object.freeze({
-            kind: "owned",
-            transfer: "to-runtime",
-            destructor: releaseId,
-          }),
+          ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
         }),
         error: callable.result.nullable
           ? Object.freeze({ kind: "nullable" })

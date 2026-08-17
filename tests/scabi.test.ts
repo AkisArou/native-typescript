@@ -98,7 +98,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:b15b8450a822bc251160cc84a116f605a98bbc1d3d9b0d9223a10b99b857d69a",
+    "sha256:764ae9d890a76cf170798cdc21587fa2a365309aa97663e1dee3d4adc98d3ec2",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -240,6 +240,41 @@ test("SCABI handle upcasts may target a type another package owns", () => {
   if (!("signature" in byValueCallable)) return;
   Object.assign(byValueCallable.signature.parameters[0]!, { passMode: "value" });
   assert.deepEqual(validationCodes(byValue), ["NTS2010", "NTS2021"]);
+});
+
+test("a handle type names the destructor its owners use", () => {
+  /* How a handle is released follows the object rather than the call that
+   * produced one, so the type says it once and every owned position of that
+   * type inherits it. */
+  const valid = structuredClone(manifest);
+  assert.equal(validateScabiManifest(valid).ok, true);
+
+  // Repeating it on the position is refused rather than tolerated: two places
+  // to say one thing is two places for them to disagree.
+  const onPosition = structuredClone(manifest);
+  const create = onPosition.bindings.counter_create;
+  assert.ok(create && "signature" in create);
+  if (!create || !("signature" in create)) return;
+  Object.assign(create.signature.result.ownership, { destructor: "counter_destroy" });
+  assert.deepEqual(validationCodes(onPosition), ["NTS2030"]);
+
+  // A type that names none cannot be owned at all.
+  const unnamed = structuredClone(manifest);
+  const counter = unnamed.types.counter;
+  assert.ok(counter && counter.kind === "handle");
+  if (!counter || counter.kind !== "handle") return;
+  delete (counter as { destructor?: string }).destructor;
+  assert.deepEqual(validationCodes(unnamed), ["NTS2030"]);
+
+  // And what it names has to be a destructor of that type.
+  const wrong = structuredClone(manifest);
+  const wrongCounter = wrong.types.counter;
+  assert.ok(wrongCounter && wrongCounter.kind === "handle");
+  if (!wrongCounter || wrongCounter.kind !== "handle") return;
+  Object.assign(wrongCounter, { destructor: "counter_value" });
+  /* Twice: the type's own shape rule, and the owning position, which now
+   * depends on a binding its own dependency list does not name. */
+  assert.deepEqual(validationCodes(wrong), ["NTS2030", "NTS2050"]);
 });
 
 test("SCABI constants and scalar member representations are validated eagerly", () => {

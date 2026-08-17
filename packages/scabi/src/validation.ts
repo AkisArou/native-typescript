@@ -252,6 +252,16 @@ function validateHandleUpcasts(
 ): void {
   for (const [id, type] of Object.entries(manifest.types)) {
     if (type.kind !== "handle") continue;
+    if (
+      type.destructor !== undefined &&
+      !destructorConsumes(manifest, type.destructor, id)
+    ) {
+      diagnostics.push(diagnostic(
+        "NTS2030",
+        `/types/${id}/destructor`,
+        `Destructor ${type.destructor} must consume one ${id} and return void`,
+      ));
+    }
     const targets = new Set<string>();
     let previous = "";
     type.upcasts.forEach((upcast, index) => {
@@ -1050,12 +1060,34 @@ function validateConstantBinding(
   }
 }
 
+/**
+ * Whether a binding is the destructor of one value type: it takes exactly that
+ * value, takes ownership of it, and answers nothing. Anything else is an
+ * ordinary ownership-consuming call, which is outside the destructor slice.
+ */
+function destructorConsumes(
+  manifest: ScabiManifest,
+  destructorId: NativeBindingId,
+  valueTypeId: NativeTypeId,
+): boolean {
+  const destructor = manifest.bindings[destructorId];
+  if (destructor === undefined || destructor.kind === "constant") return false;
+  const [parameter] = destructor.signature.parameters;
+  return destructor.signature.parameters.length === 1 &&
+    parameter?.type === valueTypeId &&
+    parameter.ownership.kind === "owned" &&
+    parameter.ownership.transfer === "to-native" &&
+    manifest.types[destructor.signature.result.type]?.kind === "void";
+}
+
 function ownershipBindings(
   ownership: OwnershipContract,
 ): readonly NativeBindingId[] {
   switch (ownership.kind) {
     case "owned":
-      return ownership.transfer === "to-runtime" ? [ownership.destructor] : [];
+      return ownership.transfer === "to-runtime" && ownership.destructor !== undefined
+        ? [ownership.destructor]
+        : [];
     case "retained":
       return [ownership.retain, ownership.release];
     case "weak":
@@ -1213,6 +1245,56 @@ function validatePositionOwnership(
     );
   }
 
+  /* Where the destructor is named. A handle names one on its type, because
+   * how it is released follows the object rather than the call that produced
+   * it, and an importer that never sees a definition still gets it that way.
+   * Everything else owned names one here, because there the producer really
+   * does decide: one `u8*` is freed by the allocator that made it and another
+   * is not. */
+  if (position.ownership.kind === "owned" && position.ownership.transfer === "to-runtime") {
+    const named = position.ownership.destructor;
+    if (type.kind === "handle") {
+      if (named !== undefined) {
+        diagnostics.push(diagnostic(
+          "NTS2030",
+          `${path}/ownership/destructor`,
+          `An owned handle position does not name a destructor: the handle type ${position.type} names it`,
+        ));
+      } else if ("imported" in type) {
+        /* An imported handle's destructor is the owning package's binding, so
+         * it is neither declared here nor a dependency of this one: what has
+         * to be present is the import's statement of which binding it is. */
+        if (manifest.imports?.[position.type]?.destructor === undefined) {
+          diagnostics.push(diagnostic(
+            "NTS2030",
+            `${path}/ownership`,
+            `Owning the imported ${position.type} requires its import to name the owner's destructor`,
+          ));
+        }
+      } else if (type.destructor === undefined) {
+        diagnostics.push(diagnostic(
+          "NTS2030",
+          `${path}/ownership`,
+          `Owning a ${position.type} requires that handle type to name its destructor`,
+        ));
+      } else {
+        validateBindingReference(
+          manifest,
+          bindingId,
+          dependencySet,
+          type.destructor,
+          `${path}/ownership`,
+          diagnostics,
+        );
+      }
+    } else if (named === undefined) {
+      diagnostics.push(diagnostic(
+        "NTS2030",
+        `${path}/ownership`,
+        `An owned ${type.kind} position must name the destructor that releases it`,
+      ));
+    }
+  }
   for (const reference of ownershipBindings(position.ownership)) {
     validateBindingReference(
       manifest,
@@ -1839,25 +1921,15 @@ function validateCallableBinding(
   const resultOwnership = binding.signature.result.ownership;
   if (
     resultOwnership.kind === "owned" &&
-    resultOwnership.transfer === "to-runtime"
+    resultOwnership.transfer === "to-runtime" &&
+    resultOwnership.destructor !== undefined
   ) {
-    const destructor = manifest.bindings[resultOwnership.destructor];
-    const [parameter] =
-      destructor === undefined || destructor.kind === "constant"
-        ? []
-        : destructor.signature.parameters;
-    const resultType =
-      destructor === undefined || destructor.kind === "constant"
-        ? undefined
-        : manifest.types[destructor.signature.result.type];
     if (
-      destructor === undefined ||
-      destructor.kind === "constant" ||
-      destructor.signature.parameters.length !== 1 ||
-      parameter?.type !== binding.signature.result.type ||
-      parameter.ownership.kind !== "owned" ||
-      parameter.ownership.transfer !== "to-native" ||
-      resultType?.kind !== "void"
+      !destructorConsumes(
+        manifest,
+        resultOwnership.destructor,
+        binding.signature.result.type,
+      )
     ) {
       diagnostics.push(
         diagnostic(

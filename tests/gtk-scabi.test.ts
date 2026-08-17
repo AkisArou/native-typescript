@@ -1286,9 +1286,13 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
       { name: "height", type: "gint", offset: 4, conversion: "number" },
     ],
   });
+  /* Widget is projected and therefore releasable, whether or not this
+   * selection constructs one: the handle type names the release as its
+   * destructor, so the symbol exists for anything that comes to own one. */
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_new_with_label",
     "gtk_button_release",
+    "gtk_widget_release",
   ]);
   assert.match(generated.declarations, /export declare class Button/u);
   assert.match(
@@ -1531,6 +1535,7 @@ test("GTK caller-allocated record outputs project as one nested value result", (
   assert.equal(binding.signature.parameters.length, 1);
   assert.equal(binding.signature.result.type, "gtk_widget_preferred_size");
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
+    "gtk_widget_release",
     "nts_gobject_value_gtk_widget_get_preferred_size",
   ]);
   const translated = translateScabiNativeProgram(generated.manifest, {
@@ -1782,6 +1787,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     threadSafety: "confined",
     identity: "none",
     upcasts: [],
+    destructor: "gtk_signal_connection_release",
   });
   const connect = generated.manifest.bindings.gtk_button_connect_clicked;
   assert.ok(connect && connect.kind !== "constant");
@@ -1805,10 +1811,11 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     postDisposal: "not-invoked",
     shutdown: "drain",
   });
+  /* The position owns the connection; which binding releases one is the
+   * handle type's to say. */
   assert.deepEqual(connect.signature.result.ownership, {
     kind: "owned",
     transfer: "to-runtime",
-    destructor: "gtk_signal_connection_release",
   });
   const disconnect = generated.manifest.bindings.gtk_signal_connection_disconnect;
   assert.ok(disconnect && disconnect.kind !== "constant");
@@ -1835,7 +1842,12 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     constructorOwnership.kind === "owned" &&
     constructorOwnership.transfer === "to-runtime"
   ) {
-    assert.equal(constructorOwnership.destructor, "gtk_button_release");
+    assert.equal(constructorOwnership.destructor, undefined);
+  }
+  const buttonType = generated.manifest.types.gtk_button;
+  assert.ok(buttonType && buttonType.kind === "handle");
+  if (buttonType?.kind === "handle") {
+    assert.equal(buttonType.destructor, "gtk_button_release");
   }
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_connect_clicked",
@@ -1844,6 +1856,7 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     "gtk_signal_connection_connected",
     "gtk_signal_connection_disconnect",
     "gtk_signal_connection_release",
+    "gtk_widget_release",
   ]);
   assertDeepFrozen(generated);
 });
