@@ -300,9 +300,14 @@ and this is the clearest case of one in the repository.
 
 The slices, in dependency order:
 
-1. **The runtime integer.** Refcounted, sign and magnitude, base-2³² limbs;
-   add, subtract, multiply, compare, decimal parse and format. Testable on its
-   own in C, and the base everything else stands on.
+1. **The runtime integer.** Done. Refcounted, sign and magnitude, base-2³²
+   limbs; add, subtract, multiply, compare, negate, decimal parse and format,
+   with division present only in the by-a-single-limb form the decimal
+   conversion needs. It depends on nothing else in the runtime — the formatter
+   writes into a caller's buffer rather than returning a string — so its test
+   links one translation unit and checks the arithmetic on its own, plain and
+   under the sanitizers. It is not in `RUNTIME_SOURCES` yet, because nothing
+   emitted references it until slice 2.
 2. **The thin vertical slice.** A `bigint` type kind in the IR, literals,
    comparison, `typeof`, `toString`, and the conversions to and from `number`
    — through the frontend, both backends, and a Node-differential fixture.
