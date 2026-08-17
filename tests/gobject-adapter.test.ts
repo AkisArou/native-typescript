@@ -482,10 +482,10 @@ test("unsupported GObject signal shapes fail with a stable diagnostic", () => {
 });
 
 test("unsupported GObject signal payloads fail at the exact parameter", () => {
-  /* `gsize` is absent from the scalar table on purpose — its width should
-   * come from probe evidence rather than from a table that assumes an ABI —
-   * so a payload carrying one is outside the slice. The point here is that
-   * the refusal names the parameter rather than the signal. */
+  /* `size_t` carries a number at a parameter or a result, where a value no
+   * double denotes throws to the caller. A payload has no caller — it is read
+   * inside the trampoline that delivers it — so the same type is outside the
+   * slice here, and the refusal names the parameter rather than the signal. */
   const source = girSource.replace(
     `<return-value transfer-ownership="none">
           <type name="none" c:type="void"/>
@@ -515,7 +515,8 @@ test("unsupported GObject signal payloads fail at the exact parameter", () => {
         severity: "error",
         path: "Button/signal/clicked/parameters/0",
         message:
-          "Only exact scalar, enumeration, UTF-8, and selected class GObject signal payloads are implemented",
+          "A GObject signal payload is read where a failed conversion has no " +
+          "caller, so its type must be one every value of which is a number",
       }]);
       return true;
     },

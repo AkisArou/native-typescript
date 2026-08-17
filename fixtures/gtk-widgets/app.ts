@@ -285,6 +285,18 @@ const clicked = action.onClicked((sender): void => {
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
   check_(entry.maxLength === 32, "the entry length limit is wrong");
   check_(entry.invisibleChar === 0x2022, "a code point did not round-trip");
+  /* `size_t`. A length is a number — it is compared to `.length` and used as
+   * an index far more often than it is stored — so it crosses as one, and the
+   * read is checked rather than assumed: it answers only when the double
+   * denotes the same integer. For a byte count of text in memory it always
+   * does, which is exactly why the check costs nothing and stays honest. */
+  const entryBuffer = entry.getBuffer();
+  entryBuffer.setText("size", 4);
+  check_(entryBuffer.getLength() === 4, "the entry buffer lost its characters");
+  check_(entryBuffer.getBytes() === 4, "the entry buffer lost its byte count");
+  check_(entryBuffer.getBytes() / 2 === 2, "a size_t would not divide");
+  check_(entryBuffer.getBytes() < 4096, "a size_t would not compare");
+  entryBuffer.setText("", 0);
   check_(entry.invisibleChar > 0x7f, "a code point above ASCII compared wrong");
   check_(entry.getTextLength() === 0, "the entry is not empty");
   /* A second interface, whose members are a string property and a boolean

@@ -310,7 +310,7 @@ test(
      * order, and Gdk joining it ahead of Gtk is not a fact about the Gtk
      * selection. */
     const gtk = project.namespaces.find(({ name }) => name === "Gtk");
-    assert.equal(gtk?.classes.length, 31);
+    assert.equal(gtk?.classes.length, 32);
     /* Breadth is the point, and it is the thing a fixture loses quietly: a
      * member the application does not call still has to generate and link, and
      * three real defects were found by widening this selection rather than by

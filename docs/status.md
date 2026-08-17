@@ -806,9 +806,19 @@ These are deliberate, not oversights. Each is a named future slice.
   There is no `f32` in the language: no literal, no arithmetic, no declared
   type. The compiler admits the scalar in a slot carrying the number
   conversion and refuses it everywhere else, per position.
-- **Platform-width integers** (`glong`, `gsize`) are absent from the scalar
-  table on purpose: their width should come from probe evidence rather than
-  from a table that assumes an ABI.
+- **`size_t` and `ssize_t` cross as plain numbers.** A length, a count, or an
+  index is a number — it is compared to `.length` and used as an index far
+  more often than it is stored — so the pointer-width integers carry one, and
+  the crossing a double cannot always make is checked rather than assumed:
+  reading answers only when the double denotes the same integer and raises a
+  `RangeError` otherwise. For a byte count of anything that fits in memory it
+  always does, which is why the check costs nothing and stays honest. A
+  payload and a struct field keep the narrow rule, because neither has a
+  caller to raise to.
+
+  `long` and `unsigned long` are still absent, and no live GTK member names
+  one; when one does, it joins the table the same way, and the Clang probe is
+  what proves the width either way.
 - **The final link is still one action.** Everything before it is reused. The
   ScriptC runtime compiles per source into its own cacheable objects, so an
   application edit recompiles the program and relinks rather than rebuilding

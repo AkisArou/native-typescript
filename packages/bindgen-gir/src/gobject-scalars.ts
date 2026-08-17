@@ -35,7 +35,7 @@ function integerScalar(
   girName: string,
   cTypes: readonly string[],
   signed: boolean,
-  bits: 8 | 16 | 32 | 64,
+  bits: 8 | 16 | 32 | 64 | "pointer",
 ): SourceScalarType {
   return Object.freeze({
     girName,
@@ -79,6 +79,15 @@ export const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
   integerScalar("guint32", ["guint32"], false, 32),
   integerScalar("gint64", ["gint64"], true, 64),
   integerScalar("guint64", ["guint64"], false, 64),
+  /* `size_t` and `ssize_t`. A length, a count, or an index — values a double
+   * holds for anything that fits in memory — so they read and write as
+   * ordinary numbers, and the one crossing a double cannot always make is
+   * checked rather than assumed: reading answers only when the double denotes
+   * the same integer, and throws instead of being one away. An exact carrier
+   * would be the wrong trade for a length, which is compared to `.length` and
+   * used as an index far more often than it is stored. */
+  integerScalar("gsize", ["gsize", "size_t"], false, "pointer"),
+  integerScalar("gssize", ["gssize", "ssize_t"], true, "pointer"),
   /* A Unicode code point is a `uint32_t` under a name that says what the
    * number means. It reads and writes as an ordinary number for the same
    * reason every other 32-bit integer does — a double holds every one of them

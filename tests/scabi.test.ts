@@ -98,7 +98,7 @@ test("SCABI fixture is canonical, immutable, and content-addressable", () => {
   assert.equal(canonicalizeJson(manifest), manifestSource);
   assert.equal(
     digestScabiManifest(manifest),
-    "sha256:83f20eefc9a713361de2f5ce073e5dd9e045d8ae8802d6cc6d4b89ec58764532",
+    "sha256:005b957d9cb02dab45943f39ffb8e93ecb56c6d221abae04d362262b4b5b8fe1",
   );
   assert.equal(Object.isFrozen(manifest), true);
   assert.equal(Object.isFrozen(manifest.bindings.subscription_create), true);
@@ -684,7 +684,7 @@ test("SCABI rejects unknown and ambiguous source type identities", () => {
   assert.deepEqual(validationCodes(duplicate), ["NTS2021"]);
 });
 
-test("SCABI admits a number conversion only where a double is injective", () => {
+test("SCABI admits a number conversion wherever a number can carry the slot", () => {
   const identity = manifest.bindings.i32_identity;
   const wide = manifest.bindings.i64_identity;
   assert.notEqual(identity?.kind, "constant");
@@ -717,15 +717,38 @@ test("SCABI admits a number conversion only where a double is injective", () => 
     },
   });
 
-  /* 32 bits and narrower round-trip through a double exactly. */
+  /* 32 bits and narrower round-trip through a double exactly, so neither
+   * direction can fail. */
   assert.equal(
     validateScabiManifest(converted(identity, "i32_identity")).ok,
     true,
   );
-  /* 64 bits do not, so the declaration is a defect rather than a preference. */
-  assert.deepEqual(
-    validationCodes(converted(wide, "i64_identity")),
-    ["NTS2021", "NTS2021"],
+  /* 64 bits and pointer width carry a number too. Writing one is checked like
+   * any other width; reading one is checked as well, because the value may be
+   * one no double denotes — which is a throw the caller sees rather than a
+   * silent 1-away answer. */
+  assert.equal(
+    validateScabiManifest(converted(wide, "i64_identity")).ok,
+    true,
+  );
+  /* A struct field is the position that may not: a field read has nowhere to
+   * fail, so its conversion stays where the widening cannot. */
+  const wideField = {
+    ...manifest,
+    types: {
+      ...manifest.types,
+      pair32: {
+        ...manifest.types.pair32,
+        fields: [
+          { name: "first", type: "i64", offset: 0, conversion: "number" },
+          { name: "second", type: "i32", offset: 8 },
+        ],
+      },
+    },
+  };
+  assert.equal(
+    validationCodes(wideField).includes("NTS2021"),
+    true,
   );
   /* A failure contract is read from the exact scalar the source never sees. */
   assert.deepEqual(

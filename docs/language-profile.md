@@ -205,11 +205,11 @@ JavaScript-number conversion policy.
 
 ### The JavaScript-number conversion policy
 
-A binding position whose native type is a **float** or an integer of **at most
-32 bits** may declare that its source-visible carrier is an ordinary `number`.
-A 64-bit or pointer-width integer may not declare it, and no analysis or
-heuristic may infer the policy — the manifest declares it or the position is
-exact.
+A binding position whose native type is a **float** or an **integer of any
+width** may declare that its source-visible carrier is an ordinary `number`.
+No analysis or heuristic may infer the policy — the manifest declares it or
+the position is exact. A **struct field** may declare it only where the
+widening cannot fail, for the reason the table below gives.
 
 The slot's type decides what the crossing means, and the manifest shows the
 slot, so nothing is hidden:
@@ -219,6 +219,22 @@ slot, so nothing is hidden:
 | 64-bit float | identity; every number is a value of the slot | identity |
 | integer ≤32 bits | checked: finite, integral, in range, or a `TypeError` | exact widening |
 | 32-bit float | rounds to nearest float | exact widening |
+| integer 64-bit or pointer-width | checked, exactly as above | checked: the value, or a `RangeError` |
+
+Ingress does not vary with width. A double that is finite, whole, and inside
+the slot's range converts exactly however wide the slot is, so the check is
+the same one at every width and 2⁵³ never enters into it.
+
+Egress does vary, and by the round trip rather than by a bound: a 64-bit or
+pointer-width slot answers when the double denotes the same integer and raises
+a catchable `RangeError` when it does not. 2⁶⁰ is exactly a double, so it
+crosses; 2⁵³+1 is not, so it raises rather than answering with a number one
+away from the truth. This is the same contract the declared `toNumber`
+conversion has, and it calls the same code.
+
+That failing read is why a **struct field** may not declare the conversion
+above 32 bits, and why a **callback payload** may not either: a field read and
+a trampoline have no caller to raise to.
 
 The 32-bit float is the only lossy crossing, and it is lossy in the direction
 and by the amount its width requires: `0.25` survives, `0.1` becomes the float

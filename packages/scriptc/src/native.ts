@@ -1139,13 +1139,22 @@ function scalarOperations(
 
 /** The exact scalars a double carries injectively, so a widening loses
  * nothing and a checked ingress can always be undone by reading the value
- * back. `f64` is the identity case — the slot is the double. Pointer-width
- * and 64-bit integer slots are absent by construction: this is the fence,
- * not an omission. */
+ * back. `f64` is the identity case — the slot is the double. */
 function widensToNumber(scalar: ScriptCNativeScalar): boolean {
   return scalar === "f32" || scalar === "f64" || scalar === "i8" ||
     scalar === "u8" || scalar === "i16" || scalar === "u16" ||
     scalar === "i32" || scalar === "u32";
+}
+
+/** Every scalar a position may carry a number over. The wider integers
+ * qualify because both directions are checked: a double that is whole and in
+ * range converts exactly however wide the slot is, and reading one answers
+ * only when the double denotes the same integer. A struct field is not a
+ * position — a field read has nowhere to fail — so it keeps the narrow
+ * rule. */
+function carriesNumber(scalar: ScriptCNativeScalar): boolean {
+  return widensToNumber(scalar) || scalar === "i64" || scalar === "u64" ||
+    scalar === "isize" || scalar === "usize";
 }
 
 type SupportedCallbackPair = {
@@ -2847,11 +2856,11 @@ export function translateScabiNativeProgram(
         continue;
       }
       if (convertsNumber) {
-        if (type.kind !== "nativeScalar" || !widensToNumber(type.scalar)) {
+        if (type.kind !== "nativeScalar" || !carriesNumber(type.scalar)) {
           diagnostics.push(diagnostic(
             "NTS3002",
             `${parameterPath}/conversion`,
-            "A number conversion requires an integer slot a double carries injectively",
+            "A number conversion requires a float or integer slot",
           ));
           valid = false;
           continue;
@@ -3153,12 +3162,12 @@ export function translateScabiNativeProgram(
       if (
         resultType === null ||
         resultType.kind !== "nativeScalar" ||
-        !widensToNumber(resultType.scalar)
+        !carriesNumber(resultType.scalar)
       ) {
         diagnostics.push(diagnostic(
           "NTS3002",
           `${resultPath}/conversion`,
-          "A number conversion requires an integer slot a double carries injectively",
+          "A number conversion requires a float or integer slot",
         ));
         resultType = null;
         valid = false;

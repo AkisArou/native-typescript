@@ -329,9 +329,19 @@ function signalParameter(
     `${path}/type`,
     diagnostics,
   );
+  /* A payload is read inside the trampoline that delivers it, where a failed
+   * conversion has no caller to throw to. So a payload's carrier has to be
+   * total: a scalar that reads back as a number only when the double denotes
+   * the same integer — `size_t` and its siblings — is outside the slice here
+   * even though a parameter or a result may carry one. */
+  const widensTotally = scalar === undefined || scalar.conversion === null ||
+    (scalar.nativeType.kind === "integer"
+      ? scalar.nativeType.bits !== 64 && scalar.nativeType.bits !== "pointer"
+      : true);
   if (
     physical === null ||
     sourceType === null ||
+    !widensTotally ||
     parameter.kind !== "parameter" ||
     parameter.direction !== "in" ||
     parameter.transferOwnership !== "none" ||
@@ -350,7 +360,10 @@ function signalParameter(
         path,
         message: sourceType === null
           ? `Only ${signalPayloadFamilies} GObject signal payloads are implemented`
-          : "GObject signal payloads must be required non-null input values",
+          : !widensTotally
+            ? "A GObject signal payload is read where a failed conversion has " +
+              "no caller, so its type must be one every value of which is a number"
+            : "GObject signal payloads must be required non-null input values",
       });
     }
     return null;

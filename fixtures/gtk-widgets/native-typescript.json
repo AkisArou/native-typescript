@@ -175,6 +175,7 @@
             "new"
           ],
           "methods": [
+            "get_buffer",
             "get_invisible_char",
             "set_invisible_char",
             "set_max_length",
@@ -400,6 +401,14 @@
           "methods": [
             "set_active",
             "get_active"
+          ]
+        },
+        {
+          "name": "EntryBuffer",
+          "methods": [
+            "get_bytes",
+            "get_length",
+            "set_text"
           ]
         },
         {

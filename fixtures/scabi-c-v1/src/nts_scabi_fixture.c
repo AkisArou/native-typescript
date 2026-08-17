@@ -34,6 +34,10 @@ uint16_t nts_u16_identity(uint16_t value) { return value; }
 int32_t nts_i32_identity(int32_t value) { return value; }
 uint32_t nts_u32_identity(uint32_t value) { return value; }
 int64_t nts_i64_identity(int64_t value) { return value; }
+/* The same identity under a second symbol: one C symbol carries one binding,
+ * so reading a 64-bit slot as a number while another binding reads it exactly
+ * needs an entry point of its own. */
+int64_t nts_i64_passthrough(int64_t value) { return value; }
 uint64_t nts_u64_identity(uint64_t value) { return value; }
 size_t nts_usize_identity(size_t value) { return value; }
 float nts_f32_identity(float value) { return value; }

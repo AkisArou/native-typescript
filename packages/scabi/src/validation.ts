@@ -1318,10 +1318,33 @@ function validatePositionOwnership(
  * losslessly and writes by rounding to nearest float, which is the one lossy
  * crossing in the family and the only thing a 32-bit slot can mean; the slot
  * type is what declares it, since no other carrier would be more honest. */
+/**
+ * Whether a double holds every value of this type, so the crossing cannot
+ * fail in either direction.
+ *
+ * True for both floats and for integers of at most 32 bits. A `size_t` or an
+ * `int64_t` has values no double denotes, so it carries a number only where a
+ * failing read is acceptable — see `carriesCheckedNumber`.
+ */
 function carriesNumber(type: ReferencedType): boolean {
   if (type.kind === "float") return type.bits === 32 || type.bits === 64;
   return type.kind === "integer" &&
     (type.bits === 8 || type.bits === 16 || type.bits === 32);
+}
+
+/**
+ * Whether a position of this type may carry a number at all.
+ *
+ * A 64-bit or pointer-width integer qualifies: writing one is checked like
+ * any other width, because a double that is integral and in range converts
+ * exactly however wide the slot is, and reading one is checked too, because
+ * the value may be one no double denotes. That second check is why a struct
+ * field is not allowed to declare the conversion — a field read has no place
+ * to fail — while a parameter or a result is.
+ */
+function carriesCheckedNumber(type: ReferencedType): boolean {
+  return carriesNumber(type) ||
+    (type.kind === "integer" && (type.bits === 64 || type.bits === "pointer"));
 }
 
 function validateConversion(
@@ -1337,12 +1360,12 @@ function validateConversion(
   if (type === undefined) {
     return;
   }
-  if (!carriesNumber(type)) {
+  if (!carriesCheckedNumber(type)) {
     diagnostics.push(
       diagnostic(
         "NTS2021",
         `${path}/conversion`,
-        "A number conversion requires a 32- or 64-bit float or an integer of at most 32 bits; a double cannot carry wider integers injectively",
+        "A number conversion requires a float or an integer; a pointer, handle, or aggregate has no number to carry",
       ),
     );
     return;

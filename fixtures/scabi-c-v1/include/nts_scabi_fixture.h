@@ -43,6 +43,7 @@ NTS_SCABI_EXPORT uint16_t nts_u16_identity(uint16_t value);
 NTS_SCABI_EXPORT int32_t nts_i32_identity(int32_t value);
 NTS_SCABI_EXPORT uint32_t nts_u32_identity(uint32_t value);
 NTS_SCABI_EXPORT int64_t nts_i64_identity(int64_t value);
+NTS_SCABI_EXPORT int64_t nts_i64_passthrough(int64_t value);
 NTS_SCABI_EXPORT uint64_t nts_u64_identity(uint64_t value);
 NTS_SCABI_EXPORT size_t nts_usize_identity(size_t value);
 NTS_SCABI_EXPORT float nts_f32_identity(float value);
