@@ -267,7 +267,7 @@ test(
         // Native IR supports an optional handle input, but a derived handle
         // does not upcast through a nullable union, so generation projects
         // the non-null subset for now.
-        "register(cancellable: Cancellable): void;",
+        "register(cancellable: Cancellable | null): void;",
         "onActivate(callback: (application: Application) => void): SignalConnection;",
       ]) {
         assert.equal(

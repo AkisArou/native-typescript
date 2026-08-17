@@ -87,6 +87,11 @@ NTS_SCABI_EXPORT int32_t nts_counter_value(NtsCounter *counter);
 NTS_SCABI_EXPORT int32_t nts_counter_value_or(
     NtsCounter *counter,
     int32_t fallback);
+/* The same over the base of the handle hierarchy: an argument two identity
+ * upcasts below it has to widen on its way into the optional slot. */
+NTS_SCABI_EXPORT int32_t nts_counter_base_value_or(
+    NtsCounter *counter,
+    int32_t fallback);
 NTS_SCABI_EXPORT const char *nts_counter_label(NtsCounter *counter);
 NTS_SCABI_EXPORT const char *nts_counter_required_label(NtsCounter *counter);
 NTS_SCABI_EXPORT void nts_counter_destroy(NtsCounter *counter);

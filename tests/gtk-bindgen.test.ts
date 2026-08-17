@@ -397,7 +397,12 @@ test(
       );
       assert.doesNotMatch(generated.declarations, /dispose\(\): void;/u);
       assert.match(generated.declarations, /readonly connected: boolean;/u);
-      assert.match(generated.declarations, /setChild\(child: Widget\): void;/u);
+      /* GIR marks `gtk_window_set_child`'s child nullable, and absence is
+       * what clears the child. */
+      assert.match(
+        generated.declarations,
+        /setChild\(child: Widget \| null\): void;/u,
+      );
       assert.match(
         generated.declarations,
         /setDefaultSize\(width: gint, height: gint\): void;/u,

@@ -65,6 +65,7 @@ const translated = translateScabiNativeProgram(manifest, {
     "counter_add",
     "counter_value",
     "counter_value_or",
+    "counter_base_value_or",
     "counter_label",
     "counter_required_label",
     "counter_destroyed_count",

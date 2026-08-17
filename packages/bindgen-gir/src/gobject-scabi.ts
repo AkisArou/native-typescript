@@ -634,17 +634,17 @@ function handleParameter(
       name: parameter.name,
       type: typeId,
       passMode: "pointer",
-      // Native IR supports an optional handle input, but a derived handle
-      // does not upcast through a nullable union, and GTK passes derived
-      // widgets constantly — `overlay.setChild(drawingArea)`. Until union
-      // re-tagging consults identity upcasts, this projects the non-null
-      // subset rather than an API that rejects ordinary calls.
-      nullable: false,
+      /* GIR says whether the callee accepts absence, and absence is what
+       * clears a child, unsets a transient parent, or declines a
+       * cancellable. The ABI slot is one pointer either way; only the
+       * source side gains a null arm, and a derived handle widens into it
+       * through its declared identity upcast. */
+      nullable: parameter.nullable,
       ownership: transferred
         ? Object.freeze({ kind: "owned", transfer: "to-native" })
         : Object.freeze({ kind: "borrowed", scope: "call" }),
     }),
-    sourceType: class_.name,
+    sourceType: parameter.nullable ? `${class_.name} | null` : class_.name,
   });
 }
 

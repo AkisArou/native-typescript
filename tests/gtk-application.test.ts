@@ -142,7 +142,7 @@ test(
         // The lifecycle the application calls is generated, not hand-written.
         assert.match(
           declarations.get("gio2") ?? "",
-          /register\(cancellable: Cancellable\): void;/u,
+          /register\(cancellable: Cancellable \| null\): void;/u,
         );
         assert.match(
           declarations.get("gio2") ?? "",

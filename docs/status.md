@@ -641,6 +641,22 @@ These are deliberate, not oversights. Each is a named future slice.
   transfers, so keyboard, scroll, and gesture handling were unreachable
   whatever else worked.
 
+- **A handle input may be absent.** GIR states whether a callee accepts NULL,
+  and absence is what clears a child, unsets a transient parent, or declines a
+  cancellable — so `frame.setChild(null)` and `application.register(null)` are
+  the calls those mean, rather than an object constructed to stand for
+  nothing. The ABI slot is one pointer either way; only the source side gains
+  a null arm.
+
+  What had been missing was on the compiler side. A value of a derived handle
+  type flowing into `Widget | null` was refused, because union arm selection
+  matched arms by identity: only an argument already spelled as the declared
+  type could reach an optional slot, which is nearly never the one a caller
+  has. A handle now widens into a union's ancestor arm through its declared
+  identity upcast, the same rule the plain slot already had — nearest arm
+  wins, and two arms the same distance away decline rather than being picked
+  between.
+
 - **Weak handles and native invalidation** have no policy yet.
 - **A signal payload must be something the runtime can capture.** Exact scalars
   of every width, selected enumerations, UTF-8 strings, and selected classes

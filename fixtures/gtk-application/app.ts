@@ -46,8 +46,13 @@ const connection = application.onActivate((sender): void => {
 if (!connection.connected) throw new Error("activate did not connect");
 
 /* register() reports failure through a GError. It is the throwing projection:
- * success returns nothing, failure raises with the GError's own message. */
+ * success returns nothing, failure raises with the GError's own message.
+ *
+ * Its cancellable is nullable in C, and absence is what "do not cancel this"
+ * means — so the null arm is an ordinary argument rather than an object
+ * constructed to stand for nothing. Both spellings reach the same slot. */
 application.register(new Cancellable());
+application.register(null);
 
 if (application.getIsRemote()) throw new Error("registered as remote");
 

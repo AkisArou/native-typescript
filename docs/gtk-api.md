@@ -426,9 +426,11 @@ export declare class Application {
 - `quit()` ends attached-loop liveness and requests runtime shutdown. Already
   admitted callbacks still drain before the owner observes quiescence.
 
-`register()`'s `GCancellable` is nullable in C, but a nullable handle currently
-projects as its non-null source subset, so a cancellable must be constructed
-rather than omitted. Exposing null needs nullable managed-handle IR of its own.
+`register()`'s `GCancellable` is nullable in C, and it projects that way:
+`register(null)` is what "do not cancel this" means, rather than an object
+constructed to stand for nothing. Every nullable handle input reads the same —
+`frame.setChild(null)` clears a child — and a derived handle still crosses,
+because an identity upcast widens it into the union's ancestor arm.
 
 ### Process lifetime is explicit
 

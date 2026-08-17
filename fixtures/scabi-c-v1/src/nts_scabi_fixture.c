@@ -324,3 +324,7 @@ int32_t nts_fixture_errors_outstanding(void) { return nts_fixture_errors_live; }
 int32_t nts_counter_value_or(NtsCounter *counter, int32_t fallback) {
   return counter == NULL ? fallback : nts_counter_value(counter);
 }
+
+int32_t nts_counter_base_value_or(NtsCounter *counter, int32_t fallback) {
+  return counter == NULL ? fallback : nts_counter_value(counter);
+}
