@@ -176,10 +176,12 @@ and its test suite passes.
 
 ### Current upstream baseline
 
-The pinned fork commit is `b1f6172`. It merges upstream through `6f50205`
-(`feat: support aarch64 Linux musl (#159)`), including the upstream AArch64
-musl runtime work and compiler subprocess diagnostic improvement. The upstream
-commit's plain, sanitizer, and Linux host-Clang CI lanes are green. Native
+The fork merges upstream through `6f50205` (`feat: support aarch64 Linux musl
+(#159)`), including the upstream AArch64 musl runtime work and compiler
+subprocess diagnostic improvement, and that commit's plain, sanitizer, and
+Linux host-Clang CI lanes are green. Which fork commit is pinned is the
+submodule's to say, and naming it here only creates a second place to be wrong:
+read it from `third_party/scriptc`. Native
 TypeScript's focused Native IR, retained-callback, callback table/token/handle,
 owner-gateway, executable-plan, native-build-executor, and host compiler-driver
 gates also pass on the merged fork. The full upstream differential lane remains

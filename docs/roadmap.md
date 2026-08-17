@@ -232,6 +232,39 @@ and differs only in which error a large `i64` fails with.
 Phase 3's terminal surface or Phase 4's platform SDKs may bring one, and the
 answers above say what to build when it arrives.
 
+**And the surface question has a third answer neither item reaches.** What
+started the reevaluation was a cast — `(a + b) as gint64` — and neither
+building helper families nor adding width conversions removes it. The cast is
+there because the type is *branded*: TypeScript types the sum of two branded
+bigints as a plain `bigint`, dropping the brand, so the `as` is where the exact
+type is reasserted. That is a TypeScript limitation rather than one of ours,
+and no amount of declared operations touches it.
+
+The answer is to change the carrier rather than add operations. A 64-bit
+position could declare `conversion: "bigint"` the way a 32-bit one declares
+`"number"`, and the crossing would be honest in both directions: egress is
+total and exact, because every `i64` *is* a `bigint` with no 2⁵³ cliff, and
+ingress range-checks against the width and throws, exactly as the number
+ingress does. Then
+
+```ts
+stream.seek(stream.timestamp + 5_000_000n);   // no cast
+const seconds = t / 1_000_000n;               // no cast; `/ 0n` already throws
+if (t < deadline) …                           // ordinary comparison
+```
+
+What it gives up is wrapping. Arithmetic on plain bigints is exact and
+unbounded, so an overflow is caught at the boundary instead of wrapping modulo
+2⁶⁴. For a timestamp that is strictly better — a silent wrap there is a bug
+either way. For genuine machine arithmetic, masking and rotating a register,
+the exact branded type is what you want, and it stays: the policy is per
+position, so a manifest that wants machine semantics declares nothing.
+
+Its cost is a checked bigint ingress in both backends, beside the ≤32-bit one
+that exists, and a row in the profile's policy table. Its payoff is that the
+five `GtkMediaStream` members lose their casts entirely — which is more than
+either declined item offers, for less surface.
+
 **Adjacent, and worth more than either: `gsize`.** Platform-width integers are
 absent from the scalar table, which refuses 17 live GTK members across
 `Snapshot`, `Builder`, `EntryBuffer` and `Text` — more callers than the two
@@ -246,6 +279,13 @@ and reads as a plain number, and one that does not fails loudly rather than
 silently. Its cost is that egress stops being total: a widened result becomes
 a throwing expression, which both backends must carry and `mayThrow` must
 know. Measure it against the ingress checks already there before building.
+
+Taken together the two say one thing: **the carrier should follow what the
+values are.** A length that always fits in a double reads as a number and
+fails loudly when it does not; a timestamp that genuinely exceeds 2⁵³ reads as
+a bigint; a register you mask and rotate stays exact. All three are the same
+per-position declaration, and the choice is evidence about the API rather than
+a preference.
 
 One thing is deliberately not on that list. The construction form
 `(a + b) as u32` stays, and the earlier claim that it was a mere lowering seam
