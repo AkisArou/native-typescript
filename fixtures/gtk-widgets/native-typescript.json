@@ -175,6 +175,8 @@
             "new"
           ],
           "methods": [
+            "get_invisible_char",
+            "set_invisible_char",
             "set_max_length",
             "get_max_length",
             "set_visibility",

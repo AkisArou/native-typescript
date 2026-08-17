@@ -88,6 +88,9 @@ heading.setCursor(pointer);
 
 const entry = new Entry();
 entry.maxLength = 32;
+/* U+2022 BULLET. A code point is a `uint32_t` with a name that says what the
+ * number means, so it crosses as an ordinary number. */
+entry.invisibleChar = 0x2022;
 entry.setVisibility(true);
 content.append(entry);
 
@@ -281,6 +284,8 @@ const clicked = action.onClicked((sender): void => {
   check_(pointer.getName() === "pointer", "the imported cursor forgot its name");
   check_(heading.label === "Native TypeScript", "the heading label is wrong");
   check_(entry.maxLength === 32, "the entry length limit is wrong");
+  check_(entry.invisibleChar === 0x2022, "a code point did not round-trip");
+  check_(entry.invisibleChar > 0x7f, "a code point above ASCII compared wrong");
   check_(entry.getTextLength() === 0, "the entry is not empty");
   /* A second interface, whose members are a string property and a boolean
    * one. GtkEditable declares both and GtkEntry implements it, so the entry

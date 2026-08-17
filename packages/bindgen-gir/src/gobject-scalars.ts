@@ -79,6 +79,11 @@ export const sourceScalarTypes: readonly SourceScalarType[] = Object.freeze([
   integerScalar("guint32", ["guint32"], false, 32),
   integerScalar("gint64", ["gint64"], true, 64),
   integerScalar("guint64", ["guint64"], false, 64),
+  /* A Unicode code point is a `uint32_t` under a name that says what the
+   * number means. It reads and writes as an ordinary number for the same
+   * reason every other 32-bit integer does — a double holds every one of them
+   * — and `String.fromCodePoint` is what a caller does with it next. */
+  integerScalar("gunichar", ["gunichar"], false, 32),
 ]);
 
 export function sourceScalarType(
