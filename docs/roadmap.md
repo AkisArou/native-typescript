@@ -283,6 +283,25 @@ settled together there, and neither is obviously right yet:
   boxed record, and 46 an interface, so the destructor question unlocks only
   the first third; the rest wait on projections that do not exist at all.
 
+**Projecting a GObject interface.** Done. GTK declares 196 methods on its own
+29 interfaces, and a class carried only the members it declared, so none were
+reachable: `orientation` belongs to GtkOrientable and 24 widgets implement it,
+`Editable` holds the text of every entry, `Buildable` is on 120 classes.
+
+An interface is a class-shaped declaration minus construction, so it ingests
+through the same path and becomes the same kind of handle. The relationship is
+the new part: a class implementing one gains an identity upcast to it — the
+same pointer under another nominal type, which is what implementing means at
+the ABI — and TypeScript learns it by declaration merging, so the member keeps
+one declaration and one binding over the interface's own handle. Redeclaring
+the members per class would have meant a binding each and an adapter each, to
+cast a class pointer into the interface's.
+
+What remains here is the rest of the member algebra on an interface: its
+signals and observed properties ride the same path already, but an interface
+another namespace owns is reachable only as a parameter, for the same
+destructor reason a class is.
+
 **Splitting the ScriptC runtime out of the link.** Done. The runtime was
 4253 ms of a 7.2 s build because one Clang invocation compiled 19 runtime
 sources and the emitted program together, and nothing about that command could
