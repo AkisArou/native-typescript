@@ -59,7 +59,6 @@ export interface ScriptCNativePointerType {
 }
 
 export interface ScriptCNativeCallbackSignature {
-  readonly callingConvention: "c";
   /**
    * The C parameters the emitter passes. A pointer appears when the payload is
    * a borrowed string: the physical slot carries the pointer, and what reaches
@@ -371,8 +370,6 @@ export interface ScriptCNativeBinding {
   readonly id: string;
   readonly declaration: ScriptCNativeDeclaration;
   readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
-  readonly callingConvention: "c";
-  readonly variadic: false;
   readonly sourceCall:
     | { readonly kind: "function" }
     | { readonly kind: "constructor" }
@@ -426,8 +423,6 @@ export interface ScriptCNativeExport {
   readonly sourceExport: string;
   readonly declaration: ScriptCNativeDeclaration;
   readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
-  readonly callingConvention: "c";
-  readonly variadic: false;
   readonly error: {
     readonly detect: { readonly kind: "never" };
     readonly message: { readonly kind: "none" };
@@ -2774,7 +2769,6 @@ export function translateScabiNativeProgram(
           continue;
         }
         const signature = Object.freeze({
-          callingConvention: "c",
           parameters: Object.freeze(physicalCallbackParameters),
           result: callbackResult,
           context: Object.freeze({ placement: "last" } as const),
@@ -3287,8 +3281,6 @@ export function translateScabiNativeProgram(
         id: `${manifest.package.instance}#${bindingId}`,
         declaration: normalizeDeclaration(manifest, binding.declaration),
         entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol }),
-        callingConvention: "c",
-        variadic: false,
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : binding.kind === "getter"
@@ -3460,8 +3452,6 @@ export function translateScabiNativeProgram(
       sourceExport: selected.sourceExport,
       declaration: normalizeDeclaration(manifest, binding.declaration),
       entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol } as const),
-      callingConvention: "c",
-      variadic: false,
       error: NO_NATIVE_FAILURE,
       parameters: Object.freeze(parameters),
       result: Object.freeze({
