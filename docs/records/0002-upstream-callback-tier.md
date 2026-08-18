@@ -181,7 +181,7 @@ adjudication and refactor are complete.
 The tests that must keep passing through any convergence, on both backends:
 
 - `tests/harness/ffi.test.ts` — upstream's 48, formats 1–5;
-- `tests/harness/native-ir.test.ts` — the fork's 103, including
+- `tests/harness/native-ir.test.ts` — the fork's 127, including
   `callback-retained`, `callback-answer`, `callback-attached-loop`,
   `callback-attached-timer`, `callback-call-scoped-throw`;
 - `tests/harness/owner-gateway.test.ts`, `callback-token.test.ts`,

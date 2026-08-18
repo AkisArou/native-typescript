@@ -1,15 +1,15 @@
 # 0001 — One native vocabulary: growing scriptc's manifest, and the SCABI envelope
 
-Status: accepted decision, awaiting implementation
+Status: accepted decision, steps 0-2 partially implemented
 Last revised: 2026-08-18
 
 This is an investigation record under the policy in
 [scriptc evolution](../scriptc-evolution.md). It records a decision and its
-rationale; it is not normative. Until the implementing change lands,
-[architecture](../architecture.md) and [binding ABI](../binding-abi.md)
-describe the built system and continue to win on conflict. When the refactor
-is scheduled, those documents are revised in the same change, and this record
-remains as the archive of why.
+rationale; it is not normative. [architecture](../architecture.md) and
+[binding ABI](../binding-abi.md) describe the built system and continue to win
+on conflict; [status](../status.md) records how much of this plan is standing
+today. When a step revises what those documents describe, they are revised in
+the same change, and this record remains as the archive of why.
 
 **Revised.** The first version of this record was written before upstream
 shipped FFI formats 3, 4, and 5. Two of its planks did not survive contact
@@ -208,6 +208,18 @@ that already exists.
 This is why step 1 cannot be a pure refactor of the IR, and saying so is worth
 more than preserving the tidier claim: a unification that quietly dropped
 wrapping would be a behavior change wearing a refactor's clothes.
+
+**Correction, measured while implementing.** The last claim above was made from
+the value crossings and does not hold in the callback direction. A string,
+byte, or cstring crossing *into* a native parameter was indeed already
+expressible; the same value arriving as a callback *payload* was not, and
+neither was a plain number leaving one as the answer. The callback payload
+vocabulary needed four additions, each landed with the descriptors that forced
+it — a boolean payload, a narrowed-number answer, a `cstring` payload form
+distinct from the script type it becomes, and a source argument built from a
+pointer and a count. The general lesson is the one this record already applies
+elsewhere: a projection is directional, and a fact measured on one direction is
+not evidence about the other.
 
 ## Neutrality
 
@@ -415,18 +427,31 @@ change atomic, green on its own, and bisectable:
      attribute used as a type in two places, a saturating narrowing on the
      unsigned half, and a deferred callback throw losing its checkpoint when
      the observing call changed paths.
-   - **Call-scoped callbacks** (formats 2 and 3). The positional context
-     slot landed in `cf244122`; five vocabulary additions remain, measured
-     against the nine call-scoped descriptors upstream exercises. Each is
-     small on its own, and each is listed with what it unblocks so none is
-     built ahead of a use:
+   - **Call-scoped callbacks** (formats 2 and 3). Nearly done: 20 of
+     upstream's 31 descriptors desugar, and every call-scoped one that has a
+     context slot lowers as `nativeCall`. The additions were measured against
+     the descriptors that forced them, one at a time, so none was built ahead
+     of a use:
 
-     | Addition | Unblocks |
-     | --- | --- |
-     | **the callback's source vocabulary, made symmetric** — see below | `nativeApply`, `nativeEach`, `nativeCallbackMix` |
-     | copy transports on the call arm | `nativeCallbackStringThrow`, `nativeNullCString`, `nativePropVisit` |
-     | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision`, `nativeCombineRaw` |
-     | a `bytes` source parameter and a source argument built from a pointer/length PAIR | `nativeCallbackSpans` |
+     | Addition | Unblocks | State |
+     | --- | --- | --- |
+     | the positional context slot | every call-scoped descriptor | `cf244122` |
+     | **the callback's source vocabulary, made symmetric** — see below | `nativeApply`, `nativeEach`, `nativeCallbackMix` | `540be6f2` |
+     | a `cstring` payload form, decoded lossily and trapping NULL | `nativeCallbackStringThrow`, `nativeNullCString`, `nativePropVisit` | `50b0b721` |
+     | a source argument built from a pointer/length PAIR, and the two span payload forms | `nativeCallbackSpans` | `8bc04cb5` |
+     | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision`, `nativeCombineRaw` | remaining |
+
+     Two of those rows were predicted wrongly and the corrections are worth
+     more than the tidier table. The third row was written as "copy transports
+     on the call arm", which named the mechanism instead of the gap: the call
+     arm did need to admit a copied payload, but `transports` turned out to be
+     a field no backend read, uniform per contract arm, and derivable from the
+     payload form — so it was deleted (`73b8c0fc`) rather than widened, and
+     what actually had to exist was a payload form naming the C arrangement.
+     The fourth row asked for "a `bytes` source parameter", which is a payload
+     form; a span is two physical slots feeding one parameter, so the pairing
+     belongs to the source ARGUMENT and the form says only what the handler
+     receives.
 
      The first row was originally written as two separate gaps — "a plain
      number handler answer" and "a `bool` source parameter" — and blamed on

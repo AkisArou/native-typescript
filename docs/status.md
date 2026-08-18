@@ -25,6 +25,7 @@ The repository is not yet an application framework or a production compiler.
 | Foreign-thread ingress, owner gateway, scheduling | implemented |
 | Native error conventions | `errno` and nullable-handle only |
 | TypeScript → C exports | exact `i32` only |
+| Outbound native-call unification | value calls and context-carrying call-scoped callbacks |
 | Artifact graph, sandboxed executor, local cache | implemented |
 | C ABI evidence (Clang-proven) | implemented |
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
@@ -305,6 +306,37 @@ plan without calling a materializer or inventing caller-visible paths. This
 keeps ScriptC's runtime-source selection as the single source of truth.
 
 Only reached bindings and native types enter emitted IR or the link.
+
+### Outbound native calls: one node, two input dialects
+
+The compiler carried two outbound native-call subsystems — upstream's FFI
+profile (`ffiCall`) and this project's Native IR (`nativeCall`) — sharing no
+code and duplicated through every backend and validator.
+[0001](records/0001-native-manifest-boundary.md) sequences their unification:
+the FFI profile becomes an input dialect that desugars into Native IR
+bindings, and `ffiCall` is deleted once nothing needs it.
+
+Landed: every value call, and every call-scoped callback that has a context
+slot. Measured against upstream's own conformance profile, 20 of its 31
+descriptors lower as `nativeCall`; the other 11 keep the profile's path and
+still pass its 48-test suite on both backends.
+
+Remaining, in order:
+
+- two contextless callbacks, which need a closure bound through a
+  thread-local slot because there is no userdata parameter to carry it;
+- nine retained and foreign registrations (profile formats 4 and 5), which
+  need a process-scoped registration owner and release-by-value
+  identification. `ffiCall`, `IrFfiImport`, and the profile's own runtime
+  units are deleted with that slice.
+
+The callback payload vocabulary is complete for the call-scoped tier: exact
+scalars, a widened number, a boolean over declared storage values, a
+NUL-terminated C string, and pointer/length spans as text or as bytes. A
+handler answers with an exact scalar, a boolean over storage values, or a
+number narrowed by a named conversion. Queued delivery admits every form but
+the spans, whose count is consumed at read time and has nowhere to live in a
+record that outlives the call.
 
 ## Bindings
 
