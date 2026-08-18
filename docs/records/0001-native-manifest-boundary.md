@@ -403,6 +403,29 @@ change atomic, green on its own, and bisectable:
    and nothing more** (see *Minimum vocabulary* below); upstream's FFI suite
    and the fork's native-IR suite must both pass unchanged, which is the
    proof it is a refactor and not a semantic change.
+
+   Landing in three slices, by capability, so each is verifiable against
+   upstream's suite on its own:
+
+   - **Value calls.** Done. Every profile binding with no callback desugars
+     and lowers as `nativeCall`; the rest keep the profile's path. The
+     measured cost was five real defects the oracle caught, not translation
+     detail — the crossing analysis refusing a wrap it cannot refute, a
+     symbol allocator reading one of two tables, an LLVM call-argument
+     attribute used as a type in two places, a saturating narrowing on the
+     unsigned half, and a deferred callback throw losing its checkpoint when
+     the observing call changed paths.
+   - **Call-scoped callbacks** (formats 2 and 3). Needs two capabilities the
+     native path does not have, measured at `02dfd328`: a **contextless**
+     callback, because `IrNativeCallbackSignature.context` is required and
+     the validator demands exactly one context projection, while upstream's
+     raw callbacks bind through a thread-local slot instead; and **copied
+     payloads on a call-scoped callback**, since the call arm admits only
+     borrow transports today and format 3 copies cstring, string, and byte
+     spans before the closure runs. Both are additions to the native
+     vocabulary rather than translations.
+   - **Retained and foreign** (formats 4 and 5), after which `ffiCall` and
+     its table are deleted. `owner` gains its `process` arm here.
 3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
    the mandatory conversion projection.
 4. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
