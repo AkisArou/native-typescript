@@ -171,7 +171,9 @@ contract.
 ## Minimum vocabulary for the unification
 
 Measured at `35d5f67b`. Desugaring upstream's formats into Native IR bindings
-needs two things Native IR does not have, and no others:
+needs four things Native IR does not have, and no others. Two are genuinely
+new vocabulary; two are shapes the current design cannot express because it
+states a related fact in a fixed form:
 
 - **A `wrap` conversion.** Native IR's `number` projection is checked-only and
   capped at 32 bits; upstream's value ingress emits ECMAScript
@@ -184,11 +186,24 @@ needs two things Native IR does not have, and no others:
   registration to a `result` or an `argument`; upstream scopes one to the
   descriptor and context pointer for the life of the process, with no owner
   value at all. That arm has to exist for a format 4 or 5 binding to be
-  expressible.
+  expressible. Under [0003](0003-vocabulary-narrowing.md) it stops being a new
+  concept and becomes the fourth arm of the unified `owner`, which is why that
+  narrowing is sequenced first.
+
+- **A truthy boolean result.** Upstream's `bool` return is `(call != 0)` —
+  any nonzero is true and it never throws. Native IR checks the value against
+  the declared `falseValue`/`trueValue` pair and raises catchably otherwise.
+  Both are legitimate contracts and neither subsumes the other, so the result
+  projection grows a second form.
+- **A release-by-value parameter.** Upstream identifies the registration to
+  release by the closure value passed back on a named descriptor. Native IR
+  derives cancellation from the *owner handle*
+  (`nativeCallbackCancellationArgument`). Those are dual identification
+  mechanisms, and expressing formats 4 and 5 needs upstream's.
 
 Everything else in formats 1 through 5 — the string, byte, and cstring
-crossings, call-scoped callbacks, context placement, the release descriptor's
-identity rule — maps onto vocabulary that already exists.
+crossings, call-scoped callbacks, context placement — maps onto vocabulary
+that already exists.
 
 This is why step 1 cannot be a pure refactor of the IR, and saying so is worth
 more than preserving the tidier claim: a unification that quietly dropped
@@ -377,27 +392,33 @@ change atomic, green on its own, and bisectable:
 0. **Neutralize the fork.** Framework mentions, product identity, and the
    `SC5101` hint. Atomic across both repositories, because the fixture module
    name crosses the submodule boundary.
-1. **Unify the call node.** One `nativeCall`; formats 1–5 desugar at load.
+1. **Narrow the vocabulary to what it lowers.**
+   [0003](0003-vocabulary-narrowing.md): collapse `lifetime` into `owner`,
+   replace the eleven error conventions with three orthogonal axes, delete the
+   four inert callback fields and the constant-valued ones. Nothing observable
+   changes, which is a safety argument available only while nothing else is
+   moving — and it makes the next step smaller.
+2. **Unify the call node.** One `nativeCall`; formats 1–5 desugar at load.
    The vocabulary grows by **exactly what faithfully expresses formats 1–5,
    and nothing more** (see *Minimum vocabulary* below); upstream's FFI suite
    and the fork's native-IR suite must both pass unchanged, which is the
    proof it is a refactor and not a semantic change.
-2. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
+3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
    the mandatory conversion projection.
-3. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
+4. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
    owned/borrowed/nullable results.
-4. **Aggregates.** Structs and unions by value with Clang-proven layout.
-5. **Callback convergence.** Handle-scoped registration on the ledger;
+5. **Aggregates.** Structs and unions by value with Clang-proven layout.
+6. **Callback convergence.** Handle-scoped registration on the ledger;
    embedder-supplied delivery wake. Deletes the redundant runtime units.
-6. **Exports, constants, operations.**
-7. **The committed type module and JSON Schema.**
-8. **SCABI v4.** Envelope, composer, `bindgen-gir` emitting the subtree
+7. **Exports, constants, operations.**
+8. **The committed type module and JSON Schema.**
+9. **SCABI v4.** Envelope, composer, `bindgen-gir` emitting the subtree
    directly, fixtures regenerated, `schemaVersion` bumped to 4, and
    [architecture](../architecture.md) plus [binding ABI](../binding-abi.md)
    rewritten in the same change.
 
-Steps 2 through 6 each shrink the parallel path; by 6 there is nothing left
-to delete because step 1 already merged the node.
+Steps 3 through 7 each shrink the parallel path; by 7 there is nothing left
+to delete because step 2 already merged the node.
 
 ## Chosen decision and rejected alternatives
 

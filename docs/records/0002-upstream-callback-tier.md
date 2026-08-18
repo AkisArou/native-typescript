@@ -130,8 +130,9 @@ For convergence to be possible, upstream's profile must be able to express:
 - The fork's contract keeps two fields upstream does not model —
   `reentrancy` and `allowedInvocationExecutors` as a set — which are
   declarations about what a native API promises rather than about what the
-  runtime does. Whether they earn their place is a separate question this
-  record does not settle.
+  runtime does. [0003](0003-vocabulary-narrowing.md) settles it by
+  measurement: `reentrancy` has no read site outside the validator and is
+  deleted, while `allowedInvocationExecutors` has three and stays.
 
 ## Reference implementations and findings
 
