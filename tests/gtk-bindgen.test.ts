@@ -533,7 +533,12 @@ test(
         type: { kind: "nativeScalar", scalar: "i32" },
         passMode: "value",
         ownership: { kind: "value" },
-        projection: { kind: "boolean", falseValue: "0", trueValue: "1" },
+        projection: {
+          kind: "boolean",
+          conversion: "exact",
+          falseValue: "0",
+          trueValue: "1",
+        },
       });
       const setVisible = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_set_visible",
@@ -586,7 +591,7 @@ test(
         type: { kind: "nativeScalar", scalar: "f64" },
         passMode: "value",
         ownership: { kind: "value" },
-        projection: { kind: "number", argument: 1 },
+        projection: { kind: "number", argument: 1, conversion: "checked" },
       });
       const getWidth = translated.input.bindings.find(
         ({ entry }) => entry.symbol === "gtk_widget_get_width",
@@ -616,11 +621,11 @@ test(
         [
           {
             type: { kind: "nativeScalar", scalar: "i32" },
-            projection: { kind: "number", argument: 1 },
+            projection: { kind: "number", argument: 1, conversion: "checked" },
           },
           {
             type: { kind: "nativeScalar", scalar: "i32" },
-            projection: { kind: "number", argument: 2 },
+            projection: { kind: "number", argument: 2, conversion: "checked" },
           },
         ],
       );

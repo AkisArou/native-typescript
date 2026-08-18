@@ -305,7 +305,7 @@ test("SCABI checked-number positions translate without naming a source type", ()
       type: { kind: "nativeScalar", scalar: "i32" },
       passMode: "value",
       ownership: { kind: "value" },
-      projection: { kind: "number", argument: 0 },
+      projection: { kind: "number", argument: 0, conversion: "checked" },
     },
   ]);
   assert.deepEqual(binding?.result, {
@@ -597,7 +597,7 @@ test("SCABI projects integer-backed native boolean parameters and results", () =
     type: { kind: "nativeScalar", scalar: "i32" },
     passMode: "value",
     ownership: { kind: "value" },
-    projection: { kind: "boolean", falseValue: "0", trueValue: "1" },
+    projection: { kind: "boolean", conversion: "exact", falseValue: "0", trueValue: "1" },
   });
 });
 

@@ -188,9 +188,16 @@ export type ScriptCNativeParameterProjection =
       readonly falseValue: string;
       readonly trueValue: string;
     }
-  /** The checked JavaScript-number ingress: finite, integral, and in range, or
-   * a catchable TypeError before the call happens. */
-  | { readonly kind: "number"; readonly argument: number }
+  /** A JavaScript-number ingress that names its conversion. SCABI declares
+   * only the checked one — finite, integral, and in range, or a catchable
+   * TypeError before the call happens — because a manifest that wanted the
+   * wrapping conversion would be asking for `| 0`, which the language
+   * already spells at the call site. */
+  | {
+      readonly kind: "number";
+      readonly argument: number;
+      readonly conversion: "checked";
+    }
   | { readonly kind: "utf8CString"; readonly argument: number }
   | { readonly kind: "utf8Data"; readonly argument: number }
   | { readonly kind: "utf8ByteLength"; readonly argument: number }
@@ -203,6 +210,7 @@ export type ScriptCNativeResultProjection =
   | { readonly kind: "direct" }
   | {
       readonly kind: "boolean";
+      readonly conversion: "exact";
       readonly falseValue: string;
       readonly trueValue: string;
     }
@@ -2911,7 +2919,11 @@ export function translateScabiNativeProgram(
             type: directType!,
             passMode: "value",
             ownership: Object.freeze({ kind: "value" } as const),
-            projection: Object.freeze({ kind: "number", argument } as const),
+            projection: Object.freeze({
+              kind: "number",
+              argument,
+              conversion: "checked",
+            } as const),
           }));
           continue;
         }
@@ -3064,6 +3076,7 @@ export function translateScabiNativeProgram(
         resultOwnership = Object.freeze({ kind: "value" });
         resultProjection = Object.freeze({
           kind: "boolean",
+          conversion: "exact",
           falseValue: booleanType.falseValue,
           trueValue: booleanType.trueValue,
         });
