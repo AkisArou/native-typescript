@@ -151,15 +151,6 @@ export type ScriptCNativeCallbackContract =
       readonly owner: { readonly kind: "call" };
       readonly allowedInvocationExecutors: readonly ["same-as-caller"];
       readonly synchronousReturn: true;
-      /* Per payload: a value slot is borrowed, a pointer slot is copied
-       * because the script value built from it outlives the pointer. Nothing
-       * this translator emits copies yet — a call-scoped payload here must be
-       * an exact scalar — but the compiler derives the field rather than
-       * accepting it, so the mirror admits what the compiler does. */
-      readonly transports: readonly (
-        | { readonly kind: "borrow" }
-        | { readonly kind: "copy" }
-      )[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
     }
   | {
@@ -172,7 +163,6 @@ export type ScriptCNativeCallbackContract =
         | "any-attached-thread"
       )[];
       readonly synchronousReturn: false;
-      readonly transports: readonly { readonly kind: "copy" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
     }
   /** A registration the native side asks: the handler runs during the call
@@ -187,7 +177,6 @@ export type ScriptCNativeCallbackContract =
       readonly cancellationBinding: string;
       readonly allowedInvocationExecutors: readonly ["same-as-caller"];
       readonly synchronousReturn: true;
-      readonly transports: readonly { readonly kind: "borrow" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
     };
 
@@ -1405,9 +1394,6 @@ function supportedCallScopedCallbackPair(
       owner: Object.freeze({ kind: "call" as const }),
       allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
       synchronousReturn: true,
-      transports: Object.freeze(
-        contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
-      ),
       sourceArguments: Object.freeze(sourceArguments.map((argument) =>
         argument.kind === "callback-parameter"
           ? Object.freeze({
@@ -1655,9 +1641,6 @@ function supportedRetainedCallbackPair(
         cancellationBinding: cancellation,
         allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
         synchronousReturn: true,
-        transports: Object.freeze(
-          contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
-        ),
         sourceArguments: loweredSourceArguments,
       }),
     };
@@ -1675,9 +1658,6 @@ function supportedRetainedCallbackPair(
         allowedInvocationExecutors as ("same-as-caller" | "any-attached-thread")[],
       ),
       synchronousReturn: false,
-      transports: Object.freeze(
-        contract.arguments.map(() => Object.freeze({ kind: "copy" } as const)),
-      ),
       sourceArguments: loweredSourceArguments,
     }),
   };

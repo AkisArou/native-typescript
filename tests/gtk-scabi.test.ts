@@ -2239,7 +2239,6 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
       "native-typescript.gtk4@0.0.0#gtk_signal_connection_disconnect",
     allowedInvocationExecutors: ["same-as-caller"],
     synchronousReturn: false,
-    transports: [{ kind: "copy" }, { kind: "copy" }],
     sourceArguments: [
       { kind: "registration-owner" },
       { kind: "callback-parameter", parameter: 0 },
