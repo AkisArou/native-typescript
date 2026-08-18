@@ -345,6 +345,10 @@ to share the node.
 Foreign payloads carry exact scalars at every width, because the transport is
 the gateway's invocation record rather than the retired queue's fixed slots.
 
+What a callback payload becomes is decided once for both backends rather than
+twice ([0004](records/0004-one-decision-two-backends.md)). The trampoline
+shape and the call-site lifecycle are still decided twice.
+
 The callback payload vocabulary is complete for the call-scoped tier: exact
 scalars, a widened number, a boolean over declared storage values, a
 NUL-terminated C string, and pointer/length spans as text or as bytes. A
