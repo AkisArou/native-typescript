@@ -97,15 +97,28 @@ export type ScriptCNativeCallbackArgumentType = {
     | { readonly kind: "nativeHandle"; readonly typeId: string }
     | { readonly kind: "string" }
     | { readonly kind: "f64" }
+    | {
+        /** An integer payload read as a boolean. False is exactly the named
+         * value; every other bit pattern is true, which is what a foreign API
+         * promising "any nonzero" means. */
+        readonly kind: "bool";
+        readonly falseValue: string;
+        readonly trueValue: string;
+      }
   )[];
   /** A handler's answer. `bool` is an ordinary TypeScript boolean over an ABI
-   * boolean's storage, carrying the two values that storage means. */
+   * boolean's storage, carrying the two values that storage means; `f64` is an
+   * ordinary number narrowed into the slot the way a parameter's is. */
   readonly ret:
     | ScriptCNativeCallbackSignature["result"]
     | {
         readonly kind: "bool";
         readonly falseValue: string;
         readonly trueValue: string;
+      }
+    | {
+        readonly kind: "f64";
+        readonly conversion: "checked" | "wrap";
       };
 };
 
