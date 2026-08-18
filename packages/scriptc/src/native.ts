@@ -95,7 +95,11 @@ export type ScriptCNativeCallbackArgumentType = {
   readonly params: readonly (
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | { readonly kind: "nativeHandle"; readonly typeId: string }
-    | { readonly kind: "string" }
+    /** A NUL-terminated `const char *` payload, decoded with U+FFFD
+     * replacement. Named for the C shape because the shape is what varies:
+     * a pointer-and-length span is the same script value differently
+     * arranged, and the two cannot share a tag. */
+    | { readonly kind: "cstring" }
     | { readonly kind: "f64" }
     | {
         /** An integer payload read as a boolean. False is exactly the named
@@ -147,7 +151,15 @@ export type ScriptCNativeCallbackContract =
       readonly owner: { readonly kind: "call" };
       readonly allowedInvocationExecutors: readonly ["same-as-caller"];
       readonly synchronousReturn: true;
-      readonly transports: readonly { readonly kind: "borrow" }[];
+      /* Per payload: a value slot is borrowed, a pointer slot is copied
+       * because the script value built from it outlives the pointer. Nothing
+       * this translator emits copies yet — a call-scoped payload here must be
+       * an exact scalar — but the compiler derives the field rather than
+       * accepting it, so the mirror admits what the compiler does. */
+      readonly transports: readonly (
+        | { readonly kind: "borrow" }
+        | { readonly kind: "copy" }
+      )[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
     }
   | {
@@ -2683,7 +2695,7 @@ export function translateScabiNativeProgram(
             sourceArgument.kind === "callback-parameter" &&
             sourceArgument.projection === "utf8CString"
           ) {
-            callbackParameters.push(Object.freeze({ kind: "string" } as const));
+            callbackParameters.push(Object.freeze({ kind: "cstring" } as const));
             continue;
           }
           if (
