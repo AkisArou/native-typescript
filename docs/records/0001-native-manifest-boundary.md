@@ -168,6 +168,32 @@ either side had alone, and it removes the one item on this record that could
 not have been proposed upstream without asking them to break a shipped
 contract.
 
+## Minimum vocabulary for the unification
+
+Measured at `35d5f67b`. Desugaring upstream's formats into Native IR bindings
+needs two things Native IR does not have, and no others:
+
+- **A `wrap` conversion.** Native IR's `number` projection is checked-only and
+  capped at 32 bits; upstream's value ingress emits ECMAScript
+  `ToInt32`/`ToUint32` and its tests assert the wrapping. Desugaring without a
+  wrap projection would silently change upstream's shipped semantics. This is
+  the same projection the conversion decision above already calls for, which
+  means it arrives with a consumer rather than as aspiration — the growth rule
+  this record imposes on SCABI, applied to itself.
+- **A process-scoped registration owner.** Native IR scopes a retained
+  registration to a `result` or an `argument`; upstream scopes one to the
+  descriptor and context pointer for the life of the process, with no owner
+  value at all. That arm has to exist for a format 4 or 5 binding to be
+  expressible.
+
+Everything else in formats 1 through 5 — the string, byte, and cstring
+crossings, call-scoped callbacks, context placement, the release descriptor's
+identity rule — maps onto vocabulary that already exists.
+
+This is why step 1 cannot be a pure refactor of the IR, and saying so is worth
+more than preserving the tidier claim: a unification that quietly dropped
+wrapping would be a behavior change wearing a refactor's clothes.
+
 ## Neutrality
 
 The premise of this record is that the vocabulary is generally useful to a
@@ -352,8 +378,10 @@ change atomic, green on its own, and bisectable:
    `SC5101` hint. Atomic across both repositories, because the fixture module
    name crosses the submodule boundary.
 1. **Unify the call node.** One `nativeCall`; formats 1–5 desugar at load.
-   **No vocabulary growth**, so upstream's FFI suite and the fork's native-IR
-   suite must both pass unchanged — that is the proof it is a refactor.
+   The vocabulary grows by **exactly what faithfully expresses formats 1–5,
+   and nothing more** (see *Minimum vocabulary* below); upstream's FFI suite
+   and the fork's native-IR suite must both pass unchanged, which is the
+   proof it is a refactor and not a semantic change.
 2. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
    the mandatory conversion projection.
 3. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
