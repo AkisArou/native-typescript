@@ -502,8 +502,15 @@ change atomic, green on its own, and bisectable:
 4. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
    owned/borrowed/nullable results.
 5. **Aggregates.** Structs and unions by value with Clang-proven layout.
-6. **Callback convergence.** Handle-scoped registration on the ledger;
-   embedder-supplied delivery wake. Deletes the redundant runtime units.
+6. **Callback convergence.** Done, and the ordering this record and
+   [0002](0002-upstream-callback-tier.md) assumed was wrong. Both expected the
+   merge to wait on the type tier, and to land handle-scoped registration on
+   top of the profile's ledger. It went the other way and needed neither: the
+   TABLE is the surviving substrate, a registration nothing owns is one with
+   no owner set, and release-by-value is a lookup on the anchor it already
+   held. `scr_ffi.c` and `scr_ffi_queue.c` are deleted; the gateway gained a
+   default self-pipe wake so a program with no embedder can use it, while a
+   host that owns its loop still supplies its own.
 7. **Exports, constants, operations.**
 8. **The committed type module and JSON Schema.**
 9. **SCABI v4.** Envelope, composer, `bindgen-gir` emitting the subtree

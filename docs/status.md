@@ -329,16 +329,21 @@ its function value back, matched by pointer identity in a counted ledger, and
 may be raised by a foreign thread, in which case the payload is copied where
 it is raised and the invocation queued for a later turn.
 
-Two substrates still back retained registrations — the process ledger and the
-handle-scoped table with its owner gateway — because the two are keyed
-differently and a process-scoped registration has no owner whose loop could
-carry it. Merging them is
-[0001](records/0001-native-manifest-boundary.md)'s step 6.
+One substrate backs every retained registration: the callback table, reached
+through a token, delivered by the owner gateway. A registration nothing owns
+is the same table entry with no owner set, which is what makes it findable by
+the value it holds when a release names that value back. A program with no
+embedder configures the gateway itself, through a self-pipe wake installed
+just before its first registration; a host that owns its loop supplies the
+wake and wins, because it configures during its own startup.
 
 `ffiCall` survives, serving only library mode's host-callback channels: a
 channel's name is a registration key rather than a C symbol and a call
 dispatches through a runtime slot, which is a different feature that happens
 to share the node.
+
+Foreign payloads carry exact scalars at every width, because the transport is
+the gateway's invocation record rather than the retired queue's fixed slots.
 
 The callback payload vocabulary is complete for the call-scoped tier: exact
 scalars, a widened number, a boolean over declared storage values, a

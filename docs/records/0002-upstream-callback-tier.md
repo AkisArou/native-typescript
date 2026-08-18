@@ -1,6 +1,6 @@
 # 0002 — Adjudicating upstream's callback tier against the fork's
 
-Status: accepted finding; the vocabulary half landed, the runtime half is 0001 step 6
+Status: superseded — both halves landed, and this record's ordering was wrong
 Last revised: 2026-08-18
 
 This is an investigation record under the policy in
@@ -78,19 +78,28 @@ loop that already exists — GLib's, CFRunLoop, an Android Looper — drives
 delivery. Format 5 is unusable in any host that owns its own loop, which is
 every GUI host.
 
-### Resolved: the compiler-side duplication, not the runtime's
+### Resolved, and the ordering below was wrong
 
-The ordering below held, but only for the RUNTIME. The compiler-side
-duplication went first and did not need the type tier at all: upstream's
-formats now desugar into Native IR bindings, `owner` gained a `process` arm
-for a registration nothing owns, and releases identify a registration by
-naming its function value back. One node reaches the backends.
+This record's central claim — "the callback tier cannot converge until the
+type tier does" — did not survive implementation, in both halves.
 
-What remains is exactly what this record said the callback tier needs: two
-ledgers still exist because they are keyed differently — one by a handle, one
-by a value — and two transports because a process-scoped registration has no
-owner whose loop could carry it. That merge is 0001 step 6, and it is still
-gated on the type tier for the reason given below.
+The compiler-side duplication went first and needed no type tier: upstream's
+formats desugar into Native IR bindings, `owner` gained a `process` arm for a
+registration nothing owns, and a release identifies one by naming its function
+value back. One node reaches the backends.
+
+The runtime duplication then went too, and in the opposite direction from the
+convergence target proposed below. That target was upstream's ledger as the
+substrate with handle-scoped registration built on top. What actually works is
+the reverse: the TABLE is the substrate, and a registration nothing owns is
+simply one with no owner set — findable by the value it already holds. No
+handle class was needed on either side, because the case that has no owner
+needs no owner to name.
+
+`scr_ffi.c` and `scr_ffi_queue.c` are deleted. The gateway gained a default
+self-pipe wake so a program with no embedder can use it, which is the one
+piece the target below got right: a pluggable wake is what makes a transport
+usable in a host that owns its loop, and it is what made this merge possible.
 
 ### Why the duplication cannot be deleted in this change
 
