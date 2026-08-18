@@ -274,15 +274,35 @@ function freezePhysicalAbiValue(value: NativePhysicalAbiValue): ScriptCNativePhy
   return Object.freeze({ ...value, type: freezePhysicalAbiType(value.type) });
 }
 
-export type ScriptCNativeErrorContract =
-  | { readonly kind: "no-fail" }
-  | { readonly kind: "errno"; readonly failureValue: string }
-  | { readonly kind: "nullable" }
-  | {
-      readonly kind: "errorHandle";
-      readonly messageSymbol: string;
-      readonly releaseSymbol: string;
-    };
+/** Mirrors the compiler's three-axis failure contract: how a failure is
+ * recognised, where its message comes from, and what must be released. SCABI
+ * still names conventions; this is where a convention becomes axes. */
+export type ScriptCNativeFailureDetection =
+  | { readonly kind: "never" }
+  | { readonly kind: "resultIsNull" }
+  | { readonly kind: "resultIsNotNull" }
+  | { readonly kind: "resultEquals"; readonly value: string };
+
+export type ScriptCNativeFailureMessage =
+  | { readonly kind: "none" }
+  | { readonly kind: "errno" }
+  | { readonly kind: "symbol"; readonly symbol: string };
+
+export type ScriptCNativeFailureRelease =
+  | { readonly kind: "none" }
+  | { readonly kind: "symbol"; readonly symbol: string };
+
+export interface ScriptCNativeErrorContract {
+  readonly detect: ScriptCNativeFailureDetection;
+  readonly message: ScriptCNativeFailureMessage;
+  readonly release: ScriptCNativeFailureRelease;
+}
+
+const NO_NATIVE_FAILURE = Object.freeze({
+  detect: Object.freeze({ kind: "never" } as const),
+  message: Object.freeze({ kind: "none" } as const),
+  release: Object.freeze({ kind: "none" } as const),
+} as const);
 
 export interface ScriptCNativeSourceType {
   readonly declaration: ScriptCNativeDeclaration;
@@ -408,7 +428,11 @@ export interface ScriptCNativeExport {
   readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
   readonly callingConvention: "c";
   readonly variadic: false;
-  readonly error: { readonly kind: "no-fail" };
+  readonly error: {
+    readonly detect: { readonly kind: "never" };
+    readonly message: { readonly kind: "none" };
+    readonly release: { readonly kind: "none" };
+  };
   readonly parameters: readonly {
     readonly name: string;
     readonly type: ScriptCNativeValueType;
@@ -3280,24 +3304,39 @@ export function translateScabiNativeProgram(
             : Object.freeze({ kind: "function" } as const),
         error: binding.error.kind === "errno"
           ? Object.freeze({
-              kind: "errno",
-              failureValue: binding.error.failureValue,
+              detect: Object.freeze({
+                kind: "resultEquals",
+                value: binding.error.failureValue,
+              } as const),
+              message: Object.freeze({ kind: "errno" } as const),
+              release: Object.freeze({ kind: "none" } as const),
             } as const)
           : binding.error.kind === "nullable"
-            ? Object.freeze({ kind: "nullable" } as const)
+            ? Object.freeze({
+                detect: Object.freeze({ kind: "resultIsNull" } as const),
+                message: Object.freeze({ kind: "none" } as const),
+                release: Object.freeze({ kind: "none" } as const),
+              } as const)
             : binding.error.kind === "error-handle"
               ? Object.freeze({
-                  kind: "errorHandle",
-                  // SCABI names bindings; Native IR carries the resolved
-                  // symbols the emitters call.
-                  messageSymbol: (
-                    manifest.bindings[binding.error.message] as CallableBinding
-                  ).entry.symbol,
-                  releaseSymbol: (
-                    manifest.bindings[binding.error.release] as CallableBinding
-                  ).entry.symbol,
+                  /* The result IS the error object: non-null is failure.
+                   * SCABI names bindings; the compiler carries the resolved
+                   * symbols its emitters call. */
+                  detect: Object.freeze({ kind: "resultIsNotNull" } as const),
+                  message: Object.freeze({
+                    kind: "symbol",
+                    symbol: (
+                      manifest.bindings[binding.error.message] as CallableBinding
+                    ).entry.symbol,
+                  } as const),
+                  release: Object.freeze({
+                    kind: "symbol",
+                    symbol: (
+                      manifest.bindings[binding.error.release] as CallableBinding
+                    ).entry.symbol,
+                  } as const),
                 } as const)
-              : Object.freeze({ kind: "no-fail" } as const),
+              : NO_NATIVE_FAILURE,
         arguments: Object.freeze(sourceArguments),
         parameters: Object.freeze(parameters),
         result: Object.freeze({
@@ -3423,7 +3462,7 @@ export function translateScabiNativeProgram(
       entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol } as const),
       callingConvention: "c",
       variadic: false,
-      error: Object.freeze({ kind: "no-fail" } as const),
+      error: NO_NATIVE_FAILURE,
       parameters: Object.freeze(parameters),
       result: Object.freeze({
         type: resultType,

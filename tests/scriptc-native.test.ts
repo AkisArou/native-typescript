@@ -11,6 +11,24 @@ import {
 } from "@native-typescript/scriptc";
 
 const fixtureRoot = resolve(import.meta.dirname, "../fixtures/scabi-c-v1");
+/* The compiler's failure axes, spelled once for the expectations below. */
+const NO_NATIVE_FAILURE = {
+  detect: { kind: "never" },
+  message: { kind: "none" },
+  release: { kind: "none" },
+} as const;
+const NULL_IS_FAILURE = {
+  detect: { kind: "resultIsNull" },
+  message: { kind: "none" },
+  release: { kind: "none" },
+} as const;
+const errnoFailure = (value: string) =>
+  ({
+    detect: { kind: "resultEquals", value },
+    message: { kind: "errno" },
+    release: { kind: "none" },
+  }) as const;
+
 const manifest = parseScabiManifest(
   readFileSync(resolve(fixtureRoot, "package.scabi.json"), "utf8"),
 );
@@ -229,7 +247,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
         callingConvention: "c",
         variadic: false,
         sourceCall: { kind: "function" },
-        error: { kind: "no-fail" },
+        error: NO_NATIVE_FAILURE,
         ...directSignature([
           {
             name: "value",
@@ -438,7 +456,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
       entry: { kind: "c-symbol", symbol: "nts_ts_add_i32" },
       callingConvention: "c",
       variadic: false,
-      error: { kind: "no-fail" },
+      error: NO_NATIVE_FAILURE,
       parameters: [
         {
           name: "left",
@@ -612,7 +630,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
-      error: { kind: "no-fail" },
+      error: NO_NATIVE_FAILURE,
       arguments: [{ name: "data", type: { kind: "string" } }],
       parameters: [
         {
@@ -833,7 +851,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
-      error: { kind: "no-fail" },
+      error: NO_NATIVE_FAILURE,
       arguments: [{ name: "data", type: { kind: "bytes", elem: "u8" } }],
       parameters: [
         {
@@ -919,7 +937,7 @@ test("SCABI projects one call-scoped callback into function and context slots", 
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
-      error: { kind: "no-fail" },
+      error: NO_NATIVE_FAILURE,
       arguments: [
         {
           name: "callback",
@@ -1009,7 +1027,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
-    error: { kind: "nullable" },
+    error: NULL_IS_FAILURE,
     arguments: [{
       name: "callback",
       type: { kind: "func", params: [i32], ret: { kind: "void" } },
@@ -1132,7 +1150,7 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
       callingConvention: "c",
       variadic: false,
       sourceCall: { kind: "function" },
-      error: { kind: "errno", failureValue: "-1" },
+      error: errnoFailure("-1"),
       ...directSignature([
         {
           name: "error_number",
@@ -1231,7 +1249,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
-    error: { kind: "no-fail" },
+    error: NO_NATIVE_FAILURE,
     ...directSignature([{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }]),
     result: {
       type: { kind: "nativeStruct", typeId },
@@ -1377,7 +1395,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "function" },
-    error: { kind: "no-fail" },
+    error: NO_NATIVE_FAILURE,
     ...directSignature([
       {
         name: "initial_value",
@@ -1407,7 +1425,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
     callingConvention: "c",
     variadic: false,
     sourceCall: { kind: "method", receiverArgument: 0 },
-    error: { kind: "no-fail" },
+    error: NO_NATIVE_FAILURE,
     ...directSignature([
       {
         name: "counter",
@@ -1596,7 +1614,7 @@ test("SCABI lowers nullable owned handles as errors rather than nullable source 
   const result = translateScabiNativeProgram(nullable, selectImports(["counter_create"]));
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.deepEqual(result.input.bindings[0]?.error, { kind: "nullable" });
+  assert.deepEqual(result.input.bindings[0]?.error, NULL_IS_FAILURE);
   assert.equal(result.input.bindings[0]?.result.type.kind, "nativeHandle");
 
   Object.assign(binding.signature.result, { nullable: false });

@@ -518,9 +518,9 @@ test(
     assert.ok(registerBinding);
     if (!registerBinding) return;
     assert.deepEqual(registerBinding.error, {
-      kind: "errorHandle",
-      messageSymbol: "nts_gio_error_message",
-      releaseSymbol: "nts_gio_error_free",
+      detect: { kind: "resultIsNotNull" },
+      message: { kind: "symbol", symbol: "nts_gio_error_message" },
+      release: { kind: "symbol", symbol: "nts_gio_error_free" },
     });
     assert.equal(registerBinding.result.projection.kind, "errorChannel");
 
