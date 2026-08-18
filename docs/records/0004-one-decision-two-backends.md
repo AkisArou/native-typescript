@@ -107,19 +107,19 @@ verifiable.
 **Chosen.** Extract the decisions in slices, ordered by measured defect
 density, each landing green. All three landed, each observationally inert.
 
-1. **Payload reads.** Done, in `04240e17`. `nativeCallbackPayloads` names what each source
-   argument becomes — direct, widened number, boolean over declared storage,
-   C string, span, owned handle, injected owner. Two duplicated derivations
-   (the slots whose pointers must not be stored, the handle payloads and their
-   destructors) became filters over that one list. Three of the five defects
-   above were in this code.
-2. **Trampoline shape and closure source.** Which arm a contract calls for,
-   and where the trampoline finds its closure — context slot, thread-local,
-   replaceable global, or token. Two of the five defects were here.
-2. (cont.) `nativeTrampolineForm` names the shape — call-scoped, direct, or
-   queued — and the closure source, which is one of exactly four. Landed in
-   `502915fc`.
-3. **Call-site lifecycle.** Done, in `f68a8b30`. `nativeCallLifecycle` gives
+1. **Payload reads**, in `04240e17`. `nativeCallbackPayloads` names what each
+   source argument becomes — direct, widened number, boolean over declared
+   storage, C string, span, owned handle, injected owner. Two duplicated
+   derivations (the slots whose pointers must not be stored, the handle
+   payloads and their destructors) became filters over that one list. Three of
+   the five defects above were in this code.
+2. **Trampoline shape and closure source**, in `502915fc`.
+   `nativeTrampolineForm` names which arm a contract calls for — call-scoped,
+   direct, or queued — and where the trampoline finds its closure, which is
+   one of exactly four places: the context slot itself, a thread-local, a
+   token in the context slot, or a token in a replaceable global. Two of the
+   five defects were here.
+3. **Call-site lifecycle**, in `f68a8b30`. `nativeCallLifecycle` gives
    the ordered setup, the slots lent after argument conversion, and the
    teardown. The ORDER is the decision: registration precedes the call because
    a library may fire on subscribe; a release is validated before and unpinned
