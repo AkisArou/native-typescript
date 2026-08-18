@@ -1241,7 +1241,7 @@ function supportedCallbackSourceArguments(
     }
     if (
       ownerProjected ||
-      contract.lifetime === "call" ||
+      contract.registrationOwner === "native-call" ||
       contract.registrationOwner === "result"
     ) {
       return "a callback can inject only one receiver registration owner";
@@ -1281,19 +1281,14 @@ function supportedCallScopedCallbackPair(
     return "callback data must be a non-null call-scoped C callback pointer";
   }
   if (
-    contract.lifetime !== "call" ||
     contract.registrationOwner !== "native-call" ||
     contract.cancellationBinding !== undefined ||
     contract.contextParameter === undefined ||
     contract.allowedInvocationExecutors.length !== 1 ||
     contract.allowedInvocationExecutors[0]?.kind !== "same-as-caller" ||
-    contract.deliveryExecutor.kind !== "same-as-caller" ||
-    !contract.synchronousReturn ||
-    contract.reentrancy !== "required" ||
-    contract.postDisposal !== "not-invoked" ||
-    contract.shutdown !== "drain"
+    !contract.synchronousReturn
   ) {
-    return "only synchronous, reentrant, same-caller call-lifetime callbacks are supported";
+    return "only synchronous same-caller call-owned callbacks are supported";
   }
   if (
     callbackType.signature.callingConvention !== "c" ||
@@ -1424,7 +1419,7 @@ function supportedRetainedCallbackPair(
     (executor) => executor.kind,
   );
   if (
-    contract.lifetime !== "until-cancelled" ||
+    contract.registrationOwner === "native-call" ||
     (contract.registrationOwner !== "result" &&
       (binding.kind !== "method" ||
         registrationOwnerIndex !== 0 ||
@@ -1440,17 +1435,12 @@ function supportedRetainedCallbackPair(
     allowedInvocationExecutors.some(
       (executor) => executor !== "same-as-caller" && executor !== "any-attached-thread",
     ) ||
-    new Set(allowedInvocationExecutors).size !== allowedInvocationExecutors.length ||
-    /* Two deliveries: the ordinary one queues onto the runtime owner and
-     * answers nothing, and the answering one runs on the caller's thread
-     * because its result is the emitting call's result. The pairing is
-     * checked below, once the callback's own shape is known. */
-    (contract.synchronousReturn
-      ? contract.deliveryExecutor.kind !== "same-as-caller"
-      : contract.deliveryExecutor.kind !== "runtime-owner") ||
-    (contract.reentrancy !== "allowed" && contract.reentrancy !== "required") ||
-    contract.postDisposal !== "not-invoked" ||
-    contract.shutdown !== "drain"
+    new Set(allowedInvocationExecutors).size !== allowedInvocationExecutors.length
+    /* Two deliveries, and the contract no longer states which: the ordinary
+     * one queues onto the runtime owner and answers nothing, the answering
+     * one runs on the caller's thread because its result is the emitting
+     * call's result. `synchronousReturn` is the whole discriminant, so there
+     * is nothing left here to disagree with it. */
   ) {
     return "only until-cancelled callbacks delivered onto the runtime owner, or answered on the caller's thread, with explicit result or receiver ownership are supported";
   }
@@ -1560,14 +1550,8 @@ function supportedRetainedCallbackPair(
     ) {
       return "a synchronously answered callback borrows every parameter in ABI order";
     }
-    if (
-      contract.deliveryExecutor.kind !== "same-as-caller" ||
-      allowedInvocationExecutors.some((executor) => executor !== "same-as-caller")
-    ) {
-      return "a synchronously answered callback is invoked and delivered on the caller's thread";
-    }
-    if (contract.reentrancy !== "required") {
-      return "a synchronously answered callback runs inside the call that asks it";
+    if (allowedInvocationExecutors.some((executor) => executor !== "same-as-caller")) {
+      return "a synchronously answered callback is invoked on the caller's thread";
     }
   } else if (
     callbackType.signature.parameters.some(
@@ -1668,12 +1652,14 @@ function supportedCallbackPair(
   binding: CallableBinding,
   callbackIndex: number,
 ): SupportedCallbackPair | string {
-  const lifetime = binding.signature.parameters[callbackIndex]?.callback?.lifetime;
-  return lifetime === "call"
-    ? supportedCallScopedCallbackPair(manifest, binding, callbackIndex)
-    : lifetime === "until-cancelled"
-      ? supportedRetainedCallbackPair(manifest, binding, callbackIndex)
-      : `callback lifetime '${lifetime ?? "missing"}' is outside the implemented call and until-cancelled slice`;
+  /* The owner is the lifetime: the native call owns a call-scoped
+   * registration, and anything else owns one that outlives the call. */
+  const owner = binding.signature.parameters[callbackIndex]?.callback?.registrationOwner;
+  return owner === undefined
+    ? "a callback parameter has no registration owner"
+    : owner === "native-call"
+      ? supportedCallScopedCallbackPair(manifest, binding, callbackIndex)
+      : supportedRetainedCallbackPair(manifest, binding, callbackIndex);
 }
 
 /**
@@ -1831,14 +1817,6 @@ function bindingUnsupported(
     return `calling convention '${binding.signature.callingConvention}'`;
   }
   if (binding.signature.variadic !== false) return "variadic calls";
-  if (
-    binding.error.kind !== "no-fail" &&
-    binding.error.kind !== "errno" &&
-    binding.error.kind !== "nullable" &&
-    binding.error.kind !== "error-handle"
-  ) {
-    return `error contract '${binding.error.kind}'`;
-  }
   const directThread =
     (binding.thread.behavior === "any" &&
       binding.thread.executor.kind === "any-attached-thread" &&

@@ -2689,18 +2689,14 @@ export function generateGObjectScabiPackage(
               anchor: class_.cSymbolPrefix,
             }),
             callback: Object.freeze({
-              lifetime: "until-cancelled",
+              /* The receiver owns the registration, which is the whole
+               * lifetime story: the connection dies with the object. */
               registrationOwner: class_.cSymbolPrefix,
               cancellationBinding: signalDisconnectId,
               contextParameter: "context",
               allowedInvocationExecutors: Object.freeze([
                 Object.freeze({ kind: "same-as-caller" as const }),
               ]),
-              deliveryExecutor: Object.freeze(
-                registration.answersBoolean
-                  ? { kind: "same-as-caller" as const }
-                  : { kind: "runtime-owner" as const },
-              ),
               synchronousReturn: registration.answersBoolean,
               arguments: Object.freeze(registration.parameters.map((parameter) =>
                 Object.freeze({
@@ -2723,9 +2719,6 @@ export function generateGObjectScabiPackage(
                   })
                 ),
               ]),
-              reentrancy: registration.answersBoolean ? "required" : "allowed",
-              postDisposal: "not-invoked",
-              shutdown: "drain",
             }),
           }),
           Object.freeze({

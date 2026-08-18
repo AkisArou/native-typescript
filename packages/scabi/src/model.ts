@@ -235,13 +235,6 @@ export interface CallbackType {
   readonly context: CallbackContext;
 }
 
-export interface PlatformObjectType {
-  readonly kind: "platform-object";
-  readonly family: string;
-  readonly nativeName: string;
-  readonly threadSafety: "confined" | "sendable" | "shared";
-}
-
 export type NativeType =
   | VoidType
   | IntegerType
@@ -257,7 +250,7 @@ export type NativeType =
   | OpaqueValueType
   | HandleType
   | CallbackType
-  | PlatformObjectType;
+;
 
 export type OwnershipContract =
   | { readonly kind: "value" }
@@ -284,20 +277,12 @@ export type OwnershipContract =
       readonly destructor?: NativeBindingId;
     }
   | { readonly kind: "owned"; readonly transfer: "to-native" }
-  | {
-      readonly kind: "retained";
-      readonly retain: NativeBindingId;
-      readonly release: NativeBindingId;
-    }
-  | { readonly kind: "weak"; readonly upgrade: NativeBindingId }
-  | { readonly kind: "autoreleased"; readonly retain: NativeBindingId }
-  | { readonly kind: "call-scoped" }
-  | { readonly kind: "process-proxy"; readonly release: NativeBindingId };
+  | { readonly kind: "call-scoped" };
 
 export type MarshallingContract =
   | {
       readonly kind: "string";
-      readonly encoding: "utf-8" | "utf-16" | "latin-1";
+      readonly encoding: "utf-8";
       readonly length:
         | { readonly kind: "parameter"; readonly parameter: string }
         | { readonly kind: "nul" };
@@ -310,12 +295,7 @@ export type MarshallingContract =
       readonly mutability: "const" | "mutable";
     };
 
-export type PassMode =
-  | "value"
-  | "pointer"
-  | "reference"
-  | "hidden-return"
-  | "platform-object";
+export type PassMode = "value" | "pointer" | "hidden-return";
 
 export interface AbiResult {
   readonly type: NativeTypeId;
@@ -334,25 +314,19 @@ export interface AbiParameter extends AbiResult {
 }
 
 export interface FunctionSignature {
-  readonly callingConvention:
-    | "c"
-    | "system"
-    | "stdcall"
-    | "fastcall"
-    | "thiscall"
-    | "vectorcall";
+  readonly callingConvention: "c";
   readonly variadic: false;
   readonly parameters: readonly AbiParameter[];
   readonly result: AbiResult;
 }
 
+/** The three the compiler reasons about, plus one it does not: a named
+ * dispatcher is an identity the embedder resolves. A platform's UI thread is
+ * `named("ui")` rather than a case in a compiler's vocabulary. */
 export type ExecutorIdentity =
   | { readonly kind: "runtime-owner" }
-  | { readonly kind: "platform-ui" }
   | { readonly kind: "any-attached-thread" }
-  | { readonly kind: "same-as-receiver" }
   | { readonly kind: "same-as-caller" }
-  | { readonly kind: "callback-defined" }
   | { readonly kind: "named-dispatcher"; readonly name: string };
 
 export interface ThreadContract {
@@ -378,26 +352,33 @@ export type CallbackSourceArgumentContract =
   | { readonly kind: "registration-owner" };
 
 export interface CallbackContract {
-  readonly lifetime: "call" | "once" | "retained" | "weak" | "until-cancelled";
+  /** What owns the registration, and therefore how long it lives:
+   * `"native-call"` for a call-scoped callback, `"result"` for one the
+   * returned value owns, or the name of the parameter that owns it. A
+   * separate lifetime would say the same thing a second time and could
+   * disagree with this one.
+   *
+   * The delivery executor is likewise absent: it follows from the owner and
+   * from `synchronousReturn`, and the compiler derives it. */
   readonly registrationOwner: string;
   readonly cancellationBinding?: NativeBindingId;
   readonly contextParameter?: string;
   readonly allowedInvocationExecutors: readonly ExecutorIdentity[];
-  readonly deliveryExecutor: ExecutorIdentity;
   readonly synchronousReturn: boolean;
   readonly arguments: readonly CallbackArgumentContract[];
   /** Ordered managed callback parameters. Omission is the identity projection
    * of physical callback parameters in ABI order. */
   readonly sourceArguments?: readonly CallbackSourceArgumentContract[];
-  readonly reentrancy: "forbidden" | "allowed" | "required";
-  readonly postDisposal: "not-invoked" | "may-race";
-  readonly shutdown: "drain" | "discard";
 }
 
+/** The conventions with a lowering behind them. The compiler expresses these
+ * as three orthogonal axes — how a failure is recognised, where its message
+ * comes from, what must be released — so a convention this list does not name
+ * is usually one detector away rather than a new concept. It is added here
+ * when a binding needs it, never before. */
 export type ErrorContract =
   | { readonly kind: "no-fail" }
   | { readonly kind: "nullable" }
-  | { readonly kind: "sentinel"; readonly failureValue: string }
   | { readonly kind: "errno"; readonly failureValue: string }
   /** The operation returns an owned error object, or null on success. The
    * message is read through `message` and copied into the thrown error, then
@@ -409,16 +390,6 @@ export type ErrorContract =
       readonly kind: "error-handle";
       readonly message: NativeBindingId;
       readonly release: NativeBindingId;
-    }
-  | { readonly kind: "status-code"; readonly successValues: readonly string[] }
-  | { readonly kind: "hresult" }
-  | { readonly kind: "jni-pending-exception" }
-  | { readonly kind: "nserror"; readonly parameter: string }
-  | { readonly kind: "platform-exception"; readonly adapter: AdapterInputId }
-  | {
-      readonly kind: "async-callback";
-      readonly successCallback: string;
-      readonly errorCallback: string;
     };
 
 export interface BindingDependencies {

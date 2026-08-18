@@ -125,7 +125,6 @@ function typeReferences(type: NativeType): readonly NativeTypeId[] {
     case "integer":
     case "float":
     case "opaque-value":
-    case "platform-object":
       return [];
     case "handle":
       return type.upcasts.map(({ target }) => target);
@@ -498,7 +497,6 @@ function typeSize(
       case "pointer":
       case "handle":
       case "callback":
-      case "platform-object":
         return manifest.target.pointerWidth / 8;
       case "array": {
         const elementSize = typeSize(manifest, type.element, active);
@@ -544,7 +542,6 @@ function typeAlignment(
       case "pointer":
       case "callback":
       case "handle":
-      case "platform-object":
         return manifest.target.pointerWidth / 8;
       case "array":
         return typeAlignment(manifest, type.element, active);
@@ -1088,14 +1085,6 @@ function ownershipBindings(
       return ownership.transfer === "to-runtime" && ownership.destructor !== undefined
         ? [ownership.destructor]
         : [];
-    case "retained":
-      return [ownership.retain, ownership.release];
-    case "weak":
-      return [ownership.upgrade];
-    case "autoreleased":
-      return [ownership.retain];
-    case "process-proxy":
-      return [ownership.release];
     case "value":
     case "borrowed":
     case "call-scoped":
@@ -1147,8 +1136,7 @@ function validatePositionOwnership(
   const resourceBearing =
     type.kind === "pointer" ||
     type.kind === "handle" ||
-    type.kind === "callback" ||
-    type.kind === "platform-object";
+    type.kind === "callback";
   if (resourceBearing && position.ownership.kind === "value") {
     diagnostics.push(
       diagnostic(
@@ -1196,8 +1184,7 @@ function validatePositionOwnership(
   const pointerLike =
     type.kind === "pointer" ||
     type.kind === "handle" ||
-    type.kind === "callback" ||
-    type.kind === "platform-object";
+    type.kind === "callback";
   if (!pointerLike && position.nullable) {
     diagnostics.push(
       diagnostic(
@@ -1218,23 +1205,16 @@ function validatePositionOwnership(
   }
 
   const validPassMode =
-    type.kind === "pointer" || type.kind === "callback"
-      ? position.passMode === "pointer" || position.passMode === "reference"
-      : type.kind === "handle"
-        ? position.passMode === "pointer" ||
-          position.passMode === "platform-object"
-        : type.kind === "platform-object"
-          ? position.passMode === "platform-object" ||
-            position.passMode === "pointer"
-          : type.kind === "struct" ||
-              type.kind === "union" ||
-              type.kind === "opaque-value" ||
-              type.kind === "array" ||
-              type.kind === "slice"
-            ? position.passMode === "value" ||
-              position.passMode === "reference" ||
-              (isResult && position.passMode === "hidden-return")
-            : position.passMode === "value";
+    type.kind === "pointer" || type.kind === "callback" || type.kind === "handle"
+      ? position.passMode === "pointer"
+      : type.kind === "struct" ||
+          type.kind === "union" ||
+          type.kind === "opaque-value" ||
+          type.kind === "array" ||
+          type.kind === "slice"
+        ? position.passMode === "value" ||
+          (isResult && position.passMode === "hidden-return")
+        : position.passMode === "value";
   if (!validPassMode) {
     diagnostics.push(
       diagnostic(
@@ -1481,7 +1461,7 @@ function validateCallback(
   }
 
   if (
-    contract.lifetime === "until-cancelled" &&
+    contract.registrationOwner !== "native-call" &&
     contract.cancellationBinding === undefined
   ) {
     diagnostics.push(
@@ -1493,7 +1473,7 @@ function validateCallback(
     );
   }
   if (
-    contract.lifetime === "until-cancelled" &&
+    contract.registrationOwner !== "native-call" &&
     contract.cancellationBinding !== undefined
   ) {
     const cancellation = manifest.bindings[contract.cancellationBinding];
@@ -1528,16 +1508,9 @@ function validateCallback(
       );
     }
   }
-  if (contract.lifetime === "call") {
-    if (contract.registrationOwner !== "native-call") {
-      diagnostics.push(
-        diagnostic(
-          "NTS2040",
-          `${path}/registrationOwner`,
-          "Call-scoped callbacks must be owned by the native call",
-        ),
-      );
-    }
+  if (contract.registrationOwner === "native-call") {
+    /* A call-owned registration names nothing else: the native call is the
+     * owner, and the checks below are about a value that outlives it. */
   } else if (contract.registrationOwner !== "result") {
     const ownerIndex = binding.signature.parameters.findIndex(
       ({ name }) => name === contract.registrationOwner,
@@ -1582,21 +1555,17 @@ function validateCallback(
      * call-scoped or until-cancelled — a toolkit signal is registered once
      * and asked many times — but never foreign: answering means reading a
      * closure, and a foreign producer may never read one. */
-    if (
-      (contract.lifetime !== "call" && contract.lifetime !== "until-cancelled") ||
-      callbackIsForeign(contract) ||
-      contract.deliveryExecutor.kind !== "same-as-caller"
-    ) {
+    if (callbackIsForeign(contract)) {
       diagnostics.push(
         diagnostic(
           "NTS2040",
           `${path}/synchronousReturn`,
-          "Synchronous callback returns require call or until-cancelled lifetime on the calling executor",
+          "Synchronous callback returns run on the calling executor, so a foreign producer may not ask",
         ),
       );
     }
     if (
-      contract.lifetime === "until-cancelled" &&
+      contract.registrationOwner !== "native-call" &&
       contract.arguments.some(({ transport }) => transport !== "borrow")
     ) {
       diagnostics.push(
@@ -1617,14 +1586,14 @@ function validateCallback(
     );
   }
   if (
-    (contract.lifetime === "call") !==
+    (contract.registrationOwner === "native-call") !==
     (parameter.ownership.kind === "call-scoped")
   ) {
     diagnostics.push(
       diagnostic(
         "NTS2040",
-        `${path}/lifetime`,
-        "Call lifetime and call-scoped ownership must be declared together",
+        `${path}/registrationOwner`,
+        "A call-owned registration and call-scoped ownership must be declared together",
       ),
     );
   }
@@ -1763,7 +1732,7 @@ function validateCallback(
     registrationOwnerCount++;
     if (
       registrationOwnerCount > 1 ||
-      contract.lifetime === "call" ||
+      contract.registrationOwner === "native-call" ||
       contract.registrationOwner === "result"
     ) {
       diagnostics.push(
@@ -1812,15 +1781,6 @@ function validateCallback(
           "NTS2040",
           `${path}/sourceArguments`,
           "Foreign-thread callbacks cannot inject a managed registration owner",
-        ),
-      );
-    }
-    if (contract.deliveryExecutor.kind !== "runtime-owner") {
-      diagnostics.push(
-        diagnostic(
-          "NTS2040",
-          `${path}/deliveryExecutor`,
-          "Foreign-thread callbacks must enter through the runtime owner",
         ),
       );
     }

@@ -59,7 +59,6 @@ export type {
   PassMode,
   PermissionId,
   PermissionRequirement,
-  PlatformObjectType,
   PointerType,
   ScabiManifest,
   SdkIdentity,

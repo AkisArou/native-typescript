@@ -1322,8 +1322,7 @@ test(
     assert.ok(connect && connect.kind !== "constant");
     const contract = connect.signature.parameters[1]?.callback;
     assert.equal(contract?.synchronousReturn, true);
-    assert.equal(contract?.lifetime, "until-cancelled");
-    assert.deepEqual(contract?.deliveryExecutor, { kind: "same-as-caller" });
+    assert.equal(contract?.registrationOwner, "window");
     assert.deepEqual(contract?.allowedInvocationExecutors, [
       { kind: "same-as-caller" },
     ]);
@@ -2029,18 +2028,13 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
     anchor: "button",
   });
   assert.deepEqual(connect.signature.parameters[1]?.callback, {
-    lifetime: "until-cancelled",
     registrationOwner: "button",
     cancellationBinding: "gtk_signal_connection_disconnect",
     contextParameter: "context",
     allowedInvocationExecutors: [{ kind: "same-as-caller" }],
-    deliveryExecutor: { kind: "runtime-owner" },
     synchronousReturn: false,
     arguments: [],
     sourceArguments: [{ kind: "registration-owner" }],
-    reentrancy: "allowed",
-    postDisposal: "not-invoked",
-    shutdown: "drain",
   });
   /* The position owns the connection; which binding releases one is the
    * handle type's to say. */
@@ -2108,18 +2102,13 @@ test("GTK SCABI lowers a property observer to a payload-free connection", () => 
     "nts_gobject_connect_gtk_button_notify_label",
   );
   assert.deepEqual(connect.signature.parameters[1]?.callback, {
-    lifetime: "until-cancelled",
     registrationOwner: "button",
     cancellationBinding: "gtk_signal_connection_disconnect",
     contextParameter: "context",
     allowedInvocationExecutors: [{ kind: "same-as-caller" }],
-    deliveryExecutor: { kind: "runtime-owner" },
     synchronousReturn: false,
     arguments: [],
     sourceArguments: [{ kind: "registration-owner" }],
-    reentrancy: "allowed",
-    postDisposal: "not-invoked",
-    shutdown: "drain",
   });
   const callback = generated.manifest.types.gtk_button_notify_label_callback;
   assert.ok(callback && callback.kind === "callback");

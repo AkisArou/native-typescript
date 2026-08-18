@@ -1061,44 +1061,31 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
   assert.deepEqual(result.build.linkInputs.map(({ id }) => id), ["pthread"]);
 });
 
-test("SCABI refuses callback contracts outside the two executable slices", () => {
-  const retained = structuredClone(manifest);
-  const retainedBinding = retained.bindings.call_scoped;
-  assert.notEqual(retainedBinding?.kind, "constant");
-  if (retainedBinding === undefined || retainedBinding.kind === "constant") return;
-  const callback = retainedBinding.signature.parameters[0]?.callback;
+test("SCABI refuses an executor the compiler does not reason about", () => {
+  /* SCABI stays wider than the compiler on purpose: a named dispatcher is an
+   * identity an embedder resolves, and nothing lowers one. The lifetimes and
+   * delivery executors this test used to exercise are gone — with the owner
+   * carrying the lifetime, every contract SCABI can now spell is one the
+   * compiler can lower, which is the point of the narrowing. */
+  const dispatched = structuredClone(manifest);
+  const binding = dispatched.bindings.call_scoped;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const callback = binding.signature.parameters[0]?.callback;
   assert.notEqual(callback, undefined);
   if (callback === undefined) return;
-  Object.assign(callback, { lifetime: "retained" as const });
-
-  const retainedResult = translateScabiNativeProgram(retained, selectImports(["call_scoped"]));
-  assert.equal(retainedResult.ok, false);
-  if (!retainedResult.ok) {
-    assert.equal(
-      retainedResult.diagnostics.some((diagnostic) =>
-        diagnostic.message.includes("outside the implemented call and until-cancelled slice")
-      ),
-      true,
-    );
-  }
-
-  const foreign = structuredClone(manifest);
-  const foreignBinding = foreign.bindings.call_scoped;
-  assert.notEqual(foreignBinding?.kind, "constant");
-  if (foreignBinding === undefined || foreignBinding.kind === "constant") return;
-  const foreignCallback = foreignBinding.signature.parameters[0]?.callback;
-  assert.notEqual(foreignCallback, undefined);
-  if (foreignCallback === undefined) return;
-  Object.assign(foreignCallback, {
-    deliveryExecutor: { kind: "foreign-attached-thread" as const },
+  Object.assign(callback, {
+    allowedInvocationExecutors: [
+      { kind: "named-dispatcher" as const, name: "ui" },
+    ],
   });
 
-  const foreignResult = translateScabiNativeProgram(foreign, selectImports(["call_scoped"]));
-  assert.equal(foreignResult.ok, false);
-  if (foreignResult.ok) return;
+  const result = translateScabiNativeProgram(dispatched, selectImports(["call_scoped"]));
+  assert.equal(result.ok, false);
+  if (result.ok) return;
   assert.equal(
-    foreignResult.diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("same-caller call-lifetime callbacks")
+    result.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("same-caller call-owned callbacks")
     ),
     true,
   );

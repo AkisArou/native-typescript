@@ -1022,34 +1022,6 @@
         }
       }
     },
-    "platformObjectType": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "family",
-        "nativeName",
-        "threadSafety"
-      ],
-      "properties": {
-        "kind": {
-          "const": "platform-object"
-        },
-        "family": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "nativeName": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "threadSafety": {
-          "enum": [
-            "confined",
-            "sendable",
-            "shared"
-          ]
-        }
-      }
-    },
     "nativeType": {
       "oneOf": [
         {
@@ -1093,9 +1065,6 @@
         },
         {
           "$ref": "#/$defs/callbackType"
-        },
-        {
-          "$ref": "#/$defs/platformObjectType"
         }
       ]
     },
@@ -1177,79 +1146,11 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "kind",
-            "retain",
-            "release"
-          ],
-          "properties": {
-            "kind": {
-              "const": "retained"
-            },
-            "retain": {
-              "$ref": "#/$defs/id"
-            },
-            "release": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "upgrade"
-          ],
-          "properties": {
-            "kind": {
-              "const": "weak"
-            },
-            "upgrade": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "retain"
-          ],
-          "properties": {
-            "kind": {
-              "const": "autoreleased"
-            },
-            "retain": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
             "kind"
           ],
           "properties": {
             "kind": {
               "const": "call-scoped"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "release"
-          ],
-          "properties": {
-            "kind": {
-              "const": "process-proxy"
-            },
-            "release": {
-              "$ref": "#/$defs/id"
             }
           }
         }
@@ -1301,9 +1202,7 @@
             },
             "encoding": {
               "enum": [
-                "utf-8",
-                "utf-16",
-                "latin-1"
+                "utf-8"
               ]
             },
             "length": {
@@ -1367,11 +1266,8 @@
             "kind": {
               "enum": [
                 "runtime-owner",
-                "platform-ui",
                 "any-attached-thread",
-                "same-as-receiver",
-                "same-as-caller",
-                "callback-defined"
+                "same-as-caller"
               ]
             }
           }
@@ -1451,26 +1347,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "lifetime",
         "registrationOwner",
         "allowedInvocationExecutors",
-        "deliveryExecutor",
         "synchronousReturn",
-        "arguments",
-        "reentrancy",
-        "postDisposal",
-        "shutdown"
+        "arguments"
       ],
       "properties": {
-        "lifetime": {
-          "enum": [
-            "call",
-            "once",
-            "retained",
-            "weak",
-            "until-cancelled"
-          ]
-        },
         "registrationOwner": {
           "$ref": "#/$defs/nonEmptyString"
         },
@@ -1488,9 +1370,6 @@
             "$ref": "#/$defs/executor"
           }
         },
-        "deliveryExecutor": {
-          "$ref": "#/$defs/executor"
-        },
         "synchronousReturn": {
           "type": "boolean"
         },
@@ -1505,25 +1384,6 @@
           "items": {
             "$ref": "#/$defs/callbackSourceArgument"
           }
-        },
-        "reentrancy": {
-          "enum": [
-            "forbidden",
-            "allowed",
-            "required"
-          ]
-        },
-        "postDisposal": {
-          "enum": [
-            "not-invoked",
-            "may-race"
-          ]
-        },
-        "shutdown": {
-          "enum": [
-            "drain",
-            "discard"
-          ]
         }
       }
     },
@@ -1544,9 +1404,7 @@
           "enum": [
             "value",
             "pointer",
-            "reference",
-            "hidden-return",
-            "platform-object"
+            "hidden-return"
           ]
         },
         "nullable": {
@@ -1584,9 +1442,7 @@
           "enum": [
             "value",
             "pointer",
-            "reference",
-            "hidden-return",
-            "platform-object"
+            "hidden-return"
           ]
         },
         "nullable": {
@@ -1677,9 +1533,7 @@
             "kind": {
               "enum": [
                 "no-fail",
-                "nullable",
-                "hresult",
-                "jni-pending-exception"
+                "nullable"
               ]
             }
           }
@@ -1694,85 +1548,11 @@
           "properties": {
             "kind": {
               "enum": [
-                "sentinel",
                 "errno"
               ]
             },
             "failureValue": {
               "type": "string"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "successValues"
-          ],
-          "properties": {
-            "kind": {
-              "const": "status-code"
-            },
-            "successValues": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "string"
-              },
-              "uniqueItems": true
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "parameter"
-          ],
-          "properties": {
-            "kind": {
-              "const": "nserror"
-            },
-            "parameter": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "adapter"
-          ],
-          "properties": {
-            "kind": {
-              "const": "platform-exception"
-            },
-            "adapter": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "successCallback",
-            "errorCallback"
-          ],
-          "properties": {
-            "kind": {
-              "const": "async-callback"
-            },
-            "successCallback": {
-              "$ref": "#/$defs/id"
-            },
-            "errorCallback": {
-              "$ref": "#/$defs/id"
             }
           }
         },
