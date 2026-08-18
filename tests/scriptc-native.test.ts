@@ -28,9 +28,9 @@ function selectImports(imports: readonly string[]) {
 function exactScalarOperations(scalar: string) {
   const type = { kind: "nativeScalar", scalar } as const;
   const identity = (member: string) => ({
-    id: `native-typescript.fixture.c-v1@0.0.0#source-operation/${scalar}/${member}`,
+    id: `scriptc.fixture.c-v1@0.0.0#source-operation/${scalar}/${member}`,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: `${scalar}.${member}`,
     },
   });
@@ -73,8 +73,8 @@ test("translated native packages compose canonically with build requirements", (
   assert.deepEqual(
     left.input.bindings.map(({ id }) => id),
     [
-      "native-typescript.fixture.c-v1@0.0.0#i32_identity",
       "native-typescript.fixture.gtk-counter@0.0.0#counter_close",
+      "scriptc.fixture.c-v1@0.0.0#i32_identity",
     ],
   );
   assert.deepEqual(left.build, runtime.build);
@@ -90,9 +90,9 @@ test("translated native packages compose canonically with build requirements", (
   const withOperation = structuredClone(scalar);
   Object.assign(withOperation.input, {
     operations: [{
-      id: "native-typescript.fixture.c-v1@0.0.0#i32_combine",
+      id: "scriptc.fixture.c-v1@0.0.0#i32_combine",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "FixtureValue.combine",
       },
       kind: "integer-reduce",
@@ -145,9 +145,9 @@ test("native package composition rejects target and source identity collisions",
   const withOperation = structuredClone(translated);
   Object.assign(withOperation.input, {
     operations: [{
-      id: "native-typescript.fixture.c-v1@0.0.0#i32_combine",
+      id: "scriptc.fixture.c-v1@0.0.0#i32_combine",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "FixtureValue.combine",
       },
       kind: "integer-reduce",
@@ -206,7 +206,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
     sourceTypes: [
       {
         declaration: {
-          module: "@native-typescript/scabi-c-v1-fixture",
+          module: "@scriptc/native-abi-fixture",
           name: "i32",
         },
         type: { kind: "nativeScalar", scalar: "i32" },
@@ -220,9 +220,9 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
     types: [],
     bindings: [
       {
-        id: "native-typescript.fixture.c-v1@0.0.0#i32_identity",
+        id: "scriptc.fixture.c-v1@0.0.0#i32_identity",
         declaration: {
-          module: "@native-typescript/scabi-c-v1-fixture",
+          module: "@scriptc/native-abi-fixture",
           name: "i32Identity",
         },
         entry: { kind: "c-symbol", symbol: "nts_i32_identity" },
@@ -335,15 +335,15 @@ test("SCABI enum constants lower to exact declaration-backed literals", () => {
   if (!result.ok) return;
   assert.deepEqual(result.input.sourceTypes, [{
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "FixtureOrientation",
     },
     type: { kind: "nativeScalar", scalar: "i32" },
   }]);
   assert.deepEqual(result.input.constants, [{
-    id: "native-typescript.fixture.c-v1@0.0.0#fixture_orientation_vertical",
+    id: "scriptc.fixture.c-v1@0.0.0#fixture_orientation_vertical",
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "FixtureOrientation.vertical",
     },
     type: { kind: "nativeScalar", scalar: "i32" },
@@ -419,7 +419,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
     target: { pointerBits: 64, abi: "sysv-amd64" },
     sourceTypes: [{
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "i32",
       },
       type: i32,
@@ -429,10 +429,10 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
     types: [],
     bindings: [],
     exports: [{
-      id: "native-typescript.fixture.c-v1@0.0.0#ts_add_i32",
+      id: "scriptc.fixture.c-v1@0.0.0#ts_add_i32",
       sourceExport: "ntsTsAddI32",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "FixtureLibraryExports.ntsTsAddI32",
       },
       entry: { kind: "c-symbol", symbol: "nts_ts_add_i32" },
@@ -561,7 +561,7 @@ test("SCABI projects integer-backed native boolean parameters and results", () =
   if (!result.ok) return;
   assert.deepEqual(result.input.sourceTypes, []);
   assert.deepEqual(result.input.bindings[0]?.declaration, {
-    module: "@native-typescript/scabi-c-v1-fixture",
+    module: "@scriptc/native-abi-fixture",
     name: "nativeNot",
   });
   assert.deepEqual(result.input.bindings[0]?.arguments, [
@@ -595,7 +595,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
   assert.deepEqual(result.input.sourceTypes, [
     {
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "u64",
       },
       type: { kind: "nativeScalar", scalar: "u64" },
@@ -603,9 +603,9 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
   ]);
   assert.deepEqual(result.input.bindings, [
     {
-      id: "native-typescript.fixture.c-v1@0.0.0#hash_utf8",
+      id: "scriptc.fixture.c-v1@0.0.0#hash_utf8",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "hashUtf8",
       },
       entry: { kind: "c-symbol", symbol: "nts_hash_utf8" },
@@ -816,7 +816,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
   assert.deepEqual(result.input.sourceTypes, [
     {
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "u64",
       },
       type: { kind: "nativeScalar", scalar: "u64" },
@@ -824,9 +824,9 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
   ]);
   assert.deepEqual(result.input.bindings, [
     {
-      id: "native-typescript.fixture.c-v1@0.0.0#hash_bytes",
+      id: "scriptc.fixture.c-v1@0.0.0#hash_bytes",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "hashBytes",
       },
       entry: { kind: "c-symbol", symbol: "nts_hash_bytes" },
@@ -902,7 +902,7 @@ test("SCABI projects one call-scoped callback into function and context slots", 
   assert.deepEqual(result.input.sourceTypes, [
     {
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "i32",
       },
       type: i32,
@@ -910,9 +910,9 @@ test("SCABI projects one call-scoped callback into function and context slots", 
   ]);
   assert.deepEqual(result.input.bindings, [
     {
-      id: "native-typescript.fixture.c-v1@0.0.0#call_scoped",
+      id: "scriptc.fixture.c-v1@0.0.0#call_scoped",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "callScoped",
       },
       entry: { kind: "c-symbol", symbol: "nts_call_scoped" },
@@ -980,7 +980,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const instance = "scriptc.fixture.c-v1@0.0.0";
   const i32 = { kind: "nativeScalar", scalar: "i32" } as const;
   const callback = {
     lifetime: "until-cancelled",
@@ -1000,7 +1000,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
     kind: "handle",
     id: typeId,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "Subscription",
     },
     nativeName: "NtsSubscription",
@@ -1012,7 +1012,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
   assert.deepEqual(result.input.bindings[0], {
     id: `${instance}#subscription_create`,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "subscribe",
     },
     entry: { kind: "c-symbol", symbol: "nts_subscription_create" },
@@ -1133,9 +1133,9 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
 
   assert.deepEqual(result.input.bindings, [
     {
-      id: "native-typescript.fixture.c-v1@0.0.0#fail_errno",
+      id: "scriptc.fixture.c-v1@0.0.0#fail_errno",
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "failErrno",
       },
       entry: { kind: "c-symbol", symbol: "nts_fail_errno" },
@@ -1179,13 +1179,13 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const typeId = "native-typescript.fixture.c-v1@0.0.0#type:padded";
+  const typeId = "scriptc.fixture.c-v1@0.0.0#type:padded";
   assert.deepEqual(result.input.types, [
     {
       kind: "struct",
       id: typeId,
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "Padded",
       },
       size: 24,
@@ -1232,9 +1232,9 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
     },
   ]);
   assert.deepEqual(result.input.bindings[0], {
-    id: "native-typescript.fixture.c-v1@0.0.0#padded_roundtrip",
+    id: "scriptc.fixture.c-v1@0.0.0#padded_roundtrip",
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "paddedRoundtrip",
     },
     entry: { kind: "c-symbol", symbol: "nts_padded_roundtrip" },
@@ -1257,12 +1257,12 @@ test("SCABI preserves a target-Clang direct-register aggregate signature", () =>
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const typeId = "native-typescript.fixture.c-v1@0.0.0#type:pair32";
+  const typeId = "scriptc.fixture.c-v1@0.0.0#type:pair32";
   assert.deepEqual(result.input.types, [{
     kind: "struct",
     id: typeId,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "Pair32",
     },
     size: 8,
@@ -1297,7 +1297,7 @@ test("SCABI preserves a target-Clang direct-register aggregate signature", () =>
   }]);
   assert.equal(
     result.input.bindings[0]?.id,
-    "native-typescript.fixture.c-v1@0.0.0#pair32_transform",
+    "scriptc.fixture.c-v1@0.0.0#pair32_transform",
   );
 });
 
@@ -1309,7 +1309,7 @@ test("SCABI closes nested nominal aggregate definitions transitively", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const instance = "scriptc.fixture.c-v1@0.0.0";
   const pairId = `${instance}#type:pair32`;
   const nestedId = `${instance}#type:nested_pair32`;
   assert.deepEqual(result.input.types.map(({ id }) => id), [pairId, nestedId]);
@@ -1328,7 +1328,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const instance = "scriptc.fixture.c-v1@0.0.0";
   const typeId = `${instance}#type:counter`;
   const baseTypeId = `${instance}#type:counter_base`;
   const middleTypeId = `${instance}#type:counter_middle`;
@@ -1337,7 +1337,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       kind: "handle",
       id: baseTypeId,
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "CounterBase",
       },
       nativeName: "NtsCounterBase",
@@ -1350,7 +1350,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       kind: "handle",
       id: middleTypeId,
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "CounterMiddle",
       },
       nativeName: "NtsCounterMiddle",
@@ -1363,7 +1363,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       kind: "handle",
       id: typeId,
       declaration: {
-        module: "@native-typescript/scabi-c-v1-fixture",
+        module: "@scriptc/native-abi-fixture",
         name: "Counter",
       },
       nativeName: "NtsCounter",
@@ -1380,7 +1380,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
   assert.deepEqual(result.input.bindings[0], {
     id: `${instance}#counter_create`,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "createCounter",
     },
     entry: { kind: "c-symbol", symbol: "nts_counter_create" },
@@ -1410,7 +1410,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
   assert.deepEqual(result.input.bindings[1], {
     id: `${instance}#counter_destroy`,
     declaration: {
-      module: "@native-typescript/scabi-c-v1-fixture",
+      module: "@scriptc/native-abi-fixture",
       name: "Counter.dispose",
     },
     entry: { kind: "c-symbol", symbol: "nts_counter_destroy" },
@@ -1569,7 +1569,7 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  const instance = "native-typescript.fixture.c-v1@0.0.0";
+  const instance = "scriptc.fixture.c-v1@0.0.0";
   assert.deepEqual(
     result.input.types.map((definition) => ({
       id: definition.id,
