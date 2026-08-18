@@ -1,6 +1,6 @@
 # 0004 — One decision, two backends
 
-Status: accepted finding, first slice implemented
+Status: accepted finding, all three slices implemented
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
@@ -105,9 +105,9 @@ verifiable.
 ## Chosen decision and rejected alternatives
 
 **Chosen.** Extract the decisions in slices, ordered by measured defect
-density, each landing green.
+density, each landing green. All three landed, each observationally inert.
 
-1. **Payload reads.** Done. `nativeCallbackPayloads` names what each source
+1. **Payload reads.** Done, in `04240e17`. `nativeCallbackPayloads` names what each source
    argument becomes — direct, widened number, boolean over declared storage,
    C string, span, owned handle, injected owner. Two duplicated derivations
    (the slots whose pointers must not be stored, the handle payloads and their
@@ -116,10 +116,16 @@ density, each landing green.
 2. **Trampoline shape and closure source.** Which arm a contract calls for,
    and where the trampoline finds its closure — context slot, thread-local,
    replaceable global, or token. Two of the five defects were here.
-3. **Call-site lifecycle.** The ordered pre-call and post-call work:
-   registration, release validation, lent slots, cancellation, and the
-   post-call restore. Both backends already build this as a list; they should
-   build it from one description.
+2. (cont.) `nativeTrampolineForm` names the shape — call-scoped, direct, or
+   queued — and the closure source, which is one of exactly four. Landed in
+   `502915fc`.
+3. **Call-site lifecycle.** Done, in `f68a8b30`. `nativeCallLifecycle` gives
+   the ordered setup, the slots lent after argument conversion, and the
+   teardown. The ORDER is the decision: registration precedes the call because
+   a library may fire on subscribe; a release is validated before and unpinned
+   after, because the registration must stay readable for a library that
+   flushes one last time; a lent slot is armed after every conversion, because
+   a conversion that throws must not leave one armed.
 
 **Rejected.**
 
@@ -137,7 +143,13 @@ density, each landing green.
 
 ## Implementation repository and owner
 
-scriptc fork; owner: project maintainer. Slice 1 landed in `04240e17`.
+scriptc fork; owner: project maintainer. Slices landed in `04240e17`,
+`502915fc`, and `f68a8b30`.
+
+Afterwards, the ten remaining `kept in lockstep with the C backend` comments
+in the LLVM emitter are all outside native-call lowering — they mark the next
+places worth the same treatment, and they are a usable measure of where the
+duplication still is.
 
 ## Upstream issue/PR/status
 
