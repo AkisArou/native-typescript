@@ -427,11 +427,10 @@ change atomic, green on its own, and bisectable:
      attribute used as a type in two places, a saturating narrowing on the
      unsigned half, and a deferred callback throw losing its checkpoint when
      the observing call changed paths.
-   - **Call-scoped callbacks** (formats 2 and 3). Nearly done: 20 of
-     upstream's 31 descriptors desugar, and every call-scoped one that has a
-     context slot lowers as `nativeCall`. The additions were measured against
-     the descriptors that forced them, one at a time, so none was built ahead
-     of a use:
+   - **Call-scoped callbacks** (formats 2 and 3). Done: 22 of upstream's 31
+     descriptors desugar, which is every one whose callbacks live only for
+     the call. The additions were measured against the descriptors that
+     forced them, one at a time, so none was built ahead of a use:
 
      | Addition | Unblocks | State |
      | --- | --- | --- |
@@ -439,7 +438,8 @@ change atomic, green on its own, and bisectable:
      | **the callback's source vocabulary, made symmetric** — see below | `nativeApply`, `nativeEach`, `nativeCallbackMix` | `540be6f2` |
      | a `cstring` payload form, decoded lossily and trapping NULL | `nativeCallbackStringThrow`, `nativeNullCString`, `nativePropVisit` | `50b0b721` |
      | a source argument built from a pointer/length PAIR, and the two span payload forms | `nativeCallbackSpans` | `8bc04cb5` |
-     | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision`, `nativeCombineRaw` | remaining |
+     | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision` | `0edbc14b` |
+     | more than one callback in one call | `nativeCombineRaw` | `43632635` |
 
      Two of those rows were predicted wrongly and the corrections are worth
      more than the tidier table. The third row was written as "copy transports
@@ -451,7 +451,9 @@ change atomic, green on its own, and bisectable:
      The fourth row asked for "a `bytes` source parameter", which is a payload
      form; a span is two physical slots feeding one parameter, so the pairing
      belongs to the source ARGUMENT and the form says only what the handler
-     receives.
+     receives. The fifth row named two descriptors as one gap and they were
+     two: `nativeCombineRaw` needed nothing thread-local at all, only a
+     desugarer that stops assuming a binding carries one callback.
 
      The first row was originally written as two separate gaps — "a plain
      number handler answer" and "a `bool` source parameter" — and blamed on
