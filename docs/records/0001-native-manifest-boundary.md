@@ -415,15 +415,24 @@ change atomic, green on its own, and bisectable:
      attribute used as a type in two places, a saturating narrowing on the
      unsigned half, and a deferred callback throw losing its checkpoint when
      the observing call changed paths.
-   - **Call-scoped callbacks** (formats 2 and 3). Needs two capabilities the
-     native path does not have, measured at `02dfd328`: a **contextless**
-     callback, because `IrNativeCallbackSignature.context` is required and
-     the validator demands exactly one context projection, while upstream's
-     raw callbacks bind through a thread-local slot instead; and **copied
-     payloads on a call-scoped callback**, since the call arm admits only
-     borrow transports today and format 3 copies cstring, string, and byte
-     spans before the closure runs. Both are additions to the native
-     vocabulary rather than translations.
+   - **Call-scoped callbacks** (formats 2 and 3). The positional context
+     slot landed in `cf244122`; five vocabulary additions remain, measured
+     against the nine call-scoped descriptors upstream exercises. Each is
+     small on its own, and each is listed with what it unblocks so none is
+     built ahead of a use:
+
+     | Addition | Unblocks |
+     | --- | --- |
+     | a plain-number handler answer — today a non-void return must be the exact scalar's own branded representation | `nativeApply`, `nativeCallbackMix`, `nativeCombineRaw`, `nativeCallbackSymbolCollision` |
+     | copy transports on the call arm | `nativeCallbackStringThrow`, `nativeNullCString`, `nativePropVisit` |
+     | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision`, `nativeCombineRaw` |
+     | a `bool` callback source parameter | `nativeCallbackMix` |
+     | a `bytes` source parameter and a source argument built from a pointer/length PAIR | `nativeCallbackSpans` |
+
+     Exactly one descriptor — `nativeEach` — is expressible today, which is
+     why this slice is sequenced as vocabulary first and desugaring after
+     rather than the reverse: a desugarer written now would refuse eight of
+     nine inputs and read as dead code.
    - **Retained and foreign** (formats 4 and 5), after which `ffiCall` and
      its table are deleted. `owner` gains its `process` arm here.
 3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
