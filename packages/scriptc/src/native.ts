@@ -119,22 +119,24 @@ export type ScriptCNativeCallbackSourceArgument =
     }
   | { readonly kind: "registration-owner" };
 
+export type ScriptCNativeCallbackOwner =
+  | { readonly kind: "call" }
+  | { readonly kind: "result" }
+  | { readonly kind: "argument"; readonly argument: number };
+
+/** Mirrors the compiler's contract exactly. Delivery executor, reentrancy,
+ * post-disposal, and shutdown are absent for the reason they are absent
+ * there: each restated what its arm already implied and nothing read it. */
 export type ScriptCNativeCallbackContract =
   | {
-      readonly lifetime: "call";
-      readonly registrationOwner: { readonly kind: "native-call" };
+      readonly owner: { readonly kind: "call" };
       readonly allowedInvocationExecutors: readonly ["same-as-caller"];
-      readonly deliveryExecutor: "same-as-caller";
       readonly synchronousReturn: true;
       readonly transports: readonly { readonly kind: "borrow" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-      readonly reentrancy: "required";
-      readonly postDisposal: "not-invoked";
-      readonly shutdown: "drain";
     }
   | {
-      readonly lifetime: "until-cancelled";
-      readonly registrationOwner:
+      readonly owner:
         | { readonly kind: "result" }
         | { readonly kind: "argument"; readonly argument: number };
       readonly cancellationBinding: string;
@@ -142,13 +144,9 @@ export type ScriptCNativeCallbackContract =
         | "same-as-caller"
         | "any-attached-thread"
       )[];
-      readonly deliveryExecutor: "runtime-owner";
       readonly synchronousReturn: false;
       readonly transports: readonly { readonly kind: "copy" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-      readonly reentrancy: "allowed" | "required";
-      readonly postDisposal: "not-invoked";
-      readonly shutdown: "drain";
     }
   /** A registration the native side asks: the handler runs during the call
    * that invokes it and its answer is that call's result. Admissible only
@@ -156,19 +154,14 @@ export type ScriptCNativeCallbackContract =
    * closure, which a foreign producer may never do — and only over values,
    * because nothing here outlives the call. */
   | {
-      readonly lifetime: "until-cancelled";
-      readonly registrationOwner:
+      readonly owner:
         | { readonly kind: "result" }
         | { readonly kind: "argument"; readonly argument: number };
       readonly cancellationBinding: string;
       readonly allowedInvocationExecutors: readonly ["same-as-caller"];
-      readonly deliveryExecutor: "same-as-caller";
       readonly synchronousReturn: true;
       readonly transports: readonly { readonly kind: "borrow" }[];
       readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-      readonly reentrancy: "required";
-      readonly postDisposal: "not-invoked";
-      readonly shutdown: "drain";
     };
 
 export type ScriptCNativeAbiType =
@@ -386,10 +379,7 @@ export interface ScriptCNativeBinding {
       | { readonly kind: "value" }
       | { readonly kind: "borrowed"; readonly scope: "call" }
       | { readonly kind: "owned"; readonly transfer: "to-native" }
-      | {
-          readonly kind: "callback";
-          readonly lifetime: "call" | "until-cancelled";
-        };
+      | { readonly kind: "callback" };
     readonly projection: ScriptCNativeParameterProjection;
   }[];
   readonly result: {
@@ -1362,10 +1352,8 @@ function supportedCallScopedCallbackPair(
     sourceArguments,
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
-      lifetime: "call",
-      registrationOwner: Object.freeze({ kind: "native-call" }),
+      owner: Object.freeze({ kind: "call" as const }),
       allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
-      deliveryExecutor: "same-as-caller",
       synchronousReturn: true,
       transports: Object.freeze(
         contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
@@ -1381,9 +1369,6 @@ function supportedCallScopedCallbackPair(
             })
           : Object.freeze({ kind: "registration-owner" as const })
       )),
-      reentrancy: "required",
-      postDisposal: "not-invoked",
-      shutdown: "drain",
     }),
   };
 }
@@ -1627,19 +1612,14 @@ function supportedRetainedCallbackPair(
       sourceArguments,
       resultTypeId: callbackType.signature.result.type,
       contract: Object.freeze({
-        lifetime: "until-cancelled",
-        registrationOwner: loweredRegistrationOwner,
+        owner: loweredRegistrationOwner,
         cancellationBinding: cancellation,
         allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
-        deliveryExecutor: "same-as-caller",
         synchronousReturn: true,
         transports: Object.freeze(
           contract.arguments.map(() => Object.freeze({ kind: "borrow" } as const)),
         ),
         sourceArguments: loweredSourceArguments,
-        reentrancy: "required",
-        postDisposal: "not-invoked",
-        shutdown: "drain",
       }),
     };
   }
@@ -1650,21 +1630,16 @@ function supportedRetainedCallbackPair(
     sourceArguments,
     resultTypeId: callbackType.signature.result.type,
     contract: Object.freeze({
-      lifetime: "until-cancelled",
-      registrationOwner: loweredRegistrationOwner,
+      owner: loweredRegistrationOwner,
       cancellationBinding: cancellation,
       allowedInvocationExecutors: Object.freeze(
         allowedInvocationExecutors as ("same-as-caller" | "any-attached-thread")[],
       ),
-      deliveryExecutor: "runtime-owner",
       synchronousReturn: false,
       transports: Object.freeze(
         contract.arguments.map(() => Object.freeze({ kind: "copy" } as const)),
       ),
       sourceArguments: loweredSourceArguments,
-      reentrancy: contract.reentrancy,
-      postDisposal: "not-invoked",
-      shutdown: "drain",
     }),
   };
 }
@@ -2782,25 +2757,24 @@ export function translateScabiNativeProgram(
         } as const);
         callbackSignatures.set(index, signature);
         let sourceCallbackContract = callback.contract;
-        if (
-          sourceCallbackContract.lifetime === "until-cancelled" &&
-          sourceCallbackContract.registrationOwner.kind === "argument"
-        ) {
-          const ownerArgument = argumentByParameter.get(
-            sourceCallbackContract.registrationOwner.argument,
-          );
+        const contractOwner = sourceCallbackContract.owner;
+        if (contractOwner.kind === "argument") {
+          const ownerArgument = argumentByParameter.get(contractOwner.argument);
           if (ownerArgument === undefined) {
             diagnostics.push(diagnostic(
               "NTS3002",
-              `${parameterPath}/callback/registrationOwner`,
+              `${parameterPath}/callback/owner`,
               "Receiver-owned callbacks require the receiver source argument to precede the callback",
             ));
             valid = false;
             continue;
           }
           sourceCallbackContract = Object.freeze({
-            ...sourceCallbackContract,
-            registrationOwner: Object.freeze({
+            ...(sourceCallbackContract as Extract<
+              ScriptCNativeCallbackContract,
+              { readonly cancellationBinding: string }
+            >),
+            owner: Object.freeze({
               kind: "argument" as const,
               argument: ownerArgument,
             }),
@@ -2917,10 +2891,7 @@ export function translateScabiNativeProgram(
             name: parameter.name,
             type: Object.freeze({ kind: "nativeCallback", signature } as const),
             passMode: "pointer",
-            ownership: Object.freeze({
-              kind: "callback",
-              lifetime: callbackFunction.contract.lifetime,
-            } as const),
+            ownership: Object.freeze({ kind: "callback" } as const),
             projection: Object.freeze({ kind: "callbackFunction", argument } as const),
           }));
           continue;
@@ -2931,10 +2902,7 @@ export function translateScabiNativeProgram(
             name: parameter.name,
             type: Object.freeze({ kind: "nativeContext", addressSpace: 0 } as const),
             passMode: "pointer",
-            ownership: Object.freeze({
-              kind: "callback",
-              lifetime: callbackContext.contract.lifetime,
-            } as const),
+            ownership: Object.freeze({ kind: "callback" } as const),
             projection: Object.freeze({ kind: "callbackContext", argument } as const),
           }));
           continue;

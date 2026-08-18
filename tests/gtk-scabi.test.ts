@@ -2243,12 +2243,10 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
     ],
   );
   assert.deepEqual(nativeConnect.arguments[1]?.callback, {
-    lifetime: "until-cancelled",
-    registrationOwner: { kind: "argument", argument: 0 },
+    owner: { kind: "argument", argument: 0 },
     cancellationBinding:
       "native-typescript.gtk4@0.0.0#gtk_signal_connection_disconnect",
     allowedInvocationExecutors: ["same-as-caller"],
-    deliveryExecutor: "runtime-owner",
     synchronousReturn: false,
     transports: [{ kind: "copy" }, { kind: "copy" }],
     sourceArguments: [
@@ -2256,9 +2254,6 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
       { kind: "callback-parameter", parameter: 0 },
       { kind: "callback-parameter", parameter: 1 },
     ],
-    reentrancy: "allowed",
-    postDisposal: "not-invoked",
-    shutdown: "drain",
   });
   assertDeepFrozen(generated);
 });

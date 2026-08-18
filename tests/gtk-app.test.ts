@@ -537,7 +537,7 @@ test(
         ({ declaration }) => declaration.name === "Button.onClicked",
       );
       assert.deepEqual(
-        translatedConnect?.arguments[1]?.callback?.registrationOwner,
+        translatedConnect?.arguments[1]?.callback?.owner,
         { kind: "argument", argument: 0 },
       );
       assert.deepEqual(
