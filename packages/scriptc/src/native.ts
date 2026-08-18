@@ -152,11 +152,6 @@ export type ScriptCNativeCallbackSourceArgument =
     }
   | { readonly kind: "registration-owner" };
 
-export type ScriptCNativeCallbackOwner =
-  | { readonly kind: "call" }
-  | { readonly kind: "result" }
-  | { readonly kind: "argument"; readonly argument: number };
-
 /** Mirrors the compiler's contract exactly. Delivery executor, reentrancy,
  * post-disposal, and shutdown are absent for the reason they are absent
  * there: each restated what its arm already implied and nothing read it. */
