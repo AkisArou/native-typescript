@@ -100,6 +100,12 @@ export type ScriptCNativeCallbackArgumentType = {
      * a pointer-and-length span is the same script value differently
      * arranged, and the two cannot share a tag. */
     | { readonly kind: "cstring" }
+    /** The same script string from a pointer and a length instead of a
+     * terminator, so the bytes may contain NUL and are not scanned for one. */
+    | { readonly kind: "utf8Span" }
+    /** A pointer and a length copied into a script byte array. Bytes, not
+     * text: nothing is decoded and nothing is replaced. */
+    | { readonly kind: "byteSpan" }
     | { readonly kind: "f64" }
     | {
         /** An integer payload read as a boolean. False is exactly the named
@@ -135,6 +141,14 @@ export type ScriptCNativeCallbackSourceArgument =
        * or is dropped. Already resolved against the package that owns the
        * handle, which is not always this one. */
       readonly destructor?: string;
+    }
+  /** One handler parameter fed by two physical slots: a pointer and the
+   * element count beside it. Which slots feed a parameter is a source
+   * argument's business; the payload form says only what the handler sees. */
+  | {
+      readonly kind: "callback-parameter-span";
+      readonly data: number;
+      readonly length: number;
     }
   | { readonly kind: "registration-owner" };
 
