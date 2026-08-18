@@ -1,6 +1,6 @@
 # 0001 — One native vocabulary: growing scriptc's manifest, and the SCABI envelope
 
-Status: accepted decision, steps 0-2 partially implemented
+Status: accepted decision, steps 0-2 implemented
 Last revised: 2026-08-18
 
 This is an investigation record under the policy in
@@ -482,8 +482,21 @@ change atomic, green on its own, and bisectable:
      hold, and for enumerations, where the brand is nominal typing between
      enum families rather than a width. Upstream's answer for the 64-bit
      pair is that it cannot call those APIs at all.
-   - **Retained and foreign** (formats 4 and 5), after which `ffiCall` and
-     its table are deleted. `owner` gains its `process` arm here.
+   - **Retained and foreign** (formats 4 and 5). Done. `owner` gained its
+     `process` arm, releases identify a registration by naming its function
+     value back, and a foreign producer copies the payload where it raises so
+     the invocation can be queued. The substrate is upstream's ledger and
+     queue, unchanged — a process-scoped registration has no owner whose loop
+     could carry it, which is the same reason it has no cancellation binding.
+
+     The outbound subsystem is deleted with it, about 1,200 lines. `ffiCall`
+     is NOT, and this record was wrong to assume it could be: the node also
+     serves library mode's host-callback channels, which are not outbound
+     descriptors at all — a channel's name is a registration key rather than
+     a C symbol, and a call dispatches through a runtime slot. That
+     entanglement was already doing damage; channels were being translated as
+     outbound descriptors and 16 of 30 library-callback tests were failing
+     before the boundary was drawn.
 3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
    the mandatory conversion projection.
 4. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,

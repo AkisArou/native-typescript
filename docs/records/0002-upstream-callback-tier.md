@@ -1,6 +1,6 @@
 # 0002 — Adjudicating upstream's callback tier against the fork's
 
-Status: accepted finding, convergence not yet scheduled
+Status: accepted finding; the vocabulary half landed, the runtime half is 0001 step 6
 Last revised: 2026-08-18
 
 This is an investigation record under the policy in
@@ -77,6 +77,20 @@ takes a wake function (`ScrOwnerGatewayWakeFn`) at construction, so a platform
 loop that already exists — GLib's, CFRunLoop, an Android Looper — drives
 delivery. Format 5 is unusable in any host that owns its own loop, which is
 every GUI host.
+
+### Resolved: the compiler-side duplication, not the runtime's
+
+The ordering below held, but only for the RUNTIME. The compiler-side
+duplication went first and did not need the type tier at all: upstream's
+formats now desugar into Native IR bindings, `owner` gained a `process` arm
+for a registration nothing owns, and releases identify a registration by
+naming its function value back. One node reaches the backends.
+
+What remains is exactly what this record said the callback tier needs: two
+ledgers still exist because they are keyed differently — one by a handle, one
+by a value — and two transports because a process-scoped registration has no
+owner whose loop could carry it. That merge is 0001 step 6, and it is still
+gated on the type tier for the reason given below.
 
 ### Why the duplication cannot be deleted in this change
 

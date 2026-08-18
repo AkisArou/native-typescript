@@ -25,7 +25,7 @@ The repository is not yet an application framework or a production compiler.
 | Foreign-thread ingress, owner gateway, scheduling | implemented |
 | Native error conventions | `errno` and nullable-handle only |
 | TypeScript → C exports | exact `i32` only |
-| Outbound native-call unification | value calls and every call-scoped callback |
+| Outbound native-call unification | implemented; one node, profile as input dialect |
 | Artifact graph, sandboxed executor, local cache | implemented |
 | C ABI evidence (Clang-proven) | implemented |
 | GIR ingestion and GObject projection | implemented for the narrow algebra below |
@@ -316,16 +316,29 @@ code and duplicated through every backend and validator.
 the FFI profile becomes an input dialect that desugars into Native IR
 bindings, and `ffiCall` is deleted once nothing needs it.
 
-Landed: the whole call-scoped tier. Measured against upstream's own
-conformance profile, 22 of its 31 descriptors lower as `nativeCall` — every
-one whose callbacks live only for the call, with or without a userdata slot,
-one callback or several. The other 9 keep the profile's path and still pass
-its 48-test suite on both backends.
+Done. All 31 of the profile's conformance descriptors lower as `nativeCall`,
+and its 48 tests gate both backends. The second outbound subsystem — both
+backends' callback trampolines, the shared adapter allocation, the extern
+block, and the validator's retained-registration rules, about 1,200 lines — is
+deleted. A descriptor the native vocabulary cannot express is refused as
+SC5005 where it is called rather than lowered a second way.
 
-Remaining: nine retained and foreign registrations (profile formats 4 and 5),
-which need a process-scoped registration owner and release-by-value
-identification. `ffiCall`, `IrFfiImport`, and the profile's own runtime units
-are deleted with that slice.
+Registrations come in three scopes: the call that makes one, a handle that
+owns one, and the process. A process-scoped registration is released by naming
+its function value back, matched by pointer identity in a counted ledger, and
+may be raised by a foreign thread, in which case the payload is copied where
+it is raised and the invocation queued for a later turn.
+
+Two substrates still back retained registrations — the process ledger and the
+handle-scoped table with its owner gateway — because the two are keyed
+differently and a process-scoped registration has no owner whose loop could
+carry it. Merging them is
+[0001](records/0001-native-manifest-boundary.md)'s step 6.
+
+`ffiCall` survives, serving only library mode's host-callback channels: a
+channel's name is a registration key rather than a C symbol and a call
+dispatches through a runtime slot, which is a different feature that happens
+to share the node.
 
 The callback payload vocabulary is complete for the call-scoped tier: exact
 scalars, a widened number, a boolean over declared storage values, a
