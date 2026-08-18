@@ -88,6 +88,10 @@ removal or revisit condition
 Records may begin in an issue and become a focused architecture decision when
 the change affects a normative contract. The test case remains in the tree.
 
+Accepted records live in `docs/records/`, numbered in acceptance order. A
+record is rationale and archive: it never substitutes for the normative
+documents it leads to, which are revised in the implementing change itself.
+
 ## Reference implementations
 
 Relevant sources include:
