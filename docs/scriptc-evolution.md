@@ -176,17 +176,27 @@ and its test suite passes.
 
 ### Current upstream baseline
 
-The fork merges upstream through `6f50205` (`feat: support aarch64 Linux musl
-(#159)`), including the upstream AArch64 musl runtime work and compiler
-subprocess diagnostic improvement, and that commit's plain, sanitizer, and
-Linux host-Clang CI lanes are green. Which fork commit is pinned is the
-submodule's to say, and naming it here only creates a second place to be wrong:
-read it from `third_party/scriptc`. Native
-TypeScript's focused Native IR, retained-callback, callback table/token/handle,
-owner-gateway, executable-plan, native-build-executor, and host compiler-driver
-gates also pass on the merged fork. The full upstream differential lane remains
-a VCR-sandbox gate: an arbitrary host SDK and declaration set is not an accepted
-replacement for its pinned image.
+The fork merges upstream through `729f809` (`Merge pull request #153 from
+vercel-labs/split/filter-truthy-predicate`), which carries FFI formats 3, 4,
+and 5 — copy-in string and byte-span callback parameters, retained
+registrations with paired release descriptors, and foreign-thread callbacks
+marshalled over an MPSC queue — alongside Windows system CA trust and the NaN
+comparison-refinement fix. Which fork commit is pinned is the submodule's to
+say, and naming it here only creates a second place to be wrong: read it from
+`third_party/scriptc`. On the merged fork, upstream's own FFI suite passes
+across both backends, and Native TypeScript's focused Native IR,
+retained-callback, callback table/token/handle, owner-gateway,
+executable-plan, native-build-executor, and host compiler-driver gates pass
+beside it. The full upstream differential lane remains a VCR-sandbox gate: an
+arbitrary host SDK and declaration set is not an accepted replacement for its
+pinned image.
+
+That merge puts two outbound native-call paths in one tree on purpose. The
+capability-by-capability adjudication this policy's upstream section requires
+— adopt, keep, or merge, judged against our conformance tests rather than
+against the diff — is only answerable with both paths present and runnable,
+so nothing was deleted in the merge itself. Until that adjudication lands,
+the duplication is a known, deliberate, and temporary state.
 
 ## Upstream policy
 
