@@ -904,9 +904,8 @@ test("SCABI projects one call-scoped callback into function and context slots", 
 
   const i32 = { kind: "nativeScalar", scalar: "i32" } as const;
   const signature = {
-    parameters: [i32],
+    parameters: [i32, { kind: "nativeContext", addressSpace: 0 }],
     result: i32,
-    context: { placement: "last" },
   } as const;
   assert.deepEqual(result.input.sourceTypes, [
     {
@@ -1026,9 +1025,8 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
         type: {
           kind: "nativeCallback",
           signature: {
-            parameters: [i32],
+            parameters: [i32, { kind: "nativeContext", addressSpace: 0 }],
             result: { kind: "void" },
-            context: { placement: "last" },
           },
         },
         passMode: "pointer",

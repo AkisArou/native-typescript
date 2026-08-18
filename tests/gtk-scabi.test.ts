@@ -2229,6 +2229,8 @@ test("GTK SCABI copies exact scalar signal payloads onto the owner", () => {
     [
       { kind: "nativeScalar", scalar: "i32" },
       { kind: "nativeScalar", scalar: "f64" },
+      // The closure slot, at the position the toolkit passes it.
+      { kind: "nativeContext", addressSpace: 0 },
     ],
   );
   assert.deepEqual(nativeConnect.arguments[1]?.callback, {

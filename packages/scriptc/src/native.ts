@@ -68,11 +68,14 @@ export interface ScriptCNativeCallbackSignature {
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | ScriptCNativePointerType
     | { readonly kind: "nativeHandle"; readonly typeId: string }
+    /* The closure slot occupies a real ABI position, so it is an entry in
+     * this list rather than a placement beside it. SCABI still declares a
+     * placement, and the translator turns that into a position here. */
+    | { readonly kind: "nativeContext"; readonly addressSpace: 0 }
   )[];
   readonly result:
     | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
     | { readonly kind: "void" };
-  readonly context: { readonly placement: "last" };
 }
 
 export interface ScriptCNativeCallbackType {
@@ -2755,9 +2758,13 @@ export function translateScabiNativeProgram(
           continue;
         }
         const signature = Object.freeze({
-          parameters: Object.freeze(physicalCallbackParameters),
+          /* SCABI declares the context's placement; the compiler wants the
+           * slot itself, at that position. Only "last" lowers today. */
+          parameters: Object.freeze([
+            ...physicalCallbackParameters,
+            Object.freeze({ kind: "nativeContext", addressSpace: 0 } as const),
+          ]),
           result: callbackResult,
-          context: Object.freeze({ placement: "last" } as const),
         } as const);
         callbackSignatures.set(index, signature);
         let sourceCallbackContract = callback.contract;

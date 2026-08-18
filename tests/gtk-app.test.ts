@@ -557,7 +557,8 @@ test(
         physicalCallback?.type.kind === "nativeCallback"
           ? physicalCallback.type.signature.parameters
           : undefined,
-        [],
+        // A zero-payload signal still carries the closure slot.
+        [{ kind: "nativeContext", addressSpace: 0 }],
       );
       const translatedResize = gtkTranslated.input.bindings.find(
         ({ declaration }) => declaration.name === "DrawingArea.onResize",
