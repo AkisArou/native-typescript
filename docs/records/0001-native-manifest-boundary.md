@@ -423,16 +423,38 @@ change atomic, green on its own, and bisectable:
 
      | Addition | Unblocks |
      | --- | --- |
-     | a plain-number handler answer — today a non-void return must be the exact scalar's own branded representation | `nativeApply`, `nativeCallbackMix`, `nativeCombineRaw`, `nativeCallbackSymbolCollision` |
+     | **the callback's source vocabulary, made symmetric** — see below | `nativeApply`, `nativeEach`, `nativeCallbackMix` |
      | copy transports on the call arm | `nativeCallbackStringThrow`, `nativeNullCString`, `nativePropVisit` |
      | a contextless callback, bound through a thread-local slot | `nativeCallbackSymbolCollision`, `nativeCombineRaw` |
-     | a `bool` callback source parameter | `nativeCallbackMix` |
      | a `bytes` source parameter and a source argument built from a pointer/length PAIR | `nativeCallbackSpans` |
 
-     Exactly one descriptor — `nativeEach` — is expressible today, which is
-     why this slice is sequenced as vocabulary first and desugaring after
-     rather than the reverse: a desugarer written now would refuse eight of
-     nine inputs and read as dead code.
+     The first row was originally written as two separate gaps — "a plain
+     number handler answer" and "a `bool` source parameter" — and blamed on
+     the exact scalar carriers. Both attributions were wrong, and the
+     correction matters because it changes what gets built.
+
+     `IrNativeCallbackArgumentType` was grown one side at a time. Its
+     `params` admit `{ kind: "f64" }`, the plain-number payload form; its
+     `ret` does not. Its `ret` admits `{ kind: "bool" }`; its `params` do
+     not. Neither omission follows from anything — they are the two halves
+     of one bug, and one change closes both.
+
+     The place the two sides legitimately differ is the conversion. A
+     payload WIDENS out of an at-most-32-bit slot into a double, which is
+     exact and cannot fail, so it names nothing. An answer NARROWS a double
+     back into the slot, which must choose, so it carries the same
+     `checked`/`wrap` projection a parameter position does — and upstream's
+     callback returns wrap, through the same helpers its parameter ingress
+     uses.
+
+     This is also the answer to whether the exact carriers should be dropped
+     to sit closer to upstream. They already are, everywhere it is possible:
+     `bindgen-gir` emits the plain-number conversion for all thirteen GLib
+     scalars a double can carry, `size_t` and `gunichar` included, and keeps
+     a brand only for `gint64` and `guint64`, whose range a double cannot
+     hold, and for enumerations, where the brand is nominal typing between
+     enum families rather than a width. Upstream's answer for the 64-bit
+     pair is that it cannot call those APIs at all.
    - **Retained and foreign** (formats 4 and 5), after which `ffiCall` and
      its table are deleted. `owner` gains its `process` arm here.
 3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
