@@ -130,7 +130,9 @@ const manifest = {
       result: {
         nullable: true,
         ownership: {
-          destructor: "counter_destroy",
+          // The handle type names its destructor; repeating it on the
+          // position is refused, because the two could disagree about the
+          // same pointer.
           kind: "owned",
           transfer: "to-runtime",
         },
@@ -219,6 +221,9 @@ const manifest = {
       },
     },
     gtk_counter: {
+      // Every owner of this handle releases it the same way, so the type is
+      // the one honest place to say how.
+      destructor: "counter_destroy",
       identity: "pointer",
       kind: "handle",
       nativeName: "NtsGtkCounter",
