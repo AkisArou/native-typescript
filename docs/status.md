@@ -337,6 +337,22 @@ to compile if a backend forgets an arm.
 Outstanding: the structured cleanup regions the platform dimensions need, which
 is where a shared decision becomes a shared lowering.
 
+### An answer beside the value it answers about
+
+A struct field reads as a boolean, which is what the answer-as-a-field shape
+needs: a C predicate with an out-parameter says whether it worked AND what it
+found, and flattened into one record the answer is a field.
+
+The reading is C's own truth test rather than the exact one a boolean result
+may declare. A field read is not a call, and a reading that could fail would
+make every struct field access a throwing site — for a value whose meaning in C
+is "nonzero" to begin with. Writing is the inverse: `true` stores 1.
+
+Measured over live GTK 4 methods with out-parameters: 80 of them, of which 31
+answer `gboolean`, and 13 of those have outputs that already project. Nothing
+in `bindgen-gir` uses this yet — the value-return adapter still requires a void
+result, and lifting that is the next slice.
+
 ### The manifest format
 
 SCABI is at schema version 4. That version deleted `entry.kind`, which said

@@ -2,7 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "references": [{ "path": "../scabi" }]
+  "references": [
+    {
+      "path": "../scabi"
+    }
+  ]
 }
