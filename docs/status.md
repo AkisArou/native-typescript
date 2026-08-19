@@ -191,10 +191,25 @@ while rejecting undeclared nominal conversions.
 | Nullable C string input | `string \| null` becomes the checked pointer or `NULL`, including through a runtime union |
 | Borrowed C string result | copied into managed UTF-8 storage before the receiver is released; preserves declared `string \| null` |
 | Borrowed `Uint8Array` input | exact view offsets and lengths, live backing-store mutation, single evaluation, prompt post-call release, no copy |
+| Borrowed string-array input | a managed `string[]` as the NUL-terminated `char **` a C API takes; the elements keep owning their bytes, so only the vector is built and released |
 
 Unicode and embedded-NUL behavior, temporary-receiver lifetime, and null
 behavior pass both backends and the sanitizer gate. Foreign pointers remain
 ABI-only and never enter TypeScript values.
+
+The string array is the one argument family that leaves an allocation behind,
+and one the unwind cannot see — `emitUnwind` releases managed temporaries and
+a raw vector is not one. It therefore has two release sites, both emitted:
+after the call whatever the call did, and on the unwind of any later argument
+conversion that throws. That second path is reachable rather than theoretical,
+since a binding taking a vector and then a string is ordinary and the string
+conversion throws on an embedded NUL. The borrow itself fails rather than
+storing the NULL that an embedded NUL converts to, which would end the vector
+early and pass a shorter array than the program did.
+
+The compiler side is built and gated on both backends; **no GIR binding emits
+it yet**, so the 15 live Gtk-4.0 methods that take one remain untranslated
+until the generator half lands.
 
 ### Callbacks
 
@@ -336,6 +351,26 @@ to compile if a backend forgets an arm.
 
 Outstanding: the structured cleanup regions the platform dimensions need, which
 is where a shared decision becomes a shared lowering.
+
+**The document's own precondition has been measured.** `scripts/adapter-lto-falsifier`
+answers the question the foreign boundary made a gate on its own expansion —
+how much of a conservative adapter's price link-time optimization already
+refunds — against a real JVM, on final assembly, exact reference and frame
+operation counts, and steady-state timings. The answer is: none of the
+structural price, because the operations that remain are calls through the
+JVM's function table and no linker can see through one. LTO did not even fully
+inline the adapter.
+
+What that licenses is narrower than the document was written to license. A
+non-escaping returned object pays 2.4×, which justifies resource-protocol
+lifetime domains and escape-driven promotion and frame elision. The other two
+cases — a value stored beyond the call, and a fallible call with a detailed
+failure channel — are at parity, the fallible one even without LTO. So **no
+remaining slice of the outcome protocol may be justified by performance**;
+each must earn its place on correctness or expressibility.
+[0008](records/0008-what-the-linker-will-not-refund.md) records the numbers,
+the rejected readings, and the ART and threading revisits that make the result
+a floor rather than a ceiling.
 
 ### An answer beside the value it answers about
 

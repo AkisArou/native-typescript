@@ -307,7 +307,10 @@ marshalling through the reserved agile-reference path.
   equivalent to direct in-compiler platform support, because lifetime-region
   and escape decisions remain in the compiler. This must be demonstrated with
   final-assembly inspection, retain/release and frame-operation counts, and
-  representative benchmarks — never asserted from IR shape.
+  representative benchmarks — never asserted from IR shape. Demonstrated for
+  JNI by the falsifier below, with a result that is narrower than the claim:
+  the equivalence is worth having for lifetimes and worth nothing for
+  outcomes, because the adapter was already at parity there.
 - **Marginal platform cost.** Once the primitive set stabilizes, a new
   platform should not require a platform-specific compiler branch. New
   platform semantics may still reveal missing general primitives.
@@ -352,9 +355,88 @@ because only the compiler can choose a useful lifetime region or determine
 whether a value actually escapes.
 
 Before expanding the compiler for any platform, the **adapter-plus-LTO
-falsifier** measures how much of that price link-time optimization already
-refunds: three cases — a non-escaping returned object, an object stored beyond
-the call, and a useful result with a detailed failure channel — compared on
-final assembly, retain/release counts, frame operations, and steady-state
-benchmarks, never on intermediate IR. Whatever adapters already achieve, the
-compiler need not absorb.
+falsifier** was to measure how much of that price link-time optimization
+already refunds, on the principle that whatever adapters already achieve, the
+compiler need not absorb. It has been run, and its answer narrows what follows
+from "expand the compiler for platforms" to something much smaller.
+
+## What the falsifier measured
+
+`scripts/adapter-lto-falsifier` builds the three named cases against a real
+JVM through the invocation API. **Variant A** is the contingency adapter
+described above, verbatim: a per-call wrapper in its own translation unit that
+cannot see escape or liveness, so it opens a local frame and promotes every
+returned object to a global reference, handing back the neutral algebra's
+handle. **Variant B** is what an escape- and liveness-aware compiler would
+emit for the same programs. A is built twice, with and without `-flto=full`.
+
+All four legs the *Performance* claim above demands, and no others: steady-state
+medians, exact dynamic counts of reference and frame operations through an
+interposed JNI function table where every unwrapped slot traps, final-assembly
+call sites with indirect calls labelled from offsets probed out of the real
+`jni.h`, and identical-work checksums including the failure path's message.
+Never intermediate IR.
+
+Corretto 21, clang 22, x86-64. Median nanoseconds per operation:
+
+| case | adapter | adapter + LTO | compiler-informed |
+| --- | --- | --- | --- |
+| non-escaping returned object | 144.1 | 145.5 | 60.9 |
+| object stored beyond the call | 157.5 | 157.7 | parity |
+| useful result, detailed failure channel | 51.6 | 52.7 | 51.7 |
+
+## What it settled: LTO refunds nothing structural
+
+**The non-escaping case pays 83 ns/op — 2.4× — and link-time optimization
+returns none of it** (−2%, inside noise, stable across two full runs). The
+operation counts say why. Variant A performs four operations per iteration
+that B does not: `PushLocalFrame`, `PopLocalFrame`, `NewGlobalRef`,
+`DeleteGlobalRef`. Every one is a call through the JVM's function table, which
+no linker can see through and therefore no linker can delete. B performs one
+`DeleteLocalRef`. The final assembly confirms it from the other direction: LTO
+did not even fully inline the adapter, leaving `nt_adp_make` and
+`nt_adp_capture` as real calls in the optimized binary.
+
+**The other two cases were never paying.** For a value that genuinely outlives
+the call, promotion is required and the adapter is already doing the right
+thing. For a fallible call with a detailed failure channel, an inline
+`ExceptionCheck` with a cold outlined capture matches compiler emission — and
+matches it *without* LTO, so the conclusion does not even depend on the linker.
+
+The stored case deserves its noise stated rather than a number. Within a single
+run the same logical B code measured 159.1 and 142.9 in the two binaries; that
+16 ns/op spread against a ~150 ns/op absolute is the resolvable floor for this
+case, and A at 157.5/157.7 sits inside it. The finding is parity, not a
+measured tax.
+
+## What that licenses, and what it does not
+
+**Licensed.** Resource-protocol lifetime domains, and escape-driven promotion
+and frame *elision*. That is the 2.4× case, it is the only case with a
+structural price, and nothing but compiler-side knowledge of escape and
+liveness can remove it — the operations are opaque to every other layer.
+
+**Not licensed: the outcome protocol, on performance grounds.** This is the
+load-bearing half of the result and the easiest to skip past. The fallible case
+is at parity, so no remaining slice of the outcome protocol — output validity
+included — may be justified by what it would make faster. Each must earn its
+place on correctness or expressibility alone. Record
+[0007](records/0007-weak-and-invalid-are-not-one-thing.md) already deferred
+output validity for a metadata reason; this removes the other argument that
+might have overridden that deferral.
+
+**Not licensed: a batched-region primitive.** Batching local frames at 512 per
+region beat per-iteration `DeleteLocalRef` by roughly 5 ns/op. Region *extent*
+is marginal; the win is *elision*. A primitive for choosing region size would
+be machinery for a rounding error.
+
+## Why the result is a floor rather than a ceiling
+
+Three things are unmeasured, and all three cut the same way. This is HotSpot on
+a desktop, not ART. Everything is single-threaded, so contention on the
+global-reference lock never appears. The GC-root pressure that a population of
+global references creates never appears either. Each of these makes the
+conservative adapter *worse*, not better, and the mechanism generalizes: the
+unrefundable operations are calls through a function table, which is true of
+every JVM. So the licensed scope is a lower bound on the JNI case, and the
+structural finding transfers even though the magnitudes will not.
