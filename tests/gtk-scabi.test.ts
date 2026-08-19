@@ -444,7 +444,9 @@ test(
         {
           name: "Application",
           // register() reports failure through a GError, so this also proves
-          // the generated error contract survives translation.
+          // the generated error contract survives translation — and that a
+          // failable member is keyed by its own C symbol, because it binds
+          // that symbol rather than a wrapper around it.
           methods: ["quit", "register"],
           signals: ["activate"],
         },
@@ -482,7 +484,7 @@ test(
     );
 
     const gioProgram = translateScabiNativeProgram(gioGenerated.manifest, {
-      imports: ["gio_application_connect_activate", "gio_application_register"],
+      imports: ["gio_application_connect_activate", "g_application_register"],
       exports: [],
     });
     const gtkProgram = translateScabiNativeProgram(gtkGenerated.manifest, {
@@ -511,18 +513,24 @@ test(
 
     // The generated error contract reaches Native IR with the adapter symbols
     // resolved, so the emitters call the accessor pair rather than deriving
-    // names from the operation.
+    // names from the operation. The detection names the slot the compiler
+    // appended, and the result stays the member's own — register() answers
+    // whether the application registered, which is what it always meant.
     const registerBinding = composed.input.bindings.find(({ declaration }) =>
       declaration.name === "Application.register"
     );
     assert.ok(registerBinding);
     if (!registerBinding) return;
     assert.deepEqual(registerBinding.error, {
-      detect: { kind: "resultIsNotNull" },
+      detect: {
+        kind: "outParameterIsNotNull",
+        parameter: registerBinding.parameters.length - 1,
+      },
       message: { kind: "symbol", symbol: "nts_gio_error_message" },
       release: { kind: "symbol", symbol: "nts_gio_error_free" },
     });
-    assert.equal(registerBinding.result.projection.kind, "errorChannel");
+    assert.equal(registerBinding.result.projection.kind, "boolean");
+    assert.equal(registerBinding.entry.symbol, "g_application_register");
 
     // One program now holds both packages' handles, joined by the upcast.
     const application = composed.input.types.find(
@@ -1181,33 +1189,170 @@ test("a namespace cannot be supplied as its own import", () => {
 });
 
 test(
-  "a throwing member whose own result carries information is refused",
+  "a throwing member keeps its own result and binds its own symbol",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    // gtk_recent_manager_purge_items() returns how many items it purged and
+    // reports failure through a GError. It is the whole chain in one member:
+    // the count is a gint the source sees widened into a number, and the
+    // failure arrives somewhere else entirely, so neither reading interferes
+    // with the other. Nothing generated stands between the two.
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "RecentManager", methods: ["purge_items"] }],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+    const binding = generated.manifest.bindings.gtk_recent_manager_purge_items;
+    assert.ok(binding && binding.kind === "method");
+    if (!binding || binding.kind !== "method") return;
+    // Its own symbol, not a wrapper: no adapter absorbs the slot any more.
+    assert.deepEqual(binding.entry, {
+      kind: "c-symbol",
+      symbol: "gtk_recent_manager_purge_items",
+    });
+    assert.deepEqual(binding.error, {
+      kind: "error-out",
+      message: "gtk_error_message",
+      release: "gtk_error_free",
+    });
+    // The accessors are ordinary bindings, so they are reachability
+    // dependencies like a destructor rather than free-floating symbols.
+    assert.deepEqual([...binding.dependencies.bindings].sort(), [
+      "gtk_error_free",
+      "gtk_error_message",
+    ]);
+    // GIR omits the trailing GError** because the caller does not supply it.
+    // The compiler owns that slot, so the manifest names the visible
+    // parameters and nothing else.
+    assert.deepEqual(
+      binding.signature.parameters.map(({ name }) => name),
+      ["manager"],
+    );
+    assert.equal(binding.signature.result.type, "gint");
+    assert.equal(binding.signature.result.conversion, "number");
+    assert.match(generated.declarations, /^ {2}purgeItems\(\): gint;$/mu);
+
+    // And it survives translation, which is where a converted result beside a
+    // failure contract would have been refused before: a sentinel would read
+    // the exact scalar the source never sees, and a slot reads nothing.
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: ["gtk_recent_manager_purge_items"],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+    if (!program.ok) return;
+    const translated = program.input.bindings.find(({ id }) =>
+      id.endsWith("#gtk_recent_manager_purge_items")
+    );
+    assert.equal(translated?.error.detect.kind, "outParameterIsNotNull");
+    assert.equal(translated?.result.projection.kind, "number");
+    // The slot the compiler appends is the last parameter, which is where a
+    // GError ** sits, and the detection names that position.
+    assert.equal(
+      translated?.error.detect.kind === "outParameterIsNotNull"
+        ? translated.error.detect.parameter
+        : null,
+      (translated?.parameters.length ?? 0) - 1,
+    );
+    assert.equal(translated?.parameters.at(-1)?.type.kind, "nativeErrorOut");
+    assert.deepEqual(translated?.parameters.at(-1)?.projection, { kind: "errorOut" });
+    // The message and release are resolved to the symbols the namespace's
+    // accessors bind, so no emitter has to look a binding id back up.
+    assert.deepEqual(translated?.error.message, {
+      kind: "symbol",
+      symbol: "nts_gtk_error_message",
+    });
+    assert.deepEqual(translated?.error.release, {
+      kind: "symbol",
+      symbol: "nts_gtk_error_free",
+    });
+  },
+);
+
+test(
+  "a throwing member with out-parameters names the slice it needs",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    // gtk_builder_value_from_string() throws AND fills caller-supplied
+    // storage. Its failure has a shape now and its outputs do not, so the
+    // refusal has to name the outputs rather than the GError — naming the
+    // half that already works would send a reader looking in the wrong place.
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Builder", methods: ["value_from_string"] }],
+    });
+    const callable = gtk.classes[0]?.methods[0];
+    assert.equal(callable?.throws, true);
+    assert.equal(
+      callable?.parameters.some((parameter) => parameter.direction !== "in"),
+      true,
+    );
+    const failure = generationError(() => generateGObjectAdapterSource(gtk));
+    assert.equal(
+      failure.diagnostics.some(({ message }) =>
+        message.includes("with out-parameters is not projected")
+      ),
+      true,
+      failure.diagnostics.map(({ message }) => message).join("\n"),
+    );
+  },
+);
+
+test(
+  "a throwing constructor names the adapter that would have to carry its slot",
   { skip: !existsSync(systemGioGir) },
   () => {
-    // The adapter discards the wrapped call's result, which is only sound when
-    // that result says nothing beyond success. g_application_register() returns
-    // gboolean and projects; a member returning a value must not silently lose
-    // it.
+    // A constructor's result becomes a handle, which needs the adopting
+    // adapter to take a reference first. That adapter would have to FORWARD
+    // the compiler's error slot rather than own it, and no adapter does. A
+    // method needs no adapter at all, which is exactly why it binds directly
+    // and this does not — so the refusal has to say adapter, not GError.
+    const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gio-2.0.gir",
+      namespace: { name: "Gio", version: "2.0" },
+      classes: [{ name: "Subprocess", constructors: ["newv"] }],
+    });
+    assert.equal(gio.classes[0]?.constructors[0]?.throws, true);
+    const failure = generationError(() => generateGObjectAdapterSource(gio));
+    assert.equal(
+      failure.diagnostics.some(({ message }) =>
+        message.includes("forward the compiler's error slot")
+      ),
+      true,
+      failure.diagnostics.map(({ message }) => message).join("\n"),
+    );
+  },
+);
+
+test(
+  "a throwing member whose result is outside the slice still fails precisely",
+  { skip: !existsSync(systemGioGir) },
+  () => {
+    // g_credentials_get_unix_user() returns a uid_t, which no entry in the
+    // scalar table claims — POSIX does not fix its signedness, so nothing here
+    // may guess a width for it. Keeping its own result is what makes this
+    // reachable at all; being reachable is not the same as being projectable,
+    // and the refusal has to name the result rather than the GError.
     const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gio-2.0.gir",
       namespace: { name: "Gio", version: "2.0" },
       classes: [
-        {
-          name: "Credentials",
-          constructors: ["new"],
-          // throws=1 and returns a uid_t, which is a value rather than a
-          // status, so discarding it would lose information.
-          methods: ["get_unix_user"],
-        },
+        { name: "Credentials", constructors: ["new"], methods: ["get_unix_user"] },
       ],
     });
     const throwing = gio.classes[0]?.methods[0];
     assert.ok(throwing?.throws);
     if (!throwing?.throws) return;
-    const failure = generationError(() => generateGObjectAdapterSource(gio));
+    const failure = generationError(() => generateGObjectScabiPackage(options(gio)));
     assert.equal(
       failure.diagnostics.some(({ message }) =>
-        message.includes("gboolean or void")
+        message.includes("Method result is outside the")
       ),
       true,
       failure.diagnostics.map(({ message }) => message).join("\n"),

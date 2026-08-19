@@ -199,15 +199,12 @@ const emittedUtf8CTypes: ReadonlySet<string> = new Set([
 /**
  * Why a callable cannot become a direct native binding, or null when it can.
  *
- * The three causes are reported apart because they mean different things to
+ * The two causes are reported apart because they mean different things to
  * whoever selected the member: one is metadata that cannot be bound at all,
- * one is a known missing contract, and one is an explicit instruction to skip.
+ * and one is an explicit instruction to skip.
  */
 function directEntryRefusal(callable: GirCallable): string | null {
   if (callable.cIdentifier === null) return "has no C identifier";
-  if (callable.throws) {
-    return "reports failure through GError, which is not an implemented error contract";
-  }
   if (callable.result.skip) return "has a result marked skip";
   return null;
 }
@@ -689,12 +686,12 @@ function methodResult(
   /* A result the callee has already transferred. It handed back a reference
    * this side owns, so nothing has to take one: the call is direct, and what
    * releases the value is what its handle type names. A transfer of `none` is
-   * the other shape, and goes through the adapter that references it. */
-  if (
-    result.type.kind === "named" &&
-    result.transferOwnership === "full" &&
-    !callable.throws
-  ) {
+   * the other shape, and goes through the adapter that references it.
+   *
+   * A failable member reaches here too. Its result is projected only after the
+   * error slot has been read and found empty, so what arrives is a value the
+   * callee produced on a path it called successful. */
+  if (result.type.kind === "named" && result.transferOwnership === "full") {
     const handle = resolveHandle(result.type.name, path);
     if (handle !== undefined && result.type.cType === `${handle.cType}*`) {
       return Object.freeze({
@@ -1195,9 +1192,6 @@ export function generateGObjectScabiPackage(
       method.id,
       method,
     ]),
-  );
-  const adapterByThrowingMethod = new Map(
-    options.gobjectAdapter.throwingMethods.map((method) => [method.id, method]),
   );
   // One opaque error type and one accessor pair per namespace, emitted only
   // when a selected member reports failure through a GError. They are bindings
@@ -2192,88 +2186,6 @@ export function generateGObjectScabiPackage(
         );
         continue;
       }
-      if (callable.throws) {
-        // A GError-reporting member reaches the boundary through the adapter
-        // that absorbed its out-parameter, so it binds an adapter symbol whose
-        // pointer result is the error channel rather than a source value.
-        const throwing = adapterByThrowingMethod.get(
-          `${class_.name}.method.${callable.name}`,
-        );
-        const support = options.gobjectAdapter.errorSupport;
-        if (throwing === undefined || support === null) {
-          diagnostics.push(diagnostic(path, "GObject adapter is missing this throwing method"));
-          continue;
-        }
-        const receiver = callable.parameters[0];
-        if (!isExactInstanceReceiver(receiver, class_)) {
-          diagnostics.push(diagnostic(`${path}/receiver`, "Method receiver does not match its GObject class"));
-          continue;
-        }
-        const throwingParameters: AbiParameter[] = [Object.freeze({
-          name: "instance",
-          type: typeId,
-          passMode: "pointer",
-          nullable: false,
-          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-        })];
-        const throwingSourceParameters: string[] = [];
-        let throwingValid = true;
-        for (const [index, parameter] of callable.parameters.slice(1).entries()) {
-          const handle = handleParameter(
-            parameter,
-            resolveHandle,
-            `${path}/parameters/${index}`,
-            diagnostics,
-          );
-          if (handle === null) {
-            throwingValid = false;
-            continue;
-          }
-          throwingParameters.push(handle.abi);
-          throwingSourceParameters.push(
-            `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
-          );
-        }
-        if (!throwingValid) continue;
-        const sourceMember = lowerCamel(callable.name);
-        const declaration = `${class_.name}.${sourceMember}`;
-        const bindingId = `${namespacePrefix}_${class_.cSymbolPrefix}_${snakeCase(callable.name)}`;
-        if (bindings[bindingId] !== undefined || declarations.has(declaration)) {
-          diagnostics.push(diagnostic(path, "Generated method identity collides"));
-          continue;
-        }
-        bindings[bindingId] = callableBase({
-          declaration,
-          kind: "method",
-          entryKind: "adapter-symbol",
-          symbol: throwing.adapterSymbol,
-          parameters: throwingParameters,
-          result: Object.freeze({
-            type: errorObjectTypeId,
-            passMode: "pointer",
-            nullable: true,
-            ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-          }),
-          error: Object.freeze({
-            kind: "error-handle",
-            message: errorMessageBindingId,
-            release: errorReleaseBindingId,
-          }),
-          dependencies: dependencies({
-            links: linkIds,
-            adapter: options.adapterInput.id,
-            bindings: [errorMessageBindingId, errorReleaseBindingId],
-          }),
-          availability: availability(class_, callable),
-        });
-        declarations.add(declaration);
-        adapterBindings.push(bindingId);
-        classLines.push(
-          ...deprecationDoc(callable, "  "),
-          `  ${sourceMember}(${throwingSourceParameters.join(", ")}): void;`,
-        );
-        continue;
-      }
       const methodRefusal = directEntryRefusal(callable);
       if (methodRefusal !== null || callable.cIdentifier === null) {
         diagnostics.push(
@@ -2558,6 +2470,25 @@ export function generateGObjectScabiPackage(
           callable.result.type.kind === "named"
         ? resolveHandle(callable.result.type.name, `${path}/result`)?.localDestructor
         : undefined;
+      /* A member that reports failure through a GError binds its own symbol
+       * and says so in its contract. GIR omits the trailing `GError **` from
+       * the parameter list because it is not the caller's to supply — the
+       * compiler allocates the slot, passes its address, and reads it back —
+       * so the parameters here are the visible ones and nothing else. */
+      if (callable.throws && options.gobjectAdapter.errorSupport === null) {
+        diagnostics.push(diagnostic(
+          `${path}/error`,
+          "GObject adapter is missing this namespace's error accessors",
+        ));
+        continue;
+      }
+      const errorContract = callable.throws
+        ? Object.freeze({
+            kind: "error-out" as const,
+            message: errorMessageBindingId,
+            release: errorReleaseBindingId,
+          })
+        : undefined;
       bindings[bindingId] = callableBase({
         declaration,
         kind: propertyKind ?? "method",
@@ -2565,8 +2496,14 @@ export function generateGObjectScabiPackage(
         symbol: callable.cIdentifier,
         parameters: abiParameters,
         result,
+        ...(errorContract === undefined ? {} : { error: errorContract }),
         dependencies: dependencies({
-          ...(resultDestructor == null ? {} : { bindings: [resultDestructor] }),
+          bindings: [
+            ...(resultDestructor == null ? [] : [resultDestructor]),
+            ...(errorContract === undefined
+              ? []
+              : [errorMessageBindingId, errorReleaseBindingId]),
+          ],
           links: linkIds,
         }),
         availability: availability(class_, callable),

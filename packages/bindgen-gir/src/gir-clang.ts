@@ -41,6 +41,11 @@ function physicalType(
   }
 }
 
+/* Every GIR namespace reaches GLib, so the one spelling of a reported error
+ * is known wherever a throwing member is. It is parsed once because it is the
+ * same slot in every signature that has one. */
+const errorOutCandidate: CTypeCandidate = parseCTypeCandidate("GError**", "error");
+
 function functionCandidate(
   namespace: string,
   className: string,
@@ -48,13 +53,6 @@ function functionCandidate(
   diagnostics: CBindgenDiagnostic[],
 ): CFunctionCandidate | null {
   const path = `${namespace}/${className}/${callable.kind}/${callable.name}`;
-  if (callable.throws) {
-    // GIR omits the trailing GError** from a throws=1 callable's parameters,
-    // so a direct candidate would assert an arity the header contradicts.
-    // Clang would report that as an ABI mismatch, hiding the real reason the
-    // member cannot be projected, which generation states precisely.
-    return null;
-  }
   if (callable.cIdentifier === null) {
     diagnostics.push({
       code: "NTS5001",
@@ -74,6 +72,11 @@ function functionCandidate(
   if (result === null || validParameters.length !== parameters.length) {
     return null;
   }
+  /* GIR omits the trailing `GError **` from a throws=1 callable, so the
+   * candidate has to put it back. The header declares that parameter, and a
+   * probe that asserted the shorter arity would be proving a signature no
+   * function has — Clang would call it an ABI mismatch, correctly. */
+  if (callable.throws) validParameters.push(errorOutCandidate);
   return {
     id: `${namespace}.${className}.${callable.kind}.${callable.name}`,
     symbol: callable.cIdentifier,

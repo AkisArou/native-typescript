@@ -11,6 +11,7 @@ export type {
   ScabiDiagnosticCode,
   ScabiValidationResult,
 } from "./validation.ts";
+export { errorContractReadsResult } from "./model.ts";
 export type {
   AbiParameter,
   AbiResult,

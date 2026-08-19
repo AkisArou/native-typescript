@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { errorContractReadsResult } from "@native-typescript/scabi";
 import type {
   AdapterInput,
   AbiParameter,
@@ -3136,12 +3137,16 @@ export function translateScabiNativeProgram(
       binding.signature.result.passMode === "pointer" &&
       binding.signature.result.ownership.kind === "owned" &&
       binding.signature.result.ownership.transfer === "to-runtime" &&
-      binding.error.kind === "no-fail"
+      !errorContractReadsResult(binding.error)
     ) {
       /* An owned handle the callee may report as absent, where absence is not
        * a failure. A binding that declares the nullable error contract instead
        * says NULL means the call failed, which is right for a constructor and
-       * wrong for a reader: a container with no child has answered. */
+       * wrong for a reader: a container with no child has answered.
+       *
+       * A failure reported in a slot makes no claim about the pointer, so the
+       * two coexist: the call may fail, and separately may answer with
+       * nothing. */
       const destructor = ownedDestructor(
         manifest,
         binding.signature.result.type,
@@ -3169,8 +3174,10 @@ export function translateScabiNativeProgram(
     } else if (binding.signature.result.conversion === "number") {
       /* Widening out is total: every value of the slot is a double, so the
        * projection has no failure arm and needs none. What it does need is a
-       * binding that cannot fail, because a failure contract is read from the
-       * exact scalar the source would never see. */
+       * contract that does not read the result, because a sentinel compares
+       * the exact scalar the source would never see. Failure arriving in a
+       * slot of its own reads nothing here, which is what lets a failable
+       * call answer with a count. */
       const unsupportedResult = positionUnsupported(
         binding.signature.result,
         false,
@@ -3197,11 +3204,11 @@ export function translateScabiNativeProgram(
         ));
         resultType = null;
         valid = false;
-      } else if (binding.error.kind !== "no-fail") {
+      } else if (errorContractReadsResult(binding.error)) {
         diagnostics.push(diagnostic(
           "NTS3002",
           `${resultPath}/conversion`,
-          "A number-converted result requires a non-failing binding",
+          "A number-converted result requires a contract that does not read the result",
         ));
         resultType = null;
         valid = false;

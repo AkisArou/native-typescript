@@ -152,20 +152,18 @@ export interface GObjectValueMethodAdapter {
  * namespace when any selected member reports failure through one. They take
  * `void *` because the error object never becomes a source value: the compiler
  * calls them through the error contract, not TypeScript.
+ *
+ * This is the whole of what a throwing member needs from generated C. The
+ * member itself binds its own symbol — the compiler owns the `GError **` slot,
+ * passes its address, and reads it back — so nothing here stands between the
+ * caller and the call, and nothing has to choose between the error and the
+ * result.
  */
 export interface GObjectErrorSupportAdapter {
   readonly messageSymbol: string;
   readonly releaseSymbol: string;
 }
 
-/**
- * A selected member that reports failure through a GError. The adapter absorbs
- * the trailing `GError **` so the boundary sees a pointer that is null on
- * success, which is the shape the error-object contract describes.
- *
- * The wrapped call's own result is discarded, so this is limited to members
- * whose result carries no information beyond success.
- */
 /** The function that drops the reference a handle holds. */
 export interface GObjectClassReleaseAdapter {
   readonly className: string;
@@ -189,16 +187,9 @@ export interface GObjectRetainedResultMethodAdapter {
   readonly adapterSymbol: string;
 }
 
-export interface GObjectThrowingMethodAdapter {
-  readonly id: string;
-  readonly className: string;
-  readonly sourceSymbol: string;
-  readonly adapterSymbol: string;
-}
-
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 10;
+  readonly schemaVersion: 11;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -210,7 +201,6 @@ export interface GObjectAdapterSource {
   readonly errorSupport: GObjectErrorSupportAdapter | null;
   readonly classReleases: readonly GObjectClassReleaseAdapter[];
   readonly retainedResultMethods: readonly GObjectRetainedResultMethodAdapter[];
-  readonly throwingMethods: readonly GObjectThrowingMethodAdapter[];
 }
 
 export interface GObjectAdapterObjectPlan {
@@ -386,6 +376,22 @@ function generateConstructor(
   readonly lines: readonly string[];
 } | null {
   const path = `${class_.name}/constructor/${callable.name}`;
+  /* A throwing constructor is the one failable member still outside the
+   * algebra. Its result needs the adopting adapter — a reference has to be
+   * taken before the pointer becomes a handle — and that adapter would have to
+   * FORWARD the compiler's error slot rather than own it, which is a shape no
+   * adapter has. A throwing method needs no adapter at all, which is why it
+   * binds directly and this does not. */
+  if (callable.throws) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path,
+      message:
+        "A GError-reporting constructor is not projected: its adopting adapter would have to forward the compiler's error slot",
+    });
+    return null;
+  }
   const nativeClass = physicalType(class_.cType, `${path}/class`, diagnostics);
   const sourceResult = physicalType(
     callable.result.type.cType,
@@ -1015,7 +1021,13 @@ function generateValueMethod(
         code: "NTS5001",
         severity: "error",
         path,
-        message: "Value-return adapters require a direct non-throwing void instance method",
+        /* A throwing member reaches here only when it also has out-parameters,
+         * which is a different missing piece from the one it looks like: its
+         * failure has a shape, and its outputs do not. Saying so names the
+         * slice rather than the branch that happened to catch it. */
+        message: callable.throws
+          ? "A GError-reporting member with out-parameters is not projected: the value-return adapter would have to forward the compiler's error slot as well as synthesize the result"
+          : "Value-return adapters require a direct non-throwing void instance method",
       });
     }
     return null;
@@ -1073,88 +1085,6 @@ function generateValueMethod(
       outputs: Object.freeze(validOutputs),
     }),
     lines: Object.freeze(lines),
-  });
-}
-
-/**
- * Wraps a member that reports failure through a GError so the trailing
- * `GError **` never crosses the ABI. The adapter returns the error object, or
- * null on success.
- *
- * The wrapped result is discarded, so only members whose result carries no
- * information beyond success are projected. `gboolean` and `void` qualify;
- * anything else keeps failing precisely rather than silently losing a value.
- */
-function generateThrowingMethod(
-  class_: GirClass,
-  callable: GirCallable,
-  diagnostics: CBindgenDiagnostic[],
-): {
-  readonly adapter: GObjectThrowingMethodAdapter;
-  readonly lines: readonly string[];
-} | null {
-  const path = `${class_.name}/${callable.kind}/${callable.name}`;
-  const resultCType = callable.result.type.cType;
-  if (resultCType !== "gboolean" && resultCType !== "void") {
-    diagnostics.push({
-      code: "NTS5001",
-      severity: "error",
-      path: `${path}/result`,
-      message:
-        "A GError-reporting member is projected only when its own result is gboolean or void",
-    });
-    return null;
-  }
-  if (callable.cIdentifier === null) return null;
-  const receiver = callable.parameters[0];
-  if (
-    receiver?.kind !== "instance" ||
-    !isInstancePointer(receiver.type.cType, class_)
-  ) {
-    diagnostics.push({
-      code: "NTS5001",
-      severity: "error",
-      path: `${path}/receiver`,
-      message: "A GError-reporting member needs its own class as the receiver",
-    });
-    return null;
-  }
-  const parameters = callable.parameters.slice(1).map((parameter, index) =>
-    physicalType(
-      parameter.type.cType,
-      `${path}/parameters/${index}`,
-      diagnostics,
-    )
-  );
-  if (parameters.some((parameter) => parameter === null)) return null;
-
-  const adapterSymbol = `nts_gobject_try_${callable.cIdentifier}`;
-  const names = parameters.map(
-    (_, index) => `parameter_${index.toString().padStart(4, "0")}`,
-  );
-  const declarations = parameters.map(
-    (parameter, index) => `${renderCType(parameter!)} ${names[index]}`,
-  );
-  const call =
-    `${callable.cIdentifier}(instance` +
-    `${names.length > 0 ? `, ${names.join(", ")}` : ""}, &error)`;
-  return Object.freeze({
-    adapter: Object.freeze({
-      id: `${class_.name}.${callable.kind}.${callable.name}`,
-      className: class_.name,
-      sourceSymbol: callable.cIdentifier,
-      adapterSymbol,
-    }),
-    lines: Object.freeze([
-      `void *${adapterSymbol}(${[`${class_.cType} *instance`, ...declarations].join(", ")}) {`,
-      "  GError *error = NULL;",
-      ...(resultCType === "gboolean"
-        ? [`  if (${call}) return NULL;`]
-        : [`  ${call};`]),
-      "  return error;",
-      "}",
-      "",
-    ]),
   });
 }
 
@@ -1349,7 +1279,6 @@ export function generateGObjectAdapterSource(
           "",
         ]),
   ];
-  const throwingMethods: GObjectThrowingMethodAdapter[] = [];
   const classReleases: GObjectClassReleaseAdapter[] = [];
   const retainedResultMethods: GObjectRetainedResultMethodAdapter[] = [];
   const hasThrowingMethods = declaredClasses.some((class_) =>
@@ -1470,13 +1399,6 @@ export function generateGObjectAdapterSource(
       lines.push(...generated.lines);
     }
     for (const callable of class_.methods) {
-      if (callable.throws) {
-        const generated = generateThrowingMethod(class_, callable, diagnostics);
-        if (generated === null) continue;
-        throwingMethods.push(generated.adapter);
-        lines.push(...generated.lines);
-        continue;
-      }
       const resultClass = borrowedResultClass(callable, classByName);
       if (resultClass !== undefined) {
         const referenced = generateRetainedResultMethod(
@@ -1531,7 +1453,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 10,
+    schemaVersion: 11,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
@@ -1543,7 +1465,6 @@ export function generateGObjectAdapterSource(
     errorSupport,
     classReleases: Object.freeze(classReleases),
     retainedResultMethods: Object.freeze(retainedResultMethods),
-    throwingMethods: Object.freeze(throwingMethods),
   });
 }
 

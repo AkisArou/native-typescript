@@ -147,8 +147,8 @@ const gioLifecycleMethods = [
   "get_is_remote",
   "hold",
   "quit",
-  // Reports failure through a GError, so it reaches the boundary through the
-  // adapter that absorbed its out-parameter.
+  // Reports failure through a GError, which it reports in a slot the compiler
+  // owns rather than in its result.
   "register",
   "release",
   "set_application_id",
@@ -267,7 +267,10 @@ test(
         // Native IR supports an optional handle input, but a derived handle
         // does not upcast through a nullable union, so generation projects
         // the non-null subset for now.
-        "register(cancellable: Cancellable | null): void;",
+        // It reports failure through a GError and still answers: the slot the
+        // compiler owns is where the failure goes, so the result stays the
+        // member's own.
+        "register(cancellable: Cancellable | null): boolean;",
         "onActivate(callback: (application: Application) => void): SignalConnection;",
       ]) {
         assert.equal(

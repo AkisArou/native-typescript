@@ -140,9 +140,12 @@ test(
           ]),
         );
         // The lifecycle the application calls is generated, not hand-written.
+        // register() reports failure through a GError and still answers with
+        // its own boolean, because the failure goes in a slot the compiler
+        // owns rather than in the result.
         assert.match(
           declarations.get("gio2") ?? "",
-          /register\(cancellable: Cancellable \| null\): void;/u,
+          /register\(cancellable: Cancellable \| null\): boolean;/u,
         );
         assert.match(
           declarations.get("gio2") ?? "",

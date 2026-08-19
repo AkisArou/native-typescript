@@ -785,13 +785,13 @@ test(
 );
 
 test(
-  "a throwing callable is not a direct probe candidate",
+  "a throwing callable is probed with the error slot GIR omits",
   { skip: !existsSync(systemGioGir) },
   () => {
-    // GIR omits the trailing GError** from a throws=1 callable, so asserting
-    // its GIR parameter list against the header is a guaranteed ABI mismatch.
-    // Clang would report that first and bury the real reason, which generation
-    // states precisely.
+    // GIR leaves the trailing GError** out of a throws=1 callable's parameters
+    // because it is not the caller's to supply. The header still declares it,
+    // so the candidate has to put it back: a probe asserting the shorter arity
+    // would be proving a signature no function has, and Clang would say so.
     const gio = ingestGir(readFileSync(systemGioGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gio-2.0.gir",
       namespace: { name: "Gio", version: "2.0" },
@@ -801,15 +801,22 @@ test(
       enumerations: [{ name: "ApplicationFlags", members: ["default_flags"] }],
     });
     const probe = generateGirClangAbiProbe(gio, generateGObjectAdapterSource(gio));
-    assert.equal(
-      probe.functions.some(({ symbol }) => symbol === "g_application_register"),
-      false,
+    const register = probe.functions.find(
+      ({ symbol }) => symbol === "g_application_register",
     );
-    // The constructor beside it still is one, so this excludes the throwing
-    // member rather than the class.
-    assert.equal(
-      probe.functions.some(({ symbol }) => symbol === "g_application_new"),
-      true,
+    assert.ok(register);
+    if (!register) return;
+    // GIR declares one parameter beside the instance; the header declares two.
+    assert.equal(register.parameters.length, 3);
+    assert.match(
+      probe.source,
+      /typedef gboolean \(\*[A-Za-z0-9_]+\)\(GApplication \*, GCancellable \*, GError \* \*\);/u,
     );
+    // The non-throwing constructor beside it is unchanged, so the slot is
+    // added where the metadata says one exists rather than everywhere.
+    const construct = probe.functions.find(
+      ({ symbol }) => symbol === "g_application_new",
+    );
+    assert.equal(construct?.parameters.length, 2);
   },
 );

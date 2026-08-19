@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv";
 import schema from "./scabi-v3.schema.json" with { type: "json" };
 import { canonicalizeJson } from "./canonical-json.ts";
+import { errorContractReadsResult } from "./model.ts";
 import type {
   AbiParameter,
   AbiResult,
@@ -1892,13 +1893,13 @@ function validateCallableBinding(
   );
   if (
     binding.signature.result.conversion !== undefined &&
-    binding.error.kind !== "no-fail"
+    errorContractReadsResult(binding.error)
   ) {
     diagnostics.push(
       diagnostic(
         "NTS2040",
         `/bindings/${id}/signature/result/conversion`,
-        "A number-converted result requires a non-failing binding: a failure contract is read from the exact scalar the source never sees",
+        "A number-converted result requires a contract that does not read the result: a sentinel compares the exact scalar the source never sees",
       ),
     );
   }
