@@ -9,12 +9,14 @@ native-call lowering is being pulled out of the two backends and into one
 shared decision layer, what evidence forced it, and how far that has gone. It
 is not normative.
 
-It implements step 3 of
-[foreign boundary effects](../../foreign-boundary-effects.md) — "refactor
-existing FFI into a common `ForeignCallPlan` with no behavioral change,
-proving the legalizer architecture before any platform complexity arrives" —
-and this record is the measurement that turns that proposal into a scheduled
-change.
+It is the first move toward the legalizer
+[the foreign boundary](../foreign-boundary.md) requires — one pass lowering a
+foreign call into ordinary calls plus explicit cleanup before either backend
+sees it — and this record is the measurement that turned that proposal into a
+scheduled change. [0006](0006-one-vocabulary-one-owner.md) later found this
+landed out of order: the vocabulary the legalizer would share is still
+declared in two repositories, so the decision layer shares a decision without
+sharing its declaration.
 
 ## Feature or behavior
 
@@ -74,9 +76,8 @@ that costs.
 
 It is also a *prerequisite*, which is why it is worth paying for now rather
 than later. Every dimension
-[foreign boundary effects](../../foreign-boundary-effects.md) proposes —
-lifetime regions, resource domains, outcome protocols, reentrancy — is
-cross-cutting. Adding one to two independent lowerings doubles both the work
+[the foreign boundary](../foreign-boundary.md) names — lifetime regions,
+resource domains, outcome protocols, reentrancy — is cross-cutting. Adding one to two independent lowerings doubles both the work
 and the failure surface, and the five defects above are what that already
 looks like at the current, much smaller, scale.
 
@@ -95,10 +96,10 @@ backend maps that data to its own primitives and to nothing else. No IR node
 is added, no serialized shape changes, and the plan is not persisted — it is
 derived at emission time from facts the IR already carries.
 
-This is deliberately weaker than the `ForeignCallPlan` legalizer the
-exploration document sketches, which lowers a foreign call into ordinary calls
-plus explicit cleanup regions before either backend sees it. That remains the
-target. Starting with a decision layer gets the correctness benefit
+This is deliberately weaker than the legalizer
+[the foreign boundary](../foreign-boundary.md) specifies, which lowers a
+foreign call into ordinary calls plus explicit cleanup regions before either
+backend sees it. That remains the target. Starting with a decision layer gets the correctness benefit
 immediately, at a fraction of the risk, and each slice is independently
 verifiable.
 
@@ -169,8 +170,8 @@ as it found them:
 
 ## Removal or revisit condition
 
-Superseded when the decision layer becomes the legalizer the exploration
-document describes — one pass producing ordinary calls, explicit outputs, and
+Superseded when the decision layer becomes the legalizer
+[the foreign boundary](../foreign-boundary.md) describes — one pass producing ordinary calls, explicit outputs, and
 cleanup regions, with backend code limited to materializing call targets and
 primitives. Revisit sooner if a slice cannot be made observationally inert:
 that would mean the two backends had already diverged in behavior, not only in

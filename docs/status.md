@@ -260,6 +260,11 @@ rather than `void`, and the probe covers throwing callables for the first time
 — it had skipped them, so a class whose only selected method throws could not
 produce a probe at all.
 
+This is the outcome protocol's first slice;
+[the foreign boundary](foreign-boundary.md) names the rest — out-slots as
+ordinary outputs, success classification independent of the result, capture
+and clear as distinct operations, and output-validity rules.
+
 Two shapes still refuse and name the slice they need: a throwing constructor,
 whose adopting adapter would have to forward the compiler's slot, and a
 throwing member with out-parameters, which needs the outputs half of the

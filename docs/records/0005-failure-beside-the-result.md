@@ -8,10 +8,12 @@ This is an investigation record under the policy in
 contract grew a second shape, what measurement forced it, and what it cost the
 generator to adopt. It is not normative.
 
-It is the first piece of the outcome protocol
-[foreign boundary effects](../../foreign-boundary-effects.md) sequences at step
-4, and it lifts the restriction that document names: "it retires the current
-'throwing adapters limited to info-free results' restriction."
+It is the first slice of the outcome protocol
+[the foreign boundary](../foreign-boundary.md) defines, and it lifts the
+restriction that document names — "throwing adapters limited to info-free
+results". It is also the evidence behind that document's _designed whole,
+shipped by slices_ rule: this arm was not redesigned, it was extended, and the
+extension was found because a real binding exercised it.
 
 ## Feature or behavior
 
@@ -35,15 +37,15 @@ GIR snapshot here can hold. Namespace-level `function` elements are excluded
 because they are outside the algebra for reasons unrelated to failure, and
 counting them would inflate the case.
 
-| What the result carries | Gtk-4.0 | Gio-2.0 | total |
-| --- | --- | --- | --- |
-| `gboolean` or `void` — a success flag | 30 | 157 | 187 |
-| an object the callee transferred (`full`) | 19 | 129 | 148 |
-| a numeric scalar | 2 | 45 | 47 |
-| an object the callee kept (`none`) | 3 | 13 | 16 |
-| a UTF-8 string | 0 | 9 | 9 |
-| an array or a container | 1 | 7 | 8 |
-| **total** | **55** | **360** | **415** |
+| What the result carries                   | Gtk-4.0 | Gio-2.0 | total   |
+| ----------------------------------------- | ------- | ------- | ------- |
+| `gboolean` or `void` — a success flag     | 30      | 157     | 187     |
+| an object the callee transferred (`full`) | 19      | 129     | 148     |
+| a numeric scalar                          | 2       | 45      | 47      |
+| an object the callee kept (`none`)        | 3       | 13      | 16      |
+| a UTF-8 string                            | 0       | 9       | 9       |
+| an array or a container                   | 1       | 7       | 8       |
+| **total**                                 | **55**  | **360** | **415** |
 
 GLib-2.0 contributes none: its 152 failable callables are all namespace-level
 functions on records, which is a different missing piece.
@@ -127,20 +129,23 @@ the question once on each side of the manifest.
 
 **Rejected.**
 
-- *Keep absorbing the out-parameter in a generated adapter and return the
-  error.* This is what exists, and the 289 callables are what it costs. It also
+- _Keep absorbing the out-parameter in a generated adapter and return the
+  error._ This is what exists, and the 289 callables are what it costs. It also
   puts a decision about how failure is reported into generated C, where the
   compiler cannot see it — the adapter has to pick between the error and the
   result, and only the caller knows which was wanted.
-- *Return a tuple of (result, error) and destructure in TypeScript.* It makes
+- _Return a tuple of (result, error) and destructure in TypeScript._ It makes
   failure ordinary control flow at every call site, which is the opposite of
   what a catchable error is for, and it has no answer for a call whose result
   is meaningless on failure.
-- *Do the whole outcome protocol at once* — out-slots, success classification,
-  output validity. The exploration document argues for shipping it whole, and
-  the admission rule argues back: 289 named callables need exactly this piece,
-  and the 95 with out-parameters need the next one. Building both together
-  means neither is verified against a program that wanted only one.
+- _Do the whole outcome protocol at once_ — out-slots, success classification,
+  output validity. The design argued both for shipping it whole and for
+  admitting no dimension ahead of a real failing program, which cannot both
+  govern; [0006](0006-one-vocabulary-one-owner.md) resolved that in favour of
+  the admission rule, partly on what this slice did. 228 named callables need
+  exactly this piece and the ones with out-parameters need the next; building
+  both together means neither is verified against a program that wanted only
+  one.
 
 ## Implementation repository and owner
 

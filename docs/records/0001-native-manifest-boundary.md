@@ -1,7 +1,8 @@
 # 0001 — One native vocabulary: growing scriptc's manifest, and the SCABI envelope
 
-Status: accepted decision, steps 0-2 implemented
-Last revised: 2026-08-18
+Status: accepted decision, steps 0-2 implemented; remaining steps reordered by
+[0006](0006-one-vocabulary-one-owner.md)
+Last revised: 2026-08-19
 
 This is an investigation record under the policy in
 [scriptc evolution](../scriptc-evolution.md). It records a decision and its
@@ -10,6 +11,16 @@ rationale; it is not normative. [architecture](../architecture.md) and
 on conflict; [status](../status.md) records how much of this plan is standing
 today. When a step revises what those documents describe, they are revised in
 the same change, and this record remains as the archive of why.
+
+**Revised twice.** [0006](0006-one-vocabulary-one-owner.md) reorders what is
+left: the committed type module was step 8 of 9, on the reasoning that the
+earlier steps each shrink a parallel path and the module records the result.
+That held for a plan whose remaining steps were small. It stopped holding when
+[the foreign boundary](../foreign-boundary.md) was adopted, because every
+dimension that design adds is cross-cutting, and a cross-cutting capability
+added before the vocabulary is unified is added twice by construction. The
+module is now first. Steps 3 through 7 keep their content and their relative
+order and follow it.
 
 **Revised.** The first version of this record was written before upstream
 shipped FFI formats 3, 4, and 5. Two of its planks did not survive contact
@@ -497,12 +508,20 @@ change atomic, green on its own, and bisectable:
      entanglement was already doing damage; channels were being translated as
      outbound descriptors and 16 of 30 library-callback tests were failing
      before the boundary was drawn.
-3. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
+3. **The committed type module and JSON Schema.** Moved to the front by
+   [0006](0006-one-vocabulary-one-owner.md), which measures what leaving it
+   last has already cost: 24 of the compiler's 37 native IR types have a
+   same-named twin in the parent, and the most recent capability needed its
+   governing predicate written once per repository. The fork publishes the
+   vocabulary; the parent imports it type-only by source path and deletes its
+   mirror; the rules that describe a lowering move to where the lowering is.
+   Nothing after this step is built twice.
+4. **Type table and exact scalars.** All C widths, pointer width, `f32`, and
    the mandatory conversion projection.
-4. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
+5. **Handles.** Opaque pointer types, declared destructor, identity, upcasts,
    owned/borrowed/nullable results.
-5. **Aggregates.** Structs and unions by value with Clang-proven layout.
-6. **Callback convergence.** Done, and the ordering this record and
+6. **Aggregates.** Structs and unions by value with Clang-proven layout.
+7. **Callback convergence.** Done, and the ordering this record and
    [0002](0002-upstream-callback-tier.md) assumed was wrong. Both expected the
    merge to wait on the type tier, and to land handle-scoped registration on
    top of the profile's ledger. It went the other way and needed neither: the
@@ -511,15 +530,15 @@ change atomic, green on its own, and bisectable:
    held. `scr_ffi.c` and `scr_ffi_queue.c` are deleted; the gateway gained a
    default self-pipe wake so a program with no embedder can use it, while a
    host that owns its loop still supplies its own.
-7. **Exports, constants, operations.**
-8. **The committed type module and JSON Schema.**
+8. **Exports, constants, operations.**
 9. **SCABI v4.** Envelope, composer, `bindgen-gir` emitting the subtree
    directly, fixtures regenerated, `schemaVersion` bumped to 4, and
    [architecture](../architecture.md) plus [binding ABI](../binding-abi.md)
    rewritten in the same change.
 
-Steps 3 through 7 each shrink the parallel path; by 7 there is nothing left
-to delete because step 2 already merged the node.
+Steps 4 through 8 each shrink the parallel path; by 8 there is nothing left
+to delete, because step 2 already merged the node and step 3 merged the
+vocabulary that describes it.
 
 ## Chosen decision and rejected alternatives
 
@@ -570,8 +589,8 @@ vocabulary, and no downstream identity anywhere in the tree.
 
 ## Removal or revisit condition
 
-Superseded as a live decision when step 8 lands and the normative documents
+Superseded as a live decision when step 9 lands and the normative documents
 carry the boundary; the record then remains as rationale. Revisit before
 implementation if upstream adds a handle or pointer-ownership class to its
-profile — that single change reorders steps 3 through 5 and may make part of
+profile — that single change reorders steps 4 through 6 and may make part of
 this record unnecessary.

@@ -304,7 +304,9 @@ requirements. See [scriptc evolution](scriptc-evolution.md).
 This repository owns platform composition:
 
 - target provider contracts;
-- SCABI schemas and generators;
+- SCABI schemas and generators — the envelope that derives and PROVES a
+  binding contract whose closed semantics the compiler owns, per
+  [the foreign boundary](foreign-boundary.md);
 - target packages and SDK projections;
 - application build planning;
 - platform runtime adapters;

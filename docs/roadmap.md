@@ -935,6 +935,24 @@ Only after these stages do we decide whether to maintain `scriptc-dom`, use a
 system WebView/bridge target, or support both. The project remains successful as
 a native TypeScript platform even if direct Blink is rejected.
 
+## The foreign boundary
+
+Phases 4 and 7 add three more platform object models, and
+[the foreign boundary](foreign-boundary.md) is the contract that lets them
+arrive without platform-specific compiler code. Its order is set by
+[record 0006](records/0006-one-vocabulary-one-owner.md) and is not the order
+the design was written in:
+
+1. one published vocabulary, owned by the compiler and imported by SCABI,
+   which is where the duplication between the two repositories ends;
+2. the legalizer, so a cross-cutting effect is lowered once rather than in
+   each backend;
+3. the five dimensions, each admitted by a program that needs it and never as
+   one platform-object subsystem.
+
+The adapter-plus-LTO falsifier gates step 3: whatever generated adapters plus
+link-time optimization already achieve, the compiler need not absorb.
+
 ## Continuous work
 
 Every phase maintains:

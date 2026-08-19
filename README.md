@@ -300,6 +300,9 @@ These documents are normative for implementation:
   becoming compiler forks.
 - [Binding ABI](docs/binding-abi.md) defines the versioned SCABI package and its
   validation rules.
+- [The foreign boundary](docs/foreign-boundary.md) defines what the compiler
+  knows about a call that leaves TypeScript, and what belongs instead to
+  generated capsules and to SCABI's evidence.
 - [GTK TypeScript API](docs/gtk-api.md) defines the final source projection,
   construction, properties, signals, and automatic lifecycle rules.
 - [Native subclassing](docs/native-subclassing.md) defines host-owned platform
