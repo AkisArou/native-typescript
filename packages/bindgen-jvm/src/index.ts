@@ -1,4 +1,5 @@
 export { ingestJvmClasses } from "./jvm.ts";
+export { readJarClassSources } from "./jar.ts";
 export { JvmIngestionError } from "./jvm-model.ts";
 export type {
   JvmClass,

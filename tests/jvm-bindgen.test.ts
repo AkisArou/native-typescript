@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   JvmIngestionError,
   ingestJvmClasses,
+  readJarClassSources,
 } from "@native-typescript/bindgen-jvm";
 import type {
   JvmClass,
@@ -361,6 +362,65 @@ test("an unselected superclass among the sources is a silent-ancestry error", ()
   assertCodes(
     () => ingestFixture([buttonSelection, clickableSelection]),
     ["NTS6006"],
+  );
+});
+
+function fixtureJarBytes(): Uint8Array {
+  return readFileSync(
+    resolve(repositoryRoot, "fixtures/jvm/fixture.jar"),
+  );
+}
+
+test("a jar yields exactly its class entries, bytes identical to the files", () => {
+  const sources = readJarClassSources(fixtureJarBytes(), "fixtures/jvm/fixture.jar");
+  assert.deepEqual(
+    sources.map(({ logicalPath }) => logicalPath).sort(),
+    [
+      "fixtures/jvm/fixture.jar!/fixture/Button.class",
+      "fixtures/jvm/fixture.jar!/fixture/Clickable.class",
+      "fixtures/jvm/fixture.jar!/fixture/Widget$Metrics.class",
+      "fixtures/jvm/fixture.jar!/fixture/Widget$Painter.class",
+      "fixtures/jvm/fixture.jar!/fixture/Widget.class",
+    ],
+  );
+  const widgetEntry = sources.find(({ logicalPath }) =>
+    logicalPath.endsWith("/Widget.class"),
+  )!;
+  assert.deepEqual(Buffer.from(widgetEntry.bytes), Buffer.from(widgetSource().bytes));
+});
+
+test("jar-fed ingestion produces the same classes as file-fed ingestion", () => {
+  const fromJar = ingestJvmClasses(
+    readJarClassSources(fixtureJarBytes(), "fixtures/jvm/fixture.jar"),
+    {
+      classes: [
+        widgetSelection,
+        buttonSelection,
+        clickableSelection,
+        metricsSelection,
+      ],
+    },
+  );
+  assert.deepEqual(fromJar.classes, ingestFixture().classes);
+});
+
+test("a jmod-style archive with leading bytes still reads", () => {
+  const jar = fixtureJarBytes();
+  const jmodish = new Uint8Array(4 + jar.byteLength);
+  jmodish.set([0x4a, 0x4d, 0x01, 0x00], 0);
+  jmodish.set(jar, 4);
+  const sources = readJarClassSources(jmodish, "fixtures/jvm/fixture.jmodish");
+  assert.equal(sources.length, 5);
+});
+
+test("archives that are not ZIP fail precisely", () => {
+  assertCodes(
+    () => readJarClassSources(new Uint8Array([1, 2, 3, 4]), "junk"),
+    ["NTS6002"],
+  );
+  assertCodes(
+    () => readJarClassSources(fixtureJarBytes().slice(0, 64), "truncated"),
+    ["NTS6002"],
   );
 });
 
