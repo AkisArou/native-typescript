@@ -349,9 +349,17 @@ make every struct field access a throwing site — for a value whose meaning in 
 is "nonzero" to begin with. Writing is the inverse: `true` stores 1.
 
 Measured over live GTK 4 methods with out-parameters: 80 of them, of which 31
-answer `gboolean`, and 13 of those have outputs that already project. Nothing
-in `bindgen-gir` uses this yet — the value-return adapter still requires a void
-result, and lifting that is the next slice.
+answer `gboolean`, and 13 of those have outputs that already project.
+
+The generator asks for it. A value-return adapter admits a `gboolean` result
+and puts the answer in the record's leading field, which needed no new manifest
+vocabulary: SCABI already says "read this as a boolean" with a type carrying
+its storage and both representations, so the field is typed `gboolean` and the
+translator turns the type into the projection.
+
+The Clang probe, the manifest's field list, and the generated declarations all
+had to agree the record now starts one field earlier — an output whose proven
+offset is a field late is exactly the defect the probe exists to prevent.
 
 ### The manifest format
 
