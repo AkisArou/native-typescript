@@ -323,8 +323,13 @@ one backend tested ownership before the nullable arm and the other after, which
 the validator happens to make unreachable. Shared code ends it rather than
 leaving it for the first binding that made it reachable.
 
-Outstanding: the call sequence itself, the failure check, and then the
-structured cleanup regions the dimensions need.
+The failure check followed, which closed the last drifted wording: one check
+was called "sentinel failure over non-integer result" on one side and "errno
+over non-integer result" on the other, so a reader who found either had no way
+to know the other existed.
+
+Outstanding: the call sequence itself, and then the structured cleanup regions
+the dimensions need.
 
 ### The manifest format
 

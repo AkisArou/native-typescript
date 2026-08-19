@@ -149,6 +149,12 @@ density, each landing green. All three landed, each observationally inert.
    unreachable, and the shared form ends it rather than leaving it to be
    discovered by the first binding that made it reachable.
 
+6. **Failure legalization**, in `93550d74`. The last drifted wording: one
+   check read "sentinel failure over non-integer result" on one side and
+   "errno over non-integer result" on the other. It resolves the two
+   detections that are not the result; the other two stay with the result
+   forms, because for those the check and the projection are one act.
+
 **Rejected.**
 
 - *Generate one backend from the other.* The two emit genuinely different
@@ -166,13 +172,14 @@ density, each landing green. All three landed, each observationally inert.
 ## Implementation repository and owner
 
 scriptc fork; owner: project maintainer. Slices landed in `04240e17`,
-`502915fc`, `f68a8b30`, `35160a21`, and `7c9f0b8f`.
+`502915fc`, `f68a8b30`, `35160a21`, `7c9f0b8f`, and `93550d74`.
 
-Measured across the two legalization slices, one `nativeCall` lowering went
-from 704 lines and 24 `emitter bug` contract checks to 640 and 7 in the C
-backend, and from 1142 and 28 to 1077 and 11 in the LLVM one. Seventeen of the
-twenty-two duplicated checks are gone; what remains is the call sequence and
-the failure check.
+Measured across the legalization slices, one `nativeCall` lowering went from
+704 lines and 24 `emitter bug` contract checks to 624 and 4 in the C backend,
+and from 1142 and 28 to 1065 and 8 in the LLVM one — where 4 of the LLVM 8 are
+genuinely physical, being aggregate classification and pointer narrowing, and
+correctly stay. What remains shared is the call sequence: the binding lookup,
+the owned parameter, the cancellation binding, and the conflicting owners.
 
 Afterwards, the ten remaining `kept in lockstep with the C backend` comments
 in the LLVM emitter are all outside native-call lowering — they mark the next
