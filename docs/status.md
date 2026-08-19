@@ -923,10 +923,17 @@ These are deliberate, not oversights. Each is a named future slice.
 
   What GTK does document — 32 times — is an output becoming meaningless
   because of what the call answered, which is output VALIDITY and belongs to
-  the outcome protocol rather than to a lifetime domain. All 31 members now
-  projecting in the answer-as-a-field shape are its program, and each currently
-  trusts the caller to read the answer first.
-  [0007](records/0007-weak-and-invalid-are-not-one-thing.md) records the split.
+  the outcome protocol rather than to a lifetime domain.
+
+  GTK cannot declare it: of the ten attributes GIR puts on a parameter, none
+  says a validity depends on an outcome, so `gtk_bitset_iter_next` and
+  `gtk_text_buffer_get_iter_at_line` are indistinguishable in metadata and
+  differ only in prose. A C caller has the same obligation for the same reason
+  — read the answer, then the outputs — so the binding gives what C gives.
+  Where the rule is derivable it is uniform and comes from a platform profile:
+  JNI's pending-exception restriction is the first.
+  [0007](records/0007-weak-and-invalid-are-not-one-thing.md) records the split
+  and the correction.
 - **A signal payload must be something the runtime can capture.** Exact scalars
   of every width, selected enumerations, UTF-8 strings, and selected classes
   project.

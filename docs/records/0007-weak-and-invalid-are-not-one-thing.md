@@ -1,6 +1,6 @@
 # 0007 — Weak and invalid are not one thing
 
-Status: accepted finding, nothing built
+Status: accepted finding, nothing built; the invalidation half revised below
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
@@ -44,12 +44,14 @@ relating an outcome to an output, which is the *output validity* half of the
 outcome protocol [the foreign boundary](../foreign-boundary.md) describes —
 not a lifetime domain, and not something a weak reference could express.
 
-The demand became immediate rather than theoretical this week. Answer-as-a-
-field landed, so a member that fills storage and separately says whether it
-worked now projects; all **31** live GTK 4 methods with out-parameters that
-answer `gboolean` are in that shape. For every one of them, the relationship
-between the answer and the outputs is stated in prose and stated nowhere the
-compiler can see it.
+Answer-as-a-field landed this week, so a member that fills storage and
+separately says whether it worked now projects; all **31** live GTK 4 methods
+with out-parameters that answer `gboolean` are in that shape. For every one of
+them the relationship between the answer and the outputs is stated in prose and
+stated nowhere the compiler can see it — **and, as *Required observable
+semantics* below records, nowhere GIR could state it either.** So GTK exhibits
+the shape without being able to declare it, which makes it a demonstration
+rather than a motivating program.
 
 ## Current scriptc revision and result
 
@@ -67,22 +69,44 @@ Two different ones, which is the finding.
   Building it now would put a lifetime domain in the manifest that nothing
   lowers and no binding declares, which is precisely the 51-declared/23-lowered
   failure [0003](0003-vocabulary-narrowing.md) amputated.
-- **Invalidation — missing coverage within a dimension already designed.**
-  Output validity is one of the five things the outcome protocol settles, and
-  the other pieces of that protocol are landing.
+- **Invalidation — missing coverage within a dimension already designed, and
+  blocked on metadata rather than on effort.** Output validity is one of the
+  five things the outcome protocol settles and the other pieces are landing;
+  what is missing is any SDK able to say which outputs an outcome invalidates.
 
 ## Required observable semantics
 
 None yet for weak references; that is the decision.
 
-For invalidation, when it is built: an output whose validity depends on the
-outcome must be **unreadable** on the outcome that invalidates it, not merely
-documented as meaningless. The answer-as-a-field shape makes the natural
-spelling obvious — a record whose fields are readable only where the answer
-permits — and the natural refusal too, since reading one anywhere else is a
-question the type system can decline to answer.
+**Revised for invalidation.** This record first said output validity "should
+not wait for a platform" because the 31 GTK members were its program. That was
+wrong, and the measurement that refutes it is one attribute list.
 
-What it must NOT become is absence. A call like
+GIR puts exactly these on a `<parameter>`: `name`, `transfer-ownership`,
+`allow-none`, `nullable`, `direction`, `caller-allocates`, `optional`, `scope`,
+`closure`, `destroy`. **None of them says an output's validity depends on the
+outcome.** `optional` is the near miss and means something else — that the
+caller may decline to receive the output at all.
+
+So GTK cannot declare it. `gtk_bitset_iter_next` invalidates its iterator and
+`gtk_text_buffer_get_iter_at_line` does not, and nothing in the metadata
+separates them; only the prose does. Building it for GTK would mean a
+hand-maintained table of which members invalidate — inference where this
+project requires evidence, and a table that rots silently as an SDK moves.
+
+That relocates the program rather than removing it. Where the rule is
+DERIVABLE it is uniform and comes from a profile written here rather than from
+an SDK: JNI restricts almost every operation while an exception is pending, and
+COM leaves its out-slots undefined on a negative `HRESULT`. Both are one rule
+for a whole platform, stated once.
+
+And the GTK members are not left unsafe by the deferral. A C program using
+`gtk_bitset_iter_next` has exactly the same obligation — read the answer, then
+read the outputs — because GTK's own API does not distinguish the two cases
+either. The binding gives what C gives, which is the honest ceiling until a
+platform makes the rule expressible.
+
+What it must NOT become, whenever it is built, is absence. A call like
 `gtk_text_buffer_get_iter_at_line` fills the iterator whether or not it found
 the exact line, so turning a false answer into a null result would throw away a
 usable value and misstate why — the same reasoning that made the answer a field
@@ -150,6 +174,7 @@ binding ever needs `GWeakRef`, which would mean the introspectable surface
 grew one.
 
 **Invalidation** is superseded when the outcome protocol's output-validity
-slice lands. It should not wait for a platform: the 31 GTK members already
-projecting in the answer-as-a-field shape are its program, and every one of
-them currently trusts the caller to read the answer first.
+slice lands, and that slice waits for a platform after all — one whose profile
+states the rule uniformly, JNI's pending-exception restriction being the first.
+Revisit for GTK only if GIR grows an annotation for it, which would mean the
+metadata could finally say what today only the prose does.
