@@ -23,7 +23,7 @@ The repository is not yet an application framework or a production compiler.
 | Borrowed strings and byte views | implemented |
 | Call-scoped and `until-cancelled` callbacks | implemented |
 | Foreign-thread ingress, owner gateway, scheduling | implemented |
-| Native error conventions | `errno` and nullable-handle only |
+| Native error conventions | `errno`, nullable handle, error object as result or in a slot |
 | TypeScript → C exports | exact `i32` only |
 | Outbound native-call unification | implemented; one node, profile as input dialect |
 | Artifact graph, sandboxed executor, local cache | implemented |
@@ -240,6 +240,19 @@ nextTick/microtask checkpoint, so batching cannot collapse distinct JavaScript
 turns and callback exceptions stay pending for the target error policy.
 
 ### Errors
+
+A failable operation can now report failure in a slot beside its result rather
+than as its result, which is what a trailing `GError **` is
+([0005](records/0005-failure-beside-the-result.md)). The compiler owns the
+slot, raises the contract's message, releases the object on every path, and
+unwinds before the result is projected — so a projection only ever sees a
+success.
+
+Nothing consumes it yet: `bindgen-gir` still generates adapters that absorb
+the out-parameter and return the error, which is why a throwing GTK member
+must still discard its own result. Adopting the new shape is what makes the
+289 failable GNOME callables that return a real value reachable.
+
 
 Exact integer `errno` contracts are implemented: the failure sentinel is
 checked in its native type, thread-local `errno` is captured before cleanup,
