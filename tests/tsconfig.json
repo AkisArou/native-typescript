@@ -8,6 +8,7 @@
   "references": [
     { "path": "../packages/bindgen-c" },
     { "path": "../packages/bindgen-gir" },
+    { "path": "../packages/bindgen-jvm" },
     { "path": "../packages/core" },
     { "path": "../packages/scabi" },
     { "path": "../packages/scriptc" },

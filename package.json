@@ -30,6 +30,7 @@
   "devDependencies": {
     "@native-typescript/bindgen-c": "workspace:*",
     "@native-typescript/bindgen-gir": "workspace:*",
+    "@native-typescript/bindgen-jvm": "workspace:*",
     "@native-typescript/cli": "workspace:*",
     "@native-typescript/core": "workspace:*",
     "@native-typescript/scabi": "workspace:*",

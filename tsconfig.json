@@ -9,6 +9,9 @@
       "path": "./packages/bindgen-gir"
     },
     {
+      "path": "./packages/bindgen-jvm"
+    },
+    {
       "path": "./packages/target-api"
     },
     {

@@ -32,6 +32,9 @@ importers:
       '@native-typescript/bindgen-gir':
         specifier: workspace:*
         version: link:packages/bindgen-gir
+      '@native-typescript/bindgen-jvm':
+        specifier: workspace:*
+        version: link:packages/bindgen-jvm
       '@native-typescript/cli':
         specifier: workspace:*
         version: link:packages/cli
@@ -81,6 +84,8 @@ importers:
       esbuild:
         specifier: 'catalog:'
         version: 0.25.9
+
+  packages/bindgen-jvm: {}
 
   packages/cli:
     dependencies:
