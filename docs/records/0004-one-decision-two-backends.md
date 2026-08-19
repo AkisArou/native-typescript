@@ -1,6 +1,6 @@
 # 0004 — One decision, two backends
 
-Status: accepted finding, extended — see the legalizer slices below
+Status: accepted finding, discharged for native-call lowering
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
@@ -155,6 +155,11 @@ density, each landing green. All three landed, each observationally inert.
    detections that are not the result; the other two stay with the result
    forms, because for those the check and the projection are one act.
 
+7. **Call-shape legalization**, in `0cfa33e6`. The three checks about the call
+   rather than its values: a destructor reached directly lowers as a disposal
+   and not as a call, a registration is owned by at most one argument, and a
+   cancellation takes a handle and answers nothing. That empties the set.
+
 **Rejected.**
 
 - *Generate one backend from the other.* The two emit genuinely different
@@ -175,11 +180,16 @@ scriptc fork; owner: project maintainer. Slices landed in `04240e17`,
 `502915fc`, `f68a8b30`, `35160a21`, `7c9f0b8f`, and `93550d74`.
 
 Measured across the legalization slices, one `nativeCall` lowering went from
-704 lines and 24 `emitter bug` contract checks to 624 and 4 in the C backend,
-and from 1142 and 28 to 1065 and 8 in the LLVM one — where 4 of the LLVM 8 are
-genuinely physical, being aggregate classification and pointer narrowing, and
-correctly stay. What remains shared is the call sequence: the binding lookup,
-the owned parameter, the cancellation binding, and the conflicting owners.
+704 lines and 24 `emitter bug` contract checks to 608 and 1 in the C backend,
+and from 1142 and 28 to 1049 and 5 in the LLVM one. What is left is a map
+lookup in each, and in LLVM four checks that are genuinely physical — aggregate
+classification and pointer narrowing — which are facts about LLVM rather than
+about the contract.
+
+No decision about a native call is now made in two places. The two that can
+grow, the result form and the argument form, fail to compile if a backend
+forgets an arm, which is what turns this record's finding from a review
+obligation into a property of the build.
 
 Afterwards, the ten remaining `kept in lockstep with the C backend` comments
 in the LLVM emitter are all outside native-call lowering — they mark the next

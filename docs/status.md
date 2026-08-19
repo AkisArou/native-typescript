@@ -326,10 +326,16 @@ leaving it for the first binding that made it reachable.
 The failure check followed, which closed the last drifted wording: one check
 was called "sentinel failure over non-integer result" on one side and "errno
 over non-integer result" on the other, so a reader who found either had no way
-to know the other existed.
+to know the other existed. The call's own shape followed that.
 
-Outstanding: the call sequence itself, and then the structured cleanup regions
-the dimensions need.
+**No decision about a native call is made in two places any more.** One
+`nativeCall` lowering went from 704 lines and 24 duplicated contract checks to
+608 and 1 in the C backend, and from 1142 and 28 to 1049 and 5 in the LLVM one,
+where four of the five are genuinely physical. The two forms that can grow fail
+to compile if a backend forgets an arm.
+
+Outstanding: the structured cleanup regions the platform dimensions need, which
+is where a shared decision becomes a shared lowering.
 
 ### The manifest format
 
