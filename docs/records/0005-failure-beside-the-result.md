@@ -1,6 +1,6 @@
 # 0005 — Failure beside the result, not instead of it
 
-Status: accepted finding, compiler slice implemented
+Status: accepted finding, compiler and manifest slices implemented
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
@@ -121,12 +121,21 @@ the error and that a slot is.
 
 ## Implementation repository and owner
 
-scriptc fork; owner: project maintainer. Landed in `a0bac491`.
+Both repositories; owner: project maintainer.
 
-Not yet consumed: `bindgen-gir` still generates absorbing adapters, so no GTK
-binding uses this. Adopting it is the next slice, and it is where the 289
-become reachable — the adapter stops discarding, and a throwing member's
-declared result becomes its real one.
+- The compiler shape landed in fork `a0bac491`.
+- SCABI's `error-out` arm, the translator, and the end-to-end conformance
+  binding landed in `0331f52`. A manifest declares that failure arrives in a
+  slot; the translator appends the slot itself, last, because that is where a
+  `GError **` sits — the author states the contract, not the plumbing.
+
+Not yet consumed by a real binding: `bindgen-gir` still generates absorbing
+adapters. Adopting it is the next slice and the one that pays. GTK 4 alone
+refuses 22 throwing methods today, each with a `GFile *`, `GListModel *`,
+`GAppInfo *` or `int` result the adapter must discard; Gio's set is far
+larger. The adoption is close to a deletion: a throwing member stops needing a
+per-method wrapper at all and binds its real symbol, keeping only the
+per-namespace message and release accessors it already has.
 
 ## Upstream issue/PR/status
 

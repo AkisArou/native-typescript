@@ -248,10 +248,15 @@ slot, raises the contract's message, releases the object on every path, and
 unwinds before the result is projected — so a projection only ever sees a
 success.
 
-Nothing consumes it yet: `bindgen-gir` still generates adapters that absorb
-the out-parameter and return the error, which is why a throwing GTK member
-must still discard its own result. Adopting the new shape is what makes the
-289 failable GNOME callables that return a real value reachable.
+SCABI says it with an `error-out` contract, and the translator appends the
+slot itself — the manifest declares that failure arrives in one, not a
+parameter for it.
+
+No generated binding uses it yet: `bindgen-gir` still emits adapters that
+absorb the out-parameter and return the error, which is why a throwing GTK
+member must still discard its own result. Adopting the new shape is what makes
+the 289 failable GNOME callables that return a real value reachable, and it
+removes generated C rather than adding it.
 
 
 Exact integer `errno` contracts are implemented: the failure sentinel is
