@@ -698,6 +698,7 @@ type BorrowedDataParameterPair = {
    * length beside it, which is why it carries no index: the terminator is the
    * length. */
   readonly kind: "utf8-c-string-vector";
+  readonly nullable: boolean;
 };
 
 type BorrowedStringResult = {
@@ -1386,14 +1387,17 @@ function utf8CStringVector(
    * managed array owns the strings and the vector is built for the call. A
    * RESULT is one of two things, and which one is what `release` says. */
   if (isParameter) {
+    /* An input frees nothing either way: the managed array owns the strings
+     * and the vector is built for the call. Nullability is the only thing
+     * that varies, and it means the source may omit the list entirely — which
+     * reaches the callee as NULL and is not an empty vector. */
     if (
       marshal.release !== undefined ||
       position.ownership.kind !== "borrowed" ||
       position.ownership.scope !== "call" ||
-      (position as AbiParameter).callback !== undefined ||
-      position.nullable
+      (position as AbiParameter).callback !== undefined
     ) {
-      return "a string vector input must be a required call-borrowed position that frees nothing";
+      return "a string vector input must be a call-borrowed position that frees nothing";
     }
     return { release: null, anchor: null };
   }
@@ -1430,7 +1434,7 @@ function supportedBorrowedDataPair(
     if (vector === null) {
       return "a string vector must be NUL-terminated UTF-8 with embedded-NUL rejection";
     }
-    return { kind: "utf8-c-string-vector" };
+    return { kind: "utf8-c-string-vector", nullable: data.nullable };
   }
   if (marshal?.kind === "string") {
     if (
@@ -2326,10 +2330,12 @@ export function translateScabiNativeProgram(
                   ? Object.freeze({ kind: "nullableString" } as const)
                   : Object.freeze({ kind: "string" } as const)
               : borrowed.kind === "utf8-c-string-vector"
-                ? Object.freeze({
-                    kind: "array",
-                    elem: Object.freeze({ kind: "string" } as const),
-                  } as const)
+                ? borrowed.nullable
+                  ? Object.freeze({ kind: "nullableStringArray" } as const)
+                  : Object.freeze({
+                      kind: "array",
+                      elem: Object.freeze({ kind: "string" } as const),
+                    } as const)
               : Object.freeze({ kind: "bytes", elem: "u8" } as const),
           }),
         );

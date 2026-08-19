@@ -1399,7 +1399,7 @@ test(
       namespace: { name: "Gtk", version: "4.0" },
       classes: [
         { name: "Widget", methods: ["set_css_classes"] },
-        { name: "IconTheme", methods: ["get_icon_names"] },
+        { name: "IconTheme", methods: ["get_icon_names", "set_resource_path"] },
         { name: "AlertDialog", methods: ["get_buttons"] },
       ],
     });
@@ -1453,6 +1453,18 @@ test(
       anchor: "self",
     });
 
+    /* And an input the source may omit. Absence reaches the callee as NULL,
+     * which is not an empty vector — gtk_icon_theme_set_resource_path() takes
+     * one because "no search path" and "an empty search path" are different
+     * instructions. */
+    const optional = generated.manifest.bindings.gtk_icon_theme_set_resource_path;
+    assert.ok(optional && optional.kind === "method");
+    if (!optional || optional.kind !== "method") return;
+    const pathParameter = optional.signature.parameters[1];
+    assert.equal(pathParameter?.nullable, true);
+    assert.equal(pathParameter?.type, "nullable_const_utf8_vector");
+    assert.deepEqual(pathParameter?.ownership, { kind: "borrowed", scope: "call" });
+
     /* The source sees ordinary arrays in both directions. The vector is a
      * physical shape; no program ever names one. */
     assert.match(
@@ -1460,12 +1472,17 @@ test(
       /^ {2}setCssClasses\(classes: readonly string\[\]\): void;$/mu,
     );
     assert.match(generated.declarations, /^ {2}getIconNames\(\): string\[\];$/mu);
+    assert.match(
+      generated.declarations,
+      /^ {2}setResourcePath\(path: readonly string\[\] \| null\): void;$/mu,
+    );
 
     const program = translateScabiNativeProgram(generated.manifest, {
       imports: [
         "gtk_widget_set_css_classes",
         "gtk_icon_theme_get_icon_names",
         "gtk_alert_dialog_get_buttons",
+        "gtk_icon_theme_set_resource_path",
       ],
       exports: [],
     });
@@ -1495,6 +1512,17 @@ test(
       nullable: false,
       release: { kind: "symbol", symbol: "g_strfreev" },
     });
+    /* The nullable input lowers to the source form that admits both arms,
+     * and to the same one physical slot: absence is a NULL vector, not a
+     * missing parameter. */
+    const loweredOptional = find("#gtk_icon_theme_set_resource_path");
+    assert.deepEqual(loweredOptional?.arguments[1]?.type, { kind: "nullableStringArray" });
+    assert.equal(loweredOptional?.parameters.length, 2);
+    assert.deepEqual(loweredOptional?.parameters[1]?.projection, {
+      kind: "utf8CStringArray",
+      argument: 1,
+    });
+
     assert.deepEqual(find("#gtk_alert_dialog_get_buttons")?.result.projection, {
       kind: "utf8CStringArray",
       nullable: true,

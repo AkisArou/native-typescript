@@ -548,9 +548,11 @@ function stringVectorParameter(
     !nulTerminatedUtf8Vector(parameter.type) ||
     parameter.direction !== "in" ||
     /* The vector is built for the call out of a managed array the program
-     * keeps, so the callee may not take it and may not keep it. */
+     * keeps, so the callee may not take it and may not keep it. Nullability
+     * is allowed and means the source may omit the list, which reaches the
+     * callee as NULL — a different thing from an empty vector, and the reason
+     * several members take one. */
     parameter.transferOwnership !== "none" ||
-    parameter.nullable ||
     parameter.optional ||
     parameter.callerAllocates ||
     parameter.skip ||
@@ -566,9 +568,9 @@ function stringVectorParameter(
   }
   return Object.freeze({
     name: parameter.name,
-    type: "const_utf8_vector",
+    type: parameter.nullable ? "nullable_const_utf8_vector" : "const_utf8_vector",
     passMode: "pointer",
-    nullable: false,
+    nullable: parameter.nullable,
     ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
     marshal: stringVectorMarshal(),
   });
@@ -2521,7 +2523,9 @@ export function generateGObjectScabiPackage(
             abiParameters.push(abi);
             /* `readonly` because the callee reads the vector and nothing
              * writes back through it. */
-            const sourceType = "readonly string[]";
+            const sourceType = parameter.nullable
+              ? "readonly string[] | null"
+              : "readonly string[]";
             sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
             sourceParameterTypes.push(sourceType);
           }
@@ -3136,7 +3140,9 @@ export function generateGObjectScabiPackage(
         let sourceType: string;
         if (nulTerminatedUtf8Vector(parameter.type)) {
           abi = stringVectorParameter(parameter, parameterPath, diagnostics);
-          sourceType = "readonly string[]";
+          sourceType = parameter.nullable
+            ? "readonly string[] | null"
+            : "readonly string[]";
         } else if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
           abi = cStringParameter(
             parameter,
