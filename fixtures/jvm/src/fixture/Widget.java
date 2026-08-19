@@ -32,6 +32,10 @@ public class Widget {
     return depth;
   }
 
+  public static int checkedAdd(int a, int b) {
+    return Math.addExact(a, b);
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

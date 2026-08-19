@@ -14,6 +14,9 @@
  *   NTS6004 selected declaration is outside the projection algebra
  *   NTS6005 malformed or unsupported metadata inside a well-formed file
  *   NTS6006 selection would silently lose ancestry
+ *
+ * NTS7xxx belongs to generation over an ingested snapshot:
+ *   NTS7001 selected member is outside the generated-adapter algebra
  */
 
 export type JvmDiagnosticCode =
@@ -22,7 +25,8 @@ export type JvmDiagnosticCode =
   | "NTS6003"
   | "NTS6004"
   | "NTS6005"
-  | "NTS6006";
+  | "NTS6006"
+  | "NTS7001";
 
 export interface JvmDiagnostic {
   readonly code: JvmDiagnosticCode;
@@ -35,26 +39,50 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function orderedDiagnostics(
+  diagnostics: readonly JvmDiagnostic[],
+): readonly JvmDiagnostic[] {
+  return Object.freeze(
+    [...diagnostics]
+      .sort((left, right) =>
+        compareText(left.path, right.path) ||
+        compareText(left.code, right.code) ||
+        compareText(left.message, right.message)
+      )
+      .map((entry) => Object.freeze(entry)),
+  );
+}
+
+function renderDiagnostics(
+  stage: string,
+  diagnostics: readonly JvmDiagnostic[],
+): string {
+  return `${stage} failed with ${diagnostics.length} error(s)\n${
+    diagnostics
+      .map(({ code, path, message }) => `${code} ${path}: ${message}`)
+      .join("\n")
+  }`;
+}
+
 export class JvmIngestionError extends Error {
   override readonly name = "JvmIngestionError";
   readonly diagnostics: readonly JvmDiagnostic[];
 
   constructor(diagnostics: readonly JvmDiagnostic[]) {
-    const ordered = [...diagnostics].sort((left, right) =>
-      compareText(left.path, right.path) ||
-      compareText(left.code, right.code) ||
-      compareText(left.message, right.message)
-    );
-    super(
-      `JVM class metadata ingestion failed with ${ordered.length} error(s)\n${
-        ordered
-          .map(({ code, path, message }) => `${code} ${path}: ${message}`)
-          .join("\n")
-      }`,
-    );
-    this.diagnostics = Object.freeze(
-      ordered.map((entry) => Object.freeze(entry)),
-    );
+    const ordered = orderedDiagnostics(diagnostics);
+    super(renderDiagnostics("JVM class metadata ingestion", ordered));
+    this.diagnostics = ordered;
+  }
+}
+
+export class JvmGenerationError extends Error {
+  override readonly name = "JvmGenerationError";
+  readonly diagnostics: readonly JvmDiagnostic[];
+
+  constructor(diagnostics: readonly JvmDiagnostic[]) {
+    const ordered = orderedDiagnostics(diagnostics);
+    super(renderDiagnostics("JVM adapter generation", ordered));
+    this.diagnostics = ordered;
   }
 }
 

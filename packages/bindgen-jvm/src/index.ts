@@ -1,6 +1,20 @@
 export { ingestJvmClasses } from "./jvm.ts";
 export { readJarClassSources } from "./jar.ts";
-export { JvmIngestionError } from "./jvm-model.ts";
+export {
+  JVM_ADAPTER_FAMILIES,
+  generateJvmAdapterSource,
+} from "./jvm-adapter.ts";
+export type {
+  JvmAdapterClassification,
+  JvmAdapterOptions,
+  JvmAdapterSource,
+  JvmBindAdapter,
+  JvmClassReleaseAdapter,
+  JvmConstructorAdapter,
+  JvmFailureSupportAdapter,
+  JvmMethodAdapter,
+} from "./jvm-adapter.ts";
+export { JvmGenerationError, JvmIngestionError } from "./jvm-model.ts";
 export type {
   JvmClass,
   JvmClassAccess,
