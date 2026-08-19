@@ -23,7 +23,7 @@
       "const": "native-typescript.scabi"
     },
     "schemaVersion": {
-      "const": 4
+      "const": 5
     },
     "package": {
       "$ref": "#/$defs/packageIdentity"
@@ -1249,6 +1249,39 @@
                 "const",
                 "mutable"
               ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "encoding",
+            "termination",
+            "embeddedNul"
+          ],
+          "properties": {
+            "kind": {
+              "const": "string-vector"
+            },
+            "encoding": {
+              "enum": [
+                "utf-8"
+              ]
+            },
+            "termination": {
+              "enum": [
+                "nul"
+              ]
+            },
+            "embeddedNul": {
+              "enum": [
+                "reject"
+              ]
+            },
+            "release": {
+              "$ref": "#/$defs/nonEmptyString"
             }
           }
         }

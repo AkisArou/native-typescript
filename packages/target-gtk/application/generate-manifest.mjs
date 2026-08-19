@@ -103,7 +103,7 @@ const manifest = {
   },
   permissions: [],
   schema: "native-typescript.scabi",
-  schemaVersion: 4,
+  schemaVersion: 5,
   sdk: {
     deploymentTarget: "x86_64-unknown-linux-gnu",
     metadataDigest: headerDigest,

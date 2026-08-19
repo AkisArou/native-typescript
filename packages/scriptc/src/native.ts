@@ -693,6 +693,11 @@ type BorrowedDataParameterPair = {
   readonly kind: "utf8-c-string";
   readonly pointee: "i8" | "u8";
   readonly nullable: boolean;
+} | {
+  /* A vector of C strings ending at a NULL slot. It fills ONE slot and has no
+   * length beside it, which is why it carries no index: the terminator is the
+   * length. */
+  readonly kind: "utf8-c-string-vector";
 };
 
 type BorrowedStringResult = {
@@ -1334,6 +1339,84 @@ function borrowedUtf8CString(
   return { pointee: pointee.signed ? "i8" : "u8", nullable: data.nullable };
 }
 
+/**
+ * A vector of C strings, in either direction.
+ *
+ * Returns null when the position is not one, a message when it claims to be
+ * and is malformed, and the release symbol (or null for none) otherwise. One
+ * function for arguments and results because "is this a NUL-terminated vector
+ * of UTF-8 strings" is one question, and the direction only decides which
+ * ownership answers are legal.
+ */
+function utf8CStringVector(
+  manifest: ScabiManifest,
+  position: AbiResult | AbiParameter,
+  isParameter: boolean,
+): { readonly release: string | null; readonly anchor: string | null } | string | null {
+  const marshal = position.marshal;
+  if (marshal?.kind !== "string-vector") return null;
+  if (
+    marshal.encoding !== "utf-8" ||
+    marshal.termination !== "nul" ||
+    marshal.embeddedNul !== "reject"
+  ) {
+    return "a string vector must be NUL-terminated UTF-8 with embedded-NUL rejection";
+  }
+  const pointer = manifest.types[position.type];
+  const element = pointer?.kind === "pointer"
+    ? manifest.types[pointer.pointee]
+    : undefined;
+  const bytes = element?.kind === "pointer"
+    ? manifest.types[element.pointee]
+    : undefined;
+  if (
+    position.passMode !== "pointer" ||
+    pointer?.kind !== "pointer" ||
+    pointer.addressSpace !== 0 ||
+    pointer.nullable !== position.nullable ||
+    element?.kind !== "pointer" ||
+    element.addressSpace !== 0 ||
+    element.nullable ||
+    bytes?.kind !== "integer" ||
+    bytes.bits !== 8
+  ) {
+    return "a string vector must be a pointer to a non-null pointer to 8-bit data in address space zero, with matching nullability";
+  }
+  /* An INPUT vector is always borrowed for the call and frees nothing: the
+   * managed array owns the strings and the vector is built for the call. A
+   * RESULT is one of two things, and which one is what `release` says. */
+  if (isParameter) {
+    if (
+      marshal.release !== undefined ||
+      position.ownership.kind !== "borrowed" ||
+      position.ownership.scope !== "call" ||
+      (position as AbiParameter).callback !== undefined ||
+      position.nullable
+    ) {
+      return "a string vector input must be a required call-borrowed position that frees nothing";
+    }
+    return { release: null, anchor: null };
+  }
+  if (marshal.release === undefined) {
+    /* Nothing to free, so the vector is the callee's and the copy has to
+     * happen while the receiver that owns it is still alive. */
+    if (
+      position.ownership.kind !== "borrowed" ||
+      position.ownership.scope !== "receiver" ||
+      position.ownership.anchor === undefined
+    ) {
+      return "a string vector result that frees nothing must be borrowed from its receiver";
+    }
+    return { release: null, anchor: position.ownership.anchor };
+  }
+  /* Something to free, so the vector is consumed by the projection and never
+   * becomes a value the program holds. */
+  if (position.ownership.kind !== "value") {
+    return "a string vector result with a release is consumed by the projection and must be a value";
+  }
+  return { release: marshal.release, anchor: null };
+}
+
 function supportedBorrowedDataPair(
   manifest: ScabiManifest,
   binding: CallableBinding,
@@ -1341,6 +1424,14 @@ function supportedBorrowedDataPair(
 ): BorrowedDataParameterPair | string {
   const data = binding.signature.parameters[dataIndex]!;
   const marshal = data.marshal;
+  if (marshal?.kind === "string-vector") {
+    const vector = utf8CStringVector(manifest, data, true);
+    if (typeof vector === "string") return vector;
+    if (vector === null) {
+      return "a string vector must be NUL-terminated UTF-8 with embedded-NUL rejection";
+    }
+    return { kind: "utf8-c-string-vector" };
+  }
   if (marshal?.kind === "string") {
     if (
       marshal.encoding === "utf-8" &&
@@ -2130,7 +2221,11 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
-      if (pair.kind !== "utf8-c-string" && borrowedByLength.has(pair.lengthIndex)) {
+      /* Only the two-slot families claim a length parameter. A C string ends
+       * at its own NUL and a vector at its own NULL slot, so neither has one
+       * to collide over. */
+      const singleSlot = pair.kind === "utf8-c-string" || pair.kind === "utf8-c-string-vector";
+      if (!singleSlot && borrowedByLength.has(pair.lengthIndex)) {
         diagnostics.push(
           diagnostic(
             "NTS3002",
@@ -2142,7 +2237,7 @@ export function translateScabiNativeProgram(
         continue;
       }
       borrowedByData.set(index, pair);
-      if (pair.kind !== "utf8-c-string") {
+      if (!singleSlot) {
         borrowedByLength.set(pair.lengthIndex, pair);
       }
     }
@@ -2230,11 +2325,16 @@ export function translateScabiNativeProgram(
                 ? borrowed.nullable
                   ? Object.freeze({ kind: "nullableString" } as const)
                   : Object.freeze({ kind: "string" } as const)
+              : borrowed.kind === "utf8-c-string-vector"
+                ? Object.freeze({
+                    kind: "array",
+                    elem: Object.freeze({ kind: "string" } as const),
+                  } as const)
               : Object.freeze({ kind: "bytes", elem: "u8" } as const),
           }),
         );
         argumentByParameter.set(index, argument);
-        if (borrowed.kind !== "utf8-c-string") {
+        if (borrowed.kind !== "utf8-c-string" && borrowed.kind !== "utf8-c-string-vector") {
           argumentByParameter.set(borrowed.lengthIndex, argument);
         }
         continue;
@@ -2599,7 +2699,11 @@ export function translateScabiNativeProgram(
                   name: parameter.name,
                   type: Object.freeze({
                     kind: "nativePointer",
-                    pointee: borrowedData.pointee,
+                    /* A vector's slot points at another pointer; every other
+                     * borrowed family points at bytes. */
+                    pointee: borrowedData.kind === "utf8-c-string-vector"
+                      ? "ptr"
+                      : borrowedData.pointee,
                     const: true,
                     addressSpace: 0,
                   } as const),
@@ -2608,6 +2712,8 @@ export function translateScabiNativeProgram(
                   projection: Object.freeze({
                     kind: borrowedData.kind === "utf8-c-string"
                       ? "utf8CString"
+                      : borrowedData.kind === "utf8-c-string-vector"
+                        ? "utf8CStringArray"
                       : borrowedData.kind === "utf8"
                         ? "utf8Data"
                         : "bytesData",
@@ -2692,6 +2798,45 @@ export function translateScabiNativeProgram(
         });
         resultOwnership = Object.freeze({ kind: "value" });
         resultProjection = Object.freeze({ kind: "errorChannel" });
+      }
+    } else if (binding.signature.result.marshal?.kind === "string-vector") {
+      const vector = utf8CStringVector(manifest, binding.signature.result, false);
+      if (typeof vector === "string" || vector === null) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          resultPath,
+          vector ?? "a string vector must be NUL-terminated UTF-8 with embedded-NUL rejection",
+        ));
+        valid = false;
+      } else {
+        const pointer = manifest.types[binding.signature.result.type];
+        resultType = Object.freeze({
+          kind: "nativePointer",
+          pointee: "ptr",
+          /* An SDK that hands over ownership spells the same vector without
+           * `const` and one that keeps it spells it with; the release beside
+           * it is what says which, so the spelling passes through rather than
+           * being read as a lifetime. */
+          const: pointer?.kind === "pointer" && pointer.mutability === "const",
+          addressSpace: 0,
+        });
+        /* Pinned to the release and unable to disagree with it: a vector
+         * nothing frees is borrowed from the receiver whose lifetime bounds
+         * the copy, and one something frees is consumed by the projection. */
+        resultOwnership = vector.anchor === null
+          ? Object.freeze({ kind: "value" })
+          : Object.freeze({
+              kind: "borrowed",
+              scope: "receiver",
+              anchor: vector.anchor,
+            });
+        resultProjection = Object.freeze({
+          kind: "utf8CStringArray",
+          nullable: binding.signature.result.nullable,
+          release: vector.release === null
+            ? Object.freeze({ kind: "none" } as const)
+            : Object.freeze({ kind: "symbol", symbol: vector.release } as const),
+        });
       }
     } else if (binding.signature.result.marshal?.kind === "string") {
       const borrowed = supportedBorrowedStringResult(manifest, binding);

@@ -1564,6 +1564,77 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
 });
 
+test("SCABI projects a string vector in both directions", () => {
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["cstring_vector_measure", "cstring_vector_made"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const byId = new Map(result.input.bindings.map((binding) => [binding.id, binding]));
+  const input = byId.get("scriptc.fixture.c-v1@0.0.0#cstring_vector_measure");
+  const output = byId.get("scriptc.fixture.c-v1@0.0.0#cstring_vector_made");
+
+  /* The source sees an ordinary array of strings in both directions; the
+   * vector is a physical shape, not a source one. */
+  assert.deepEqual(input?.arguments, [
+    { name: "items", type: { kind: "array", elem: { kind: "string" } } },
+  ]);
+  /* One slot, not two: the terminator is the length, so unlike a byte span
+   * there is no length projection beside it. */
+  assert.equal(input?.parameters.length, 1);
+  assert.deepEqual(input?.parameters[0]?.type, {
+    kind: "nativePointer",
+    pointee: "ptr",
+    const: true,
+    addressSpace: 0,
+  });
+  assert.deepEqual(input?.parameters[0]?.projection, {
+    kind: "utf8CStringArray",
+    argument: 0,
+  });
+
+  /* A result the caller frees names the symbol that frees it and is a value:
+   * the projection consumes the vector, so nothing the program holds
+   * outlives the call because of it. */
+  assert.deepEqual(output?.result.ownership, { kind: "value" });
+  assert.deepEqual(output?.result.projection, {
+    kind: "utf8CStringArray",
+    nullable: true,
+    release: { kind: "symbol", symbol: "nts_cstring_array_free" },
+  });
+});
+
+test("SCABI refuses a string vector whose ownership contradicts its release", () => {
+  /* The two state one fact about one pointer, so they are checked against
+   * each other rather than independently. A vector nothing frees must be
+   * anchored to the receiver that keeps it; claiming a value there would
+   * leave a foreign pointer with no stated lifetime. */
+  const contradictory = structuredClone(manifest);
+  const binding = contradictory.bindings.cstring_vector_made;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const marshal = binding.signature.result.marshal;
+  assert.equal(marshal?.kind, "string-vector");
+  if (marshal === undefined || marshal.kind !== "string-vector") return;
+  Object.assign(binding.signature.result, {
+    marshal: { ...marshal, release: undefined },
+  });
+
+  const rejected = translateScabiNativeProgram(
+    contradictory,
+    selectImports(["cstring_vector_made"]),
+  );
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/cstring_vector_made/signature/result"
+    ),
+    true,
+  );
+});
+
 test("SCABI lowers nullable owned handles as errors rather than nullable source values", () => {
   const nullable = structuredClone(manifest);
   const binding = nullable.bindings.counter_create;

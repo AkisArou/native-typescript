@@ -3075,7 +3075,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 4,
+    schemaVersion: 5,
     package: options.package,
     target: {
       ...options.target,

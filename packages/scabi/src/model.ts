@@ -293,6 +293,37 @@ export type MarshallingContract =
       readonly kind: "bytes";
       readonly length: { readonly kind: "parameter"; readonly parameter: string };
       readonly mutability: "const" | "mutable";
+    }
+  /**
+   * A vector of C strings ending at a NULL slot — what a C API means by
+   * `char **`. The element type is not stated here because the position's
+   * own type states it: the slot is a pointer whose pointee is the string
+   * type, so the vector is described where every other type is.
+   *
+   * A COUNTED vector, whose length arrives in a separate position rather than
+   * as a terminator, is a different contract and is not implemented. It is
+   * absent rather than defaulted so that a generator meeting one produces a
+   * diagnostic instead of a vector that ends in the wrong place.
+   */
+  | {
+      readonly kind: "string-vector";
+      readonly encoding: "utf-8";
+      readonly termination: "nul";
+      /** How an element carrying a NUL byte is treated. `reject` is the only
+       * implemented answer: such a string has no `char *` form, and storing
+       * the absence would end the vector where the element is. */
+      readonly embeddedNul: "reject";
+      /**
+       * What frees the vector once its elements have been copied, for a
+       * RESULT the caller must dispose of. Absent for a vector the callee
+       * keeps and for every input, where the caller frees nothing.
+       *
+       * A symbol rather than a policy, which is what lets one contract cover
+       * conventions an SDK distinguishes: a transfer that hands over the
+       * elements too and one that hands over only the vector differ in which
+       * function frees it and in nothing else.
+       */
+      readonly release?: string;
     };
 
 export type PassMode = "value" | "pointer" | "hidden-return";
@@ -532,7 +563,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
