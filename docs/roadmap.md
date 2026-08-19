@@ -514,16 +514,21 @@ object — and the handle is spent afterwards, with the same use-after-dispose
 guarantee an explicit disposal gives.
 
 **A GError error convention.** Done, contract and generation both. A member
-that reports failure through a GError projects as a throwing method: a
-generated adapter absorbs the `GError **`, one accessor pair per namespace
-reads the message and releases the object, and both backends release on the
-throwing and already-pending paths alike.
+that reports failure through a GError binds its own symbol and projects as a
+throwing method: the compiler allocates the `GError **`, passes its address and
+reads it back, one accessor pair per namespace reads the message and releases
+the object, and both backends release on the throwing and already-pending paths
+alike. The unwind happens between the check and the result projection, so the
+member keeps its own result.
 
-Two constraints hold it to a sound subset. A `throws=1` callable is not a
-direct probe candidate, because GIR omits the trailing `GError **` and
-asserting its parameter list against the header is a guaranteed ABI mismatch;
-the adapter is the probed entry instead. And the adapter discards the wrapped
-call's own result, so only members returning `gboolean` or `void` project.
+GIR omits the trailing `GError **` because it is not the caller's to supply.
+The probe puts it back, since the header declares it and a probe asserting the
+shorter arity would be proving a signature no function has.
+
+Two shapes are still outside it, each naming what it needs. A throwing
+constructor would need its adopting adapter to forward the compiler's slot
+rather than own one. A throwing member with out-parameters needs the outputs
+half of the outcome protocol.
 
 `gtk_application_new()`, `g_application_activate()`,
 `g_application_quit()`, `g_application_get_is_remote()`, and the `activate`

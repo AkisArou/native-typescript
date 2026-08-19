@@ -480,8 +480,10 @@ export declare class Application {
 ```
 
 - `register()` reports failure through a GError, so it projects as a throwing
-  method: a generated adapter absorbs the `GError **` and the runtime raises an
-  ordinary catchable `Error` carrying the message.
+  method: the compiler owns the `GError **`, and the runtime raises an ordinary
+  catchable `Error` carrying the message. The slot is beside the result rather
+  than instead of it, so `register()` still answers whether the application
+  registered.
 - `onActivate` registers before activation. It is an ordinary receiver-owned
   signal with the same lifetime rules as every other GTK signal.
 - `activate()` returns immediately. Nothing suspends around the UI loop.
@@ -685,9 +687,9 @@ rather than degrading.
 The migration is intentionally one-way:
 
 1. retire the fixture's hand-authored runtime entry point in favour of the
-   generated `Application` lifecycle, which now projects `register()` too: a
-   generated adapter absorbs its `GError **` so the boundary sees a pointer
-   that is null on success;
+   generated `Application` lifecycle, which now projects `register()` too: it
+   binds its own symbol, and the compiler owns the `GError **` beside the
+   result;
 2. broaden proven GObject property types, value-method input/output families,
    and non-scalar signal payloads/results.
 

@@ -252,11 +252,18 @@ SCABI says it with an `error-out` contract, and the translator appends the
 slot itself — the manifest declares that failure arrives in one, not a
 parameter for it.
 
-No generated binding uses it yet: `bindgen-gir` still emits adapters that
-absorb the out-parameter and return the error, which is why a throwing GTK
-member must still discard its own result. Adopting the new shape is what makes
-the 289 failable GNOME callables that return a real value reachable, and it
-removes generated C rather than adding it.
+`bindgen-gir` uses it. A GError-reporting member binds its own symbol and keeps
+its own result; the adapter that used to absorb the out-parameter and return
+the error is gone, along with the restriction that a throwing member's result
+must carry nothing beyond success. A generated `register()` declares `boolean`
+rather than `void`, and the probe covers throwing callables for the first time
+— it had skipped them, so a class whose only selected method throws could not
+produce a probe at all.
+
+Two shapes still refuse and name the slice they need: a throwing constructor,
+whose adopting adapter would have to forward the compiler's slot, and a
+throwing member with out-parameters, which needs the outputs half of the
+outcome protocol.
 
 
 Exact integer `errno` contracts are implemented: the failure sentinel is
@@ -481,12 +488,12 @@ The whole GApplication lifecycle projects: `new Application(id, flags)`,
 `activate()`, `quit()`, `hold()`, `release()`, `getIsRemote()`,
 `getApplicationId()`, `setApplicationId()`, `onActivate()`, and `register()`.
 
-`register()` reports failure through a GError, so a generated adapter absorbs
-its `GError **` and the boundary sees a pointer that is null on success. One
-accessor pair per namespace reads the message and releases the object. The
-adapter discards the wrapped call's own result, so this is limited to members
-returning `gboolean` or `void`; a member whose result carries information is
-refused rather than silently losing it. `gtk_application_new()` projects as
+`register()` reports failure through a GError, and binds `g_application_register`
+itself: the compiler owns the `GError **`, allocates it, passes its address, and
+reads it back, so the member keeps its own result and declares `boolean`. One
+accessor pair per namespace reads the message and releases the object. Nothing
+generated stands between the caller and the call. `gtk_application_new()`
+projects as
 `constructor(applicationId: string | null, flags: GioApplicationFlags)`.
 
 A metadata C spelling is an untrusted candidate that the probe proves, so

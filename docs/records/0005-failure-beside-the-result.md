@@ -1,12 +1,12 @@
 # 0005 — Failure beside the result, not instead of it
 
-Status: accepted finding, compiler and manifest slices implemented
+Status: accepted finding, implemented and consumed
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
 [scriptc evolution](../scriptc-evolution.md). It records why the error-object
-contract grew a second shape, what measurement forced it, and what is left
-before a binding can use it. It is not normative.
+contract grew a second shape, what measurement forced it, and what it cost the
+generator to adopt. It is not normative.
 
 It is the first piece of the outcome protocol
 [foreign boundary effects](../../foreign-boundary-effects.md) sequences at step
@@ -27,24 +27,37 @@ value to go.
 
 ## Real motivating program/test
 
-Counted straight from the installed GIRs, over `method`, `function`, and
-`constructor` elements carrying `throws="1"`:
+`scripts/measure-failable-callables.py` counts them from the installed GIRs, so
+the table below can be re-derived rather than trusted — an SDK upgrade moves
+these numbers. It reads `method` and `constructor` children of a `class` or
+`interface` carrying `throws="1"` and not `introspectable="0"`: the surface a
+GIR snapshot here can hold. Namespace-level `function` elements are excluded
+because they are outside the algebra for reasons unrelated to failure, and
+counting them would inflate the case.
 
-| Namespace | Failable callables | Return only a success flag | Return a real value |
+| What the result carries | Gtk-4.0 | Gio-2.0 | total |
 | --- | --- | --- | --- |
-| Gtk-4.0 | 45 | 24 | 21 |
-| Gio-2.0 | 349 | 134 | 215 |
-| GLib-2.0 | 87 | 34 | 53 |
-| **total** | **481** | **192** | **289** |
+| `gboolean` or `void` — a success flag | 30 | 157 | 187 |
+| an object the callee transferred (`full`) | 19 | 129 | 148 |
+| a numeric scalar | 2 | 45 | 47 |
+| an object the callee kept (`none`) | 3 | 13 | 16 |
+| a UTF-8 string | 0 | 9 | 9 |
+| an array or a container | 1 | 7 | 8 |
+| **total** | **55** | **360** | **415** |
 
-"Success flag" counts `gboolean` and `void`; everything else carries something
-back. The 289 are not exotic: `Gio.File`, `FileInfo`, `GLib.Bytes`,
-`GLib.Variant`, input and output streams, `gssize`, `utf8`. Opening a file,
-reading its contents, resolving an address, and building a D-Bus proxy are all
-in that column.
+GLib-2.0 contributes none: its 152 failable callables are all namespace-level
+functions on records, which is a different missing piece.
 
-95 of the 481 also have out-parameters, which is a further slice and not this
-one.
+**228 of the 415 carry a real value**, and they are not exotic: `Gio.File`,
+`FileInfo`, `GLib.Bytes`, `GLib.Variant`, input and output streams, `gssize`,
+`utf8`. Opening a file, reading its contents, resolving an address, and
+building a D-Bus proxy are all in that group.
+
+The success-flag column is not free either, and that is the part the first
+measurement missed. A flag is a result too. Under the old shape those 187 could
+only be projected by throwing their flag away, which is why
+`g_application_register` — the one this repository's own GTK applications call
+— declared `void` and had no way to say whether it had registered.
 
 `tests/native-ir/error-handle.ts` is the conformance program: it divides
 through a call whose error arrives in a slot, checks the quotient on success,
@@ -98,6 +111,16 @@ The admissible-combination table gains one row,
 must BE the error slot, and a binding may not claim both that its result is
 the error and that a slot is.
 
+It also removes a restriction, which the adoption is what found. Five result
+projections each required the detection to be `never`, written five times. The
+rule they meant is that a projection which TRANSFORMS the result cannot sit
+beside a detection that READS it — the two look at the same slot and disagree
+about what it holds. `never` satisfies that by reading nothing, so the guard
+looked right. `outParameterIsNotNull` satisfies it too and was refused, which
+would have left the 187 flags and the 47 numeric scalars unreachable by a rule
+about sentinels. `nativeFailureReadsResult` and `errorContractReadsResult` name
+the question once on each side of the manifest.
+
 ## Chosen decision and rejected alternatives
 
 **Chosen.** Let the failure indicator live beside the result.
@@ -128,14 +151,34 @@ Both repositories; owner: project maintainer.
   binding landed in `0331f52`. A manifest declares that failure arrives in a
   slot; the translator appends the slot itself, last, because that is where a
   `GError **` sits — the author states the contract, not the plumbing.
+- The projection restriction was narrowed in fork `3763c41c`.
+- `bindgen-gir` adopted it in `de190ba`, and the adoption was a net deletion:
+  107 lines of absorbing-adapter machinery and the per-method wrapper for every
+  throwing member. What remains is the per-namespace message and release pair,
+  which was always the only part the compiler needed.
 
-Not yet consumed by a real binding: `bindgen-gir` still generates absorbing
-adapters. Adopting it is the next slice and the one that pays. GTK 4 alone
-refuses 22 throwing methods today, each with a `GFile *`, `GListModel *`,
-`GAppInfo *` or `int` result the adapter must discard; Gio's set is far
-larger. The adoption is close to a deletion: a throwing member stops needing a
-per-method wrapper at all and binds its real symbol, keeping only the
-per-namespace message and release accessors it already has.
+Three things fell out of the adoption rather than being built.
+
+**The probe covers throwing callables for the first time.** It had skipped them
+because GIR omits the trailing `GError **` and the shorter arity reads as an
+ABI mismatch; the fix is to put the parameter back, since the header declares
+it. Before, selecting a class whose only selected method throws failed with "a
+Clang ABI probe requires a function, record, or enum" — there were no
+candidates at all. Measured over GTK 4's 51 introspectable throwing methods,
+selecting each one alone: none projected before (20 refused for their result,
+26 for the empty probe, 5 for unrelated selection reasons); eight do now, and
+the remaining refusals are about unsupplied imports, `filename`, and
+out-parameters rather than about failure.
+
+**A member is keyed by its own symbol.** `gio_application_register` was a
+synthesized id naming a wrapper; it is `g_application_register` now, because
+that is what it binds.
+
+**Two shapes still refuse, and say which slice they need.** A throwing
+constructor needs its adopting adapter to FORWARD the compiler's slot rather
+than own it — 31 across GTK and Gio. A throwing member with out-parameters
+needs the outputs half of the outcome protocol: its failure has a shape and its
+outputs do not.
 
 ## Upstream issue/PR/status
 
@@ -146,10 +189,19 @@ come out of any C SDK with an error-out convention.
 ## Conformance tests
 
 - `tests/harness/native-ir.test.ts`, the error-object case on both backends —
-  it now covers both shapes, including that the result is not projected on
-  failure and that the object is released exactly once on the throwing path.
+  it covers both shapes, including that the result is not projected on failure
+  and that the object is released exactly once on the throwing path.
 - The sanitized lane, which is what caught the LLVM release landing on neither
   branch of its pending check.
+- `tests/gtk-scabi.test.ts`, "a throwing member keeps its own result and binds
+  its own symbol" — `gtk_recent_manager_purge_items` returns a count and
+  reports failure through a GError, so it exercises the widened number, the
+  slot, and the narrowed restriction in one member, through generation and
+  translation.
+- `tests/gtk-bindgen.test.ts`, which asserts the probe puts the omitted
+  parameter back and adds it nowhere else.
+- `tests/gtk-application.test.ts`, where a real GTK application's generated
+  `register()` declares `boolean` and the binary still runs.
 
 ## Removal or revisit condition
 
