@@ -591,6 +591,17 @@ the algebra rather than deferred, and say so.
 Not built, each waiting for its consumer: Kotlin metadata, AAR reading, and
 the Clang-evidence half that the GIR family has.
 
+A census of the real `jni.h` (231 members, `scripts/jni-pair-census.ts`) sorts
+its disposals into exactly three shapes, two of which this project already
+expresses: the three `Delete*` reference members are destructor-as-data, and a
+bare symbol consumed inside a projection is what the string-vector result uses.
+The third — twelve acquire/release pairs whose token is two values held across
+a region — has no expression, and the critical variants add a restriction no
+probe can establish, because it lives in the JNI specification and not in the
+header. [0009](records/0009-a-region-with-the-boundary-closed.md) records the
+shape and why it waits: every one of those pairs has a copying accessor beside
+it, and all 1,333 measured array-returning methods are served by the copy.
+
 ### GIR and GObject
 
 An explicit namespace/class/member selection becomes a content-addressed

@@ -128,6 +128,15 @@ non-suspending segment, whichever liveness supports. This is the whole reason
 the compiler is involved: a generated adapter must open a region per call
 because it cannot see the interval.
 
+What a region carries today is cleanup. A platform can also RESTRICT one —
+JNI's critical regions forbid foreign calls outright between acquire and
+release, which bounds the extent liveness is allowed to choose rather than
+merely being checked inside one already chosen. Nothing here expresses that
+yet, and [0009](records/0009-a-region-with-the-boundary-closed.md) records why
+it waits: the surface that needs it is empty until a zero-copy program exists,
+and a restriction designed against one platform's wording would be that
+platform's restriction under a neutral name.
+
 ## The legalizer
 
 Both backends must receive the same plan. One pass legalizes a foreign call
