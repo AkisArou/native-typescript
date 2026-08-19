@@ -642,12 +642,30 @@ direction, that was optimistic twice over, and the correction is the useful
 part.
 
 The 24 split into 14 members that take one as an argument and 7 that fill a
-caller-allocated one — and **neither shape exists even for a record this
-namespace owns**. A record-typed parameter is refused everywhere: the input
-families are exact scalars, booleans, borrowed UTF-8, enumerations and handles,
-and a struct crossing by value is not among them. So the typed import unlocks
-nothing on its own; it needs records-as-arguments first, and that capability is
-worth about one member locally.
+caller-allocated one.
+
+**Corrected again, after the boxed projection landed.** "A record-typed
+parameter is refused everywhere" was true when a record could only be a layout.
+A boxed record is an owned handle, and a handle is an input family, so a boxed
+record crosses as an argument today with no wrapper — the SDK's own symbol
+takes the pointer the handle names, borrowed for the call. Measured over live
+GTK 4: **62 methods take a record parameter, 49 of them a `GtkTextIter`, and
+none of the 62 takes a value record.** The demand this entry was written about
+does not exist inside the namespace.
+
+What is still refused is a VALUE record crossing by value, and its motivating
+programs are all foreign: `Graphene.Rect` on 13 live members, `Graphene.Point`
+on 9, `Gdk.RGBA` on 8. Graphene does not project at all, so the reachable
+program is Gdk.RGBA's 8.
+
+That makes the blocker a composition question rather than an input-family one.
+A package proves the storage of every enum it reaches against its own headers,
+including one another namespace owns, so the same probe could prove an imported
+record's layout — the mechanism exists. What it does not answer is whether two
+packages that both prove `GdkRGBA` have proven the same type: for an enum it
+does not matter, because the value crosses as a bare scalar, and for a struct
+crossing by value it decides whether the composer ends with one type or two.
+That deserves its own record before anything is built.
 
 The output half is worse. A caller-allocated record output becomes a field of
 the value-return record, so an imported one would be a struct field of an

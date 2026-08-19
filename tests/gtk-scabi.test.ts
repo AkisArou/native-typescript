@@ -1132,6 +1132,73 @@ test(
 );
 
 test(
+  "a boxed record crosses as an argument, not only as a result",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* The roadmap recorded record-typed parameters as refused everywhere,
+     * which was true when a record could only be a layout. A boxed record is
+     * an owned handle, and a handle is an input family — so what a caller
+     * hands back is what it was given, borrowed for the call.
+     *
+     * This is the direction that matters for GTK: of the 62 live methods
+     * taking a record parameter, none takes a value record and 49 take a
+     * GtkTextIter. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "TextBuffer", methods: ["get_start_iter", "place_cursor"] },
+      ],
+      records: [{ name: "TextIter", methods: ["forward_char"] }],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    const place = generated.manifest.bindings.gtk_text_buffer_place_cursor;
+    assert.ok(place && "signature" in place);
+    if (!place || !("signature" in place)) return;
+    /* No wrapper: the SDK's own symbol takes the pointer the handle names. */
+    assert.deepEqual(place.entry, { symbol: "gtk_text_buffer_place_cursor" });
+    assert.deepEqual(place.dependencies.adapterInputs, []);
+    assert.deepEqual(
+      place.signature.parameters.map(({ name, type, ownership }) => ({
+        name,
+        type,
+        ownership,
+      })),
+      [
+        {
+          name: "buffer",
+          type: "gtk_text_buffer",
+          ownership: { kind: "borrowed", scope: "call" },
+        },
+        {
+          /* Borrowed for the call: the caller keeps the iterator, and GTK
+           * reads through it without taking a reference. */
+          name: "where",
+          type: "gtk_text_iter",
+          ownership: { kind: "borrowed", scope: "call" },
+        },
+      ],
+    );
+    assert.match(generated.declarations, /^ {2}placeCursor\(where: TextIter\): void;$/mu);
+
+    /* And what one method hands back another accepts, which is the property
+     * that makes an iterator usable rather than merely producible. */
+    assert.match(generated.declarations, /^ {2}getStartIter\(\): TextIter;$/mu);
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: ["gtk_text_buffer_place_cursor", "gtk_text_iter_free"],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+  },
+);
+
+test(
   "a record selects one projection or the other, never both",
   { skip: !existsSync(systemGtkGir) },
   () => {

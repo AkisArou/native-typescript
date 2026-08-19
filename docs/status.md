@@ -361,6 +361,18 @@ The Clang probe, the manifest's field list, and the generated declarations all
 had to agree the record now starts one field earlier — an output whose proven
 offset is a field late is exactly the defect the probe exists to prevent.
 
+- **A boxed record crosses as an argument, not only as a result.** No wrapper:
+  the SDK's own symbol takes the pointer the handle names, borrowed for the
+  call, so what one method hands back another accepts. That has been true since
+  the boxed projection landed and nothing pinned it; a test does now. Measured
+  over live GTK 4, 62 methods take a record parameter and 49 take a
+  `GtkTextIter`.
+
+  A VALUE record crossing by value is still refused, and every motivating
+  program for it is foreign — `Graphene.Rect`, `Graphene.Point`, `Gdk.RGBA`.
+  [The roadmap](roadmap.md) records why that is a composition question rather
+  than an input-family one.
+
 ### The manifest format
 
 SCABI is at schema version 4. That version deleted `entry.kind`, which said
