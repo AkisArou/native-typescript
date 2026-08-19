@@ -53,25 +53,41 @@ export interface JvmBindAdapter {
   readonly adapterSymbol: string;
 }
 
+/**
+ * The generated env acquisition every other family calls through: the
+ * JavaVM cached at bind time answers GetEnv for the current thread. This is
+ * the package's one declared GAP — see its classification.
+ */
+export interface JvmEnvSupportAdapter {
+  readonly helperSymbol: string;
+}
+
 export interface JvmClassReleaseAdapter {
   /** Releases one stable reference; the destructor-as-data symbol. */
   readonly adapterSymbol: string;
 }
 
-export interface JvmFailureSupportAdapter {
-  readonly failureType: string;
-  /** The release action for a captured message, named by the contract. */
-  readonly messageRelease: "free";
+/**
+ * The `error-out` support pair, shaped exactly as the landed SCABI contract
+ * consumes it: every adapter writes an owned error object into a trailing
+ * slot (null on success), `messageSymbol` reads its message, and
+ * `releaseSymbol` releases it. The object IS its message — one malloc'd
+ * string — so the message read is an identity and the release is free().
+ */
+export interface JvmErrorSupportAdapter {
+  readonly messageSymbol: string;
+  readonly releaseSymbol: string;
 }
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly source: string;
   readonly sourceDigest: string;
   readonly bind: JvmBindAdapter;
+  readonly envSupport: JvmEnvSupportAdapter;
   readonly classRelease: JvmClassReleaseAdapter;
-  readonly failureSupport: JvmFailureSupportAdapter;
+  readonly errorSupport: JvmErrorSupportAdapter;
   readonly constructors: readonly JvmConstructorAdapter[];
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
@@ -106,21 +122,37 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
     custom:
       "a JNI callee is reached through a per-thread function table by a " +
       "method ID resolved from (class, name, descriptor) strings; " +
-      "resolution is registration identity performed once, not a call",
+      "resolution is registration identity performed once, not a call, " +
+      "and the JavaVM is cached here because it is process identity",
+  },
+  envSupport: {
+    kind: "gap",
+    missing:
+      "a thread-capability position in the boundary contract, so a call " +
+      "could receive the JNIEnv the compiler knows it holds",
+    cost:
+      "one GetEnv table lookup per adapter call, and every call is legal " +
+      "only from a thread already attached to the JVM - the first JNI " +
+      "slice's stated constraint. No lifetime or executor is decided here: " +
+      "GetEnv answers which env the CURRENT thread already has.",
   },
   classRelease: {
     kind: "translation",
     custom:
       "JNI spells releasing one stable reference DeleteGlobalRef(env, ref); " +
-      "env is a thread capability, so the release is wrapped to the " +
-      "runtime's unary destructor shape",
+      "the current thread's env is looked up through the declared gap so " +
+      "the release is unary, which is what destructor-as-data needs. " +
+      "Owner-confined destruction already guarantees an attached thread; " +
+      "an unattached one is a runtime bug and traps.",
   },
-  failureSupport: {
+  errorSupport: {
     kind: "translation",
     custom:
       "failure is a pending exception, and only a restricted set of JNI " +
       "operations is legal until it is captured or cleared; capture " +
-      "materializes the throwable's message and clears, off the hot path",
+      "materializes the throwable's message into the error-out slot and " +
+      "clears, off the hot path, and the message read and release the " +
+      "contract names are ordinary C functions over that object",
   },
   constructors: {
     kind: "translation",
@@ -245,7 +277,6 @@ export function generateJvmAdapterSource(
   }
   const slug = options.packageSlug;
   const prefix = `nts_jvm_${slug}`;
-  const failureType = `${prefix}_failure`;
 
   interface ClassPlan {
     readonly class_: JvmClass;
@@ -299,10 +330,11 @@ export function generateJvmAdapterSource(
       bodies.push(
         `/* ${class_.binaryName}.<init>${constructor.descriptor} */`,
         `void *${adapterSymbol}(${[
-          "JNIEnv *env",
           ...parameterDeclarations,
-          `${failureType} *fail`,
+          "char **error",
         ].join(", ")}) {`,
+        `  JNIEnv *env = ${prefix}_env(error);`,
+        `  if (env == NULL) return NULL;`,
         `  jobject local = (*env)->NewObject(${[
           "env",
           plan.classVar,
@@ -310,12 +342,12 @@ export function generateJvmAdapterSource(
           ...argumentList,
         ].join(", ")});`,
         `  if ((*env)->ExceptionCheck(env)) {`,
-        `    ${prefix}_capture(env, fail);`,
+        `    ${prefix}_capture(env, error);`,
         `    return NULL;`,
         `  }`,
         `  jobject stable = (*env)->NewGlobalRef(env, local);`,
         `  (*env)->DeleteLocalRef(env, local);`,
-        `  if (stable == NULL) { fail->failed = 1; fail->message = NULL; }`,
+        `  if (stable == NULL) *error = ${prefix}_message("JNI global reference table exhausted");`,
         `  return stable;`,
         `}`,
         "",
@@ -370,20 +402,23 @@ export function generateJvmAdapterSource(
       bodies.push(
         `/* ${class_.binaryName}.${method.name}${method.descriptor} */`,
         `${returnType} ${adapterSymbol}(${[
-          "JNIEnv *env",
           ...receiver,
           ...parameterDeclarations,
-          `${failureType} *fail`,
+          "char **error",
         ].join(", ")}) {`,
+        `  JNIEnv *env = ${prefix}_env(error);`,
+        signature.result === "void"
+          ? `  if (env == NULL) return;`
+          : `  if (env == NULL) return (${returnType})0;`,
         ...(signature.result === "void"
           ? [
               `  ${call};`,
-              `  if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, fail);`,
+              `  if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, error);`,
             ]
           : [
               `  ${returnType} result = ${call};`,
               `  if ((*env)->ExceptionCheck(env)) {`,
-              `    ${prefix}_capture(env, fail);`,
+              `    ${prefix}_capture(env, error);`,
               `    return (${returnType})0;`,
               `  }`,
               `  return result;`,
@@ -411,18 +446,15 @@ export function generateJvmAdapterSource(
 
   const bindSymbol = `${prefix}_bind`;
   const releaseSymbol = `${prefix}_release`;
+  const errorMessageSymbol = `${prefix}_error_message`;
+  const errorReleaseSymbol = `${prefix}_error_release`;
+  const envHelperSymbol = `${prefix}_env`;
   const lines = [
     "/* Generated by @native-typescript/bindgen-jvm. */",
     "#include <jni.h>",
+    "#include <stdio.h>",
     "#include <stdlib.h>",
     "#include <string.h>",
-    "",
-    "/* The landed outcome arm: a failure indicator beside the result, the",
-    " * message owned by the caller, its release action free(). */",
-    `typedef struct ${failureType} {`,
-    "  int failed;",
-    "  char *message;",
-    `} ${failureType};`,
     "",
     `static jclass ${prefix}_cls_throwable;`,
     `static jmethodID ${prefix}_mid_get_message;`,
@@ -433,14 +465,55 @@ export function generateJvmAdapterSource(
       ),
     ]),
     "",
+    "/* The error object the error-out contract carries IS its message: one",
+    " * owned C string. The contract's message read is therefore an identity",
+    " * and its release is free(). An error object must never be NULL on the",
+    " * failure path - NULL in the slot means success - so running out of",
+    " * memory while reporting a failure is unrecoverable by construction. */",
+    `static char *${prefix}_message(const char *text) {`,
+    "  char *owned = strdup(text);",
+    "  if (owned == NULL) {",
+    `    fprintf(stderr, "${prefix}: out of memory capturing a failure\\n");`,
+    "    abort();",
+    "  }",
+    "  return owned;",
+    "}",
+    "",
+    `const char *${errorMessageSymbol}(void *error) {`,
+    "  return (const char *)error;",
+    "}",
+    "",
+    `void ${errorReleaseSymbol}(void *error) {`,
+    "  free(error);",
+    "}",
+    "",
+    `static JavaVM *${prefix}_vm;`,
+    "",
+    "/* The declared gap: the boundary contract has no thread-capability",
+    " * position yet, so the env the compiler knows the thread holds is",
+    " * looked up here instead of being passed. GetEnv answers which env the",
+    " * CURRENT thread already has - nothing is decided - and the first JNI",
+    " * slice admits already-attached threads only. */",
+    `static JNIEnv *${envHelperSymbol}(char **error) {`,
+    "  JNIEnv *env = NULL;",
+    `  if (${prefix}_vm == NULL ||`,
+    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+    "                              JNI_VERSION_10) != JNI_OK) {",
+    `    *error = ${prefix}_message(`,
+    `        "calling thread is not attached to the JVM, or bind has not run");`,
+    "    return NULL;",
+    "  }",
+    "  return env;",
+    "}",
+    "",
     "/* Pending-exception capture: JNI permits only a restricted set of",
     " * operations while an exception is pending, so it is taken and cleared",
     " * before the message is read. Cold by construction. */",
-    `static void ${prefix}_capture(JNIEnv *env, ${failureType} *fail) {`,
-    "  fail->failed = 1;",
-    "  fail->message = NULL;",
+    `static void ${prefix}_capture(JNIEnv *env, char **error) {`,
+    "  *error = NULL;",
     "  if ((*env)->PushLocalFrame(env, 8) < 0) {",
     "    (*env)->ExceptionClear(env);",
+    `    *error = ${prefix}_message("JNI local reference capacity exhausted");`,
     "    return;",
     "  }",
     "  jthrowable thrown = (*env)->ExceptionOccurred(env);",
@@ -453,52 +526,69 @@ export function generateJvmAdapterSource(
     "    } else if (msg != NULL) {",
     "      const char *utf = (*env)->GetStringUTFChars(env, msg, NULL);",
     "      if (utf != NULL) {",
-    "        fail->message = strdup(utf);",
+    `        *error = ${prefix}_message(utf);`,
     "        (*env)->ReleaseStringUTFChars(env, msg, utf);",
     "      }",
     "    }",
     "  }",
     "  (*env)->PopLocalFrame(env, NULL);",
+    "  if (*error == NULL) {",
+    `    *error = ${prefix}_message("Java exception carried no message");`,
+    "  }",
     "}",
     "",
-    `void ${releaseSymbol}(JNIEnv *env, void *ref) {`,
+    `void ${releaseSymbol}(void *ref) {`,
+    "  JNIEnv *env = NULL;",
+    `  if (${prefix}_vm == NULL ||`,
+    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+    "                              JNI_VERSION_10) != JNI_OK) {",
+    "    /* Owner-confined destruction guarantees an attached thread; an",
+    "     * unattached one here is a runtime bug, not a recoverable state. */",
+    `    fprintf(stderr, "${prefix}: release on an unattached thread\\n");`,
+    "    abort();",
+    "  }",
     "  (*env)->DeleteGlobalRef(env, (jobject)ref);",
     "}",
     "",
     `static jclass ${prefix}_resolve_class(JNIEnv *env, const char *name,`,
-    `                                      ${failureType} *fail) {`,
+    "                                      char **error) {",
     "  jclass local = (*env)->FindClass(env, name);",
     "  if ((*env)->ExceptionCheck(env)) {",
-    `    ${prefix}_capture(env, fail);`,
+    `    ${prefix}_capture(env, error);`,
     "    return NULL;",
     "  }",
     "  jclass stable = (jclass)(*env)->NewGlobalRef(env, local);",
     "  (*env)->DeleteLocalRef(env, local);",
-    "  if (stable == NULL) { fail->failed = 1; fail->message = NULL; }",
+    `  if (stable == NULL) *error = ${prefix}_message("JNI global reference table exhausted");`,
     "  return stable;",
     "}",
     "",
-    "/* Registration identity, resolved exactly once before any call. */",
-    `jint ${bindSymbol}(JNIEnv *env, ${failureType} *fail) {`,
-    "  fail->failed = 0;",
-    "  fail->message = NULL;",
+    "/* Registration identity, resolved exactly once before any call. The",
+    " * host hands the env in here; the JavaVM it belongs to is process",
+    " * identity and is cached for the env lookups every adapter performs. */",
+    `jint ${bindSymbol}(JNIEnv *env, char **error) {`,
+    "  *error = NULL;",
+    `  if ((*env)->GetJavaVM(env, &${prefix}_vm) != 0) {`,
+    `    *error = ${prefix}_message("GetJavaVM failed");`,
+    "    return -1;",
+    "  }",
     `  ${prefix}_cls_throwable =`,
-    `      ${prefix}_resolve_class(env, "java/lang/Throwable", fail);`,
+    `      ${prefix}_resolve_class(env, "java/lang/Throwable", error);`,
     `  if (${prefix}_cls_throwable == NULL) return -1;`,
     `  ${prefix}_mid_get_message = (*env)->GetMethodID(`,
     `      env, ${prefix}_cls_throwable, "getMessage",`,
     `      "()Ljava/lang/String;");`,
-    `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, fail); return -1; }`,
+    `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
     ...plans.flatMap((plan) => [
       `  ${plan.classVar} =`,
-      `      ${prefix}_resolve_class(env, "${plan.class_.binaryName}", fail);`,
+      `      ${prefix}_resolve_class(env, "${plan.class_.binaryName}", error);`,
       `  if (${plan.classVar} == NULL) return -1;`,
       ...plan.members.flatMap((member) => [
         `  ${member.midVar} = (*env)->${
           member.static ? "GetStaticMethodID" : "GetMethodID"
         }(`,
         `      env, ${plan.classVar}, "${member.name}", "${member.descriptor}");`,
-        `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, fail); return -1; }`,
+        `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
       ]),
     ]),
     "  return 0;",
@@ -509,14 +599,15 @@ export function generateJvmAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 1,
+    schemaVersion: 2,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     bind: Object.freeze({ adapterSymbol: bindSymbol }),
+    envSupport: Object.freeze({ helperSymbol: envHelperSymbol }),
     classRelease: Object.freeze({ adapterSymbol: releaseSymbol }),
-    failureSupport: Object.freeze({
-      failureType,
-      messageRelease: "free",
+    errorSupport: Object.freeze({
+      messageSymbol: errorMessageSymbol,
+      releaseSymbol: errorReleaseSymbol,
     }),
     constructors: Object.freeze(constructors),
     staticMethods: Object.freeze(staticMethods),

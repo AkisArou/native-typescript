@@ -108,7 +108,10 @@ test("the adapter source is deterministic and carries its member table", () => {
 
   assert.ok(first.source.includes(`jint ${first.bind.adapterSymbol}(`));
   assert.ok(first.source.includes(`void ${first.classRelease.adapterSymbol}(`));
-  assert.ok(first.source.includes(`typedef struct ${first.failureSupport.failureType}`));
+  assert.ok(
+    first.source.includes(`const char *${first.errorSupport.messageSymbol}(`),
+  );
+  assert.ok(first.source.includes(`void ${first.errorSupport.releaseSymbol}(`));
 });
 
 test("every generated-C family carries a classification", () => {
@@ -124,11 +127,19 @@ test("every generated-C family carries a classification", () => {
       "bind",
       "classRelease",
       "constructors",
-      "failureSupport",
+      "envSupport",
+      "errorSupport",
       "instanceMethods",
       "staticMethods",
     ],
   );
+  // The env lookup is the package's one declared gap; everything else is a
+  // translation. A new gap appearing here is a review event by design.
+  assert.equal(JVM_ADAPTER_FAMILIES.envSupport.kind, "gap");
+  const gapCount = Object.values(JVM_ADAPTER_FAMILIES).filter(
+    ({ kind }) => kind === "gap",
+  ).length;
+  assert.equal(gapCount, 1);
 });
 
 test("positions outside the slice algebra are refused precisely", () => {
@@ -168,12 +179,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       ({ name, descriptor }) => name === "resize" && descriptor === "(II)V",
     )!.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
-    const failure = adapter.failureSupport.failureType;
+    const messageSymbol = adapter.errorSupport.messageSymbol;
+    const releaseSymbol = adapter.errorSupport.releaseSymbol;
     const main = [
       "#include <jni.h>",
       "#include <limits.h>",
       "#include <stdio.h>",
-      "#include <stdlib.h>",
       "#include <string.h>",
       `#include "adapter.h"`,
       "int main(void) {",
@@ -183,19 +194,19 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "                          .options = options, .ignoreUnrecognized = JNI_FALSE };",
       "  JavaVM *vm; JNIEnv *env;",
       "  if (JNI_CreateJavaVM(&vm, (void **)&env, &args) != JNI_OK) return 10;",
-      `  ${failure} fail = {0, 0};`,
-      `  if (${adapter.bind.adapterSymbol}(env, &fail) != 0) return 11;`,
-      `  void *w = ${constructorSymbol}(env, 7, &fail);`,
-      "  if (w == NULL || fail.failed) return 12;",
-      `  if (${depthSymbol}(env, w, &fail) != 7 || fail.failed) return 13;`,
-      `  if (${addSymbol}(env, 2, 3, &fail) != 5 || fail.failed) return 14;`,
-      `  (void)${addSymbol}(env, INT_MAX, 1, &fail);`,
-      "  if (!fail.failed || fail.message == NULL ||",
-      "      strstr(fail.message, \"overflow\") == NULL) return 15;",
-      "  free(fail.message); fail.failed = 0; fail.message = NULL;",
-      `  ${resizeIISymbol}(env, w, 2, 3, &fail);`,
-      "  if (fail.failed) return 16;",
-      `  ${adapter.classRelease.adapterSymbol}(env, w);`,
+      "  char *error = NULL;",
+      `  if (${adapter.bind.adapterSymbol}(env, &error) != 0) return 11;`,
+      `  void *w = ${constructorSymbol}(7, &error);`,
+      "  if (w == NULL || error != NULL) return 12;",
+      `  if (${depthSymbol}(w, &error) != 7 || error != NULL) return 13;`,
+      `  if (${addSymbol}(2, 3, &error) != 5 || error != NULL) return 14;`,
+      `  (void)${addSymbol}(INT_MAX, 1, &error);`,
+      "  if (error == NULL ||",
+      `      strstr(${messageSymbol}(error), "overflow") == NULL) return 15;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
+      `  ${resizeIISymbol}(w, 2, 3, &error);`,
+      "  if (error != NULL) return 16;",
+      `  ${adapter.classRelease.adapterSymbol}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",
       "  return 0;",
@@ -207,13 +218,14 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
      * signatures for the compiler, and this test writes them from the same
      * adapter table the manifest would be built from. */
     const header = [
-      `typedef struct ${failure} { int failed; char *message; } ${failure};`,
-      `jint ${adapter.bind.adapterSymbol}(JNIEnv *, ${failure} *);`,
-      `void ${adapter.classRelease.adapterSymbol}(JNIEnv *, void *);`,
-      `void *${constructorSymbol}(JNIEnv *, jint, ${failure} *);`,
-      `jint ${depthSymbol}(JNIEnv *, void *, ${failure} *);`,
-      `jint ${addSymbol}(JNIEnv *, jint, jint, ${failure} *);`,
-      `void ${resizeIISymbol}(JNIEnv *, void *, jint, jint, ${failure} *);`,
+      `jint ${adapter.bind.adapterSymbol}(JNIEnv *, char **);`,
+      `void ${adapter.classRelease.adapterSymbol}(void *);`,
+      `const char *${messageSymbol}(void *);`,
+      `void ${releaseSymbol}(void *);`,
+      `void *${constructorSymbol}(jint, char **);`,
+      `jint ${depthSymbol}(void *, char **);`,
+      `jint ${addSymbol}(jint, jint, char **);`,
+      `void ${resizeIISymbol}(void *, jint, jint, char **);`,
       "",
     ].join("\n");
     const adapterPath = join(workDir, "adapter.c");

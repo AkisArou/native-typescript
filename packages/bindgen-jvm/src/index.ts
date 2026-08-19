@@ -11,7 +11,8 @@ export type {
   JvmBindAdapter,
   JvmClassReleaseAdapter,
   JvmConstructorAdapter,
-  JvmFailureSupportAdapter,
+  JvmEnvSupportAdapter,
+  JvmErrorSupportAdapter,
   JvmMethodAdapter,
 } from "./jvm-adapter.ts";
 export { JvmGenerationError, JvmIngestionError } from "./jvm-model.ts";
