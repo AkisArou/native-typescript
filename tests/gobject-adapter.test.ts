@@ -269,7 +269,7 @@ test(
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 11);
+  assert.equal(generated.schemaVersion, 12);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -350,6 +350,7 @@ test("caller-allocated record outputs become one value-returning adapter", () =>
     nativeType: "GtkWidget",
     sourceSymbol: "gtk_widget_get_preferred_size",
     adapterSymbol: "nts_gobject_value_gtk_widget_get_preferred_size",
+    answers: false,
     resultName: "WidgetPreferredSize",
     resultNativeType: "NtsGtkWidgetPreferredSize",
     inputs: [],
@@ -379,6 +380,7 @@ test("scalar outputs and forwarded inputs become one value-returning adapter", (
     nativeType: "GtkWidget",
     sourceSymbol: "gtk_widget_convert_coords",
     adapterSymbol: "nts_gobject_value_gtk_widget_convert_coords",
+    answers: false,
     resultName: "WidgetConvertCoords",
     resultNativeType: "NtsGtkWidgetConvertCoords",
     inputs: [{ kind: "scalar", parameterName: "scale", sourceName: "gdouble", nativeType: "gdouble" }],

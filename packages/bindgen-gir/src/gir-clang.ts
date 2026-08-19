@@ -16,6 +16,7 @@ import type {
   GirSnapshot,
   GirTypeReference,
 } from "./gir-model.ts";
+import { ANSWER_FIELD } from "./gobject-adapter.ts";
 import type { GObjectAdapterSource } from "./gobject-adapter.ts";
 
 function physicalType(
@@ -195,7 +196,20 @@ export function generateGirClangAbiProbe(
     }
   }
   for (const method of adapter.valueMethods) {
-    const fields = method.outputs.map((output, index) => ({
+    /* A member that also says whether it worked carries the answer in the
+     * result's leading field, so the probe has to know the record starts
+     * there — otherwise every output's proven offset is one field late. */
+    const answerField = method.answers
+      ? [{
+          name: ANSWER_FIELD,
+          type: physicalType(
+            { kind: "named" as const, name: "gboolean", cType: "gboolean", arguments: [] },
+            `${snapshot.namespace.name}/${method.className}/method/${method.sourceSymbol}/result/answer`,
+            diagnostics,
+          ),
+        }]
+      : [];
+    const fields = [...answerField, ...method.outputs.map((output, index) => ({
       name: output.fieldName,
       type: physicalType(
         {
@@ -207,7 +221,7 @@ export function generateGirClangAbiProbe(
         `${snapshot.namespace.name}/${method.className}/method/${method.sourceSymbol}/result/${index}`,
         diagnostics,
       ),
-    }));
+    }))];
     if (fields.every((field) => field.type !== null)) {
       records.push({
         id: `${snapshot.namespace.name}.${method.id}.result`,

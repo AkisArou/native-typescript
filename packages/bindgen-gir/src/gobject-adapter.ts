@@ -135,6 +135,10 @@ export interface GObjectBoxedResultMethodAdapter {
   readonly inputs: readonly GObjectValueMethodInputAdapter[];
 }
 
+/** The field a value-return adapter puts its answer in. One name, because the
+ * generator writes it and the projection reads it and neither may guess. */
+export const ANSWER_FIELD = "answered";
+
 export interface GObjectValueMethodAdapter {
   readonly id: string;
   readonly className: string;
@@ -143,6 +147,9 @@ export interface GObjectValueMethodAdapter {
   readonly adapterSymbol: string;
   readonly resultName: string;
   readonly resultNativeType: string;
+  /** Whether the member also says if it worked, in which case the result's
+   * leading field carries the answer. */
+  readonly answers: boolean;
   readonly inputs: readonly GObjectValueMethodInputAdapter[];
   readonly outputs: readonly GObjectValueMethodOutputAdapter[];
 }
@@ -189,7 +196,7 @@ export interface GObjectRetainedResultMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 11;
+  readonly schemaVersion: 12;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -1021,8 +1028,20 @@ function generateValueMethod(
     receiver.scope === null &&
     receiver.closureParameter === null &&
     receiver.destroyParameter === null;
+  /* A member that fills storage may also SAY WHETHER IT WORKED, which is the
+   * most idiomatic shape GTK has for "did it work, and here is the value" —
+   * 31 of the 80 live GTK 4 methods with out-parameters answer `gboolean`.
+   * The answer becomes a field beside the outputs rather than becoming
+   * absence, because a call like `gtk_text_buffer_get_iter_at_line` fills the
+   * iterator either way and reporting absence would discard a usable value.
+   *
+   * This stays a translation under the rule in `docs/architecture.md`: a C
+   * predicate reports two things and the algebra has one result, so the two
+   * become its fields. Nothing here decides a lifetime. */
+  const answersBoolean = callable.result.type.kind === "named" &&
+    callable.result.type.cType === "gboolean";
   const validResult = callable.result.type.kind === "named" &&
-    callable.result.type.cType === "void" &&
+    (callable.result.type.cType === "void" || answersBoolean) &&
     callable.result.transferOwnership === "none" &&
     !callable.result.nullable &&
     !callable.result.skip &&
@@ -1160,8 +1179,12 @@ function generateValueMethod(
       ? parameter.name
       : `&result.${output.fieldName}`;
   });
+  /* The answer goes first, because it is what the caller asks before reading
+   * anything else, and because a leading field needs no padding decision. */
+  const call = `${callable.cIdentifier}(${["instance", ...callArguments].join(", ")})`;
   const lines = [
     `typedef struct ${resultNativeType} {`,
+    ...(answersBoolean ? [`  gboolean ${ANSWER_FIELD};`] : []),
     ...validOutputs.map((output) => `  ${output.nativeType} ${output.fieldName};`),
     `} ${resultNativeType};`,
     "",
@@ -1171,7 +1194,9 @@ function generateValueMethod(
     ].join(", ")}) {`,
     `  ${resultNativeType} result;`,
     "  memset(&result, 0, sizeof result);",
-    `  ${callable.cIdentifier}(${["instance", ...callArguments].join(", ")});`,
+    ...(answersBoolean
+      ? [`  result.${ANSWER_FIELD} = ${call};`]
+      : [`  ${call};`]),
     "  return result;",
     "}",
     "",
@@ -1185,6 +1210,7 @@ function generateValueMethod(
       adapterSymbol,
       resultName,
       resultNativeType,
+      answers: answersBoolean,
       inputs: Object.freeze(validInputs),
       outputs: Object.freeze(validOutputs),
     }),
@@ -1557,7 +1583,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 11,
+    schemaVersion: 12,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),

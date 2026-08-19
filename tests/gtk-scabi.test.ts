@@ -1190,6 +1190,75 @@ test("a namespace cannot be supplied as its own import", () => {
 });
 
 test(
+  "a member that fills storage may also say whether it worked",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* gtk_gesture_get_bounding_box_center() answers whether the gesture has
+      * a bounding box and fills the centre either way — the most idiomatic
+      * shape GTK has for "did it work, and here is the value", and 31 of its
+      * 80 live methods with out-parameters take it. Reporting absence instead
+      * would discard the coordinates, which is why the answer is a FIELD. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "EventController" },
+        { name: "Gesture", methods: ["get_bounding_box_center"] },
+      ],
+    });
+    const adapter = generateGObjectAdapterSource(gtk);
+    const method = adapter.valueMethods[0];
+    assert.ok(method);
+    if (method === undefined) return;
+    assert.equal(method.answers, true);
+
+    /* The answer leads the record, and the call's result lands in it. */
+    assert.ok(adapter.source.includes([
+      "typedef struct NtsGtkGestureBoundingBoxCenter {",
+      "  gboolean answered;",
+      "  gdouble x;",
+      "  gdouble y;",
+      "} NtsGtkGestureBoundingBoxCenter;",
+    ].join("\n")), adapter.source);
+    assert.match(adapter.source, /result\.answered = gtk_gesture_get_bounding_box_center\(/u);
+
+    const generated = generateGObjectScabiPackage(options(gtk));
+    const record = generated.manifest.types.gtk_gesture_bounding_box_center;
+    assert.ok(record && record.kind === "struct");
+    if (!record || record.kind !== "struct") return;
+    /* The manifest says "read this as a boolean" with the field's TYPE. There
+     * is no second marker: a boolean type already carries its storage and its
+     * two representations, and the translator turns that into the projection. */
+    assert.deepEqual(record.fields.map(({ name, type }) => ({ name, type })), [
+      { name: "answered", type: "gboolean" },
+      { name: "x", type: "gdouble" },
+      { name: "y", type: "gdouble" },
+    ]);
+    assert.match(generated.declarations, /^ {2}readonly answered: boolean;$/mu);
+
+    /* And it survives translation as C's own truth test over the storage. */
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: ["nts_gobject_value_gtk_gesture_get_bounding_box_center"],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+    if (!program.ok) return;
+    const translated = program.input.types.find(({ id }) =>
+      id.endsWith("#type:gtk_gesture_bounding_box_center")
+    );
+    assert.ok(translated && translated.kind === "struct");
+    if (!translated || translated.kind !== "struct") return;
+    assert.equal(translated.fields[0]?.name, "answered");
+    assert.equal(translated.fields[0]?.projection, "boolean");
+    assert.deepEqual(translated.fields[0]?.type, { kind: "nativeScalar", scalar: "i32" });
+  },
+);
+
+test(
   "a throwing member keeps its own result and binds its own symbol",
   { skip: !existsSync(systemGtkGir) },
   () => {

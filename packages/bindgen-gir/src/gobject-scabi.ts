@@ -32,6 +32,7 @@ import type {
   Sha256Digest,
   TargetIdentity,
 } from "@native-typescript/scabi";
+import { ANSWER_FIELD } from "./gobject-adapter.ts";
 import {
   generateGirClangAbiProbe,
   reachedForeignTypeNames,
@@ -1512,8 +1513,20 @@ export function generateGObjectScabiPackage(
     const evidenceId = `${options.snapshot.namespace.name}.${method.id}.result`;
     const evidence = options.evidence.records.find((record) => record.id === evidenceId);
     const typeId = `${namespacePrefix}_${snakeCase(method.resultName)}`;
-    const fields = method.outputs.map((output, index) => {
-      const fieldEvidence = evidence?.fields[index];
+    /* The answer leads the record, so an output's evidence sits one field
+     * later. Its declared TYPE is the namespace's boolean — that is how the
+     * manifest says "read this as a boolean", and the translator turns the
+     * type into the projection rather than a second marker doing it. */
+    const answerOffset = method.answers ? 1 : 0;
+    const answerField = method.answers
+      ? [Object.freeze({
+          name: ANSWER_FIELD,
+          type: "gboolean",
+          offset: evidence?.fields[0]?.offset ?? 0,
+        })]
+      : [];
+    const fields = [...answerField, ...method.outputs.map((output, index) => {
+      const fieldEvidence = evidence?.fields[index + answerOffset];
       const scalar = output.kind === "record"
         ? undefined
         : scalarByGirName.get(output.sourceName);
@@ -1533,7 +1546,7 @@ export function generateGObjectScabiPackage(
         offset: fieldEvidence.offset,
         ...(scalar?.conversion == null ? {} : { conversion: scalar.conversion }),
       });
-    });
+    })];
     if (
       evidence === undefined ||
       fields.some((field) => field === null) ||
@@ -1563,6 +1576,7 @@ export function generateGObjectScabiPackage(
     declarationTypes[typeId] = Object.freeze({ module: ".", name: method.resultName });
     declarationLines.push(
       `export interface ${method.resultName} {`,
+      ...(method.answers ? [`  readonly ${ANSWER_FIELD}: boolean;`] : []),
       ...method.outputs.map((output) =>
         `  readonly ${output.fieldName}: ${output.sourceName};`
       ),

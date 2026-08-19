@@ -120,7 +120,7 @@ test("GTK target objects compose one fragment with per-object dialect policy", (
   const plan = planGtkTargetObjects({
     adapters: [{ slug: "gtk4", adapter: {
       schema: "native-typescript.gobject-adapter-source",
-      schemaVersion: 11,
+      schemaVersion: 12,
       source: "/* generated */\n",
       sourceDigest: `sha256:${"3".repeat(64)}`,
       constructors: [],

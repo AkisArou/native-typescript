@@ -1813,10 +1813,17 @@ export function translateScabiNativeProgram(
        * number, so — like a converted parameter — its GLib spelling names no
        * source type. */
       const convertsNumber = field.conversion === "number";
+      /* A field whose declared type is a boolean reads as one: C's truth test
+       * over the storage it names. The manifest already says this with the
+       * TYPE — a boolean type carries its storage and representations — so
+       * nothing here is a second way to spell it, and the storage is what
+       * lowers. */
+      const declaredField = manifest.types[field.type];
+      const readsBoolean = declaredField?.kind === "boolean";
       const fieldType = lowerType(
-        field.type,
+        readsBoolean ? declaredField.storage : field.type,
         `${path}/fields/${index}/type`,
-        !convertsNumber,
+        !convertsNumber && !readsBoolean,
       );
       if (
         fieldType === null ||
@@ -1842,11 +1849,21 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
+      if (readsBoolean && convertsNumber) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          `${path}/fields/${index}/conversion`,
+          "A boolean field is read as a boolean, so it cannot also convert to a number",
+        ));
+        valid = false;
+        continue;
+      }
       fields.push(Object.freeze({
         name: field.name,
         type: fieldType,
         offset: field.offset,
         ...(convertsNumber ? { projection: "number" as const } : {}),
+        ...(readsBoolean ? { projection: "boolean" as const } : {}),
       }));
     }
     activeTypes.delete(typeId);
