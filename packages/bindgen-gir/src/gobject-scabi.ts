@@ -193,6 +193,20 @@ const borrowedUtf8CTypes: ReadonlySet<string> = new Set([
  * buffer, and treating that as borrowed input would let the callee write
  * through a pointer the caller believes it owns.
  */
+/**
+ * Spellings a string the CALLER must free arrives under.
+ *
+ * Disjoint from the borrowed set on purpose. Which set a spelling is in has
+ * to agree with the transfer annotation, and checking that agreement is the
+ * point — a `const char *` the SDK claims to transfer is a slot nobody could
+ * free, and a `char *` it claims to keep is one the caller could write
+ * through into storage it does not own.
+ */
+const ownedUtf8CTypes: ReadonlySet<string> = new Set([
+  "char*",
+  "gchar*",
+]);
+
 const emittedUtf8CTypes: ReadonlySet<string> = new Set([
   ...borrowedUtf8CTypes,
   "char*",
@@ -914,27 +928,50 @@ function methodResult(
     result.type.kind === "named" &&
     result.type.name === "utf8" &&
     result.type.cType !== null &&
-    borrowedUtf8CTypes.has(result.type.cType) &&
-    result.transferOwnership === "none" &&
+    (borrowedUtf8CTypes.has(result.type.cType) ||
+      ownedUtf8CTypes.has(result.type.cType)) &&
+    (result.transferOwnership === "none" || result.transferOwnership === "full") &&
     result.scope === null &&
     result.closureParameter === null &&
     result.destroyParameter === null
   ) {
+    /* `full` means the caller frees the string once its bytes are copied, and
+     * `g_free` is what frees it — a symbol rather than a policy, exactly as
+     * for a vector, so an SDK with a different allocator changes the symbol
+     * and nothing else. `none` frees nothing and anchors to the receiver
+     * that keeps the storage. */
+    const owned = result.transferOwnership === "full";
+    /* The spelling must agree with who owns it. A string the callee keeps is
+     * const; one it hands over is not, and admitting a const spelling there
+     * would describe a slot nobody could free. */
+    if (owned !== ownedUtf8CTypes.has(result.type.cType)) {
+      diagnostics.push(diagnostic(
+        path,
+        "A UTF-8 result's C spelling must agree with its transfer: " +
+          "a kept string is const and a transferred one is not",
+      ));
+      return null;
+    }
     return Object.freeze({
-      type: nullableUtf8Type,
+      type: owned
+        ? (result.nullable ? "nullable_utf8" : "utf8")
+        : nullableUtf8Type,
       passMode: "pointer",
       nullable: result.nullable,
-      ownership: Object.freeze({
-        kind: "borrowed",
-        scope: "receiver",
-        anchor: receiverName,
-      }),
+      ownership: owned
+        ? Object.freeze({ kind: "value" })
+        : Object.freeze({
+            kind: "borrowed",
+            scope: "receiver",
+            anchor: receiverName,
+          }),
       marshal: Object.freeze({
         kind: "string",
         encoding: "utf-8",
         length: Object.freeze({ kind: "nul" }),
         termination: "nul",
         embeddedNul: "reject",
+        ...(owned ? { release: "g_free" } : {}),
       }),
     });
   }
@@ -1035,6 +1072,24 @@ export function generateGObjectScabiPackage(
       kind: "pointer",
       pointee: "i8",
       mutability: "const",
+      nullable: true,
+      addressSpace: 0,
+    }),
+    /* A string the caller must free. Not const, and that is the whole
+     * difference from `const_utf8`: the spelling has to agree with the
+     * transfer, so a slot nobody could free and a slot the caller could write
+     * through are both refused rather than described. */
+    utf8: Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    }),
+    nullable_utf8: Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
       nullable: true,
       addressSpace: 0,
     }),
@@ -3268,7 +3323,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 5,
+    schemaVersion: 6,
     package: options.package,
     target: {
       ...options.target,

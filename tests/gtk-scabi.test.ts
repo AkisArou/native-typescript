@@ -1532,6 +1532,68 @@ test(
 );
 
 test(
+  "a returned string the caller must free names the symbol that frees it",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* gtk_css_provider_to_string() builds a string for the caller — GIR's
+     * transfer `full`, spelled `char *` — while gtk_icon_theme_get_theme_name()
+     * does the same and gtk_widget_get_name() hands back one the widget keeps.
+     * The projection is identical; what differs is one field, and reading it
+     * off the transfer is the whole of the decision. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "CssProvider", methods: ["to_string"] },
+        { name: "IconTheme", methods: ["get_theme_name"] },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    const owned = generated.manifest.bindings.gtk_css_provider_to_string;
+    assert.ok(owned && owned.kind === "method");
+    if (!owned || owned.kind !== "method") return;
+    assert.deepEqual(owned.signature.result.marshal, {
+      kind: "string",
+      encoding: "utf-8",
+      length: { kind: "nul" },
+      termination: "nul",
+      embeddedNul: "reject",
+      release: "g_free",
+    });
+    /* Consumed by the projection: the bytes are copied and the pointer freed
+     * inside the call, so nothing the program holds outlives it. That is why
+     * this is a value rather than a borrow anchored to the provider. */
+    assert.deepEqual(owned.signature.result.ownership, { kind: "value" });
+    /* And the slot is not const, because a const one is a slot nobody could
+     * free — the spelling has to agree with the transfer. */
+    assert.equal(owned.signature.result.type, "utf8");
+    assert.match(generated.declarations, /^ {2}toString\(\): string;$/mu);
+
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: ["gtk_css_provider_to_string", "gtk_icon_theme_get_theme_name"],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+    if (!program.ok) return;
+    const find = (suffix: string) =>
+      program.input.bindings.find(({ id }) => id.endsWith(suffix));
+    assert.deepEqual(find("#gtk_css_provider_to_string")?.result.projection, {
+      kind: "utf8CString",
+      nullable: false,
+      release: { kind: "symbol", symbol: "g_free" },
+    });
+    assert.deepEqual(find("#gtk_css_provider_to_string")?.result.ownership, {
+      kind: "value",
+    });
+  },
+);
+
+test(
   "a property whose accessors disagree about the vector is refused, not guessed",
   { skip: !existsSync(systemGtkGir) },
   () => {

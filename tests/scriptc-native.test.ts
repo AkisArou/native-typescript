@@ -756,13 +756,13 @@ test("SCABI projects receiver-borrowed C-string results with exact nullability",
     type: physical,
     passMode: "pointer",
     ownership,
-    projection: { kind: "utf8CString", nullable: true },
+    projection: { kind: "utf8CString", nullable: true, release: { kind: "none" } },
   });
   assert.deepEqual(projections["Counter.requiredLabel"], {
     type: physical,
     passMode: "pointer",
     ownership,
-    projection: { kind: "utf8CString", nullable: false },
+    projection: { kind: "utf8CString", nullable: false, release: { kind: "none" } },
   });
 });
 

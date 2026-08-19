@@ -704,7 +704,11 @@ type BorrowedDataParameterPair = {
 type BorrowedStringResult = {
   readonly pointee: "i8" | "u8";
   readonly nullable: boolean;
-  readonly anchor: string;
+  /* Where the string comes from, which is one of two things and never both:
+   * a receiver whose lifetime bounds the copy, or a symbol that frees the
+   * pointer once the copy is made. */
+  readonly anchor: string | null;
+  readonly release: string | null;
 };
 
 function supportedBorrowedStringResult(
@@ -726,13 +730,20 @@ function supportedBorrowedStringResult(
   ) {
     return "only borrowed NUL-terminated UTF-8 string results are supported";
   }
+  /* A string the caller frees is consumed by the projection and never becomes
+   * something the program holds; one it does not is borrowed from the
+   * receiver that keeps it. The two are checked against each other so a
+   * manifest cannot state both or neither. */
+  const owned = marshal.release !== undefined;
   if (
     result.passMode !== "pointer" ||
-    result.ownership.kind !== "borrowed" ||
-    result.ownership.scope !== "receiver" ||
-    result.ownership.anchor === undefined ||
+    (owned
+      ? result.ownership.kind !== "value"
+      : result.ownership.kind !== "borrowed" ||
+        result.ownership.scope !== "receiver" ||
+        result.ownership.anchor === undefined) ||
     pointer?.kind !== "pointer" ||
-    pointer.mutability !== "const" ||
+    (!owned && pointer.mutability !== "const") ||
     pointer.nullable !== result.nullable ||
     pointer.addressSpace !== 0 ||
     pointee?.kind !== "integer" ||
@@ -740,29 +751,35 @@ function supportedBorrowedStringResult(
   ) {
     return "UTF-8 results must be const i8/u8 pointers borrowed from a named receiver with matching nullability";
   }
-  const anchorName = result.ownership.anchor;
+  const anchorName = result.ownership.kind === "borrowed"
+    ? result.ownership.anchor
+    : undefined;
   const anchor = binding.signature.parameters.find(
     (parameter) => parameter.name === anchorName,
   );
+  /* Only a borrowed string needs a receiver; a freed one is not anchored to
+   * anything, because the copy and the release both happen inside the call. */
   if (
-    (binding.kind !== "method" && binding.kind !== "getter") ||
-    binding.signature.parameters[0]?.name !== anchorName ||
-    anchor === undefined ||
-    manifest.types[anchor.type]?.kind !== "handle" ||
-    anchor.passMode !== "pointer" ||
-    anchor.nullable ||
-    anchor.ownership.kind !== "borrowed" ||
-    anchor.ownership.scope !== "call"
+    !owned &&
+    ((binding.kind !== "method" && binding.kind !== "getter") ||
+      binding.signature.parameters[0]?.name !== anchorName ||
+      anchor === undefined ||
+      manifest.types[anchor.type]?.kind !== "handle" ||
+      anchor.passMode !== "pointer" ||
+      anchor.nullable ||
+      anchor.ownership.kind !== "borrowed" ||
+      anchor.ownership.scope !== "call")
   ) {
     return `UTF-8 result anchor '${anchorName}' must name the borrowed handle receiver`;
   }
   if (binding.error.kind !== "no-fail") {
-    return "borrowed UTF-8 results require a no-fail contract; nullability is a source value";
+    return "UTF-8 string results require a no-fail contract; nullability is a source value";
   }
   return {
     pointee: pointee.signed ? "i8" : "u8",
     nullable: result.nullable,
-    anchor: anchorName,
+    anchor: owned ? null : anchorName ?? null,
+    release: marshal.release ?? null,
   };
 }
 
@@ -2853,17 +2870,26 @@ export function translateScabiNativeProgram(
         resultType = Object.freeze({
           kind: "nativePointer",
           pointee: borrowed.pointee,
-          const: true,
+          /* Constness has to agree with who owns the storage: a slot the
+           * callee keeps is const, and calling it mutable would describe a
+           * pointer the caller could write through into memory it does not
+           * own. A freed one is spelled either way. */
+          const: borrowed.release === null,
           addressSpace: 0,
         });
-        resultOwnership = Object.freeze({
-          kind: "borrowed",
-          scope: "receiver",
-          anchor: borrowed.anchor,
-        });
+        resultOwnership = borrowed.anchor === null
+          ? Object.freeze({ kind: "value" })
+          : Object.freeze({
+              kind: "borrowed",
+              scope: "receiver",
+              anchor: borrowed.anchor,
+            });
         resultProjection = Object.freeze({
           kind: "utf8CString",
           nullable: borrowed.nullable,
+          release: borrowed.release === null
+            ? Object.freeze({ kind: "none" } as const)
+            : Object.freeze({ kind: "symbol", symbol: borrowed.release } as const),
         });
       }
     } else if (declaredResultType?.kind === "boolean") {

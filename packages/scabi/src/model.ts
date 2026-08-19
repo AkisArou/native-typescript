@@ -288,6 +288,17 @@ export type MarshallingContract =
         | { readonly kind: "nul" };
       readonly termination: "none" | "nul";
       readonly embeddedNul: "allow" | "reject";
+      /**
+       * What frees the pointer once its bytes have been copied, for a RESULT
+       * the caller must dispose of. Absent for a string the callee keeps and
+       * for every input.
+       *
+       * The same field a string vector carries, because it is the same
+       * question about the same kind of pointer — what ends this program's
+       * claim on it. An owned `char *` and an owned `char **` differ in what
+       * is copied, not in what happens afterwards.
+       */
+      readonly release?: string;
     }
   | {
       readonly kind: "bytes";
@@ -563,7 +574,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;

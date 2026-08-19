@@ -663,7 +663,7 @@ test(
           scope: "receiver",
           anchor: "button",
         },
-        projection: { kind: "utf8CString", nullable: true },
+        projection: { kind: "utf8CString", nullable: true, release: { kind: "none" } },
       });
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
