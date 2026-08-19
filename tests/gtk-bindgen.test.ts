@@ -460,7 +460,6 @@ test(
         name: "Button.withLabel",
       });
       assert.deepEqual(constructor.entry, {
-        kind: "adapter-symbol",
         symbol: "nts_gobject_adopt_gtk_button_new_with_label",
       });
       const translated = translateScabiNativeProgram(generated.manifest, {

@@ -1109,14 +1109,15 @@ test(
     // The free is already a destructor, so it binds directly with no wrapper.
     const free = generated.manifest.bindings.gtk_text_iter_free;
     assert.ok(free && free.kind !== "constant");
-    assert.equal(free.entry.kind, "c-symbol");
     assert.equal(free.entry.symbol, "gtk_text_iter_free");
+    /* Depending on no adapter input IS the statement that the SDK provides it;
+     * the binding no longer says so a second time. */
     assert.deepEqual(free.dependencies.adapterInputs, []);
 
     const start =
       generated.manifest.bindings.nts_gobject_boxed_gtk_text_buffer_get_start_iter;
     assert.ok(start && start.kind !== "constant");
-    assert.equal(start.entry.kind, "adapter-symbol");
+    assert.deepEqual(start.dependencies.adapterInputs, ["gtk4.gobject-adapters"]);
     assert.deepEqual(start.signature.result.ownership, {
       kind: "owned",
       transfer: "to-runtime",
@@ -1207,10 +1208,7 @@ test(
     assert.ok(binding && binding.kind === "method");
     if (!binding || binding.kind !== "method") return;
     // Its own symbol, not a wrapper: no adapter absorbs the slot any more.
-    assert.deepEqual(binding.entry, {
-      kind: "c-symbol",
-      symbol: "gtk_recent_manager_purge_items",
-    });
+    assert.deepEqual(binding.entry, { symbol: "gtk_recent_manager_purge_items" });
     assert.deepEqual(binding.error, {
       kind: "error-out",
       message: "gtk_error_message",
@@ -1905,7 +1903,7 @@ test("GTK caller-allocated record outputs project as one nested value result", (
   ]);
   const binding = generated.manifest.bindings.nts_gobject_value_gtk_widget_get_preferred_size;
   assert.ok(binding && binding.kind !== "constant");
-  assert.equal(binding.entry.kind, "adapter-symbol");
+  assert.deepEqual(binding.dependencies.adapterInputs, ["gtk4.gobject-adapters"]);
   assert.equal(binding.declaration.name, "Widget.getPreferredSize");
   assert.equal(binding.signature.parameters.length, 1);
   assert.equal(binding.signature.result.type, "gtk_widget_preferred_size");

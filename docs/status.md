@@ -305,6 +305,21 @@ The translation retains the selected C-export adapter's provenance.
 
 Broader export types and artifact-graph materialization remain pending.
 
+### The manifest format
+
+SCABI is at schema version 4. That version deleted `entry.kind`, which said
+whether a symbol came from the SDK or from a generated adapter — build
+information stated inside a signature, and stated twice, because an adapter
+input already lists the bindings it provides. A binding now carries only its
+symbol, and `entry` remains a record because that is the position a call
+target other than a plain symbol will occupy.
+
+The envelope split [0001](records/0001-native-manifest-boundary.md) sequences
+next — the manifest carrying the compiler's document verbatim under one key,
+with identity, the build graph and composition around it rather than mixed
+through it — is v5 and is not built.
+
+
 ## Build
 
 See [Build artifacts](build-artifacts.md) for the normative model.

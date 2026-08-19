@@ -52,7 +52,7 @@ function callable({ declaration, symbol, result = voidResult }) {
       linkInputs: linkInputs.map(({ id }) => id),
       permissions: [],
     },
-    entry: { kind: "c-symbol", symbol },
+    entry: { symbol },
     error: { kind: "no-fail" },
     kind: "function",
     signature: {
@@ -103,7 +103,7 @@ const manifest = {
   },
   permissions: [],
   schema: "native-typescript.scabi",
-  schemaVersion: 3,
+  schemaVersion: 4,
   sdk: {
     deploymentTarget: "x86_64-unknown-linux-gnu",
     metadataDigest: headerDigest,

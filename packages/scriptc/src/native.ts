@@ -1434,17 +1434,20 @@ function bindingUnsupported(
   ) {
     return `${binding.kind} declaration identity must name its containing type and member`;
   }
-  if (binding.entry.kind === "adapter-symbol") {
-    if (binding.dependencies.adapterInputs.length !== 1) {
-      return "adapter-symbol imports require exactly one adapter input";
-    }
-    const adapterId = binding.dependencies.adapterInputs[0]!;
+  /* Who produces the symbol is the adapter input's statement, not the
+   * binding's: an adapter lists the bindings it provides, so a binding that
+   * depends on one must be among them, and a binding that depends on none is
+   * the SDK's. The binding used to say it too, as `entry.kind`, which is two
+   * places for one fact and therefore two ways to say it. */
+  if (binding.dependencies.adapterInputs.length > 1) {
+    return "a binding is produced by at most one adapter input";
+  }
+  const adapterId = binding.dependencies.adapterInputs[0];
+  if (adapterId !== undefined) {
     const adapter = manifest.adapterInputs.find(({ id }) => id === adapterId);
     if (adapter === undefined || !adapter.bindings.includes(bindingId)) {
       return `adapter input '${adapterId}' does not provide this binding`;
     }
-  } else if (binding.dependencies.adapterInputs.length > 0) {
-    return "direct C symbols cannot declare adapter inputs";
   }
   if (binding.signature.callingConvention !== "c") {
     return `calling convention '${binding.signature.callingConvention}'`;
@@ -1473,7 +1476,11 @@ function exportBindingUnsupported(
   binding: CallableBinding,
 ): string | null {
   if (binding.kind !== "export") return `binding kind '${binding.kind}'`;
-  if (binding.entry.kind !== "adapter-symbol") return `entry kind '${binding.entry.kind}'`;
+  /* An export is implemented in TypeScript and reached through a generated
+   * wrapper, so an adapter input has to provide it; nothing else can. */
+  if (binding.dependencies.adapterInputs.length !== 1) {
+    return "an export is provided by exactly one adapter input";
+  }
   if (binding.signature.callingConvention !== "c") {
     return `calling convention '${binding.signature.callingConvention}'`;
   }
@@ -2920,7 +2927,7 @@ export function translateScabiNativeProgram(
       Object.freeze({
         id: `${manifest.package.instance}#${bindingId}`,
         declaration: normalizeDeclaration(manifest, binding.declaration),
-        entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol }),
+        entry: Object.freeze({ symbol: binding.entry.symbol }),
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : binding.kind === "getter"
@@ -3113,7 +3120,7 @@ export function translateScabiNativeProgram(
       id: `${manifest.package.instance}#${selected.bindingId}`,
       sourceExport: selected.sourceExport,
       declaration: normalizeDeclaration(manifest, binding.declaration),
-      entry: Object.freeze({ kind: "c-symbol", symbol: binding.entry.symbol } as const),
+      entry: Object.freeze({ symbol: binding.entry.symbol } as const),
       error: NO_NATIVE_FAILURE,
       parameters: Object.freeze(parameters),
       result: Object.freeze({

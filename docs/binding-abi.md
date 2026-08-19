@@ -55,7 +55,7 @@ Conceptually, every manifest contains:
 ```ts
 interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
@@ -738,10 +738,12 @@ Unicode encoding, embedded NUL preservation, and zero-copy data projection.
 The checked C-string variant uses a distinct implicit-NUL length contract:
 ScriptC passes the already terminated storage as one pointer and raises a
 `TypeError` before native entry if the logical string contains an embedded NUL.
-Both C and LLVM pass the normal and rejection paths. Import bindings whose
-entry is an adapter symbol retain the exact adapter input in the translated
-build requirements while lowering the callable entry to the same C-symbol
-Native IR operation.
+Both C and LLVM pass the normal and rejection paths. A binding a generated
+adapter provides retains the exact adapter input in the translated build
+requirements while lowering to the same Native IR operation as any other
+symbol; the binding does not say which kind of symbol it is, because an
+adapter input already lists the bindings it provides and who produces a symbol
+changes what gets built rather than how it is called.
 Nullable inputs use a separate logical `string | null` source type while
 retaining the same physical const-pointer ABI. A string arm is checked for an
 embedded NUL before entry; the null arm becomes `NULL`. Direct literals and

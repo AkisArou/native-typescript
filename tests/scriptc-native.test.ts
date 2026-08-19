@@ -243,7 +243,7 @@ test("SCABI exact i32 translates to immutable generic ScriptC input", () => {
           module: "@scriptc/native-abi-fixture",
           name: "i32Identity",
         },
-        entry: { kind: "c-symbol", symbol: "nts_i32_identity" },
+        entry: { symbol: "nts_i32_identity" },
         sourceCall: { kind: "function" },
         error: NO_NATIVE_FAILURE,
         ...directSignature([
@@ -451,7 +451,7 @@ test("SCABI maps a TypeScript implementation onto an exact C export contract", (
         module: "@scriptc/native-abi-fixture",
         name: "FixtureLibraryExports.ntsTsAddI32",
       },
-      entry: { kind: "c-symbol", symbol: "nts_ts_add_i32" },
+      entry: { symbol: "nts_ts_add_i32" },
       error: NO_NATIVE_FAILURE,
       parameters: [
         {
@@ -622,7 +622,7 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
         module: "@scriptc/native-abi-fixture",
         name: "hashUtf8",
       },
-      entry: { kind: "c-symbol", symbol: "nts_hash_utf8" },
+      entry: { symbol: "nts_hash_utf8" },
       sourceCall: { kind: "function" },
       error: NO_NATIVE_FAILURE,
       arguments: [{ name: "data", type: { kind: "string" } }],
@@ -785,12 +785,14 @@ test("SCABI refuses a C-string result not anchored to its receiver", () => {
   );
 });
 
-test("SCABI adapter-symbol imports retain their generated adapter dependency", () => {
+test("an adapter-provided import retains its generated adapter dependency", () => {
+  /* Depending on an adapter input is now the whole statement that a generated
+   * object provides the symbol; the binding carries no second discriminant to
+   * disagree with it. */
   const adapted = structuredClone(manifest);
   const binding = adapted.bindings.hash_utf8;
   assert.notEqual(binding?.kind, "constant");
   if (binding === undefined || binding.kind === "constant") return;
-  Object.assign(binding.entry, { kind: "adapter-symbol" as const });
   Object.assign(binding.dependencies, {
     adapterInputs: ["adapter/hash-utf8"],
   });
@@ -814,9 +816,7 @@ test("SCABI adapter-symbol imports retain their generated adapter dependency", (
     result.build.adapterInputs.map(({ id }) => id),
     ["adapter/hash-utf8"],
   );
-  assert.deepEqual(result.input.bindings[0]?.entry, {
-    kind: "c-symbol",
-    symbol: "nts_hash_utf8",
+  assert.deepEqual(result.input.bindings[0]?.entry, { symbol: "nts_hash_utf8",
   });
 });
 
@@ -841,7 +841,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
         module: "@scriptc/native-abi-fixture",
         name: "hashBytes",
       },
-      entry: { kind: "c-symbol", symbol: "nts_hash_bytes" },
+      entry: { symbol: "nts_hash_bytes" },
       sourceCall: { kind: "function" },
       error: NO_NATIVE_FAILURE,
       arguments: [{ name: "data", type: { kind: "bytes", elem: "u8" } }],
@@ -923,7 +923,7 @@ test("SCABI projects one call-scoped callback into function and context slots", 
         module: "@scriptc/native-abi-fixture",
         name: "callScoped",
       },
-      entry: { kind: "c-symbol", symbol: "nts_call_scoped" },
+      entry: { symbol: "nts_call_scoped" },
       sourceCall: { kind: "function" },
       error: NO_NATIVE_FAILURE,
       arguments: [
@@ -1009,7 +1009,7 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
       module: "@scriptc/native-abi-fixture",
       name: "subscribe",
     },
-    entry: { kind: "c-symbol", symbol: "nts_subscription_create" },
+    entry: { symbol: "nts_subscription_create" },
     sourceCall: { kind: "function" },
     error: NULL_IS_FAILURE,
     arguments: [{
@@ -1115,7 +1115,7 @@ test("SCABI lowers an exact errno sentinel without losing its physical result", 
         module: "@scriptc/native-abi-fixture",
         name: "failErrno",
       },
-      entry: { kind: "c-symbol", symbol: "nts_fail_errno" },
+      entry: { symbol: "nts_fail_errno" },
       sourceCall: { kind: "function" },
       error: errnoFailure("-1"),
       ...directSignature([
@@ -1212,7 +1212,7 @@ test("SCABI translates authoritative padded layout and by-value ABI metadata", (
       module: "@scriptc/native-abi-fixture",
       name: "paddedRoundtrip",
     },
-    entry: { kind: "c-symbol", symbol: "nts_padded_roundtrip" },
+    entry: { symbol: "nts_padded_roundtrip" },
     sourceCall: { kind: "function" },
     error: NO_NATIVE_FAILURE,
     ...directSignature([{ name: "value", type: { kind: "nativeStruct", typeId }, passMode: "value", ownership: { kind: "value" } }]),
@@ -1356,7 +1356,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       module: "@scriptc/native-abi-fixture",
       name: "createCounter",
     },
-    entry: { kind: "c-symbol", symbol: "nts_counter_create" },
+    entry: { symbol: "nts_counter_create" },
     sourceCall: { kind: "function" },
     error: NO_NATIVE_FAILURE,
     ...directSignature([
@@ -1384,7 +1384,7 @@ test("SCABI closes owned handle factories over their exact destructor", () => {
       module: "@scriptc/native-abi-fixture",
       name: "Counter.dispose",
     },
-    entry: { kind: "c-symbol", symbol: "nts_counter_destroy" },
+    entry: { symbol: "nts_counter_destroy" },
     sourceCall: { kind: "method", receiverArgument: 0 },
     error: NO_NATIVE_FAILURE,
     ...directSignature([

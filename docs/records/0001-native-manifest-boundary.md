@@ -531,7 +531,13 @@ change atomic, green on its own, and bisectable:
    default self-pipe wake so a program with no embedder can use it, while a
    host that owns its loop still supplies its own.
 8. **Exports, constants, operations.**
-9. **SCABI v4.** Envelope, composer, `bindgen-gir` emitting the subtree
+9. **The envelope.** Sliced, and the version numbering with it. This record
+   named one "v4" carrying both the constant-valued fields' removal and the
+   envelope/subtree split, which reads as one change and is two. A format
+   version states a capability, so two breaking changes are two versions:
+   **v4** deleted `entry.kind` — build information wearing a signature
+   costume, since an adapter input already lists the bindings it provides —
+   and the split below is **v5**. Envelope, composer, `bindgen-gir` emitting the subtree
    directly, fixtures regenerated, `schemaVersion` bumped to 4, and
    [architecture](../architecture.md) plus [binding ABI](../binding-abi.md)
    rewritten in the same change.

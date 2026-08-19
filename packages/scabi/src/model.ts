@@ -441,8 +441,17 @@ export type CallableBindingKind =
 export interface CallableBinding {
   readonly kind: CallableBindingKind;
   readonly declaration: DeclarationReference;
+  /** How the call is materialized. One field today, because a C symbol is the
+   * only call target implemented, and a record rather than a bare string
+   * because that is the position a descriptor or a capsule occupies when
+   * another one is.
+   *
+   * It used to carry `kind: "c-symbol" | "adapter-symbol"`, which was build
+   * information wearing a signature costume: who PRODUCES a symbol — the SDK
+   * or a generated adapter — changes what gets built and nothing about the
+   * call. The adapter input already lists the bindings it provides, so the
+   * envelope said it twice and could say it two ways. */
   readonly entry: {
-    readonly kind: "c-symbol" | "adapter-symbol";
     readonly symbol: string;
   };
   readonly signature: FunctionSignature;
@@ -523,7 +532,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;

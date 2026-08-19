@@ -846,7 +846,6 @@ function isExactInstanceReceiver(
 function callableBase(input: {
   readonly declaration: string;
   readonly kind: CallableBinding["kind"];
-  readonly entryKind: CallableBinding["entry"]["kind"];
   readonly symbol: string;
   readonly parameters: readonly AbiParameter[];
   readonly result: AbiResult;
@@ -857,7 +856,7 @@ function callableBase(input: {
   return Object.freeze({
     kind: input.kind,
     declaration: Object.freeze({ module: ".", name: input.declaration }),
-    entry: Object.freeze({ kind: input.entryKind, symbol: input.symbol }),
+    entry: Object.freeze({ symbol: input.symbol }),
     signature: Object.freeze({
       callingConvention: "c",
       variadic: false,
@@ -1604,7 +1603,6 @@ export function generateGObjectScabiPackage(
       bindings[signalDisconnectId] = callableBase({
         declaration: signalDisconnectDeclaration,
         kind: "method",
-        entryKind: "adapter-symbol",
         symbol: connection.disconnectSymbol,
         parameters: [Object.freeze({
           name: "connection",
@@ -1624,7 +1622,6 @@ export function generateGObjectScabiPackage(
       bindings[signalConnectedId] = callableBase({
         declaration: signalConnectedDeclaration,
         kind: "getter",
-        entryKind: "adapter-symbol",
         symbol: connection.connectedSymbol,
         parameters: [Object.freeze({
           name: "connection",
@@ -1644,7 +1641,6 @@ export function generateGObjectScabiPackage(
       bindings[signalReleaseId] = callableBase({
         declaration: signalReleaseDeclaration,
         kind: "method",
-        entryKind: "adapter-symbol",
         symbol: connection.releaseSymbol,
         parameters: [Object.freeze({
           name: "connection",
@@ -1696,7 +1692,6 @@ export function generateGObjectScabiPackage(
     bindings[errorMessageBindingId] = callableBase({
       declaration: "NativeError.message",
       kind: "getter",
-      entryKind: "adapter-symbol",
       symbol: support.messageSymbol,
       parameters: [errorParameter],
       result: Object.freeze({
@@ -1710,7 +1705,6 @@ export function generateGObjectScabiPackage(
     bindings[errorReleaseBindingId] = callableBase({
       declaration: "NativeError.__release",
       kind: "method",
-      entryKind: "adapter-symbol",
       symbol: support.releaseSymbol,
       parameters: [errorParameter],
       result: Object.freeze({
@@ -1901,7 +1895,6 @@ export function generateGObjectScabiPackage(
       bindings[releaseId] = callableBase({
         declaration: releaseDeclaration,
         kind: "method",
-        entryKind: "c-symbol",
         symbol: free.cIdentifier!,
         parameters: [Object.freeze({
           name: class_.cSymbolPrefix,
@@ -1931,7 +1924,6 @@ export function generateGObjectScabiPackage(
       bindings[releaseId] = callableBase({
         declaration: releaseDeclaration,
         kind: "method",
-        entryKind: "adapter-symbol",
         symbol: classRelease.releaseSymbol,
         parameters: [Object.freeze({
           name: class_.cSymbolPrefix,
@@ -2154,7 +2146,6 @@ export function generateGObjectScabiPackage(
         bindings[bindingId] = callableBase({
           declaration,
           kind: "method",
-          entryKind: "adapter-symbol",
           symbol: retained.adapterSymbol,
           parameters: retainedParameters,
           result: Object.freeze({
@@ -2229,7 +2220,6 @@ export function generateGObjectScabiPackage(
         bindings[bindingId] = callableBase({
           declaration,
           kind: "method",
-          entryKind: "adapter-symbol",
           symbol: boxedResult.adapterSymbol,
           parameters: [
             Object.freeze({
@@ -2294,7 +2284,6 @@ export function generateGObjectScabiPackage(
         bindings[bindingId] = callableBase({
           declaration,
           kind: "method",
-          entryKind: "adapter-symbol",
           symbol: valueMethod.adapterSymbol,
           parameters: [
             Object.freeze({
@@ -2492,7 +2481,6 @@ export function generateGObjectScabiPackage(
       bindings[bindingId] = callableBase({
         declaration,
         kind: propertyKind ?? "method",
-        entryKind: "c-symbol",
         symbol: callable.cIdentifier,
         parameters: abiParameters,
         result,
@@ -2605,7 +2593,6 @@ export function generateGObjectScabiPackage(
       bindings[registration.connectId] = callableBase({
         declaration: registration.declaration,
         kind: "method",
-        entryKind: "adapter-symbol",
         symbol: registration.connectSymbol,
         parameters: [
           Object.freeze({
@@ -2999,7 +2986,6 @@ export function generateGObjectScabiPackage(
       bindings[bindingId] = callableBase({
         declaration: projection.declaration,
         kind: projection.kind,
-        entryKind: "adapter-symbol",
         symbol: adapter.adapterSymbol,
         parameters,
         result: Object.freeze({
@@ -3062,7 +3048,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 3,
+    schemaVersion: 4,
     package: options.package,
     target: {
       ...options.target,
