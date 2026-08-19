@@ -915,7 +915,18 @@ These are deliberate, not oversights. Each is a named future slice.
   `setChild(visible ? notes : null)` crosses as readily as the two calls it
   stands for.
 
-- **Weak handles and native invalidation** have no policy yet.
+- **Weak handles have no program**, and native invalidation is not the same
+  question. Counted over the introspectable surface of GTK 4, Gio and GObject,
+  the number of members whose name carries `weak` is zero: GObject is reference
+  counted, so nothing can be freed under a live handle, and the cycle a weak
+  edge is usually reached for is already collected by tracing.
+
+  What GTK does document — 32 times — is an output becoming meaningless
+  because of what the call answered, which is output VALIDITY and belongs to
+  the outcome protocol rather than to a lifetime domain. All 31 members now
+  projecting in the answer-as-a-field shape are its program, and each currently
+  trusts the caller to read the answer first.
+  [0007](records/0007-weak-and-invalid-are-not-one-thing.md) records the split.
 - **A signal payload must be something the runtime can capture.** Exact scalars
   of every width, selected enumerations, UTF-8 strings, and selected classes
   project.
