@@ -48,8 +48,16 @@ clean checkout fail to typecheck before anything has been built. Reach it
 through `loadScriptCExecutablePlanners()` instead.
 
 Host requirements: `clang`, `pkg-config`, `bwrap`, `xvfb-run`, GTK 4, and the
-GObject-introspection GIRs in `/usr/share/gir-1.0`. Tests skip cleanly when a
-dependency is missing, so check the pass count rather than the exit code alone.
+GObject-introspection GIRs in `/usr/share/gir-1.0`. An Android SDK platform is
+optional and gates only the JVM SDK suite, which looks in `ANDROID_SDK_ROOT`,
+then `ANDROID_HOME`, then `~/Android/Sdk`, and takes the highest-numbered
+`platforms/android-N` containing `android.jar`. Tests skip cleanly when a
+dependency is missing — the JVM suite names the reason on the test line — so
+check the pass count rather than the exit code alone.
+
+Set `TMPDIR` to a real filesystem before running the suite. `/tmp` is commonly
+a tmpfs, and a cold GTK build after a schema bump exhausts it and fails with a
+bare `errno -122` that names nothing.
 
 ## Rules that are easy to violate
 

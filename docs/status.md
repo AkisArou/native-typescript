@@ -207,9 +207,35 @@ conversion throws on an embedded NUL. The borrow itself fails rather than
 storing the NULL that an embedded NUL converts to, which would end the vector
 early and pass a shorter array than the program did.
 
-The compiler side is built and gated on both backends; **no GIR binding emits
-it yet**, so the 15 live Gtk-4.0 methods that take one remain untranslated
-until the generator half lands.
+The other direction is built too: a returned NUL-terminated `char **` copied
+into a managed `string[]`. Copying is what makes the result independent of the
+callee's storage, and what happens to the vector afterwards is one named
+symbol — which is why two conventions GIR distinguishes need no separate arm.
+`full` hands over the elements as well and names `g_strfreev`; `container`
+hands over only the vector and names `g_free`; `none` hands over nothing and
+is a borrow anchored to the receiver instead. Absence is a value and is not
+emptiness: a NULL vector projects to null where the binding says nullable and
+throws where it does not, while an empty vector is a real vector whose
+terminator sits at slot zero.
+
+The whole family reaches GTK. **26 live Gtk-4.0 members translate that
+produced a diagnostic before** — 14 taking a vector and 12 returning one.
+
+Two limitations, both measured and both refused precisely:
+
+- **7 argument positions are nullable**, and a nullable vector input has no
+  arm. That is the only reason any argument is refused, seven of seven, so it
+  is one slice rather than a scattering.
+- **A property whose accessors disagree about the vector is refused.** That is
+  `css-classes`: the getter hands over a vector the caller frees and the
+  setter borrows one it does not, which is normal for a vector property and is
+  not one type. Either accessor alone is reachable, so no member is lost.
+
+A COUNTED vector — length in a separate position rather than a terminator — is
+absent rather than defaulted, so a generator meeting one produces a diagnostic
+instead of a vector that ends in the wrong place. Two Gtk-4.0 members are in
+that shape. On the JVM every array is, which is why that arm waits for the
+platform that needs it.
 
 ### Callbacks
 
@@ -524,6 +550,46 @@ selected ABI evidence.
 
 Cross-target fixtures pin direct x86-64 SysV, expanded AArch64/SysV, and
 indirect Windows/SysV forms.
+
+### JVM class metadata
+
+A second binding family ingests JVM class metadata into a bounded, frozen,
+canonically ordered snapshot, built the way `gir.ts` is: an explicit selection
+drives what is read, and nothing unselected reaches the snapshot. The class
+file is parsed for real — modified UTF-8 including CESU-8 surrogates, the
+double-slot constant-pool entries for `long` and `double`, and the attributes
+that carry contract (`ConstantValue`, `Exceptions`, `Signature`,
+`Deprecated`, `InnerClasses`), with everything else skipped by declared
+length. Integral constants are decimal strings and floats are exact IEEE bit
+patterns, because formatting must never enter a cache key. Archives are read
+directly: a pure-TypeScript zip central-directory reader handles `.jar` and,
+with leading-offset correction, `.jmod`, and refuses zip64, encryption, and
+exotic compression precisely.
+
+Diagnostics mirror the GIR family's taxonomy one range up (NTS6001–6006),
+including the rule that a superclass present among the sources but unselected
+is an error rather than silent lost ancestry. Overloads resolve by descriptor,
+and a bare-name selection that is ambiguous is refused with the declared
+descriptors listed.
+
+**Measured over the real surface, not a fixture.** Every class of an Android
+SDK `android.jar` (API 36, 6,270 classes) and of `java.base.jmod` (7,535)
+walked with full-member selections — roughly 92,000 methods and 56,000 fields
+across 13,762 class files — produced **zero parse failures and zero
+unexpected diagnostics**. The only refusals are by design. Reading and
+inflating the whole of `android.jar` takes 160 ms and sweeping it 300 ms,
+which is the evidence that no lazy-parse machinery is justified;
+`scripts/jvm-metadata-sweep.ts` re-derives all of it.
+
+Non-static inner classes project their methods and fields, with only
+CONSTRUCTION deferred — an enclosing instance is what a TypeScript-side
+construction would need and nothing selects one yet. The acceptance surface
+reaches exactly one such class and reaches it as a return type, so the
+deferral costs nothing today. Local, anonymous, and module classes are outside
+the algebra rather than deferred, and say so.
+
+Not built, each waiting for its consumer: Kotlin metadata, AAR reading, and
+the Clang-evidence half that the GIR family has.
 
 ### GIR and GObject
 
