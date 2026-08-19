@@ -31,6 +31,17 @@ Bubblewrap sandbox, and compiles several TypeScript GTK applications through
 windows. Roughly 80 seconds with a warm action cache, longer cold. Run it
 before every commit; a green subset is not evidence.
 
+It proves behavior and says nothing about references. After changing
+registration lifetime, payload ownership, or the delivery transport, also run:
+
+```bash
+pnpm scriptc:test:sanitized
+```
+
+which rebuilds the callback suites with the sanitizer and reads the runtime's
+reference audit at exit. A closure that is never released passes every
+ordinary lane; this is the one that notices.
+
 The pinned compiler is built by the gates that need it, not by `pnpm build`, so
 nothing in the workspace may import its `dist` by path — that would make a
 clean checkout fail to typecheck before anything has been built. Reach it
