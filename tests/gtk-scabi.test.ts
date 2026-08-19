@@ -1132,6 +1132,60 @@ test(
 );
 
 test(
+  "a boxed record signal payload is duplicated by its copy, never referenced",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* Delivery is queued, so a payload has to outlive the emission that
+     * produced it — and HOW one is kept is a property of what it IS. A GObject
+     * gains a reference; a boxed record has none to gain and answers its own
+     * copy.
+     *
+     * Both arrive at the payload projection through the same table, because
+     * both are handles. `g_object_ref` on a GtkTextIter would read fourteen
+     * opaque words as a GTypeInstance and increment whichever of them came
+     * first, and the free that pairs with the handle's destructor would then
+     * release storage this program never owned. The C compiles either way,
+     * which is why this is asserted rather than reviewed. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "TextBuffer", methods: ["get_line_count"], signals: ["delete-range"] },
+      ],
+      records: [{ name: "TextIter", methods: ["get_offset"] }],
+    });
+    const source = generateGObjectAdapterSource(gtk).source;
+    assert.match(source, /parameter_0000 = gtk_text_iter_copy\(parameter_0000\);/u);
+    assert.doesNotMatch(source, /g_object_ref\(parameter_000\d\)/u);
+
+    /* The copy is what the invocation owns, so what releases it is the type's
+     * own free — the pairing the handle already declared. */
+    const generated = generateGObjectScabiPackage(options(gtk));
+    const iter = generated.manifest.types.gtk_text_iter;
+    assert.ok(iter && iter.kind === "handle");
+    if (!iter || iter.kind !== "handle") return;
+    assert.equal(iter.destructor, "gtk_text_iter_free");
+
+    /* An object payload still takes a reference: the fix distinguishes the two
+     * rather than replacing one with the other. */
+    const withObject = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "ListBox", signals: ["row-activated"] },
+        { name: "ListBoxRow", methods: ["get_index"] },
+      ],
+    });
+    assert.match(
+      generateGObjectAdapterSource(withObject).source,
+      /g_object_ref\(parameter_0000\);/u,
+    );
+  },
+);
+
+test(
   "a boxed record crosses as an argument, not only as a result",
   { skip: !existsSync(systemGtkGir) },
   () => {

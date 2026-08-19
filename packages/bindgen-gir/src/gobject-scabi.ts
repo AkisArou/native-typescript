@@ -2739,16 +2739,29 @@ export function generateGObjectScabiPackage(
           : undefined;
         if (payloadClass !== undefined) {
           const payloadTypeId = typeIdByClass.get(payloadClass.name);
-          const payloadRelease = releaseByClass.get(payloadClass.name);
+          /* What ends this program's claim on the payload is a property of
+           * the payload's TYPE, and the two families spell it differently: a
+           * GObject unrefs through the adapter's release, a boxed record
+           * calls its own free. Requiring the adapter's release refused every
+           * boxed payload — which is why the dispatch's `g_object_ref` on one
+           * never shipped, and is not a reason to keep refusing them. */
+          /* Asked of the class rather than of the types being built, because a
+           * class is projected before a boxed record is and the payload's type
+           * may not be registered yet. What releases one is a property of the
+           * declaration either way. */
+          const releasable = payloadClass.kind === "record"
+            ? payloadClass.boxed !== null
+            : releaseByClass.has(payloadClass.name);
           if (
-            payloadTypeId === undefined || payloadRelease === undefined ||
+            payloadTypeId === undefined || !releasable ||
             adapterPayload?.name !== parameter.name ||
             adapterPayload.sourceType !== payloadClass.name ||
             parameter.nullable
           ) {
             diagnostics.push(diagnostic(
               parameterPath,
-              "A GObject signal payload must be a selected, non-null class the adapter references",
+              "A GObject signal payload must be a selected, non-null class or " +
+                "boxed record whose type names what releases one",
             ));
             signalValid = false;
             continue;

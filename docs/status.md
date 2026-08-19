@@ -932,7 +932,7 @@ These are deliberate, not oversights. Each is a named future slice.
   project.
 
   Measured over every one of GTK 4's 330 declared signals, **198 project**, up
-  from 179: the 19 that gained one carry an object payload. Of the 132 still
+  from 179 — before boxed payloads, which add the 37 whose payload is a record: the 19 that gained one carry an object payload. Of the 132 still
   refused, 69 are detailed or non-void signals, 59 name a payload type with no
   C spelling — boxed records like `GtkTextIter`, and cross-namespace types — 3
   name `gboolean`, which has two representations and no chosen one, and 1 is
@@ -943,6 +943,14 @@ These are deliberate, not oversights. Each is a named future slice.
   string is therefore copied when the signal fires, held by the invocation, and
   released whether the delivery runs or is dropped during shutdown — the same
   discipline the registration owner already used.
+
+  A boxed record payload is the same discipline over a copy: delivery is
+  queued, so the dispatch duplicates one with the record's own `copy` and the
+  invocation owns the duplicate, released by the `free` its handle type already
+  names. Taking a REFERENCE to one would read fourteen opaque words as a
+  GTypeInstance — the two families arrive at the payload projection through the
+  same table because both are handles, which is why how one is kept has to be
+  asked rather than assumed.
 
   An object payload is the same discipline over a reference rather than a copy.
   The dispatch takes one before queueing; the trampoline turns it into a

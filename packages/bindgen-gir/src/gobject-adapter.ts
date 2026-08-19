@@ -50,6 +50,9 @@ export interface GObjectSignalParameterAdapter {
   readonly name: string;
   /** True when the payload is an object the dispatch references for delivery. */
   readonly retained?: boolean;
+  /** For a boxed record, the `copy` that duplicates one. A GObject has none
+   * and takes a reference instead. */
+  readonly copy?: string;
   readonly nativeType: string;
   /** The GIR type name the payload projects as: a scalar or an enumeration. */
   readonly sourceType: string;
@@ -407,12 +410,19 @@ function signalParameter(
     (parameter.type.cType === "gchar*" || parameter.type.cType === "char*" ||
       parameter.type.cType === "const gchar*" ||
       parameter.type.cType === "const char*");
-  /* A GObject payload outlives the emission only if a reference is taken, and
-   * delivery is queued, so the dispatch takes one before it hands the pointer
-   * over. */
+  /* A payload outlives the emission only if a reference is taken, and delivery
+   * is queued, so the dispatch takes one before it hands the pointer over.
+   *
+   * HOW one is taken is a property of what the payload IS. A GObject answers
+   * `g_object_ref`; a boxed record answers its own `copy`, and calling
+   * `g_object_ref` on one would read fourteen opaque words as a GTypeInstance
+   * and increment whatever the first of them happens to be. The two arrive
+   * here through the same map because both are projected as handles, which is
+   * exactly why the distinction has to be made rather than assumed. */
   const payloadClass = parameter.type.kind === "named"
     ? payloadClasses.get(parameter.type.name)
     : undefined;
+  const payloadCopy = payloadClass?.boxed?.copy.cIdentifier ?? null;
   const sourceType = scalar?.girName ??
     (isUtf8
       ? "utf8"
@@ -469,9 +479,24 @@ function signalParameter(
     }
     return null;
   }
+  /* A boxed record whose copy is not selected cannot be retained at all, and
+   * handing the emission's own pointer to a queued delivery would let the
+   * handler read storage GTK reused the moment emission returned. */
+  if (payloadClass?.kind === "record" && payloadCopy === null) {
+    diagnostics.push({
+      code: "NTS5001",
+      severity: "error",
+      path,
+      message:
+        "A boxed record signal payload needs its own copy, because delivery " +
+        "is queued and `g_object_ref` does not duplicate one",
+    });
+    return null;
+  }
   return Object.freeze({
     name: parameter.name,
     ...(payloadClass === undefined ? {} : { retained: true }),
+    ...(payloadCopy === null ? {} : { copy: payloadCopy }),
     nativeType: renderCType(physical),
     sourceType,
   });
@@ -694,15 +719,19 @@ function generateSignal(
      * signal broke that promise. */
     ...validParameters.flatMap((parameter, index) => {
       const slot = `parameter_${index.toString().padStart(4, "0")}`;
-      return parameter.retained
-        ? [
-            `  if (${slot} == NULL) {`,
-            `    g_error("${class_.name}::${callable.name} delivered a NULL ` +
-              `${parameter.sourceType} payload, which its GIR annotation forbids");`,
-            "  }",
-            `  g_object_ref(${slot});`,
-          ]
-        : [];
+      if (parameter.retained !== true) return [];
+      return [
+        `  if (${slot} == NULL) {`,
+        `    g_error("${class_.name}::${callable.name} delivered a NULL ` +
+          `${parameter.sourceType} payload, which its GIR annotation forbids");`,
+        "  }",
+        /* A GObject gains a reference in place. A boxed record has none to
+         * gain, so the copy IS the retained value and the original stays the
+         * emission's. */
+        ...(parameter.copy === undefined
+          ? [`  g_object_ref(${slot});`]
+          : [`  ${slot} = ${parameter.copy}(${slot});`]),
+      ];
     }),
     `  ${answersBoolean ? "return " : ""}connection->callback(${[...callbackArguments, "connection->context"].join(", ")});`,
     "}",
