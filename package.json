@@ -19,6 +19,7 @@
     "scriptc:build": "pnpm --dir third_party/scriptc build",
     "scriptc:test:export": "node scripts/test-scriptc-export.mjs",
     "scriptc:test:native-ir": "node scripts/test-scriptc-native-ir.mjs",
+    "scriptc:test:sanitized": "node scripts/test-scriptc-sanitized.mjs",
     "scriptc:test:owner-gateway": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/owner-gateway.test.ts",
     "scriptc:test:callback-token": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-token.test.ts",
     "scriptc:test:callback-table": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-table.test.ts",
