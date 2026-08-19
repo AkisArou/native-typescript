@@ -61,9 +61,18 @@ The operation counts explain it without appeal to the timings. Variant A
 performs four operations per iteration that B does not: `PushLocalFrame`,
 `PopLocalFrame`, `NewGlobalRef`, `DeleteGlobalRef`. Each is a call through the
 JVM's function table. A linker cannot see through a function table, so it
-cannot delete them. The final assembly says the same thing from the other
-side: LTO did not fully inline the adapter, leaving `nt_adp_make` and
-`nt_adp_capture` as real calls in the optimized binary.
+cannot delete them.
+
+The assembly rules out the alternative explanation a reader would reach for
+first — that LTO simply failed to inline, and a better linker would do better.
+Inlining was partial: `nt_adp_make` and `nt_adp_capture` survive as calls in
+the optimized binary. But `nt_adp_checked_add` was fully inlined into
+`a_fallible`, and A-with-LTO still matches A-without-LTO on every case
+including that one. Where the linker succeeded completely it still bought
+nothing. **The price is not the cost of calling the adapter; it is the
+operations the adapter performs.** That distinction is what makes the finding
+about JNI's structure rather than about this compiler's inliner, and it is why
+the conclusion is expected to hold on other toolchains.
 
 The two remaining cases were never paying a structural price at all, which is
 the half of this result that is easy to skip past and is the more consequential

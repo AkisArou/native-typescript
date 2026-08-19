@@ -393,9 +393,14 @@ operation counts say why. Variant A performs four operations per iteration
 that B does not: `PushLocalFrame`, `PopLocalFrame`, `NewGlobalRef`,
 `DeleteGlobalRef`. Every one is a call through the JVM's function table, which
 no linker can see through and therefore no linker can delete. B performs one
-`DeleteLocalRef`. The final assembly confirms it from the other direction: LTO
-did not even fully inline the adapter, leaving `nt_adp_make` and
-`nt_adp_capture` as real calls in the optimized binary.
+`DeleteLocalRef`.
+
+The assembly rules out the obvious alternative explanation. Inlining was
+partial — `nt_adp_make` and `nt_adp_capture` survive as calls in the optimized
+binary — but where it fully succeeded it bought nothing: `nt_adp_checked_add`
+disappears into its caller under LTO and that case's timing does not move.
+The adapter's price is not the cost of calling the adapter. It is the
+operations the adapter performs, and those are opaque by construction.
 
 **The other two cases were never paying.** For a value that genuinely outlives
 the call, promotion is required and the adapter is already doing the right
