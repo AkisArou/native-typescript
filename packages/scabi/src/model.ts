@@ -402,20 +402,6 @@ export type ErrorContract =
       readonly release: NativeBindingId;
     };
 
-/**
- * Whether a contract decides failure by reading the call's own result.
- *
- * The distinction is what lets a failable operation hand something back. A
- * result the source sees transformed — a boolean over an integer, a double
- * widened out of an exact slot, a handle whose NULL means absence — cannot
- * also be the thing a contract inspects, because the two would read the same
- * bytes and disagree about what they mean. A failure that arrives anywhere
- * else reads nothing here and constrains nothing.
- */
-export function errorContractReadsResult(error: ErrorContract): boolean {
-  return error.kind !== "no-fail" && error.kind !== "error-out";
-}
-
 export interface BindingDependencies {
   readonly bindings: readonly NativeBindingId[];
   readonly linkInputs: readonly LinkInputId[];
