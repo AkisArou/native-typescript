@@ -19,6 +19,7 @@ import {
 import type {
   AbiParameter,
   AbiResult,
+  MarshallingContract,
   BindingAvailability,
   CallableBinding,
   LinkInput,
@@ -43,6 +44,7 @@ import type {
   GirEnumeration,
   GirParameter,
   GirSnapshot,
+  GirTypeReference,
 } from "./gir-model.ts";
 import {
   borrowedResultClass,
@@ -482,6 +484,96 @@ function validateInputs(
   }
 }
 
+/**
+ * The C spellings a NUL-terminated vector of UTF-8 strings arrives under.
+ *
+ * Both halves of the spelling vary independently — the SDK writes
+ * `const char* const*` for a vector it keeps and `char**` for one it hands
+ * over, with `gchar` variants of each — and neither says who frees it. The
+ * transfer annotation does. Accepting all four narrows nothing for the same
+ * reason the string set accepts two: the Clang probe proves the real type.
+ */
+const utf8VectorCTypes: ReadonlySet<string> = new Set([
+  "char**",
+  "gchar**",
+  "const char**",
+  "const gchar**",
+  "const char* const*",
+  "const gchar* const*",
+]);
+
+/**
+ * Whether a GIR type is a vector of UTF-8 strings that ends at a NULL slot.
+ *
+ * `zero-terminated` is absent on most such declarations, and GIR's own
+ * default for an array with neither a length nor a fixed size is that it is
+ * terminated. That default is honoured ONLY when both of those are in fact
+ * absent; a declaration carrying either is a COUNTED vector, which is a
+ * different contract with no implementation, and one carrying an explicit
+ * `zero-terminated="0"` says so itself. Everything ambiguous is refused,
+ * because a vector walked to the wrong end is a read past the end rather
+ * than a wrong answer.
+ */
+function nulTerminatedUtf8Vector(type: GirTypeReference): boolean {
+  return type.kind === "array" &&
+    type.element.kind === "named" &&
+    type.element.name === "utf8" &&
+    type.cType !== null &&
+    utf8VectorCTypes.has(type.cType) &&
+    type.lengthParameter === null &&
+    type.fixedSize === null &&
+    type.zeroTerminated !== false;
+}
+
+/** The vector contract itself, identical in both directions apart from what
+ * frees the vector — which is the whole of the difference, and is why this is
+ * one object rather than two. */
+function stringVectorMarshal(release?: string): MarshallingContract {
+  return Object.freeze({
+    kind: "string-vector",
+    encoding: "utf-8",
+    termination: "nul",
+    embeddedNul: "reject",
+    ...(release === undefined ? {} : { release }),
+  });
+}
+
+function stringVectorParameter(
+  parameter: GirParameter,
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): AbiParameter | null {
+  if (
+    parameter.kind !== "parameter" ||
+    !nulTerminatedUtf8Vector(parameter.type) ||
+    parameter.direction !== "in" ||
+    /* The vector is built for the call out of a managed array the program
+     * keeps, so the callee may not take it and may not keep it. */
+    parameter.transferOwnership !== "none" ||
+    parameter.nullable ||
+    parameter.optional ||
+    parameter.callerAllocates ||
+    parameter.skip ||
+    parameter.scope !== null ||
+    parameter.closureParameter !== null ||
+    parameter.destroyParameter !== null
+  ) {
+    diagnostics.push(diagnostic(
+      path,
+      "Only a required borrowed NUL-terminated vector of UTF-8 strings is implemented",
+    ));
+    return null;
+  }
+  return Object.freeze({
+    name: parameter.name,
+    type: "const_utf8_vector",
+    passMode: "pointer",
+    nullable: false,
+    ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+    marshal: stringVectorMarshal(),
+  });
+}
+
 function cStringParameter(
   parameter: GirParameter,
   typeId: string,
@@ -777,6 +869,46 @@ function methodResult(
     });
   }
   if (
+    nulTerminatedUtf8Vector(result.type) &&
+    result.scope === null &&
+    result.closureParameter === null &&
+    result.destroyParameter === null
+  ) {
+    /* Which symbol frees the vector is the whole of what the transfer says.
+     * `full` hands over the elements too, so freeing the vector alone would
+     * leak every string in it; `container` hands over only the vector, so
+     * freeing the elements would free strings the SDK still owns. Two
+     * symbols, one contract — and `none` frees nothing, which is a borrow
+     * anchored to the receiver instead. */
+    const release = result.transferOwnership === "full"
+      ? "g_strfreev"
+      : result.transferOwnership === "container"
+        ? "g_free"
+        : null;
+    if (release === null) {
+      return Object.freeze({
+        type: result.nullable ? "nullable_const_utf8_vector" : "const_utf8_vector",
+        passMode: "pointer",
+        nullable: result.nullable,
+        ownership: Object.freeze({
+          kind: "borrowed",
+          scope: "receiver",
+          anchor: receiverName,
+        }),
+        marshal: stringVectorMarshal(),
+      });
+    }
+    return Object.freeze({
+      type: result.nullable ? "nullable_utf8_vector" : "utf8_vector",
+      passMode: "pointer",
+      nullable: result.nullable,
+      /* The projection copies the elements and then frees the vector, so
+       * nothing the program holds outlives this call because of it. */
+      ownership: Object.freeze({ kind: "value" }),
+      marshal: stringVectorMarshal(release),
+    });
+  }
+  if (
     result.type.kind === "named" &&
     result.type.name === "utf8" &&
     result.type.cType !== null &&
@@ -901,6 +1033,41 @@ export function generateGObjectScabiPackage(
       kind: "pointer",
       pointee: "i8",
       mutability: "const",
+      nullable: true,
+      addressSpace: 0,
+    }),
+    /* `char **` and its spellings. The element is `const_utf8` in every case:
+     * a vector whose elements the caller must free is spelled without the
+     * inner `const` in C, but which pointer is const says nothing about who
+     * frees it — the marshalling contract's `release` does, and reading a
+     * lifetime out of a spelling is the inference this project forbids. The
+     * OUTER const and nullability do have to match the position, because the
+     * validator checks the slot against what the manifest declares. */
+    const_utf8_vector: Object.freeze({
+      kind: "pointer",
+      pointee: "const_utf8",
+      mutability: "const",
+      nullable: false,
+      addressSpace: 0,
+    }),
+    nullable_const_utf8_vector: Object.freeze({
+      kind: "pointer",
+      pointee: "const_utf8",
+      mutability: "const",
+      nullable: true,
+      addressSpace: 0,
+    }),
+    utf8_vector: Object.freeze({
+      kind: "pointer",
+      pointee: "const_utf8",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    }),
+    nullable_utf8_vector: Object.freeze({
+      kind: "pointer",
+      pointee: "const_utf8",
+      mutability: "mutable",
       nullable: true,
       addressSpace: 0,
     }),
@@ -2346,7 +2513,19 @@ export function generateGObjectScabiPackage(
         const enumeration = parameter.type.kind === "named"
           ? enumerations.get(parameter.type.name)
           : undefined;
-        if (
+        if (nulTerminatedUtf8Vector(parameter.type)) {
+          const abi = stringVectorParameter(parameter, parameterPath, diagnostics);
+          if (abi === null) {
+            valid = false;
+          } else {
+            abiParameters.push(abi);
+            /* `readonly` because the callee reads the vector and nothing
+             * writes back through it. */
+            const sourceType = "readonly string[]";
+            sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
+            sourceParameterTypes.push(sourceType);
+          }
+        } else if (
           parameter.type.kind === "named" &&
           parameter.type.name === "utf8"
         ) {
@@ -2529,6 +2708,11 @@ export function generateGObjectScabiPackage(
             ? scalarResult.girName
             : enumerationResult !== undefined
               ? enumerationResult.sourceName
+            /* A vector reads as a plain array the program owns: the elements
+             * were copied out of the callee's storage, so nothing here is a
+             * view of anything. */
+            : nulTerminatedUtf8Vector(callable.result.type)
+              ? callable.result.nullable ? "string[] | null" : "string[]"
             : callable.result.nullable
               ? "string | null"
               : "string";
@@ -2950,7 +3134,10 @@ export function generateGObjectScabiPackage(
           : undefined;
         let abi: AbiParameter | null;
         let sourceType: string;
-        if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
+        if (nulTerminatedUtf8Vector(parameter.type)) {
+          abi = stringVectorParameter(parameter, parameterPath, diagnostics);
+          sourceType = "readonly string[]";
+        } else if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
           abi = cStringParameter(
             parameter,
             parameter.nullable ? "nullable_const_utf8" : "const_utf8",

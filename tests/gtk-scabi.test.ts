@@ -1380,6 +1380,172 @@ test(
 );
 
 test(
+  "a vector of strings crosses in both directions, freed by the symbol its transfer names",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* Three real members, one per ownership shape the SDK actually uses.
+     *
+     * gtk_widget_set_css_classes() takes a vector the caller keeps.
+     * gtk_icon_theme_get_icon_names() returns one the CALLER must free,
+     * elements and all — GIR's `full`. gtk_alert_dialog_get_buttons() returns one the
+     * DIALOG keeps, which is GIR's `none` and is a borrow anchored to the
+     * receiver rather than a free — and it is nullable, so the absent vector
+     * is a value here too.
+     *
+     * The three differ in one field, and that is the point: which symbol
+     * frees the vector, or none at all. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget", methods: ["set_css_classes"] },
+        { name: "IconTheme", methods: ["get_icon_names"] },
+        { name: "AlertDialog", methods: ["get_buttons"] },
+      ],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+
+    const input = generated.manifest.bindings.gtk_widget_set_css_classes;
+    assert.ok(input && input.kind === "method");
+    if (!input || input.kind !== "method") return;
+    const classes = input.signature.parameters[1];
+    assert.deepEqual(classes?.marshal, {
+      kind: "string-vector",
+      encoding: "utf-8",
+      termination: "nul",
+      embeddedNul: "reject",
+    });
+    /* Borrowed for the call and freeing nothing: the managed array owns the
+     * strings, and the vector exists only for the duration of the call. */
+    assert.deepEqual(classes?.ownership, { kind: "borrowed", scope: "call" });
+    assert.equal(classes?.type, "const_utf8_vector");
+
+    const owned = generated.manifest.bindings.gtk_icon_theme_get_icon_names;
+    assert.ok(owned && owned.kind === "method");
+    if (!owned || owned.kind !== "method") return;
+    /* `full` hands over the elements too, so freeing the vector alone would
+     * leak every string in it. The symbol says so; nothing else has to. */
+    assert.deepEqual(owned.signature.result.marshal, {
+      kind: "string-vector",
+      encoding: "utf-8",
+      termination: "nul",
+      embeddedNul: "reject",
+      release: "g_strfreev",
+    });
+    assert.deepEqual(owned.signature.result.ownership, { kind: "value" });
+
+    const borrowed = generated.manifest.bindings.gtk_alert_dialog_get_buttons;
+    assert.ok(borrowed && borrowed.kind === "method");
+    if (!borrowed || borrowed.kind !== "method") return;
+    assert.deepEqual(borrowed.signature.result.marshal, {
+      kind: "string-vector",
+      encoding: "utf-8",
+      termination: "nul",
+      embeddedNul: "reject",
+    });
+    assert.equal(borrowed.signature.result.nullable, true);
+    assert.equal(borrowed.signature.result.type, "nullable_const_utf8_vector");
+    /* Nothing to free, so the copy has to happen while the dialog that owns
+     * the vector is still alive — which is what the anchor records. */
+    assert.deepEqual(borrowed.signature.result.ownership, {
+      kind: "borrowed",
+      scope: "receiver",
+      anchor: "self",
+    });
+
+    /* The source sees ordinary arrays in both directions. The vector is a
+     * physical shape; no program ever names one. */
+    assert.match(
+      generated.declarations,
+      /^ {2}setCssClasses\(classes: readonly string\[\]\): void;$/mu,
+    );
+    assert.match(generated.declarations, /^ {2}getIconNames\(\): string\[\];$/mu);
+
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: [
+        "gtk_widget_set_css_classes",
+        "gtk_icon_theme_get_icon_names",
+        "gtk_alert_dialog_get_buttons",
+      ],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+    if (!program.ok) return;
+    const byId = new Map(program.input.bindings.map((binding) => [binding.id, binding]));
+    const find = (suffix: string) =>
+      [...byId.values()].find(({ id }) => id.endsWith(suffix));
+
+    /* One slot, not two: the terminator is the length. */
+    const loweredInput = find("#gtk_widget_set_css_classes");
+    assert.deepEqual(loweredInput?.arguments[1]?.type, {
+      kind: "array",
+      elem: { kind: "string" },
+    });
+    assert.deepEqual(loweredInput?.parameters[1]?.projection, {
+      kind: "utf8CStringArray",
+      argument: 1,
+    });
+
+    assert.deepEqual(find("#gtk_icon_theme_get_icon_names")?.result.projection, {
+      kind: "utf8CStringArray",
+      nullable: false,
+      release: { kind: "symbol", symbol: "g_strfreev" },
+    });
+    assert.deepEqual(find("#gtk_alert_dialog_get_buttons")?.result.projection, {
+      kind: "utf8CStringArray",
+      nullable: true,
+      release: { kind: "none" },
+    });
+  },
+);
+
+test(
+  "a property whose accessors disagree about the vector is refused, not guessed",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `css-classes` is a GObject property, and its two accessors cannot agree:
+     * the getter hands over a vector the caller frees (`char**`, transfer
+     * full) and the setter borrows one it does not (`const char**`, transfer
+     * none). That asymmetry is normal for a vector property and is exactly
+     * what a property may not have here, because a property has ONE type and
+     * these two positions do not describe one.
+     *
+     * Refusing is the honest answer until a property with asymmetric
+     * accessors has a designed source shape. Selecting either accessor alone
+     * works, which is how the members remain reachable meanwhile. This pins
+     * the refusal so it is a decision rather than a surprise. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Widget", methods: ["set_css_classes", "get_css_classes"] }],
+    });
+    assert.throws(
+      () => generateGObjectScabiPackage(options(gtk)),
+      (error: unknown) =>
+        error instanceof Error &&
+        /do not form one coherent property type contract/u.test(error.message),
+    );
+
+    /* And the getter alone is reachable, so the refusal costs the member
+     * nothing that matters. */
+    const getterOnly = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "Widget", methods: ["get_css_classes"] }],
+    });
+    const generated = generateGObjectScabiPackage(options(getterOnly));
+    assert.equal(
+      generated.manifest.bindings.gtk_widget_get_css_classes?.kind,
+      "method",
+    );
+  },
+);
+
+test(
   "a throwing member keeps its own result and binds its own symbol",
   { skip: !existsSync(systemGtkGir) },
   () => {
