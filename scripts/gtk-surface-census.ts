@@ -14,6 +14,15 @@
  * member counted here is one the generator will describe; whether the real
  * headers agree is what `pnpm test` is for.
  *
+ * IT SUPPLIES NO IMPORTED NAMESPACES, and that is the number's largest
+ * caveat. A member returning or taking `Gio.ListModel` is refused here for
+ * lack of an import rather than for lack of an algebra, so the refusal list
+ * OVERSTATES what is missing — roughly a hundred of the result refusals in
+ * the first run are cross-namespace types. Read a bucket naming a qualified
+ * type as "this namespace was not supplied", and only an unqualified one as a
+ * gap in the algebra. Supplying imports is the obvious next improvement and
+ * would make the total comparable to a real multi-package build.
+ *
  *   node --experimental-strip-types scripts/gtk-surface-census.ts [Namespace]
  */
 import { readFileSync } from "node:fs";
@@ -393,7 +402,10 @@ for (const refusal of refusals) {
 }
 console.log(`\nprojected bindings: ${projected}`);
 console.log(`refused members:    ${refusals.length}\n`);
-console.log("what the refusals are waiting on, largest first:");
+console.log(
+  "what the refusals are waiting on, largest first",
+  "(qualified type names mean an unsupplied import, not a missing algebra):",
+);
 for (const [reason, count] of [...byReason].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
   console.log(`  ${String(count).padStart(4)}  ${reason}`);
 }
