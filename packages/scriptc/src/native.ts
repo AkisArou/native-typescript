@@ -20,288 +20,86 @@ export interface ScriptCNativeDeclaration {
   readonly name: string;
 }
 
-export type ScriptCNativeIntegerScalar =
-  | "i8"
-  | "u8"
-  | "i16"
-  | "u16"
-  | "i32"
-  | "u32"
-  | "i64"
-  | "u64"
-  | "isize"
-  | "usize";
+/* The native vocabulary is the compiler's, and this is where it enters. Every
+ * name below is one the compiler publishes; none is restated here.
+ *
+ * It used to be restated here, all of it, and record 0006 measures what that
+ * cost: two declarations of one format, kept in agreement by review, in two
+ * repositories that typecheck independently. The import is by SOURCE PATH and
+ * type-only on purpose — the published format is a declaration file, so it
+ * carries no runtime value, needs no build of the submodule, and resolves on a
+ * clean checkout before anything has been compiled.
+ *
+ * The `ScriptCNative` names stay because they are this package's public
+ * surface; each is an alias of the one declaration rather than a second one. */
+import type {
+  IrNativeAbiType,
+  IrNativeArgumentType,
+  IrNativeCallbackArgumentType,
+  IrNativeCallbackContract,
+  IrNativeCallbackSignature,
+  IrNativeCallbackSourceArgument,
+  IrNativeCallbackType,
+  IrNativeContextType,
+  IrNativeErrorContract,
+  IrNativeErrorOutType,
+  IrNativeFailureDetection,
+  IrNativeFailureMessage,
+  IrNativeFailureRelease,
+  IrNativeIntegerScalar,
+  IrNativeParameterProjection,
+  IrNativePhysicalAbiType,
+  IrNativePhysicalAbiValue,
+  IrNativePointerType,
+  IrNativeResultAbiType,
+  IrNativeResultProjection,
+  IrNativeScalar,
+  IrNativeValueType,
+  NativeFrontendBinding,
+  NativeFrontendConstant,
+  NativeFrontendExport,
+  NativeFrontendInput,
+  NativeFrontendOperation,
+  NativeHandleDefinition,
+  NativeSourceType,
+  NativeStructDefinition,
+  NativeTypeDefinition,
+} from "../../../third_party/scriptc/packages/compiler/src/native-manifest.d.ts";
 
-/** `f32` is an ABI carrier with no source form: it appears only in a slot
- * that declares the number conversion, never as a value the source can name,
- * because a second float precision in the language would mean specifying
- * rounding at every operation. */
-export type ScriptCNativeScalar = ScriptCNativeIntegerScalar | "f32" | "f64";
-
-export type ScriptCNativeValueType =
-  | {
-      readonly kind: "nativeScalar";
-      readonly scalar: ScriptCNativeScalar;
-    }
-  | {
-      readonly kind: "nativeStruct";
-      readonly typeId: string;
-    }
-  | {
-      readonly kind: "nativeHandle";
-      readonly typeId: string;
-    };
-
-export interface ScriptCNativePointerType {
-  readonly kind: "nativePointer";
-  readonly pointee: "i8" | "u8";
-  readonly const: boolean;
-  readonly addressSpace: 0;
-}
-
-export interface ScriptCNativeCallbackSignature {
-  /**
-   * The C parameters the emitter passes. A pointer appears when the payload is
-   * a borrowed string: the physical slot carries the pointer, and what reaches
-   * the source is the copy the runtime makes from it.
-   */
-  readonly parameters: readonly (
-    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
-    | ScriptCNativePointerType
-    | { readonly kind: "nativeHandle"; readonly typeId: string }
-    /* The closure slot occupies a real ABI position, so it is an entry in
-     * this list rather than a placement beside it. SCABI still declares a
-     * placement, and the translator turns that into a position here. */
-    | { readonly kind: "nativeContext"; readonly addressSpace: 0 }
-  )[];
-  readonly result:
-    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
-    | { readonly kind: "void" };
-}
-
-export interface ScriptCNativeCallbackType {
-  readonly kind: "nativeCallback";
-  readonly signature: ScriptCNativeCallbackSignature;
-}
-
-/** The slot a failable call writes its error object into. Compiler-supplied
- * and opaque like the closure context below, and for the same reason: the
- * object is read through the contract's symbols, never as a source value. */
-export interface ScriptCNativeErrorOutType {
-  readonly kind: "nativeErrorOut";
-  readonly addressSpace: 0;
-}
-
-export interface ScriptCNativeContextType {
-  readonly kind: "nativeContext";
-  readonly addressSpace: 0;
-}
-
-export type ScriptCNativeCallbackArgumentType = {
-  readonly kind: "func";
-  /** A handler parameter's source view. `f64` over an exact physical payload
-   * is the widening the delivery performs when it reads the queued value. */
-  readonly params: readonly (
-    | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
-    | { readonly kind: "nativeHandle"; readonly typeId: string }
-    /** A NUL-terminated `const char *` payload, decoded with U+FFFD
-     * replacement. Named for the C shape because the shape is what varies:
-     * a pointer-and-length span is the same script value differently
-     * arranged, and the two cannot share a tag. */
-    | { readonly kind: "cstring" }
-    /** The same script string from a pointer and a length instead of a
-     * terminator, so the bytes may contain NUL and are not scanned for one. */
-    | { readonly kind: "utf8Span" }
-    /** A pointer and a length copied into a script byte array. Bytes, not
-     * text: nothing is decoded and nothing is replaced. */
-    | { readonly kind: "byteSpan" }
-    | { readonly kind: "f64" }
-    | {
-        /** An integer payload read as a boolean. False is exactly the named
-         * value; every other bit pattern is true, which is what a foreign API
-         * promising "any nonzero" means. */
-        readonly kind: "bool";
-        readonly falseValue: string;
-        readonly trueValue: string;
-      }
-  )[];
-  /** A handler's answer. `bool` is an ordinary TypeScript boolean over an ABI
-   * boolean's storage, carrying the two values that storage means; `f64` is an
-   * ordinary number narrowed into the slot the way a parameter's is. */
-  readonly ret:
-    | ScriptCNativeCallbackSignature["result"]
-    | {
-        readonly kind: "bool";
-        readonly falseValue: string;
-        readonly trueValue: string;
-      }
-    | {
-        readonly kind: "f64";
-        readonly conversion: "checked" | "wrap";
-      };
-};
-
-export type ScriptCNativeCallbackSourceArgument =
-  | {
-      readonly kind: "callback-parameter";
-      readonly parameter: number;
-      /** Present when the payload is an owned handle: the compiler identity of
-       * the binding that gives the reference back, whether the delivery runs
-       * or is dropped. Already resolved against the package that owns the
-       * handle, which is not always this one. */
-      readonly destructor?: string;
-    }
-  /** One handler parameter fed by two physical slots: a pointer and the
-   * element count beside it. Which slots feed a parameter is a source
-   * argument's business; the payload form says only what the handler sees. */
-  | {
-      readonly kind: "callback-parameter-span";
-      readonly data: number;
-      readonly length: number;
-    }
-  | { readonly kind: "registration-owner" };
-
-/** Mirrors the compiler's contract exactly. Delivery executor, reentrancy,
- * post-disposal, and shutdown are absent for the reason they are absent
- * there: each restated what its arm already implied and nothing read it. */
-export type ScriptCNativeCallbackContract =
-  | {
-      readonly owner: { readonly kind: "call" };
-      readonly allowedInvocationExecutors: readonly ["same-as-caller"];
-      readonly synchronousReturn: true;
-      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-    }
-  | {
-      readonly owner:
-        | { readonly kind: "result" }
-        | { readonly kind: "argument"; readonly argument: number };
-      readonly cancellationBinding: string;
-      readonly allowedInvocationExecutors: readonly (
-        | "same-as-caller"
-        | "any-attached-thread"
-      )[];
-      readonly synchronousReturn: false;
-      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-    }
-  /** A registration the native side asks: the handler runs during the call
-   * that invokes it and its answer is that call's result. Admissible only
-   * because the invocation is same-as-caller — answering means reading a
-   * closure, which a foreign producer may never do — and only over values,
-   * because nothing here outlives the call. */
-  | {
-      readonly owner:
-        | { readonly kind: "result" }
-        | { readonly kind: "argument"; readonly argument: number };
-      readonly cancellationBinding: string;
-      readonly allowedInvocationExecutors: readonly ["same-as-caller"];
-      readonly synchronousReturn: true;
-      readonly sourceArguments: readonly ScriptCNativeCallbackSourceArgument[];
-    };
-
-export type ScriptCNativeAbiType =
-  | ScriptCNativeValueType
-  | ScriptCNativePointerType
-  | ScriptCNativeCallbackType
-  | ScriptCNativeContextType
-  | ScriptCNativeErrorOutType;
-export type ScriptCNativeArgumentType =
-  | ScriptCNativeValueType
-  | { readonly kind: "bool" }
-  | { readonly kind: "string" }
-  | { readonly kind: "nullableString" }
-  /** A managed handle the source may omit. The null arm passes NULL without
-   * consulting the handle table. */
-  | { readonly kind: "nullableNativeHandle"; readonly typeId: string }
-  | { readonly kind: "bytes"; readonly elem: "u8" }
-  /** A plain JavaScript number the boundary checks into an exact slot. */
-  | { readonly kind: "f64" }
-  | ScriptCNativeCallbackArgumentType;
-export type ScriptCNativeParameterProjection =
-  | { readonly kind: "argument"; readonly argument: number }
-  | {
-      readonly kind: "boolean";
-      readonly argument: number;
-      readonly falseValue: string;
-      readonly trueValue: string;
-    }
-  /** A JavaScript-number ingress that names its conversion. SCABI declares
-   * only the checked one — finite, integral, and in range, or a catchable
-   * TypeError before the call happens — because a manifest that wanted the
-   * wrapping conversion would be asking for `| 0`, which the language
-   * already spells at the call site. */
-  | {
-      readonly kind: "number";
-      readonly argument: number;
-      readonly conversion: "checked";
-    }
-  | { readonly kind: "utf8CString"; readonly argument: number }
-  | { readonly kind: "utf8Data"; readonly argument: number }
-  | { readonly kind: "utf8ByteLength"; readonly argument: number }
-  | { readonly kind: "bytesData"; readonly argument: number }
-  | { readonly kind: "bytesByteLength"; readonly argument: number }
-  | { readonly kind: "callbackFunction"; readonly argument: number }
-  | { readonly kind: "callbackContext"; readonly argument: number }
-  /** The compiler's own error slot. It projects no source argument: nothing in
-   * the program supplies it, and nothing reads it but the error contract. */
-  | { readonly kind: "errorOut" };
-
-export type ScriptCNativeResultProjection =
-  | { readonly kind: "direct" }
-  | {
-      readonly kind: "boolean";
-      readonly conversion: "exact";
-      readonly falseValue: string;
-      readonly trueValue: string;
-    }
-  /** Exact widening out of an integer slot at most 32 bits wide; it cannot
-   * fail, so it carries no failure arm. */
-  | { readonly kind: "number" }
-  | { readonly kind: "utf8CString"; readonly nullable: boolean }
-  /** An owned handle the callee may report as absent. Absence is a value here
-   * rather than a failure: a container with no child has answered, and forcing
-   * that through the error channel would make the ordinary case a throw. */
-  | { readonly kind: "nullableHandle" }
-  /** The physical result is the operation's error channel and yields no
-   * source value. Paired with the `errorHandle` contract that reads and
-   * releases it, so a foreign pointer never becomes a source value. */
-  | { readonly kind: "errorChannel" };
-
+export type ScriptCNativeAbiType = IrNativeAbiType;
+export type ScriptCNativeArgumentType = IrNativeArgumentType;
+export type ScriptCNativeBinding = NativeFrontendBinding;
+export type ScriptCNativeCallbackArgumentType = IrNativeCallbackArgumentType;
+export type ScriptCNativeCallbackContract = IrNativeCallbackContract;
+export type ScriptCNativeCallbackSignature = IrNativeCallbackSignature;
+export type ScriptCNativeCallbackSourceArgument = IrNativeCallbackSourceArgument;
+export type ScriptCNativeCallbackType = IrNativeCallbackType;
+export type ScriptCNativeConstant = NativeFrontendConstant;
+export type ScriptCNativeContextType = IrNativeContextType;
+export type ScriptCNativeErrorContract = IrNativeErrorContract;
+export type ScriptCNativeErrorOutType = IrNativeErrorOutType;
+export type ScriptCNativeExport = NativeFrontendExport;
+export type ScriptCNativeFailureDetection = IrNativeFailureDetection;
+export type ScriptCNativeFailureMessage = IrNativeFailureMessage;
+export type ScriptCNativeFailureRelease = IrNativeFailureRelease;
+export type ScriptCNativeFrontendInput = NativeFrontendInput;
+export type ScriptCNativeHandleDefinition = NativeHandleDefinition;
+export type ScriptCNativeIntegerScalar = IrNativeIntegerScalar;
+export type ScriptCNativeOperation = NativeFrontendOperation;
+export type ScriptCNativeParameterProjection = IrNativeParameterProjection;
+export type ScriptCNativePhysicalAbiType = IrNativePhysicalAbiType;
+export type ScriptCNativePhysicalAbiValue = IrNativePhysicalAbiValue;
+export type ScriptCNativePointerType = IrNativePointerType;
+export type ScriptCNativeResultAbiType = IrNativeResultAbiType;
+export type ScriptCNativeResultProjection = IrNativeResultProjection;
+export type ScriptCNativeScalar = IrNativeScalar;
+export type ScriptCNativeSourceType = NativeSourceType;
+export type ScriptCNativeStructDefinition = NativeStructDefinition;
+export type ScriptCNativeTypeDefinition = NativeTypeDefinition;
+export type ScriptCNativeValueType = IrNativeValueType;
 export type ScriptCNativeIrType =
   | ScriptCNativeValueType
   | { readonly kind: "void" };
-
-export type ScriptCNativeResultAbiType =
-  | ScriptCNativeValueType
-  | ScriptCNativePointerType
-  | { readonly kind: "void" };
-
-export type ScriptCNativePhysicalAbiType =
-  | { readonly kind: "void" }
-  | { readonly kind: "integer"; readonly bits: number }
-  | {
-      readonly kind: "float";
-      readonly format: "half" | "bfloat" | "float" | "double" | "fp128" | "x86_fp80";
-    }
-  | { readonly kind: "pointer"; readonly addressSpace: number }
-  | { readonly kind: "array"; readonly count: number; readonly element: ScriptCNativePhysicalAbiType }
-  | {
-      readonly kind: "vector";
-      readonly count: number;
-      readonly scalable: boolean;
-      readonly element: ScriptCNativePhysicalAbiType;
-    }
-  | { readonly kind: "struct"; readonly packed: boolean; readonly fields: readonly ScriptCNativePhysicalAbiType[] }
-  | { readonly kind: "aggregate" };
-
-export interface ScriptCNativePhysicalAbiValue {
-  readonly type: ScriptCNativePhysicalAbiType;
-  readonly alignment: number | null;
-  readonly stackAlignment: number | null;
-  readonly extension: "sign" | "zero" | null;
-  readonly inRegister: boolean;
-  readonly byValue: boolean;
-  readonly structureReturn: boolean;
-}
 
 function freezePhysicalAbiType(type: NativePhysicalAbiType): ScriptCNativePhysicalAbiType {
   switch (type.kind) {
@@ -320,213 +118,11 @@ function freezePhysicalAbiValue(value: NativePhysicalAbiValue): ScriptCNativePhy
   return Object.freeze({ ...value, type: freezePhysicalAbiType(value.type) });
 }
 
-/** Mirrors the compiler's three-axis failure contract: how a failure is
- * recognised, where its message comes from, and what must be released. SCABI
- * still names conventions; this is where a convention becomes axes. */
-export type ScriptCNativeFailureDetection =
-  | { readonly kind: "never" }
-  | { readonly kind: "resultIsNull" }
-  | { readonly kind: "resultIsNotNull" }
-  /** An out parameter is the error object, so the result is the call's own. */
-  | { readonly kind: "outParameterIsNotNull"; readonly parameter: number }
-  | { readonly kind: "resultEquals"; readonly value: string };
-
-export type ScriptCNativeFailureMessage =
-  | { readonly kind: "none" }
-  | { readonly kind: "errno" }
-  | { readonly kind: "symbol"; readonly symbol: string };
-
-export type ScriptCNativeFailureRelease =
-  | { readonly kind: "none" }
-  | { readonly kind: "symbol"; readonly symbol: string };
-
-export interface ScriptCNativeErrorContract {
-  readonly detect: ScriptCNativeFailureDetection;
-  readonly message: ScriptCNativeFailureMessage;
-  readonly release: ScriptCNativeFailureRelease;
-}
-
 const NO_NATIVE_FAILURE = Object.freeze({
   detect: Object.freeze({ kind: "never" } as const),
   message: Object.freeze({ kind: "none" } as const),
   release: Object.freeze({ kind: "none" } as const),
 } as const);
-
-export interface ScriptCNativeSourceType {
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly type: ScriptCNativeValueType;
-}
-
-/** A declaration-backed compile-time value. The frontend substitutes its
- * exact canonical spelling directly into Native IR; it is not a linkable
- * symbol and does not cause its declaration module to execute. */
-export interface ScriptCNativeConstant {
-  readonly id: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly type: {
-    readonly kind: "nativeScalar";
-    readonly scalar: ScriptCNativeScalar;
-  };
-  readonly value: string;
-}
-
-export interface ScriptCNativeStructDefinition {
-  readonly kind: "struct";
-  readonly id: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly size: number;
-  readonly alignment: number;
-  readonly packing: "default";
-  readonly triviallyCopyable: true;
-  readonly destruction: "trivial";
-  readonly abi: {
-    readonly result: ScriptCNativePhysicalAbiValue;
-    readonly parameters: readonly ScriptCNativePhysicalAbiValue[];
-  };
-  readonly fields: readonly {
-    readonly name: string;
-    readonly type:
-      | { readonly kind: "nativeScalar"; readonly scalar: ScriptCNativeScalar }
-      | { readonly kind: "nativeStruct"; readonly typeId: string };
-    readonly offset: number;
-    /** The field keeps its exact storage; the marker says a read of it widens
-     * to a plain number and a construction of it takes one. */
-    readonly projection?: "number";
-  }[];
-}
-
-export interface ScriptCNativeHandleDefinition {
-  readonly kind: "handle";
-  readonly id: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly nativeName: string;
-  /** Safety of the foreign resource. The managed handle cell remains owned
-   * by the ScriptC runtime thread even when native code shares the resource. */
-  readonly threadSafety: "confined" | "shared";
-  readonly identity: "none" | "pointer" | "binding" | "platform";
-  readonly cycleCollection: "none" | "traceable";
-  readonly upcasts: readonly {
-    readonly kind: "identity";
-    readonly target: string;
-  }[];
-}
-
-export type ScriptCNativeTypeDefinition =
-  | ScriptCNativeStructDefinition
-  | ScriptCNativeHandleDefinition;
-
-export interface ScriptCNativeBinding {
-  readonly id: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
-  readonly sourceCall:
-    | { readonly kind: "function" }
-    | { readonly kind: "constructor" }
-    | { readonly kind: "method"; readonly receiverArgument: number }
-    | { readonly kind: "getter"; readonly receiverArgument: number }
-    | {
-        readonly kind: "setter";
-        readonly receiverArgument: number;
-        readonly valueArgument: number;
-      };
-  /** Failure detection is explicit Native IR data. Backends must snapshot
-   * errno immediately after observing the exact failure sentinel. */
-  readonly error: ScriptCNativeErrorContract;
-  readonly arguments: readonly {
-    readonly name: string;
-    readonly type: ScriptCNativeArgumentType;
-    readonly callback?: ScriptCNativeCallbackContract;
-  }[];
-  readonly parameters: readonly {
-    readonly name: string;
-    readonly type: ScriptCNativeAbiType;
-    readonly passMode: "value" | "pointer";
-    readonly ownership:
-      | { readonly kind: "value" }
-      | { readonly kind: "borrowed"; readonly scope: "call" }
-      | { readonly kind: "owned"; readonly transfer: "to-native" }
-      | { readonly kind: "callback" };
-    readonly projection: ScriptCNativeParameterProjection;
-  }[];
-  readonly result: {
-    readonly type: ScriptCNativeResultAbiType;
-    readonly passMode: "value" | "pointer";
-    readonly ownership:
-      | { readonly kind: "value" }
-      | {
-          readonly kind: "borrowed";
-          readonly scope: "receiver";
-          readonly anchor: string;
-        }
-      | {
-          readonly kind: "owned";
-          readonly transfer: "to-runtime";
-          readonly destructor: string;
-        };
-    readonly projection: ScriptCNativeResultProjection;
-  };
-}
-
-export interface ScriptCNativeExport {
-  readonly id: string;
-  readonly sourceExport: string;
-  readonly declaration: ScriptCNativeDeclaration;
-  readonly entry: { readonly kind: "c-symbol"; readonly symbol: string };
-  readonly error: {
-    readonly detect: { readonly kind: "never" };
-    readonly message: { readonly kind: "none" };
-    readonly release: { readonly kind: "none" };
-  };
-  readonly parameters: readonly {
-    readonly name: string;
-    readonly type: ScriptCNativeValueType;
-    readonly passMode: "value";
-    readonly ownership: { readonly kind: "value" };
-  }[];
-  readonly result: {
-    readonly type: ScriptCNativeIrType;
-    readonly passMode: "value";
-    readonly ownership: { readonly kind: "value" };
-  };
-}
-
-/** A source-level operation on an exact scalar. None is a native symbol: the
- * frontend resolves the declaration identity and lowers a reached call
- * straight to Native IR.
- *
- * A conversion is an operation because no syntax names a direction, and a
- * named one because JavaScript's own conversions mean something else at an
- * exact width. Arithmetic is not here at all: it is an operator expression
- * inside the construction that names its exact type. */
-export type ScriptCNativeOperation =
-  | {
-      readonly id: string;
-      readonly declaration: ScriptCNativeDeclaration;
-      readonly kind: "integer-reduce";
-      readonly operator: "&" | "|" | "^";
-      readonly type: {
-        readonly kind: "nativeScalar";
-        readonly scalar: ScriptCNativeIntegerScalar;
-      };
-    }
-  | {
-      readonly id: string;
-      readonly declaration: ScriptCNativeDeclaration;
-      readonly kind: "to-number";
-      readonly type: {
-        readonly kind: "nativeScalar";
-        readonly scalar: ScriptCNativeScalar;
-      };
-    }
-  | {
-      readonly id: string;
-      readonly declaration: ScriptCNativeDeclaration;
-      readonly kind: "from-number";
-      readonly type: {
-        readonly kind: "nativeScalar";
-        readonly scalar: ScriptCNativeScalar;
-      };
-    };
 
 /** The application-level roots for one compiler invocation. Imports are
  * reached native declarations called by TypeScript. Exports pair one SCABI
@@ -537,23 +133,6 @@ export interface ScriptCNativeProgramSelection {
     readonly bindingId: string;
     readonly sourceExport: string;
   }[];
-}
-
-/** Generic input consumed by the ScriptC frontend. It contains no SCABI
- * concepts: source identities prove checker types, target ABI facts resolve
- * generic target-sized types, and the binding table is the exact Native IR
- * contract emitted after reachability. */
-export interface ScriptCNativeFrontendInput {
-  readonly target: {
-    readonly pointerBits: 32 | 64;
-    readonly abi: string;
-  };
-  readonly sourceTypes: readonly ScriptCNativeSourceType[];
-  readonly constants: readonly ScriptCNativeConstant[];
-  readonly operations: readonly ScriptCNativeOperation[];
-  readonly types: readonly ScriptCNativeTypeDefinition[];
-  readonly bindings: readonly ScriptCNativeBinding[];
-  readonly exports: readonly ScriptCNativeExport[];
 }
 
 export interface ScriptCNativeTranslationDiagnostic {
