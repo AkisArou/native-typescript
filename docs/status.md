@@ -679,27 +679,6 @@ nothing still links. A capability with no mapping is an error: linking without
 it would fail on undefined symbols, which says nothing about the requirement
 that was never declared.
 
-## Known defects
-
-Unlike the boundaries below, these are not deliberate.
-
-- **A `Uint8Array` leaks once per run in library mode's host-callback
-  fixture.** `pnpm --dir third_party/scriptc exec vitest run
-  tests/harness/library-callbacks.test.ts` fails its CB8 case on both
-  emissions, and has since before the retained-callback work — verified at
-  fork `cf244122`. LeakSanitizer reports 40 bytes plus a 3-byte indirect
-  allocation, which is exactly one `Uint8Array(3)`, from `scr_bytes_new`
-  inside the fixture's `stream` export. Reproduce with the probe the suite
-  leaves behind: `node_modules/.cache/scriptc-tests/library-callbacks/plain/
-  callbacks-c-san/probe run`.
-
-  The obvious explanation is wrong, so start elsewhere: the generated C does
-  release both the borrowed channel argument (`scr_bytes_release(sc_t27)`
-  after the `emitChunk` call) and the loop's own local, and exactly ONE object
-  leaks however many iterations run — so it is not a missing release on the
-  channel path. Getting line numbers needs the library lane's own unit list
-  and defines; an ad-hoc rebuild of every runtime unit does not compile.
-
 ## Known boundaries
 
 These are deliberate, not oversights. Each is a named future slice.
