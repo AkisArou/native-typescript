@@ -318,7 +318,12 @@ handle, so adding a form and forgetting a backend fails to compile. Before it,
 five measured defects were exactly that mistake with nothing but review to
 catch it.
 
-Outstanding: argument legalization, the call sequence itself, and then the
+Arguments followed the same way, and found a divergence that had never fired:
+one backend tested ownership before the nullable arm and the other after, which
+the validator happens to make unreachable. Shared code ends it rather than
+leaving it for the first binding that made it reachable.
+
+Outstanding: the call sequence itself, the failure check, and then the
 structured cleanup regions the dimensions need.
 
 ### The manifest format

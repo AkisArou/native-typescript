@@ -139,6 +139,16 @@ density, each landing green. All three landed, each observationally inert.
    TypeScript refuse a new arm that one backend forgot. That is the five
    defects above turned from a review obligation into a compile error.
 
+5. **Argument legalization**, in `7c9f0b8f`. The same eleven-case switch on
+   both sides, in different orders, with `number` and `boolean` swapped
+   exactly as the result ladder had them. It also surfaced a real divergence:
+   C tested `owned` before the nullable arm and LLVM tested it after, so a
+   parameter that was both would have surrendered on one backend and passed
+   NULL on the other. It cannot be both — the validator refuses ownership of
+   anything that is not a required handle argument — so the disagreement was
+   unreachable, and the shared form ends it rather than leaving it to be
+   discovered by the first binding that made it reachable.
+
 **Rejected.**
 
 - *Generate one backend from the other.* The two emit genuinely different
@@ -156,7 +166,13 @@ density, each landing green. All three landed, each observationally inert.
 ## Implementation repository and owner
 
 scriptc fork; owner: project maintainer. Slices landed in `04240e17`,
-`502915fc`, `f68a8b30`, and `35160a21`.
+`502915fc`, `f68a8b30`, `35160a21`, and `7c9f0b8f`.
+
+Measured across the two legalization slices, one `nativeCall` lowering went
+from 704 lines and 24 `emitter bug` contract checks to 640 and 7 in the C
+backend, and from 1142 and 28 to 1077 and 11 in the LLVM one. Seventeen of the
+twenty-two duplicated checks are gone; what remains is the call sequence and
+the failure check.
 
 Afterwards, the ten remaining `kept in lockstep with the C backend` comments
 in the LLVM emitter are all outside native-call lowering — they mark the next
