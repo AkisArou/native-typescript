@@ -83,6 +83,14 @@ export interface ScriptCNativeCallbackType {
   readonly signature: ScriptCNativeCallbackSignature;
 }
 
+/** The slot a failable call writes its error object into. Compiler-supplied
+ * and opaque like the closure context below, and for the same reason: the
+ * object is read through the contract's symbols, never as a source value. */
+export interface ScriptCNativeErrorOutType {
+  readonly kind: "nativeErrorOut";
+  readonly addressSpace: 0;
+}
+
 export interface ScriptCNativeContextType {
   readonly kind: "nativeContext";
   readonly addressSpace: 0;
@@ -193,7 +201,8 @@ export type ScriptCNativeAbiType =
   | ScriptCNativeValueType
   | ScriptCNativePointerType
   | ScriptCNativeCallbackType
-  | ScriptCNativeContextType;
+  | ScriptCNativeContextType
+  | ScriptCNativeErrorOutType;
 export type ScriptCNativeArgumentType =
   | ScriptCNativeValueType
   | { readonly kind: "bool" }
@@ -230,7 +239,10 @@ export type ScriptCNativeParameterProjection =
   | { readonly kind: "bytesData"; readonly argument: number }
   | { readonly kind: "bytesByteLength"; readonly argument: number }
   | { readonly kind: "callbackFunction"; readonly argument: number }
-  | { readonly kind: "callbackContext"; readonly argument: number };
+  | { readonly kind: "callbackContext"; readonly argument: number }
+  /** The compiler's own error slot. It projects no source argument: nothing in
+   * the program supplies it, and nothing reads it but the error contract. */
+  | { readonly kind: "errorOut" };
 
 export type ScriptCNativeResultProjection =
   | { readonly kind: "direct" }
@@ -314,6 +326,8 @@ export type ScriptCNativeFailureDetection =
   | { readonly kind: "never" }
   | { readonly kind: "resultIsNull" }
   | { readonly kind: "resultIsNotNull" }
+  /** An out parameter is the error object, so the result is the call's own. */
+  | { readonly kind: "outParameterIsNotNull"; readonly parameter: number }
   | { readonly kind: "resultEquals"; readonly value: string };
 
 export type ScriptCNativeFailureMessage =
@@ -2343,7 +2357,7 @@ export function translateScabiNativeProgram(
     ) {
       destructorIds.add(ownership.destructor);
     }
-    if (binding.error.kind === "error-handle") {
+    if (binding.error.kind === "error-handle" || binding.error.kind === "error-out") {
       errorEntryIds.add(binding.error.message);
       errorEntryIds.add(binding.error.release);
     }
@@ -3010,6 +3024,20 @@ export function translateScabiNativeProgram(
       }
     }
 
+    /* The error slot is the compiler's, so the manifest does not declare it as
+     * a parameter — it declares that failure arrives in one. It is appended
+     * last because that is where a `GError **` sits, and the contract above
+     * names it by that position. */
+    if (binding.error.kind === "error-out") {
+      parameters.push(Object.freeze({
+        name: "error",
+        type: Object.freeze({ kind: "nativeErrorOut", addressSpace: 0 } as const),
+        passMode: "pointer",
+        ownership: Object.freeze({ kind: "value" } as const),
+        projection: Object.freeze({ kind: "errorOut" } as const),
+      }));
+    }
+
     const resultPath = `${path}/signature/result`;
     let resultType: ScriptCNativeBinding["result"]["type"] | null = null;
     let resultOwnership: ScriptCNativeBinding["result"]["ownership"] | null = null;
@@ -3321,6 +3349,28 @@ export function translateScabiNativeProgram(
                 message: Object.freeze({ kind: "none" } as const),
                 release: Object.freeze({ kind: "none" } as const),
               } as const)
+            : binding.error.kind === "error-out"
+              ? Object.freeze({
+                  /* A SLOT holds the error object, so the result stays the
+                   * call's own. The slot is the last physical parameter, which
+                   * is where the parameter list below appends it. */
+                  detect: Object.freeze({
+                    kind: "outParameterIsNotNull",
+                    parameter: parameters.length - 1,
+                  } as const),
+                  message: Object.freeze({
+                    kind: "symbol",
+                    symbol: (
+                      manifest.bindings[binding.error.message] as CallableBinding
+                    ).entry.symbol,
+                  } as const),
+                  release: Object.freeze({
+                    kind: "symbol",
+                    symbol: (
+                      manifest.bindings[binding.error.release] as CallableBinding
+                    ).entry.symbol,
+                  } as const),
+                } as const)
             : binding.error.kind === "error-handle"
               ? Object.freeze({
                   /* The result IS the error object: non-null is failure.

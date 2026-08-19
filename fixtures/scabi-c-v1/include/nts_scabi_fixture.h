@@ -111,6 +111,9 @@ NTS_SCABI_EXPORT int32_t nts_fail_errno(int32_t error_number);
 typedef struct NtsFixtureError NtsFixtureError;
 
 NTS_SCABI_EXPORT NtsFixtureError *nts_error_handle_fail(int32_t code);
+/* Reports failure through a trailing slot, so the quotient survives. */
+NTS_SCABI_EXPORT int32_t nts_error_out_divide(int32_t numerator, int32_t divisor,
+                                              NtsFixtureError **error);
 NTS_SCABI_EXPORT const char *nts_fixture_error_message(NtsFixtureError *error);
 NTS_SCABI_EXPORT void nts_fixture_error_free(NtsFixtureError *error);
 NTS_SCABI_EXPORT int32_t nts_fixture_errors_outstanding(void);

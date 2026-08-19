@@ -60,6 +60,7 @@ const translated = translateScabiNativeProgram(manifest, {
     "subscription_emit_foreign",
     "fail_errno",
     "error_handle_fail",
+    "error_out_divide",
     "fixture_errors_outstanding",
     "counter_create",
     "counter_add",

@@ -390,6 +390,16 @@ export type ErrorContract =
       readonly kind: "error-handle";
       readonly message: NativeBindingId;
       readonly release: NativeBindingId;
+    }
+  /** The operation writes an owned error object into a trailing slot and keeps
+   * its own result — which is what a `GError **` parameter is, and what lets a
+   * failable operation hand something back. Read and released exactly as
+   * `error-handle` is; the difference is only where the object arrives, and
+   * therefore whether the result is free to mean something. */
+  | {
+      readonly kind: "error-out";
+      readonly message: NativeBindingId;
+      readonly release: NativeBindingId;
     };
 
 export interface BindingDependencies {

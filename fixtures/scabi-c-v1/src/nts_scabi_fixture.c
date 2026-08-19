@@ -313,6 +313,18 @@ NtsFixtureError *nts_error_handle_fail(int32_t code) {
   return error;
 }
 
+/* Failure in a trailing slot, so the result is free to carry the quotient.
+ * On failure it returns a value that would be WRONG to use, so a boundary that
+ * forgets to unwind reads it and says so. */
+int32_t nts_error_out_divide(int32_t numerator, int32_t divisor,
+                             NtsFixtureError **error) {
+  if (divisor == 0) {
+    *error = nts_error_handle_fail(numerator);
+    return -12345;
+  }
+  return numerator / divisor;
+}
+
 const char *nts_fixture_error_message(NtsFixtureError *error) {
   return error->message;
 }
