@@ -305,6 +305,22 @@ The translation retains the selected C-export adapter's provenance.
 
 Broader export types and artifact-graph materialization remain pending.
 
+### The foreign boundary
+
+The legalizer [the foreign boundary](foreign-boundary.md) requires is being
+built in slices, each observationally inert. Landed: the callback decisions
+(payloads, trampoline shape, call lifecycle) and the result form — what a
+call's result becomes, resolved and validated once rather than by a ladder each
+backend maintains.
+
+Each backend ends that ladder with a line that names the only arm it did not
+handle, so adding a form and forgetting a backend fails to compile. Before it,
+five measured defects were exactly that mistake with nothing but review to
+catch it.
+
+Outstanding: argument legalization, the call sequence itself, and then the
+structured cleanup regions the dimensions need.
+
 ### The manifest format
 
 SCABI is at schema version 4. That version deleted `entry.kind`, which said

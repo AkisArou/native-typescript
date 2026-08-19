@@ -1,6 +1,6 @@
 # 0004 — One decision, two backends
 
-Status: accepted finding, all three slices implemented
+Status: accepted finding, extended — see the legalizer slices below
 Last revised: 2026-08-19
 
 This is an investigation record under the policy in
@@ -128,6 +128,17 @@ density, each landing green. All three landed, each observationally inert.
    flushes one last time; a lent slot is armed after every conversion, because
    a conversion that throws must not leave one armed.
 
+4. **Result legalization**, in `35160a21`. `nativeResultForm` resolves and
+   validates what a call's result becomes, once. The same measurement one
+   level in: 24 `emitter bug` contract checks in the C lowering and 28 in the
+   LLVM one, about twenty-two the same check, three already drifted in
+   wording, and a seven-arm ladder running in different orders on the two
+   sides. Resolving a contract is not emission — which union arm carries the
+   handle, which symbol releases it — so it moved, and each backend now ends
+   its ladder with `const remaining: "direct" = resultForm.kind`, which makes
+   TypeScript refuse a new arm that one backend forgot. That is the five
+   defects above turned from a review obligation into a compile error.
+
 **Rejected.**
 
 - *Generate one backend from the other.* The two emit genuinely different
@@ -145,7 +156,7 @@ density, each landing green. All three landed, each observationally inert.
 ## Implementation repository and owner
 
 scriptc fork; owner: project maintainer. Slices landed in `04240e17`,
-`502915fc`, and `f68a8b30`.
+`502915fc`, `f68a8b30`, and `35160a21`.
 
 Afterwards, the ten remaining `kept in lockstep with the C backend` comments
 in the LLVM emitter are all outside native-call lowering — they mark the next
