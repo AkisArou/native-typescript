@@ -59,12 +59,12 @@ import type {
   IrNativeErrorOutType,
   IrNativeFailureDetection,
   IrNativeFailureMessage,
-  IrNativeFailureRelease,
   IrNativeIntegerScalar,
   IrNativeParameterProjection,
   IrNativePhysicalAbiType,
   IrNativePhysicalAbiValue,
   IrNativePointerType,
+  IrNativeRelease,
   IrNativeResultAbiType,
   IrNativeResultProjection,
   IrNativeScalar,
@@ -95,7 +95,7 @@ export type ScriptCNativeErrorOutType = IrNativeErrorOutType;
 export type ScriptCNativeExport = NativeFrontendExport;
 export type ScriptCNativeFailureDetection = IrNativeFailureDetection;
 export type ScriptCNativeFailureMessage = IrNativeFailureMessage;
-export type ScriptCNativeFailureRelease = IrNativeFailureRelease;
+export type ScriptCNativeRelease = IrNativeRelease;
 export type ScriptCNativeFrontendInput = NativeFrontendInput;
 export type ScriptCNativeHandleDefinition = NativeHandleDefinition;
 export type ScriptCNativeIntegerScalar = IrNativeIntegerScalar;
