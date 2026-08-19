@@ -203,6 +203,110 @@ export interface GObjectAdapterSource {
   readonly retainedResultMethods: readonly GObjectRetainedResultMethodAdapter[];
 }
 
+/**
+ * What one family of generated C is allowed to be.
+ *
+ * The rule is [architecture](../../../docs/architecture.md)'s: generated C may
+ * turn a foreign convention into something the neutral algebra expresses, and
+ * may not decide anything the compiler would otherwise decide — when a value
+ * dies, whether it escapes, what a failure means. It is a performance rule
+ * first: code that decides a lifetime from inside one call cannot see the rest
+ * of the program, so it must be conservative every time, where the compiler
+ * can be exact.
+ *
+ * There is deliberately no `decision` arm. A family that would need one is a
+ * family that should not exist, and the point of writing the classification
+ * down is that saying so out loud is when that gets noticed. The adapter that
+ * absorbed a `GError` and returned it as the result would have needed one.
+ */
+export type GObjectAdapterClassification =
+  | {
+      readonly kind: "translation";
+      /** The foreign convention, in the SDK's own terms. */
+      readonly custom: string;
+    }
+  | {
+      readonly kind: "gap";
+      /** The primitive whose absence forces the workaround. */
+      readonly missing: string;
+      /** What it costs, so the trade is recorded rather than discovered. */
+      readonly cost: string;
+    };
+
+/** The members that are not adapters: identity and provenance of the source
+ * itself. Excluded so the classification below is keyed by exactly the
+ * families of generated C. */
+type GObjectAdapterMetadata = "schema" | "schemaVersion" | "source" | "sourceDigest";
+
+/**
+ * Every family of generated C, classified.
+ *
+ * Keyed by `GObjectAdapterSource`'s own fields, which is what makes this a
+ * guardrail rather than a comment: adding a family without classifying it does
+ * not compile, and a new `gap` appears in a diff where a reviewer sees it.
+ */
+export const GOBJECT_ADAPTER_FAMILIES: Readonly<
+  Record<
+    Exclude<keyof GObjectAdapterSource, GObjectAdapterMetadata>,
+    GObjectAdapterClassification
+  >
+> = Object.freeze({
+  constructors: {
+    kind: "translation",
+    custom:
+      "a constructor hands back a FLOATING reference — an object nobody owns " +
+      "until the first taker sinks it, which no compiler knows about",
+  },
+  classReleases: {
+    kind: "translation",
+    custom: "GObject spells releasing one reference `g_object_unref`",
+  },
+  retainedResultMethods: {
+    kind: "translation",
+    custom:
+      'a `transfer-ownership="none"` result is readable and unowned, so the ' +
+      "reference that makes it an owned handle is taken here",
+  },
+  signalConnection: {
+    kind: "translation",
+    custom:
+      "connecting answers with a handler id that means nothing without the " +
+      "instance it was registered on; a handle is one pointer, so the two " +
+      "become one object",
+  },
+  signals: {
+    kind: "translation",
+    custom: "a GSignal handler is a bare C function with the instance first",
+  },
+  notifications: {
+    kind: "translation",
+    custom:
+      "a property change is reported as `notify::name`, a detailed signal " +
+      "whose payload names the property rather than carrying the value",
+  },
+  valueMethods: {
+    kind: "translation",
+    custom:
+      "a C call reports several results by filling storage the caller " +
+      "reserved; the algebra has one result, so the outputs become its fields",
+  },
+  errorSupport: {
+    kind: "translation",
+    custom:
+      "a GError's message and its free are ordinary C functions the compiler " +
+      "calls through the error contract, never as source values",
+  },
+  boxedResultMethods: {
+    kind: "gap",
+    missing:
+      "an IR value kind for caller-allocated fixed-size storage with no " +
+      "readable fields — SCABI can describe one, nothing lowers it",
+    cost:
+      "one heap allocation per value where the SDK makes none, though a loop " +
+      "that advances one iterator allocates once rather than per step",
+  },
+});
+
 export interface GObjectAdapterObjectPlan {
   readonly source: ArtifactDefinition;
   readonly object: ArtifactDefinition;

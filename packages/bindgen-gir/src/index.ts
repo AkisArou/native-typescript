@@ -28,11 +28,13 @@ export type {
   GirClangEvidenceArtifactPlan,
 } from "./gir-binding-package.ts";
 export {
+  GOBJECT_ADAPTER_FAMILIES,
   generateGObjectAdapterSource,
   planGObjectAdapterObject,
 } from "./gobject-adapter.ts";
 export type {
   GObjectAdapterObjectPlan,
+  GObjectAdapterClassification,
   GObjectAdapterSource,
   GObjectConstructorAdapter,
   GObjectSignalAdapter,

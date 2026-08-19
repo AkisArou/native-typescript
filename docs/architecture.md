@@ -80,6 +80,48 @@ Native declarations resolve to immutable, validated binding records before
 lowering. Arbitrary executable code is forbidden in binding manifests.
 Generated adapters are declared artifacts with provenance and cache keys.
 
+### A generated adapter translates a custom; it never decides a lifetime
+
+Generated C stands between a native SDK and the neutral algebra, and there is
+exactly one thing it may do: **turn a foreign convention into something the
+algebra already expresses.** It may not decide anything the compiler would
+otherwise decide — when a value dies, whether it escapes, or what a failure
+means.
+
+The rule is a performance rule before it is a hygiene one. Code that decides a
+lifetime from inside one call cannot see the rest of the program, so it must be
+conservative every time; the compiler can be exact because it can see. On JNI
+that difference is a global reference per call — a synchronized JVM structure
+and a collector root — where a compiler that sees the value never escape emits
+none. A decision surrendered to an adapter is a decision that must be made
+pessimistically forever.
+
+It is also how a wrong one hides. The adapter that absorbed a `GError` and
+returned it as the result decided *what failure means*; the generated C
+compiled, every test passed, and the cost was that a failable call had nowhere
+to put a real result — 228 methods across GTK 4 and Gio, unreachable, with the
+generator reporting the restriction as though it were a fact about the SDK.
+
+Three classifications, and every adapter family carries one:
+
+- **translation** — the convention is not expressible in the algebra as it
+  stands, and the adapter performs exactly the change that makes it so.
+  Sinking a floating reference, taking one for a `transfer-none` result,
+  combining a signal's instance and handler id into a single handle.
+- **gap** — the algebra *could* express it if a primitive existed, and the
+  adapter works around the absence at a stated cost. A caller-allocated opaque
+  value has no IR value kind, so a boxed record is copied to the heap: one
+  allocation per value, recorded rather than discovered.
+- **decision** — forbidden. Nothing may be classified this way; the
+  classification exists so that writing one down is the moment it is caught.
+
+[The foreign boundary](foreign-boundary.md) states the same rule for the ABI
+capsules a platform binding family will generate, and requires that it be
+validated rather than documented. `GOBJECT_ADAPTER_FAMILIES` is that
+validation for the adapters that exist today: the classification is keyed by
+the adapter source's own families, so adding one that is not classified does
+not compile.
+
 ### Runtime heaps are owner-confined
 
 Each ScriptC runtime instance has exactly one owner executor. Only work running

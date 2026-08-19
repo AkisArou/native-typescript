@@ -682,6 +682,15 @@ Adapter inputs identify a generator template/family, reachable binding IDs,
 language, compile flags derived from the SDK, and expected outputs. Generated
 sources participate in ordinary dependency scanning and caching.
 
+What generated sources may DO is bounded, and the bound is normative:
+[architecture](architecture.md) requires each family to be either a
+translation of a foreign convention into the neutral algebra, or a recorded
+gap where the algebra lacks a primitive. A generator may not decide what the
+compiler would otherwise decide — when a value dies, whether it escapes, or
+what a failure means — because code deciding that from inside one call cannot
+see the rest of the program and must be conservative every time. A binding
+family states its classification where the compiler can check it is complete.
+
 ## Reachability
 
 A complete SCABI package may describe a large SDK, but emitted adapters and
