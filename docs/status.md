@@ -218,24 +218,27 @@ emptiness: a NULL vector projects to null where the binding says nullable and
 throws where it does not, while an empty vector is a real vector whose
 terminator sits at slot zero.
 
-The whole family reaches GTK. **26 live Gtk-4.0 members translate that
-produced a diagnostic before** — 14 taking a vector and 12 returning one.
+A vector may also be omitted, and an absent vector is not an empty one: a C
+API uses NULL for "no list at all" and a terminator at slot zero for "a list
+of nothing", which `gtk_icon_theme_set_resource_path` means differently. That
+is a separate source arm rather than a flag, because a flag invites the two to
+collapse and the point is that they must not. The physical side is unchanged —
+one slot either way, since the terminator is still the length.
 
-Two limitations, both measured and both refused precisely:
+The whole family reaches GTK: **21 argument positions and 12 results project**
+that produced a diagnostic before.
 
-- **7 argument positions are nullable**, and a nullable vector input has no
-  arm. That is the only reason any argument is refused, seven of seven, so it
-  is one slice rather than a scattering.
+What remains refused, measured rather than assumed:
+
+- **2 argument positions are COUNTED vectors**, carrying a length beside them
+  instead of a terminator. That contract is deliberately absent so a generator
+  meeting one diagnoses rather than guessing where the vector ends. Two
+  members do not justify an arm; on the JVM every array is counted, which is
+  why the arm waits for the platform that needs it.
 - **A property whose accessors disagree about the vector is refused.** That is
   `css-classes`: the getter hands over a vector the caller frees and the
   setter borrows one it does not, which is normal for a vector property and is
   not one type. Either accessor alone is reachable, so no member is lost.
-
-A COUNTED vector — length in a separate position rather than a terminator — is
-absent rather than defaulted, so a generator meeting one produces a diagnostic
-instead of a vector that ends in the wrong place. Two Gtk-4.0 members are in
-that shape. On the JVM every array is, which is why that arm waits for the
-platform that needs it.
 
 ### Callbacks
 
