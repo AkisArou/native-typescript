@@ -75,7 +75,7 @@ function target(
         requiresCompiler: [capabilities.scabiV1],
       }),
     ],
-    nativeLowering: provider("native-lowering", "c-native-lowering", {
+    foreignBoundary: provider("foreign-boundary", "c-foreign-boundary", {
       requiresCompiler: [capabilities.nativeIrV1],
     }),
     runtime: provider("runtime", "host-runtime", {
@@ -129,7 +129,7 @@ test("target planning produces an immutable capability snapshot", () => {
     [
       "module-resolver",
       "binding",
-      "native-lowering",
+      "foreign-boundary",
       "runtime",
       "artifact",
       "packager",

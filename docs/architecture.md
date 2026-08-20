@@ -409,11 +409,17 @@ A target is a composition of providers, not one mutable plugin object:
 ```text
 TargetDescriptor
 BindingProvider[]
-NativeLoweringProvider
+ForeignBoundaryProvider
 RuntimeProvider
 ArtifactProvider[]
 Packager
 ```
+
+Every one of these is data. The boundary provider names the ABI family a
+target's foreign boundary uses; it does not lower, emit, or decide. A provider
+that received Native IR and returned backend contributions would be a
+per-platform mini-backend, which is the drift
+[0004](records/0004-one-decision-two-backends.md) already measured.
 
 Providers declare capabilities and version requirements. The planner resolves
 them once, rejects conflicts, and freezes a target plan. Details are defined in

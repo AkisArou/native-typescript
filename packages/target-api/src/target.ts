@@ -4,7 +4,7 @@ import type {
   ArtifactProvider,
   BindingProvider,
   ModuleResolver,
-  NativeLoweringProvider,
+  ForeignBoundaryProvider,
   Packager,
   RuntimeProvider,
 } from "./provider.ts";
@@ -34,7 +34,7 @@ export interface TargetDefinition {
   readonly descriptor: TargetDescriptor;
   readonly moduleResolvers: readonly ModuleResolver[];
   readonly bindingProviders: readonly BindingProvider[];
-  readonly nativeLowering: NativeLoweringProvider;
+  readonly foreignBoundary: ForeignBoundaryProvider;
   readonly runtime: RuntimeProvider;
   readonly artifactProviders: readonly ArtifactProvider[];
   readonly packager: Packager;
@@ -69,7 +69,7 @@ export function defineTarget<const Target extends TargetDefinition>(
     bindingProviders: Object.freeze(
       target.bindingProviders.map((provider) => defineProvider(provider)),
     ),
-    nativeLowering: defineProvider(target.nativeLowering),
+    foreignBoundary: defineProvider(target.foreignBoundary),
     runtime: defineProvider(target.runtime),
     artifactProviders: Object.freeze(
       target.artifactProviders.map((provider) => defineProvider(provider)),

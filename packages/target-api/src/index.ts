@@ -10,7 +10,7 @@ export type {
   ArtifactProvider,
   BindingProvider,
   ModuleResolver,
-  NativeLoweringProvider,
+  ForeignBoundaryProvider,
   Packager,
   ProviderDefinition,
   ProviderDescriptor,

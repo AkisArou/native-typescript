@@ -101,9 +101,9 @@ function providerEntries(target: TargetDefinition): readonly ProviderAtPath[] {
       expectedKind: "binding" as const,
     })),
     {
-      path: "target.nativeLowering",
-      provider: target.nativeLowering,
-      expectedKind: "native-lowering" as const,
+      path: "target.foreignBoundary",
+      provider: target.foreignBoundary,
+      expectedKind: "foreign-boundary" as const,
     },
     {
       path: "target.runtime",

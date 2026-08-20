@@ -31,7 +31,7 @@ interface TargetDefinition {
   readonly descriptor: TargetDescriptor;
   readonly moduleResolvers: readonly ModuleResolver[];
   readonly bindingProviders: readonly BindingProvider[];
-  readonly nativeLowering: NativeLoweringProvider;
+  readonly foreignBoundary: ForeignBoundaryProvider;
   readonly runtime: RuntimeProvider;
   readonly artifactProviders: readonly ArtifactProvider[];
   readonly packager: Packager;
@@ -40,6 +40,17 @@ interface TargetDefinition {
 
 This shape documents ownership. The implemented API may use functions and
 opaque validated constructors rather than directly exposing these interfaces.
+
+Every provider is serializable data with no behavior, and the boundary
+provider is named for what it DECLARES rather than for a step it performs. It
+names the ABI family this target's foreign boundary uses and what that
+boundary requires of the runtime; it does not lower anything. An earlier name,
+`NativeLoweringProvider`, invited the opposite reading — a provider handed
+Native IR that returns C or LLVM contributions. That is a per-platform
+mini-backend, and [0004](records/0004-one-decision-two-backends.md) already
+measured five real defects from one decision living in two emitters. Lowering
+belongs to the compiler, once, for both backends; exact ABI mechanics belong
+to generated artifacts whose interface, target, and digest are verified.
 
 ## Target descriptor
 
