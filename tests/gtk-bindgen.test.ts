@@ -809,7 +809,7 @@ test(
     assert.equal(register.parameters.length, 3);
     assert.match(
       probe.source,
-      /typedef gboolean \(\*[A-Za-z0-9_]+\)\(GApplication \*, GCancellable \*, GError \* \*\);/u,
+      /typedef gboolean \(\*[A-Za-z0-9_]+\)\(GApplication \*, GCancellable \*, GError \*\*\);/u,
     );
     // The non-throwing constructor beside it is unchanged, so the slot is
     // added where the metadata says one exists rather than everywhere.

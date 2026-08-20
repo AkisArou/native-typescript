@@ -19,6 +19,7 @@ import {
   parseClangAbiEvidence,
   parseClangRecordCallingConventions,
   planClangAbiProbe,
+  renderCType,
 } from "@native-typescript/bindgen-c";
 import type {
   CEnumCandidate,
@@ -264,6 +265,37 @@ test("the candidate type parser is narrow, structured, and non-authoritative", (
   });
   assert.throws(() => parseCTypeCandidate("unsigned int"), CBindgenError);
   assert.throws(() => parseCTypeCandidate("char (*)(int)"), CBindgenError);
+});
+
+test("a parsed C type renders back to the spelling it was parsed from", () => {
+  /* The renderer's output is compared against the one Clang prints, so its
+   * spelling is a contract rather than a formatting choice. A round trip is
+   * the sharpest way to hold it: the parser accepted `const char **` and the
+   * renderer answered `const char * *`, which is the same TYPE and a
+   * different STRING — so a consumer comparing textually saw a mismatch
+   * between two types that agree.
+   *
+   * Nothing caught it because no double pointer had reached a function
+   * position until a string vector did. A record field could carry one and a
+   * caller could compare it, and the failure would look like an ABI
+   * disagreement rather than a spacing one.
+   *
+   * The spellings below are Clang's own, read out of `-ast-dump=json` for a
+   * file declaring each, rather than from anyone's memory of C style. */
+  for (
+    const spelling of [
+      "char",
+      "const char",
+      "char *",
+      "const char *",
+      "char **",
+      "const char **",
+      "const char *const *",
+      "char ***",
+    ]
+  ) {
+    assert.equal(renderCType(parseCTypeCandidate(spelling)), spelling, spelling);
+  }
 });
 
 test("Clang verifies selected function, record, and enum ABI and emits structured evidence", async () => {

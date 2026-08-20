@@ -276,10 +276,18 @@ export function renderCType(type: CTypeCandidate): string {
   if (type.kind === "named") {
     return `${renderQualifiers(type.qualifiers)}${type.name}`;
   }
-  const pointerQualifiers = type.qualifiers.length === 0
-    ? ""
-    : ` ${type.qualifiers.join(" ")}`;
-  return `${renderCType(type.pointee)} *${pointerQualifiers}`.trimEnd();
+  /* `*const`, not `* const`: a qualifier on the pointer binds to the star in
+   * the spelling Clang prints. */
+  const pointerQualifiers = type.qualifiers.join(" ");
+  const pointee = renderCType(type.pointee);
+  /* `char **`, not `char * *`. The two are one type to a compiler, but this
+   * string is compared against the one Clang prints, and Clang binds a
+   * pointer-to-pointer's stars together. Rendering it the other way makes a
+   * textual comparison fail on types that agree — a trap that stayed hidden
+   * only because no double pointer had reached a function position, and one
+   * a consumer would have to know to normalize around. */
+  const separator = pointee.endsWith("*") ? "" : " ";
+  return `${pointee}${separator}*${pointerQualifiers}`;
 }
 
 export function renderCFunctionPointerType(
