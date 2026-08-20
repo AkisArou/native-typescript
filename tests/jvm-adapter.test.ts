@@ -213,26 +213,10 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "}",
       "",
     ].join("\n");
-    /* Declarations for what main uses; the generator does not emit a header
-     * yet, which is fine for a first slice - the manifest will carry the
-     * signatures for the compiler, and this test writes them from the same
-     * adapter table the manifest would be built from. */
-    const header = [
-      `jint ${adapter.bind.adapterSymbol}(JNIEnv *, char **);`,
-      `void ${adapter.classRelease.adapterSymbol}(void *);`,
-      `const char *${messageSymbol}(void *);`,
-      `void ${releaseSymbol}(void *);`,
-      `void *${constructorSymbol}(jint, char **);`,
-      `jint ${depthSymbol}(void *, char **);`,
-      `jint ${addSymbol}(jint, jint, char **);`,
-      `void ${resizeIISymbol}(void *, jint, jint, char **);`,
-      "",
-    ].join("\n");
     const adapterPath = join(workDir, "adapter.c");
-    /* The generated source defines the failure struct itself; the header is
-     * only for main.c, so the adapter translation unit does not include it. */
     writeFileSync(adapterPath, adapter.source);
-    writeFileSync(join(workDir, "adapter.h"), header);
+    /* The generator's own header declares everything main.c calls. */
+    writeFileSync(join(workDir, "adapter.h"), adapter.header);
     writeFileSync(join(workDir, "main.c"), main);
     const executable = join(workDir, "probe");
     execFileSync("clang", [

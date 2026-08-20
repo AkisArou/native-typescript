@@ -5,5 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@native-typescript/bindgen-c": "workspace:*",
+    "@native-typescript/scabi": "workspace:*"
   }
 }

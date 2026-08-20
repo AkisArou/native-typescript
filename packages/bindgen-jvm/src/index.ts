@@ -15,6 +15,12 @@ export type {
   JvmErrorSupportAdapter,
   JvmMethodAdapter,
 } from "./jvm-adapter.ts";
+export { generateJvmClangAbiProbe } from "./jvm-clang.ts";
+export { generateJvmScabiPackage } from "./jvm-scabi.ts";
+export type {
+  JvmScabiGenerationOptions,
+  JvmScabiPackage,
+} from "./jvm-scabi.ts";
 export { JvmGenerationError, JvmIngestionError } from "./jvm-model.ts";
 export type {
   JvmClass,
