@@ -75,9 +75,28 @@ interface ProviderAtPath {
   readonly expectedKind: ProviderKind;
 }
 
+/**
+ * What EVERY runtime provider must supply, whatever the target does.
+ *
+ * Owning an executor is the one universal: a runtime without an owner has
+ * nowhere to enter managed code, so there is no target it could serve.
+ *
+ * Foreign-thread ingress is deliberately NOT here. It was, and the effect was
+ * to make a validator no pipeline could run — the JVM runtime does not
+ * declare it, so the JVM build bypassed `planTarget` entirely rather than
+ * fail its own planner. A requirement every runtime must satisfy regardless
+ * of what the program reaches is not a requirement, it is a constant, and it
+ * forbids the targets that genuinely do not need it: a command-line runtime
+ * whose callbacks all arrive on the owner thread needs no gateway.
+ *
+ * Ingress is a property of what the selected BINDINGS can do. A binding
+ * provider whose callbacks can arrive on a thread the program does not own
+ * declares `requires.providers: [foreignCallbackIngressV1]`, and the existing
+ * provider-requirement check refuses a target whose runtime cannot supply it.
+ * That path already existed; nothing new was added to reach it.
+ */
 const runtimeCapabilities = Object.freeze([
   capabilities.runtimeOwnerExecutorV1,
-  capabilities.foreignCallbackIngressV1,
 ]);
 
 function diagnostic(

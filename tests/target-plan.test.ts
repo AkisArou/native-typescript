@@ -180,7 +180,10 @@ test("target planning rejects unresolved provider requirements", () => {
   assert.match(error.message, /No selected provider supplies partition-interface\/v1/);
 });
 
-test("every runtime provider declares owner execution and callback ingress", () => {
+test("every runtime provider declares owner execution, and only that", () => {
+  /* Owning an executor is the one thing every runtime must supply: without
+   * an owner there is nowhere to enter managed code, so there is no target
+   * such a runtime could serve. */
   const definition = target({
     runtime: provider("runtime", "host-runtime"),
   });
@@ -190,10 +193,41 @@ test("every runtime provider declares owner execution and callback ingress", () 
 
   assert.deepEqual(
     error.diagnostics.map(({ code }) => code),
-    ["NTS1007", "NTS1007"],
+    ["NTS1007"],
   );
   assert.match(error.message, /runtime-owner-executor\/v1/);
-  assert.match(error.message, /foreign-callback-ingress\/v1/);
+  /* Foreign-thread ingress is NOT demanded of every runtime. Requiring it
+   * universally made a validator no pipeline could run: the JVM runtime does
+   * not declare it, so the JVM build bypassed its own planner rather than
+   * fail it. A runtime whose callbacks all arrive on the owner thread needs
+   * no gateway. */
+  assert.doesNotMatch(error.message, /foreign-callback-ingress\/v1/);
+});
+
+test("a binding that can be called from a foreign thread demands the gateway", () => {
+  /* Ingress is a property of what the BINDINGS can do, so the binding says
+   * so and the runtime must be able to supply it. This is the ordinary
+   * provider-requirement path — no separate mechanism, and the same
+   * diagnostic any unmet provider requirement produces. */
+  const definition = target({
+    bindingProviders: [
+      provider("binding", "foreign-thread-bindings", {
+        requiresProviders: [capabilities.foreignCallbackIngressV1],
+      }),
+    ],
+    runtime: provider("runtime", "owner-only-runtime", {
+      provides: [capabilities.runtimeOwnerExecutorV1],
+    }),
+  });
+  const error = planningError(() =>
+    planTarget({ compiler: compiler(), target: definition }),
+  );
+
+  assert.deepEqual(error.diagnostics.map(({ code }) => code), ["NTS1005"]);
+  assert.match(
+    error.message,
+    /No selected provider supplies foreign-callback-ingress\/v1/,
+  );
 });
 
 test("provider identities are unique across provider roles", () => {

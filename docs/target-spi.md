@@ -299,9 +299,29 @@ accidentally satisfy a compiler contract. Planning rejects malformed or
 duplicate declarations, missing requirements, duplicate provider identities,
 and provider placement under the wrong role.
 
-Every selected runtime provider must advertise both
-`runtime-owner-executor/v1` and `foreign-callback-ingress/v1`. These are
-architectural requirements, even before a target uses retained callbacks.
+Every selected runtime provider must advertise `runtime-owner-executor/v1`.
+That one is universal: a runtime without an owner has nowhere to enter
+managed code, so there is no target it could serve.
+
+`foreign-callback-ingress/v1` is deliberately NOT universal. Demanding it of
+every runtime made a validator no pipeline could run — the JVM runtime does
+not advertise it, so the JVM build bypassed `planTarget` rather than fail its
+own planner — and it forbids targets that genuinely do not need a gateway,
+such as a runtime whose callbacks all arrive on the owner thread. A
+requirement every runtime must satisfy regardless of what the program reaches
+is not a requirement; it is a constant.
+
+Ingress is a property of what the selected BINDINGS can do. A binding
+provider whose callbacks can arrive on a thread the program does not own
+declares it under `requires.providers`, and the ordinary provider-requirement
+check refuses a target whose runtime cannot supply it. No separate mechanism
+exists for this, and none should: a capability demanded by what reaches it is
+the same shape as every other capability in this document.
+
+The enforcement is therefore only as good as the declaration, which is the
+correct trade — a capability system that requires everything of everyone
+validates nothing — and it becomes load-bearing when the target pipelines run
+through `planTarget` rather than beside it.
 
 ## Lifecycle
 
