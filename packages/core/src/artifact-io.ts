@@ -43,7 +43,19 @@ function compareText(left: string, right: string): number {
 
 async function digestDirectory(root: string): Promise<{ digest: string; size: number }> {
   const hash = createHash("sha256");
-  hash.update("native-typescript.directory.v1\0");
+  /* v2 carries each file's executable bit. v1 hashed entry type, path, byte
+   * length, and bytes — so a tree whose nested `bin/tool` was 0755 digested
+   * identically to one where it was 0644, and a cache hit on either could
+   * return the other. The root's mode was recorded and restored; nothing
+   * below it was.
+   *
+   * The bit rather than the mode, deliberately. Full permissions vary with
+   * the umask that happened to be set — 0644 against 0664 — so hashing them
+   * would make a digest depend on the machine that produced it and break the
+   * reproducibility the digest exists to establish. A umask never ADDS
+   * execute, so the executable bit is the part that carries meaning and not
+   * environment noise. */
+  hash.update("native-typescript.directory.v2\0");
   let size = 0;
 
   async function visit(directory: string, relativeDirectory: string): Promise<void> {
@@ -67,9 +79,9 @@ async function digestDirectory(root: string): Promise<{ digest: string; size: nu
           `Directory artifact contains unsupported entry ${relativePath}`,
         );
       }
-      const bytes = await readFile(path);
+      const [bytes, entryStat] = await Promise.all([readFile(path), stat(path)]);
       const encodedPath = Buffer.from(relativePath, "utf8");
-      hash.update("f");
+      hash.update((entryStat.mode & 0o111) === 0 ? "f" : "x");
       updateLength(hash, encodedPath.byteLength);
       hash.update(encodedPath);
       updateLength(hash, bytes.byteLength);

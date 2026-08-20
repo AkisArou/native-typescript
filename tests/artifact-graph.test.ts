@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   accessSync,
+  chmodSync,
   constants,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -1232,3 +1234,40 @@ test(
     }
   },
 );
+
+test("a directory artifact's digest notices a file becoming executable", async () => {
+  /* A cache keyed on content must distinguish trees that behave differently.
+   * The digest hashed entry type, path, byte length, and bytes — so a tree
+   * whose `bin/tool` was executable digested identically to one where it was
+   * not, and a hit on either could return the other. The ROOT's mode was
+   * recorded and restored; nothing below it was.
+   *
+   * The executable bit rather than the whole mode: permissions vary with the
+   * umask that happened to be set, so hashing them would make a digest depend
+   * on the machine that produced it. A umask never adds execute. */
+  const scratch = mkdtempSync(join(tmpdir(), "nts-dir-digest-"));
+  try {
+    const tree = join(scratch, "tree");
+    mkdirSync(join(tree, "bin"), { recursive: true });
+    const tool = join(tree, "bin", "tool");
+    writeFileSync(tool, "#!/bin/sh\nexit 0\n");
+
+    chmodSync(tool, 0o644);
+    const plain = (await digestArtifactPath(tree, "directory")).digest;
+    chmodSync(tool, 0o755);
+    const executable = (await digestArtifactPath(tree, "directory")).digest;
+
+    assert.notEqual(
+      plain,
+      executable,
+      "identical bytes with a different executable bit must not share a digest",
+    );
+
+    /* And the bit is the only thing that moved: restoring it restores the
+     * digest, so this is not merely hashing something unstable. */
+    chmodSync(tool, 0o644);
+    assert.equal((await digestArtifactPath(tree, "directory")).digest, plain);
+  } finally {
+    rmSync(scratch, { force: true, recursive: true });
+  }
+});
