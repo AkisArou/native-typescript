@@ -278,6 +278,17 @@ platform that did not, is the outcome the rule is for — and the measurement is
 worth keeping precisely because the opposite result would have been the
 argument for building it here first.
 
+**A path crosses as a string.** GIR spells one `filename` rather than `utf8`,
+and the difference is an encoding rather than a shape — both are
+`const char *`. GLib's file name encoding is what `G_FILENAME_ENCODING` names,
+and it is UTF-8 unless that variable says otherwise, which on
+`x86_64-unknown-linux-gnu` it does not. So one projection carries both, and
+the assumption is recorded beside the accepted GIR types rather than left
+implicit. A target where the encoding differs would need
+`g_filename_from_utf8`, and would pay for it: that conversion can fail, so
+every path-taking member would become failable — including the many GTK
+declares as void and non-throwing.
+
 ### Callbacks
 
 **Call-scoped** callbacks are implemented for non-variadic C signatures with

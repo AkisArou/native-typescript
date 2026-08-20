@@ -553,7 +553,7 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3057 bindings project and 799 members are refused**,
+Measured that way: **3077 bindings project and 779 members are refused**,
 with twelve namespaces supplied as imports. (The projected count fell from an
 earlier 3227 when one release per upcast chain replaced one per class — 182
 fewer generated symbols for the same coverage, which is why a binding count
@@ -571,8 +571,11 @@ The ordered list, largest first:
   out-parameter work below arriving under another name, and the largest
   bucket a single slice could close.
 - **A parameter outside the slice — 21**, unqualified and therefore real.
-- **`filename` — 20**, still a path-encoding decision rather than a
-  projection.
+- ~~**`filename` — 20**~~ — decided and built. GLib's file name encoding is
+  UTF-8 on this project's only target, so a path is a string and the same
+  projection carries both. Converting through `g_filename_from_utf8` would
+  make every path-taking member failable, which buys portability nothing
+  targets and costs twenty members their shape.
 - **A property whose accessors disagree — 3 pairs**, down from 18. The
   fifteen that moved differed only in C SPELLING: a getter handing over
   storage writes `char **` where the setter borrowing it writes
@@ -613,9 +616,10 @@ method marks deprecated, the order is:
   over a struct field the IR does not have. On its own it unlocks 10 of the
   60; the other 50 also name a boxed record, so that work comes first.
 
-One thing is deliberately absent from that list: `filename` is a distinct GIR
-type from `utf8` and needs a decision about path encoding rather than a
-projection.
+`filename` was deliberately absent from that list as a decision rather than a
+projection. The decision is made: it is a distinct GIR type naming the same
+bytes on this target, and the assumption is stated where the accepted types
+are defined rather than left implicit.
 
 Arrays were absent too, with the note that the selection could not reach them.
 That is no longer true in either half — the census reaches everything, and the
