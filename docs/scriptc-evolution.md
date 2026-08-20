@@ -304,3 +304,79 @@ Before 1.0, refactors in either repository:
   native contract.
 
 Clean code does not mean avoiding migrations. It means completing them.
+
+## Upstreaming
+
+The fork is not a vendor patch. Measured against merge base `ff98ee23` it is
+**139 commits and roughly 30,900 changed lines**, of which about 13,100 are
+tests. Line count overstates the risk: the divergence is overwhelmingly
+ADDITIVE — new files and new code paths beside existing ones rather than
+rewrites of upstream logic — which is why merging six upstream commits after
+139 of ours produced 16 conflicted files and 31 hunks rather than a rewrite.
+
+That property is worth protecting deliberately, because the work most likely
+to destroy it is work this project wants: a backend-neutral foreign-boundary
+legalizer rewrites both emitters, which are the two files with the largest
+overlap. **Merge before restructuring, not after.**
+
+### What is upstreamable
+
+Each slice below is a generic compiler or runtime capability with no GTK, JNI,
+Android, or Cocoa knowledge in it. Ordered by dependency, which is also the
+order they should be proposed.
+
+| Slice | Rough size | Why it is generic |
+| --- | --- | --- |
+| Embedder plans and external build execution | ~8 commits | Serializable, path-free compilation plans and a seam that hands an embedder the exact driver commands. No semantics at all. |
+| Exact native scalars and arithmetic | ~20 commits | Exact integer widths, target-sized integers, 32-bit floats, bigint, and the operations an operator cannot carry. Language capability. |
+| Native aggregates | ~4 commits | Structs by value, nested aggregates, exact aggregate ABI signatures. |
+| Strings and byte views | ~12 commits | Borrowed UTF-8, checked C strings, byte spans with explicit element and unit denomination. |
+| Native handles and ownership | ~15 commits | Opaque handles, nullable handles, identity upcasts, pointer-keyed interning, transfer, use-after-dispose. |
+| Outcome contracts | ~5 commits | Errno, error-object failure, and the reduction of eleven conventions to three questions. |
+| Callbacks | ~25 commits | Call-scoped and retained registrations, owner gateway, transport tokens, answered and queued arms, foreign-thread ingress. The largest and most valuable slice. |
+
+### What stays in the fork
+
+Deleting the outbound FFI subsystem is a fork-only simplification. Upstream
+still ships FFI; this project routes every outbound call through Native IR and
+removed the second path. Upstream would be right to refuse it, and the merge
+has already shown the cost — a conflict where upstream's code calls a function
+this fork deleted. Fork housekeeping (fixture scoping, artifact untracking)
+likewise stays.
+
+### PR strategy
+
+The slices are DEPENDENT: handles need scalars, callbacks need handles and
+outcomes. That dependency is real and should be visible rather than flattened
+into one unreviewable change or hidden by proposing slices that secretly
+require each other.
+
+A stacked pull request expresses it directly — each PR targets the previous
+one rather than `main`:
+
+```text
+upstream/main
+  └── scriptc/embedder-plans
+        └── scriptc/exact-native-scalars
+              └── scriptc/native-aggregates
+                    └── scriptc/strings-and-byte-views
+                          └── scriptc/native-handles
+                                └── scriptc/outcome-contracts
+                                      └── scriptc/callbacks
+```
+
+Each PR then shows only its own diff, reviews independently, and merges in
+order. What makes this suit this project specifically is that every slice
+already carries its own fixtures and its own C/LLVM parity coverage, so a
+reviewer can take one and stop.
+
+The costs are real and worth stating. A stack must be rebased whenever
+upstream moves, and every rebase touches every branch above the change. A PR
+whose base branch is deleted on merge silently retargets to the default
+branch and starts showing a cumulative diff. Both argue for keeping the stack
+SHORT — propose the first two or three, land them, then restack the rest
+rather than opening seven at once.
+
+The first contribution should be embedder plans. It has no semantic risk, it
+is the smallest, and every later slice is easier to review once a reviewer has
+seen how this project talks to the compiler.
