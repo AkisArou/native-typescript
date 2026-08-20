@@ -533,6 +533,36 @@ keeps ScriptC's runtime-source selection as the single source of truth.
 
 Only reached bindings and native types enter emitted IR or the link.
 
+The same pair exists for LIBRARIES: `planLibraryCompilation` and
+`planLibraryExternalCBuild`, reached through `loadScriptCLibraryPlanners()`.
+A library's product is a static ARCHIVE, and turning one into a shared object
+belongs to the embedding target — how a library is packaged for a host
+platform is where the platform knowledge lives, so the compiler's product
+stays one kind rather than growing a packaging matrix. The JVM target links
+the archive into the `.so` a Java host loads.
+
+Two properties of that plan are stated rather than optional. Its objects are
+position-independent unconditionally, because a library exists to be embedded
+and a non-PIC archive cannot become a shared object on x86_64 or aarch64 — a
+consumer that had to verify it would meet the compiler's decision as a
+relocation error three layers from its cause. And the archive carries the
+compiled program only: archive semantics drop unreferenced members, so a
+target whose adapters self-register through constructor attributes keeps
+adapter and runtime objects as direct positional inputs at its own link.
+
+Both entry points share one preparation and one native-build computation,
+which is what makes a plan trustworthy rather than merely parallel: a planner
+that prepared its module differently from the builder would describe a
+program the builder never makes, and nothing downstream could notice. The
+fork's suite asserts it directly — the plan's emitted translation unit is
+compared byte for byte against what `compileLibrary` writes, on both
+emissions.
+
+Vendored objects (the regex engine, zlib) and symbol localization are refused
+when planning, by name. Each builds artifacts of its own through its own
+cached helpers, which an external graph has to declare before anything
+produces them; they are separate slices rather than silent gaps.
+
 ### Outbound native calls: one node, two input dialects
 
 The compiler carried two outbound native-call subsystems — upstream's FFI
