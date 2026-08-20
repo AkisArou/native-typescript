@@ -5,10 +5,22 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   JvmIngestionError,
+  generateJvmAdapterSource,
+  generateJvmClangAbiProbe,
+  generateJvmScabiPackage,
   ingestJvmClasses,
   readJarClassSources,
 } from "@native-typescript/bindgen-jvm";
 import type { JvmClassSource } from "@native-typescript/bindgen-jvm";
+import {
+  digestClangAbiEvidence,
+  renderCFunctionPointerType,
+} from "@native-typescript/bindgen-c";
+import type {
+  ClangAbiEvidenceSnapshot,
+  ClangAbiProbe,
+} from "@native-typescript/bindgen-c";
+import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 
 /**
  * Ingestion against the real Android SDK, the artifact Phase 4 exists for.
@@ -159,3 +171,145 @@ test("every class in the SDK either ingests or is refused by design", { skip }, 
   assert.ok(ingested > 5000, `ingested ${ingested} of ${sources.length}`);
   assert.ok(refusedByDesign < sources.length / 20);
 });
+
+/* Synthesized evidence, as in tests/jvm-scabi.test.ts: this test is about
+ * the real SDK surface flowing through generation and translation; the
+ * probe's execution against a real header has its own gate. */
+function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
+  const clang = Object.freeze({
+    toolId: "tool/clang",
+    version: "test",
+    digest: `sha256:${"a".repeat(64)}`,
+    target: "x86_64-unknown-linux-gnu",
+  });
+  const functions = Object.freeze(probe.functions.map((function_) => {
+    const type = renderCFunctionPointerType(function_, "");
+    return Object.freeze({
+      id: function_.id,
+      symbol: function_.symbol,
+      expectedType: type,
+      clangType: type,
+    });
+  }));
+  return Object.freeze({
+    schema: "native-typescript.clang-abi-evidence",
+    schemaVersion: 3,
+    probeDigest: probe.sourceDigest,
+    semanticDigest: digestClangAbiEvidence({
+      probeDigest: probe.sourceDigest,
+      clang,
+      functions,
+      records: [],
+      enums: [],
+    }),
+    clang,
+    functions,
+    records: Object.freeze([]),
+    enums: Object.freeze([]),
+  });
+}
+
+test(
+  "the real Activity surface generates and translates end to end",
+  { skip },
+  () => {
+    // The acceptance application's binding, minus the runtime: construct an
+    // activity, receive onCreate's bundle, set a real view, find one by id,
+    // read the intent and retarget it by name. Every shape is one the
+    // algebra landed: scalars, handles, statics, string parameters, and the
+    // checked failure channel. String RESULTS are the named pending flip.
+    const snapshot = ingestJvmClasses(sdkSources(), {
+      classes: [
+        { binaryName: "java/lang/Object" },
+        { binaryName: "android/content/Context" },
+        { binaryName: "android/content/ContextWrapper" },
+        { binaryName: "android/view/ContextThemeWrapper" },
+        { binaryName: "android/os/BaseBundle" },
+        { binaryName: "android/os/Bundle", constructors: ["()V"] },
+        { binaryName: "android/view/View" },
+        {
+          binaryName: "android/content/Intent",
+          constructors: ["()V"],
+          methods: [
+            { name: "setAction", descriptor: "(Ljava/lang/String;)Landroid/content/Intent;" },
+          ],
+        },
+        {
+          binaryName: "android/app/Activity",
+          constructors: ["()V"],
+          methods: [
+            { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+            { name: "setContentView", descriptor: "(Landroid/view/View;)V" },
+            "findViewById",
+            "getIntent",
+            "finish",
+          ],
+          fields: [],
+        },
+      ],
+    });
+    const adapter = generateJvmAdapterSource(snapshot, { packageSlug: "android" });
+    const generated = generateJvmScabiPackage({
+      snapshot,
+      adapter,
+      packageSlug: "android",
+      evidence: evidence(generateJvmClangAbiProbe(adapter)),
+      package: {
+        name: "@native-typescript/android-activity",
+        version: "0.0.0",
+        namespace: "native-typescript.android-activity",
+        instance: "native-typescript.android-activity@0.0.0",
+      },
+      target: {
+        triple: "x86_64-unknown-linux-gnu",
+        architecture: "x86_64",
+        pointerWidth: 64,
+        endianness: "little",
+        objectFormat: "elf",
+        minimumPlatformVersion: "glibc-2.17",
+        abi: "sysv-amd64",
+        features: ["jvm"],
+      },
+      sdk: {
+        vendor: "google",
+        name: "android",
+        version: sdk!.platform,
+        deploymentTarget: sdk!.platform,
+        modules: ["android"],
+      },
+      linkInputs: [
+        { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+      ],
+      adapterInput: { id: "android.jvm-adapters", output: "jvm-adapters.o" },
+    });
+    assert.match(
+      generated.declarations,
+      /export declare class Activity extends ContextThemeWrapper \{/u,
+    );
+    assert.match(
+      generated.declarations,
+      /onCreate\(a0: Bundle \| null\): void;/u,
+    );
+    assert.match(
+      generated.declarations,
+      /setAction\(a0: string \| null\): Intent \| null;/u,
+    );
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: Object.keys(generated.manifest.bindings),
+      exports: [],
+    });
+    assert.equal(program.ok, true, JSON.stringify(program, null, 2).slice(0, 3000));
+    if (!program.ok) return;
+    const instance = "native-typescript.android-activity@0.0.0";
+    const onCreate = program.input.bindings.find(
+      ({ id }) => id === `${instance}#android.android.app.activity.oncreate`,
+    );
+    assert.ok(onCreate !== undefined, "onCreate translated");
+    assert.equal(onCreate!.error.detect.kind, "outParameterIsNotNull");
+    const findViewById = program.input.bindings.find(
+      ({ id }) => id === `${instance}#android.android.app.activity.findviewbyid`,
+    );
+    assert.ok(findViewById !== undefined, "findViewById translated");
+    assert.equal(findViewById!.result.projection.kind, "nullableHandle");
+  },
+);
