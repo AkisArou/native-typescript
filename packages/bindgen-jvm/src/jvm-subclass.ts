@@ -13,6 +13,11 @@
  * must run during the caller's frame, and the retained contract's arms are
  * answered-boolean-synchronous and void-queued — the void-synchronous arm
  * is its own admission, and Android's own onCreate is its failing program.
+ *
+ * Each override also carries its native super binding: an ordinary
+ * generated method whose body is `super.name(...)`, the only spelling of
+ * the base implementation once virtual dispatch lands on the override —
+ * the Android analogue is an onCreate that must call super.onCreate().
  */
 
 import { createHash } from "node:crypto";
@@ -35,7 +40,7 @@ export interface JvmSubclassSelection {
 
 export interface JvmSubclassSource {
   readonly schema: "native-typescript.jvm-subclass-source";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly baseBinaryName: string;
   readonly subclassBinaryName: string;
   /** The generated Java, compiled against the base's classes. */
@@ -47,6 +52,12 @@ export interface JvmSubclassSource {
   /** The overrides as a `callbacks:` selection on the SUBCLASS — exactly
    * what the ingestion of the compiled result should be handed. */
   readonly callbacks: readonly JvmMemberSelection[];
+  /** The native super bindings as a `methods:` selection on the SUBCLASS:
+   * one `ntsSuper<Name>` per override, whose body is the base
+   * implementation reached non-virtually (javac compiles `super.name(...)`
+   * to invokespecial). Ordinary instance methods — the adapter needs no
+   * new machinery to call the code an override replaced. */
+  readonly methods: readonly JvmMemberSelection[];
 }
 
 function diagnostic(path: string, message: string): JvmDiagnostic {
@@ -157,6 +168,7 @@ export function generateJvmSubclassSource(
 
   const overrideLines: string[] = [];
   const callbacks: JvmMemberSelection[] = [];
+  const superMethods: JvmMemberSelection[] = [];
   for (const overrideSelection of selection.overrides) {
     const name = typeof overrideSelection === "string"
       ? overrideSelection
@@ -233,11 +245,29 @@ export function generateJvmSubclassSource(
       refused = true;
     });
     if (refused) continue;
+    /* The super binding rides beside the override: the same signature as
+     * an ordinary method whose body is the base implementation, reached
+     * non-virtually because javac compiles `super.name(...)` to
+     * invokespecial. Virtual dispatch on the receiver always lands on the
+     * native override, so this generated method is the ONLY spelling of
+     * "the code the override replaced". The `ntsSuper` prefix is the
+     * collision guard: a base declaring such a name would be generated
+     * code colliding with generated code. */
+    const superName = `ntsSuper${method.name[0]!.toUpperCase()}${
+      method.name.slice(1)
+    }`;
+    const argumentNames = parameters.map((_, index) => `a${index}`);
     overrideLines.push(
       "  @Override",
       `  public native ${javaScalarNames.boolean} ${method.name}(${
         parameters.join(", ")
       });`,
+      "",
+      `  public ${javaScalarNames.boolean} ${superName}(${
+        parameters.join(", ")
+      }) {`,
+      `    return super.${method.name}(${argumentNames.join(", ")});`,
+      "  }",
       "",
     );
     callbacks.push(
@@ -245,6 +275,10 @@ export function generateJvmSubclassSource(
         ? overrideSelection
         : Object.freeze({ ...overrideSelection }),
     );
+    superMethods.push(Object.freeze({
+      name: superName,
+      descriptor: method.descriptor,
+    }));
   }
   if (diagnostics.length > 0) throw new JvmGenerationError(diagnostics);
 
@@ -268,12 +302,13 @@ export function generateJvmSubclassSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-subclass-source",
-    schemaVersion: 1,
+    schemaVersion: 2,
     baseBinaryName: base.binaryName,
     subclassBinaryName,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     logicalPath: `${subclassBinaryName}.java`,
     callbacks: Object.freeze(callbacks),
+    methods: Object.freeze(superMethods),
   });
 }

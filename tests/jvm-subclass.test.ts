@@ -63,7 +63,16 @@ test("the generated subclass is deterministic and spells the override native", (
     first.source,
     /@Override\n {2}public native boolean onEvent\(int a0\);/u,
   );
+  // The native super binding rides beside the override: the base
+  // implementation reached non-virtually, as an ordinary method.
+  assert.match(
+    first.source,
+    /public boolean ntsSuperOnEvent\(int a0\) \{\n {4}return super\.onEvent\(a0\);\n {2}\}/u,
+  );
   assert.deepEqual(first.callbacks, ["onEvent"]);
+  assert.deepEqual(first.methods, [
+    { name: "ntsSuperOnEvent", descriptor: "(I)Z" },
+  ]);
 });
 
 test("refusals name Java's own rules and the missing contract arms", () => {
@@ -195,6 +204,7 @@ test(
             {
               binaryName: generated.subclassBinaryName,
               constructors: ["()V"],
+              methods: generated.methods,
               callbacks: generated.callbacks,
             },
           ],
@@ -209,6 +219,17 @@ test(
       ]);
       assert.equal(adapter.callbacks[0]!.answers, true);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
+      /* The super binding ingested as an ordinary instance method — the
+       * dual-method-and-callback refusal does not fire because the super
+       * spelling and the override are different members. */
+      const superMethod = adapter.instanceMethods.find(
+        ({ name }) => name === "ntsSuperOnEvent",
+      );
+      assert.ok(superMethod !== undefined);
+      assert.deepEqual(superMethod!.result, {
+        kind: "primitive",
+        primitive: "boolean",
+      });
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

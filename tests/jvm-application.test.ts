@@ -135,6 +135,7 @@ test(
         );
         assert.match(declarations, /export declare class Widget \{/u);
         assert.match(declarations, /static greet\(a0: string \| null\): string \| null;/u);
+        assert.match(declarations, /ntsSuperOnEvent\(a0: jint\): boolean;/u);
 
         assert.ok(built.builtClassesPath !== undefined);
         const run = spawnSync(built.productPath, [], {

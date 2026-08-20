@@ -141,8 +141,20 @@ if (!pingThrew) failed = true;
 const plainHost = new Host();
 if (plainHost.run(2) !== 0) failed = true;
 const bridge = new HostBridge();
-const bridgeConnection = bridge.onEvent((value) => value % 2 === 0);
+/* The native super binding, from where Android will need it: INSIDE the
+ * override's handler. The handler consults the base implementation (which
+ * answers false — the control above proves that) and then overrides its
+ * verdict, so a wrong super path fails on superFalse rather than on the
+ * accepted count. This is also the first reentrant native call from
+ * within an answered handler: Java's run frame dispatched the override,
+ * and the handler calls back into Java before answering it. */
+let superFalse = 0;
+const bridgeConnection = bridge.onEvent((value) => {
+  if (!bridge.ntsSuperOnEvent(value)) superFalse += 1;
+  return value % 2 === 0;
+});
 if (bridge.run(4) !== 2) failed = true;
+if (superFalse !== 4) failed = true;
 bridgeConnection.disconnect();
 let bridgeThrew = false;
 try {

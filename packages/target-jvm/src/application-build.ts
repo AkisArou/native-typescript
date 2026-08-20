@@ -299,6 +299,7 @@ export async function buildJvmApplication(input: {
       subclassSelections.push({
         binaryName: generated.subclassBinaryName,
         constructors: ["()V"],
+        methods: generated.methods,
         callbacks: generated.callbacks,
       });
     }
