@@ -4,10 +4,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  JvmGenerationError,
   JvmIngestionError,
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
   generateJvmScabiPackage,
+  generateJvmSubclassSource,
   ingestJvmClasses,
   readJarClassSources,
 } from "@native-typescript/bindgen-jvm";
@@ -123,6 +125,55 @@ test("the real Activity surface ingests with its contract intact", { skip }, () 
     "java/lang/Object",
   ]);
 });
+
+test(
+  "the real Activity names the two arms its subclass waits on",
+  { skip },
+  () => {
+    /* Phase 4's acceptance app is a MainActivity whose onCreate calls
+     * super and whose input methods receive platform objects. Both land
+     * outside today's answered-boolean/exact-scalar override algebra, and
+     * this pin turns that sentence into diagnostics against the real
+     * artifact: the void-synchronous arm (onCreate) and the handle
+     * payload arm (onKeyDown's KeyEvent), each refusal naming its own
+     * admission. When either arm lands, this test fails and the
+     * acceptance program advances — the same flip withNul took. */
+    const snapshot = ingestJvmClasses(sdkSources(), {
+      classes: [
+        ...activityChain,
+        {
+          binaryName: "android/app/Activity",
+          constructors: ["()V"],
+          methods: [
+            { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+            { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
+          ],
+        },
+      ],
+    });
+    try {
+      generateJvmSubclassSource(snapshot, {
+        baseBinaryName: "android/app/Activity",
+        overrides: [
+          { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+          { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
+        ],
+      });
+      assert.fail("expected JvmGenerationError");
+    } catch (error) {
+      assert.ok(error instanceof JvmGenerationError);
+      const messages = error.diagnostics.map(({ message }) => message);
+      assert.ok(messages.some((message) =>
+        message.includes("the void-synchronous arm is its own admission")
+      ));
+      assert.ok(messages.some((message) =>
+        message.includes(
+          "An object payload waits on the answered contract admitting handles",
+        )
+      ));
+    }
+  },
+);
 
 test("selecting Activity without its ancestry is refused", { skip }, () => {
   assert.throws(
