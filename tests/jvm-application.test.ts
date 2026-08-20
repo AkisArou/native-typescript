@@ -73,6 +73,7 @@ test(
             "compareDepth",
             "label",
             "greet",
+            "withNul",
             "sumBytes",
             "reverseBytes",
             "splitWords",

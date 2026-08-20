@@ -291,13 +291,15 @@ test(
         symbol.endsWith("_strv_free")
       );
       assert.equal(strvFree?.clangType, "void (*)(char **)");
-      /* A borrowed vector argument's double-const spelling, byte-exact. */
+      /* A borrowed vector argument's double-const spelling, byte-exact —
+       * and the string RESULT's length slot beside the error slot, the
+       * span shape with a char pointer. */
       const joinWords = evidence.functions.find(({ symbol }) =>
         symbol.endsWith("_joinWords")
       );
       assert.equal(
         joinWords?.clangType,
-        "char *(*)(const char *const *, char **)",
+        "char *(*)(const char *const *, size_t *, char **)",
       );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });

@@ -421,11 +421,16 @@ test("each ownership shape translates through the neutral compiler input", () =>
   assert.ok(nameLength !== undefined);
 
   // A string RESULT coexists with the error-out contract because the
-  // failure arrives in a slot and reads nothing from the result - the
-  // rule 50e6f6b5 landed, carrying the release the contract named.
+  // failure arrives in a slot and reads nothing from the result. It rides
+  // the span arm - length in the compiler's slot, embedded NUL as data -
+  // and keeps the null arm a Java String may always take.
   const greet = binding("fixture.fixture.widget.greet");
   assert.equal(greet.error.detect.kind, "outParameterIsNotNull");
-  assert.equal(greet.result.projection.kind, "utf8CString");
+  assert.deepEqual(greet.result.projection, {
+    kind: "utf8Span",
+    nullable: true,
+    release: { kind: "symbol", symbol: "free" },
+  });
 
   // A byte[] argument needs NOTHING new from the compiler: the pair
   // lowers to the existing bytes projections, both slots fed by the one

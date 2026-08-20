@@ -991,14 +991,24 @@ export function generateJvmScabiPackage(
           Object.freeze({
             /* An owned copy the projection consumes: ownership is a value
              * and the marshal names free() as its release, per the v6 rule
-             * that ownership and release must agree. Null on success is an
+             * that ownership and release must agree. The length rides the
+             * compiler's own out slot (an absent `length` means exactly
+             * that), so a Java string carrying U+0000 crosses as data
+             * instead of refusing — a String may always hold one, and no
+             * per-method metadata says otherwise. Null on success is an
              * ordinary value; the error-out slot is what reads failure,
              * which is exactly why this coexists with a string result. */
             type: "nullable_utf8",
             passMode: "pointer" as const,
             nullable: true,
             ownership: Object.freeze({ kind: "value" as const }),
-            marshal: Object.freeze({ ...stringMarshal, release: "free" }),
+            marshal: Object.freeze({
+              kind: "string" as const,
+              encoding: "utf-8" as const,
+              termination: "none" as const,
+              embeddedNul: "allow" as const,
+              release: "free" as const,
+            }),
           }))
         : method.result.kind === "string-vector"
         ? (needStringVectorResultTypes(),

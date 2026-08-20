@@ -48,10 +48,12 @@ function resultCType(result: JvmAdapterResult): string {
   return "void*";
 }
 
-/** A span result's length rides a compiler-owned out slot placed beside
- * the error slot; the probe proves both trailing slots. */
+/** A span or string result's length rides a compiler-owned out slot
+ * placed beside the error slot; the probe proves both trailing slots. */
 function trailingCTypes(result: JvmAdapterResult): readonly string[] {
-  return result.kind === "span" ? ["size_t*", "char**"] : ["char**"];
+  return result.kind === "span" || result.kind === "string"
+    ? ["size_t*", "char**"]
+    : ["char**"];
 }
 
 function candidate(

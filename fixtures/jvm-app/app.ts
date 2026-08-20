@@ -26,6 +26,14 @@ if (text !== "widget-5") failed = true;
 const greeting = Widget.greet("native");
 if (greeting !== "hi native!") failed = true;
 if (Widget.greet(null) !== null) failed = true;
+/* U+0000 in a Java string is ordinary data on the span arm: the length
+ * comes from the compiler's slot, so the point survives where a
+ * terminator would have ended the value. This line spent its life as a
+ * named refusal; greet(null) above is why the arm had to keep null. */
+const nulled = Widget.withNul();
+if (nulled === null || nulled.length !== 3 || nulled !== "a\u0000b") {
+  failed = true;
+}
 
 /* A byte[] argument crosses as a borrowed span: 1+2+3+250 = 256 proves the
  * bytes arrive unsigned and intact, the subarray proves the view's offset

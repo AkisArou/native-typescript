@@ -52,7 +52,10 @@ export type JvmAdapterPosition =
 /** A span result crosses as an owned copy with a compiler-owned length
  * out slot beside the error slot, counting ELEMENTS by construction:
  * `uint8_t *sym(args, size_t *out_length, char **error)` — a byte pointer
- * for every element, the element living in the marshal. A string-vector
+ * for every element, the element living in the marshal. A string result
+ * rides the same slot shape (`char *sym(args, size_t *out_length,
+ * char **error)`) counting BYTES, which is what lets a Java string
+ * carrying U+0000 cross as data instead of refusing. A string-vector
  * result crosses as an owned NUL-terminated `char **` copy — JNI hands
  * the adapter the length, and the adapter normalizes it into the
  * terminator the contract already speaks. */
@@ -143,7 +146,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 15;
+  readonly schemaVersion: 16;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -250,10 +253,12 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
     custom:
       "JNI's native string encodings are UTF-16 (NewString, " +
       "GetStringRegion) and modified UTF-8, never the contract's UTF-8, so " +
-      "the adapter converts exactly in both directions; a Java string " +
-      "carrying U+0000 refuses through the error channel because the " +
-      "contract rejects embedded NUL, and an unpaired surrogate refuses " +
-      "because it has no UTF-8 at all",
+      "the adapter converts exactly in both directions; a string RESULT " +
+      "carries its byte count in the compiler's length slot, so a Java " +
+      "string holding U+0000 crosses as data, while a NUL-terminated " +
+      "position (a string-vector element) still refuses U+0000 because " +
+      "termination leaves it no representation; an unpaired surrogate " +
+      "refuses in every position because it has no UTF-8 at all",
   },
   spanSupport: {
     kind: "translation",
@@ -878,7 +883,7 @@ export function generateJvmAdapterSource(
       const argumentList = signature.parameters.map(argumentOf);
       /* A span result's length comes back beside the pointer, in a
        * compiler-owned out slot placed with the error slot. */
-      const trailing = result.kind === "span"
+      const trailing = result.kind === "span" || result.kind === "string"
         ? ["size_t *out_length", "char **error"]
         : ["char **error"];
       const call = `(*env)->${callFamily}${callName}Method(${[
@@ -931,15 +936,21 @@ export function generateJvmAdapterSource(
               ? [
                   /* A string result crosses by copy through the UTF-16
                    * bridge; the Java string itself never survives the call.
-                   * NULL with an empty error slot is a successful null. */
+                   * NULL with an empty error slot is a successful null —
+                   * the (NULL, 0) pair is written whole so the answer never
+                   * depends on the caller's initialisation of the slot. The
+                   * length slot is what lets U+0000 cross as data. */
                   `  jstring resultString = (jstring)${call};`,
                   ...bridgedEpilogue(signature.parameters),
                   `  if ((*env)->ExceptionCheck(env)) {`,
                   `    ${prefix}_capture(env, error);`,
                   `    return NULL;`,
                   `  }`,
-                  `  if (resultString == NULL) return NULL;`,
-                  `  char *owned = ${prefix}_jstring_to_utf8(env, resultString, error);`,
+                  `  if (resultString == NULL) {`,
+                  `    *out_length = 0;`,
+                  `    return NULL;`,
+                  `  }`,
+                  `  char *owned = ${prefix}_jstring_to_utf8(env, resultString, out_length, error);`,
                   `  (*env)->DeleteLocalRef(env, resultString);`,
                   `  return owned;`,
                 ]
@@ -979,7 +990,7 @@ export function generateJvmAdapterSource(
                     `      *error = ${prefix}_message(`,
                     `          "Java string array carries a null element, which the NUL-terminated vector rejects");`,
                     `    } else {`,
-                    `      vector[i] = ${prefix}_jstring_to_utf8(env, element, error);`,
+                    `      vector[i] = ${prefix}_jstring_to_utf8(env, element, NULL, error);`,
                     `      (*env)->DeleteLocalRef(env, element);`,
                     `    }`,
                     `    if (*error != NULL) {`,
@@ -1354,8 +1365,9 @@ export function generateJvmAdapterSource(
           "/* The UTF-16 bridge. JNI's native encodings are UTF-16 and",
           " * modified UTF-8, never the contract's UTF-8, so both crossings",
           " * convert exactly. Refusals go through the error channel: input",
-          " * that is not well-formed UTF-8, a Java string carrying U+0000",
-          " * (the contract rejects embedded NUL), or ill-formed UTF-16. */",
+          " * that is not well-formed UTF-8, ill-formed UTF-16, or a Java",
+          " * string carrying U+0000 crossing into a NUL-terminated",
+          " * position - a length-carrying position takes it as data. */",
           `static jstring ${prefix}_utf8_to_jstring(JNIEnv *env,`,
           "                                         const char *utf8,",
           "                                         char **error) {",
@@ -1411,7 +1423,15 @@ export function generateJvmAdapterSource(
           "  return NULL;",
           "}",
           "",
+          "/* The length slot is the contract selector: a caller that",
+          " * supplies one speaks the span contract, where U+0000 is data",
+          " * like any other point; a caller that does not speaks",
+          " * NUL-termination, where an embedded NUL has no representation",
+          " * and must refuse. The unpaired-surrogate refusal is",
+          " * unconditional - ill-formed UTF-16 has no UTF-8 spelling under",
+          " * either contract. */",
           `static char *${prefix}_jstring_to_utf8(JNIEnv *env, jstring string,`,
+          "                                       size_t *out_length,",
           "                                       char **error) {",
           "  jsize unitCount = (*env)->GetStringLength(env, string);",
           "  jchar *units = (jchar *)malloc(((size_t)unitCount + 1) * sizeof(jchar));",
@@ -1431,7 +1451,7 @@ export function generateJvmAdapterSource(
           "  }",
           "  for (i = 0; i < unitCount; i++) {",
           "    uint32_t point = units[i];",
-          "    if (point == 0) {",
+          "    if (point == 0 && out_length == NULL) {",
           "      free(units);",
           "      free(bytes);",
           `      *error = ${prefix}_message(`,
@@ -1468,6 +1488,7 @@ export function generateJvmAdapterSource(
           "    }",
           "  }",
           "  bytes[written] = 0;",
+          "  if (out_length != NULL) *out_length = written;",
           "  free(units);",
           "  return bytes;",
           "}",
@@ -1676,7 +1697,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 15,
+    schemaVersion: 16,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

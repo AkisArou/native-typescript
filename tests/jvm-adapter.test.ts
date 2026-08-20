@@ -436,22 +436,35 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  if (${compareSymbol}(w, w2, &error) <= 0 || error != NULL) return 19;`,
       `  if (${compareSymbol}(w, NULL, &error) != -1 || error != NULL) return 20;`,
       `  ${releaseWidget}(w2);`,
-      `  char *text = ${labelSymbol}(w, 5, &error);`,
-      "  if (text == NULL || error != NULL) return 21;",
+      /* String results ride the span shape: the byte count arrives in the
+       * compiler's slot, which the strcmp checks cross-examine against the
+       * terminator the bridge still writes. */
+      "  size_t textLength = 0;",
+      `  char *text = ${labelSymbol}(w, 5, &textLength, &error);`,
+      "  if (text == NULL || error != NULL || textLength != 8) return 21;",
       '  if (strcmp(text, "widget-5") != 0) return 22;',
       "  free(text);",
       /* Non-BMP round trip: the party popper is 4 UTF-8 bytes and one
-       * UTF-16 surrogate pair; both bridges must agree exactly. */
-      `  text = ${greetSymbol}("\xf0\x9f\x8e\x89", &error);`,
-      "  if (text == NULL || error != NULL) return 23;",
-      '  if (strcmp(text, "hi \xf0\x9f\x8e\x89!") != 0) return 24;',
+       * UTF-16 surrogate pair; both bridges must agree exactly. The C hex
+       * escapes must survive to the C compiler (double backslash here):
+       * a JS-interpreted spelling re-encodes into 8 Latin-1-shaped bytes
+       * and tests a different, BMP-only string - which the length slot is
+       * what finally caught. */
+      `  text = ${greetSymbol}("\\xf0\\x9f\\x8e\\x89", &textLength, &error);`,
+      "  if (text == NULL || error != NULL || textLength != 8) return 23;",
+      '  if (strcmp(text, "hi \\xf0\\x9f\\x8e\\x89!") != 0) return 24;',
       "  free(text);",
-      `  text = ${greetSymbol}(NULL, &error);`,
-      "  if (text != NULL || error != NULL) return 25;",
-      `  text = ${withNulSymbol}(&error);`,
-      "  if (text != NULL || error == NULL ||",
-      `      strstr(${messageSymbol}(error), "embedded NUL") == NULL) return 26;`,
-      `  ${releaseSymbol}(error); error = NULL;`,
+      /* A successful null writes the (NULL, 0) pair whole: the poison
+       * proves the adapter wrote the zero rather than inheriting it. */
+      "  textLength = 99;",
+      `  text = ${greetSymbol}(NULL, &textLength, &error);`,
+      "  if (text != NULL || error != NULL || textLength != 0) return 25;",
+      /* The founding refusal, live: U+0000 crosses as one byte of data,
+       * and only the length can say so - strcmp would stop at it. */
+      `  text = ${withNulSymbol}(&textLength, &error);`,
+      "  if (text == NULL || error != NULL || textLength != 3) return 26;",
+      '  if (memcmp(text, "a\\0b", 3) != 0) return 55;',
+      "  free(text);",
       /* Byte span: 1+2+3+250 = 256 proves unsigned reassembly on the Java
        * side; the zero-length span proves the empty array is still built. */
       "  uint8_t bytes[4] = {1, 2, 3, 250};",
@@ -496,8 +509,8 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
        * own NullPointerException reports through the checked channel. */
       "  const char *const tags[] = {\"alpha\", \"\\xf0\\x9f\\x8e\\x89\", NULL};",
       `  if (${countTagsSymbol}(tags, &error) != 2 || error != NULL) return 37;`,
-      `  text = ${joinWordsSymbol}(tags, &error);`,
-      "  if (text == NULL || error != NULL) return 38;",
+      `  text = ${joinWordsSymbol}(tags, &textLength, &error);`,
+      "  if (text == NULL || error != NULL || textLength != 10) return 38;",
       '  if (strcmp(text, "alpha,\\xf0\\x9f\\x8e\\x89") != 0) return 39;',
       "  free(text);",
       `  (void)${countTagsSymbol}(NULL, &error);`,

@@ -347,6 +347,12 @@ test(
       ({ id }) => id === `${instance}#android.android.content.intent.getaction`,
     );
     assert.ok(getAction !== undefined, "getAction translated");
-    assert.equal(getAction!.result.projection.kind, "utf8CString");
+    /* The span arm, nullable: getAction's null-on-success is the recorded
+     * evidence that forced the arm to admit absence. */
+    assert.deepEqual(getAction!.result.projection, {
+      kind: "utf8Span",
+      nullable: true,
+      release: { kind: "symbol", symbol: "free" },
+    });
   },
 );
