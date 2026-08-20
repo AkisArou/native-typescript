@@ -232,6 +232,7 @@ test(
           constructors: ["()V"],
           methods: [
             { name: "setAction", descriptor: "(Ljava/lang/String;)Landroid/content/Intent;" },
+            "getAction",
           ],
         },
         {
@@ -294,6 +295,10 @@ test(
       generated.declarations,
       /setAction\(a0: string \| null\): Intent \| null;/u,
     );
+    assert.match(
+      generated.declarations,
+      /getAction\(\): string \| null;/u,
+    );
     const program = translateScabiNativeProgram(generated.manifest, {
       imports: Object.keys(generated.manifest.bindings),
       exports: [],
@@ -311,5 +316,10 @@ test(
     );
     assert.ok(findViewById !== undefined, "findViewById translated");
     assert.equal(findViewById!.result.projection.kind, "nullableHandle");
+    const getAction = program.input.bindings.find(
+      ({ id }) => id === `${instance}#android.android.content.intent.getaction`,
+    );
+    assert.ok(getAction !== undefined, "getAction translated");
+    assert.equal(getAction!.result.projection.kind, "utf8CString");
   },
 );

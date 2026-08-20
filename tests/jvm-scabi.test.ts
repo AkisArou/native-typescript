@@ -46,6 +46,8 @@ function snapshot() {
             "resized",
             "compareDepth",
             "nameLength",
+            "label",
+            "greet",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -149,6 +151,8 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.match(generated.declarations, /resized\(a0: jint\): Widget \| null;/u);
   assert.match(generated.declarations, /compareDepth\(a0: Widget \| null\): jint;/u);
   assert.match(generated.declarations, /static nameLength\(a0: string \| null\): jint;/u);
+  assert.match(generated.declarations, /label\(a0: jint\): string \| null;/u);
+  assert.match(generated.declarations, /static greet\(a0: string \| null\): string \| null;/u);
   const lengthBinding =
     generated.manifest.bindings["fixture.fixture.widget.namelength"];
   assert.ok(lengthBinding !== undefined && lengthBinding.kind !== "constant");
@@ -220,4 +224,11 @@ test("each ownership shape translates through the neutral compiler input", () =>
   // translated binding carries it as an ordinary marshalled slot.
   const nameLength = binding("fixture.fixture.widget.namelength");
   assert.ok(nameLength !== undefined);
+
+  // A string RESULT coexists with the error-out contract because the
+  // failure arrives in a slot and reads nothing from the result - the
+  // rule 50e6f6b5 landed, carrying the release the contract named.
+  const greet = binding("fixture.fixture.widget.greet");
+  assert.equal(greet.error.detect.kind, "outParameterIsNotNull");
+  assert.equal(greet.result.projection.kind, "utf8CString");
 });

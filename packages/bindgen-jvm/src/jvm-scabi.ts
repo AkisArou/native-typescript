@@ -598,23 +598,6 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
-    /* The translator lowers a UTF-8 string result only under a no-fail
-     * contract (native.ts: "UTF-8 string results require a no-fail
-     * contract"), and every JNI call is failable. Deferred, not
-     * unsupported: the adapter already generates and live-proves these;
-     * delete this refusal when the failable arm lands and nothing else
-     * moves. */
-    if (method.result.kind === "string") {
-      diagnostics.push(
-        diagnostic(
-          `class/${method.className}/method/${method.name}/result`,
-          `String result of '${method.name}' waits on the translator ` +
-            "lowering utf-8 results under a failure contract; deferred, " +
-            "not unsupported",
-        ),
-      );
-      continue;
-    }
     const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
     const baseName = method.name;
     const memberKey = `${method.className}.${baseName}`;
@@ -648,10 +631,21 @@ export function generateJvmScabiPackage(
         ...receiver,
         ...method.parameters.map(positionParameter),
       ],
-      /* When the translator lowers utf-8 results under a failure contract,
-       * the string arm returns here: nullable_utf8, ownership value, marshal
-       * with release "free" - the refusal above is what gets deleted. */
-      result: method.result.kind === "handle"
+      result: method.result.kind === "string"
+        ? (needStringTypes(),
+          Object.freeze({
+            /* An owned copy the projection consumes: ownership is a value
+             * and the marshal names free() as its release, per the v6 rule
+             * that ownership and release must agree. Null on success is an
+             * ordinary value; the error-out slot is what reads failure,
+             * which is exactly why this coexists with a string result. */
+            type: "nullable_utf8",
+            passMode: "pointer" as const,
+            nullable: true,
+            ownership: Object.freeze({ kind: "value" as const }),
+            marshal: Object.freeze({ ...stringMarshal, release: "free" }),
+          }))
+        : method.result.kind === "handle"
         ? Object.freeze({
             type: selectedTypeIds.get(method.result.binaryName)!,
             passMode: "pointer" as const,
