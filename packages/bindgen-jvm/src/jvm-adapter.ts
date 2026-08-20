@@ -15,9 +15,10 @@
  * scalars and void, selected-class handles, java/lang/String through an
  * exact UTF-16 bridge, byte[] both directions through JNI's Region copy
  * convention (borrowed span in, owned copy out beside a compiler-owned
- * length slot), constructors, and the checked failure channel (pending
- * exception captured to an error-out slot). The other array element
- * families are named next slices.
+ * length slot), String[] results as owned NUL-terminated vectors,
+ * constructors, and the checked failure channel (pending exception
+ * captured to an error-out slot). String[] arguments and the remaining
+ * element families are named next slices.
  */
 
 import { createHash } from "node:crypto";
@@ -42,13 +43,17 @@ export type JvmAdapterPosition =
 
 /** A byte-span result crosses as an owned copy with a compiler-owned
  * length out slot beside the error slot:
- * `uint8_t *sym(args, size_t *out_length, char **error)`. */
+ * `uint8_t *sym(args, size_t *out_length, char **error)`. A string-vector
+ * result crosses as an owned NUL-terminated `char **` copy — JNI hands
+ * the adapter the length, and the adapter normalizes it into the
+ * terminator the contract already speaks. */
 export type JvmAdapterResult =
   | { readonly kind: "void" }
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
   | { readonly kind: "handle"; readonly binaryName: string }
   | { readonly kind: "string" }
-  | { readonly kind: "byte-span" };
+  | { readonly kind: "byte-span" }
+  | { readonly kind: "string-vector" };
 
 export interface JvmConstructorAdapter {
   readonly className: string;
@@ -107,7 +112,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 10;
+  readonly schemaVersion: 11;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -124,6 +129,10 @@ export interface JvmAdapterSource {
   /** Present when any position is a byte[]: spans cross by one Region copy
    * in either direction. Null when no span crosses. */
   readonly byteSpanSupport: { readonly region: "copy" } | null;
+  /** Present when any result is a String[]: the generated release that
+   * frees the owned vector AND its elements, which is what makes one
+   * release symbol sufficient for a two-level copy. Null when none. */
+  readonly stringVectorSupport: { readonly releaseSymbol: string } | null;
   readonly constructors: readonly JvmConstructorAdapter[];
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
@@ -224,6 +233,18 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "is a named absence that refuses through the error channel; an empty " +
       "one is a real allocation with length zero",
   },
+  stringVectorSupport: {
+    kind: "translation",
+    custom:
+      "a String[] result is a jobjectArray whose length JNI carries on the " +
+      "object; the adapter normalizes it into the NUL terminator the " +
+      "string-vector contract already speaks, copying each element out " +
+      "through the UTF-16 bridge into an owned vector the named release " +
+      "frees elements-and-all. A null String[] and a null ELEMENT are both " +
+      "named absences that refuse through the error channel - a NULL slot " +
+      "is the terminator, so an element's absence has no spelling that " +
+      "does not end the vector early",
+  },
   constructors: {
     kind: "translation",
     custom:
@@ -296,16 +317,18 @@ function renderArrayType(
 
 /** One position, or null with a precise refusal. A selected class is an
  * ordinary handle; an unselected one is a boundary the caller can move by
- * selecting the class. Arrays admit exactly one element family — byte[],
- * a borrowed span in and an owned copy out — and refuse by element family
- * otherwise, because each family is its own slice with its own demand. */
+ * selecting the class. Arrays admit by element family AND direction:
+ * byte[] crosses both ways, String[] comes back as a NUL-terminated
+ * vector but does not yet cross inward, and everything else refuses by
+ * its family, because each family is its own slice with its own demand. */
 function positionOf(
   type: JvmTypeReference,
   selectedNames: ReadonlySet<string>,
   path: string,
   what: string,
+  role: "parameter" | "result",
   diagnostics: JvmDiagnostic[],
-): JvmAdapterPosition | { readonly kind: "void" } | null {
+): JvmAdapterPosition | JvmAdapterResult | null {
   if (type.kind === "void") return { kind: "void" };
   if (type.kind === "primitive") {
     return { kind: "primitive", primitive: type.name };
@@ -332,11 +355,20 @@ function positionOf(
   if (isByteArray) {
     return { kind: "byte-span" };
   }
+  const isStringArray = type.dimensions === 1 &&
+    type.element.kind === "object" &&
+    type.element.binaryName === "java/lang/String";
+  if (isStringArray && role === "result") {
+    return { kind: "string-vector" };
+  }
   diagnostics.push(
     diagnostic(
       path,
-      `${what} is array type '${renderArrayType(type)}', whose element ` +
-        "family is not yet projected",
+      isStringArray
+        ? `${what} is String[], which crosses only as a result today; ` +
+          "the string-vector argument projection is a named next slice"
+        : `${what} is array type '${renderArrayType(type)}', whose element ` +
+          "family is not yet projected",
     ),
   );
   return null;
@@ -361,9 +393,13 @@ function resolveSignature(
       selectedNames,
       `${path}/parameters/${index}`,
       `Parameter ${index}`,
+      "parameter",
       diagnostics,
     );
-    if (position === null || position.kind === "void") refused = true;
+    if (
+      position === null || position.kind === "void" ||
+      position.kind === "string-vector"
+    ) refused = true;
     else parameters.push(position);
   });
   const result = positionOf(
@@ -371,6 +407,7 @@ function resolveSignature(
     selectedNames,
     `${path}/result`,
     "Result",
+    "result",
     diagnostics,
   );
   if (result === null || refused) return null;
@@ -433,6 +470,7 @@ export function generateJvmAdapterSource(
   );
   let usesStrings = false;
   let usesByteSpans = false;
+  let usesStringVectors = false;
 
   /* Releases every bridged local built before `before`, for the path where
    * a later bridge refuses; strings and byte spans clean each other up. */
@@ -611,6 +649,11 @@ export function generateJvmAdapterSource(
       const adapterSymbol = `${prefix}_call_${classToken}_${method.name}${suffix}`;
       const result = signature.result;
       if (result.kind === "byte-span") usesByteSpans = true;
+      if (result.kind === "string-vector") {
+        usesStringVectors = true;
+        /* Elements cross through the same bridge single strings do. */
+        usesStrings = true;
+      }
       const returnType = result.kind === "void"
         ? "void"
         : result.kind === "primitive"
@@ -619,7 +662,9 @@ export function generateJvmAdapterSource(
             ? "char *"
             : result.kind === "byte-span"
               ? "uint8_t *"
-              : "void *";
+              : result.kind === "string-vector"
+                ? "char **"
+                : "void *";
       const callName = result.kind === "void"
         ? "Void"
         : result.kind === "primitive"
@@ -706,6 +751,54 @@ export function generateJvmAdapterSource(
                   `  (*env)->DeleteLocalRef(env, resultString);`,
                   `  return owned;`,
                 ]
+              : result.kind === "string-vector"
+                ? [
+                    /* A String[] result: JNI carries the length on the
+                     * object; the adapter normalizes it into the NUL
+                     * terminator the contract speaks, copying elements out
+                     * through the UTF-16 bridge. A null String[] and a
+                     * null ELEMENT both refuse - a NULL slot IS the
+                     * terminator, so an element's absence has no spelling
+                     * that does not end the vector early. */
+                    `  jobjectArray resultVector = (jobjectArray)${call};`,
+                    ...bridgedEpilogue(signature.parameters),
+                    `  if ((*env)->ExceptionCheck(env)) {`,
+                    `    ${prefix}_capture(env, error);`,
+                    `    return NULL;`,
+                    `  }`,
+                    `  if (resultVector == NULL) {`,
+                    `    *error = ${prefix}_message(`,
+                    `        "Java method returned a null String[], which the string vector result contract rejects");`,
+                    `    return NULL;`,
+                    `  }`,
+                    `  jsize vectorCount = (*env)->GetArrayLength(env, resultVector);`,
+                    `  char **vector =`,
+                    `      (char **)calloc((size_t)vectorCount + 1, sizeof(char *));`,
+                    `  if (vector == NULL) {`,
+                    `    fprintf(stderr, "${prefix}: out of memory copying a String[] result\\n");`,
+                    `    abort();`,
+                    `  }`,
+                    `  for (jsize i = 0; i < vectorCount; i++) {`,
+                    `    jstring element =`,
+                    `        (jstring)(*env)->GetObjectArrayElement(env, resultVector, i);`,
+                    `    if ((*env)->ExceptionCheck(env)) {`,
+                    `      ${prefix}_capture(env, error);`,
+                    `    } else if (element == NULL) {`,
+                    `      *error = ${prefix}_message(`,
+                    `          "Java string array carries a null element, which the NUL-terminated vector rejects");`,
+                    `    } else {`,
+                    `      vector[i] = ${prefix}_jstring_to_utf8(env, element, error);`,
+                    `      (*env)->DeleteLocalRef(env, element);`,
+                    `    }`,
+                    `    if (*error != NULL) {`,
+                    `      ${prefix}_strv_free(vector);`,
+                    `      (*env)->DeleteLocalRef(env, resultVector);`,
+                    `      return NULL;`,
+                    `    }`,
+                    `  }`,
+                    `  (*env)->DeleteLocalRef(env, resultVector);`,
+                    `  return vector;`,
+                  ]
               : result.kind === "byte-span"
                 ? [
                     /* A byte-span result is an owned copy out of JNI's own
@@ -777,6 +870,7 @@ export function generateJvmAdapterSource(
   const envHelperSymbol = `${prefix}_env`;
   const bindVmSymbol = `${prefix}_bind_vm`;
   const releaseSymbol = `${prefix}_release`;
+  const strvFreeSymbol = `${prefix}_strv_free`;
   const lines = [
     "/* Generated by @native-typescript/bindgen-jvm. */",
     "#include <jni.h>",
@@ -991,6 +1085,21 @@ export function generateJvmAdapterSource(
           "",
         ]
       : []),
+    ...(usesStringVectors
+      ? [
+          "/* Frees an owned string vector AND its elements: the two-level",
+          " * copy has one release symbol, and this is what makes that",
+          " * sufficient. Also the partial-cleanup path when a later element",
+          " * refuses - calloc keeps the tail NULL, so the walk stops where",
+          " * the copy stopped. */",
+          `void ${strvFreeSymbol}(char **vector) {`,
+          "  if (vector == NULL) return;",
+          "  for (size_t i = 0; vector[i] != NULL; i++) free(vector[i]);",
+          "  free(vector);",
+          "}",
+          "",
+        ]
+      : []),
     "/* The one release: DeleteGlobalRef is class-blind, so one spelling",
     " * serves every stable reference this package hands out, typed at the",
     " * root handle every class identity-upcasts to. */",
@@ -1093,6 +1202,7 @@ export function generateJvmAdapterSource(
     `jint ${bindSymbol}(JNIEnv *env, char **error);`,
     `jint ${bindVmSymbol}(JavaVM *vm, char **error);`,
     `void ${releaseSymbol}(void *ref);`,
+    ...(usesStringVectors ? [`void ${strvFreeSymbol}(char **vector);`] : []),
     `const char *${errorMessageSymbol}(void *error);`,
     `void ${errorReleaseSymbol}(void *error);`,
     ...headerDeclarations,
@@ -1102,7 +1212,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 10,
+    schemaVersion: 11,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -1119,6 +1229,9 @@ export function generateJvmAdapterSource(
       : null,
     byteSpanSupport: usesByteSpans
       ? Object.freeze({ region: "copy" as const })
+      : null,
+    stringVectorSupport: usesStringVectors
+      ? Object.freeze({ releaseSymbol: strvFreeSymbol })
       : null,
     constructors: Object.freeze(constructors),
     staticMethods: Object.freeze(staticMethods),

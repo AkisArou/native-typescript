@@ -50,6 +50,16 @@ if (
  * coverage. */
 if (Widget.reverseBytes(new Uint8Array(0)).length !== 0) failed = true;
 
+/* A String[] result: JNI's object-carried length comes back as the NUL
+ * terminator the string-vector contract speaks; each element crosses the
+ * UTF-16 bridge, non-BMP text included. */
+const words = Widget.splitWords("alpha beta 🎉");
+if (
+  words.length !== 3 || words[0] !== "alpha" || words[1] !== "beta" ||
+  words[2] !== "🎉"
+) failed = true;
+if (Widget.emptyWords().length !== 0) failed = true;
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a

@@ -118,6 +118,7 @@ test(
               "nativeHandle",
               "sumBytes",
               "reverseBytes",
+              "splitWords",
               { name: "resize", descriptor: "(II)V" },
               { name: "resize", descriptor: "(D)V" },
             ],
@@ -277,6 +278,18 @@ test(
         reverseBytes?.clangType,
         "uint8_t *(*)(const uint8_t *, size_t, size_t *, char **)",
       );
+      /* A string-vector result and its two-level release, byte-exact. */
+      const splitWords = evidence.functions.find(({ symbol }) =>
+        symbol.endsWith("_splitWords")
+      );
+      assert.equal(
+        splitWords?.clangType,
+        "char **(*)(const char *, char **)",
+      );
+      const strvFree = evidence.functions.find(({ symbol }) =>
+        symbol.endsWith("_strv_free")
+      );
+      assert.equal(strvFree?.clangType, "void (*)(char **)");
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }

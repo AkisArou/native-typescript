@@ -525,6 +525,25 @@ export function generateJvmScabiPackage(
     });
   }
 
+  function needStringVectorResultTypes(): void {
+    /* The element is an owned, NON-null mutable string: a NULL slot is the
+     * terminator, so element absence is unrepresentable by construction. */
+    types["utf8_owned"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    });
+    types["utf8_vector"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "utf8_owned",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    });
+  }
+
   /** One adapter position's manifest parameters — one slot for every
    * family except a byte span, whose single source value crosses as the
    * bytes contract's pair: a borrowed const pointer plus the usize length
@@ -614,6 +633,7 @@ export function generateJvmScabiPackage(
     if (position.kind === "string") return "string | null";
     /* Two physical slots, one source value: the view and its byteLength. */
     if (position.kind === "byte-span") return "Uint8Array";
+    if (position.kind === "string-vector") return "string[]";
     return scalarProjections[position.primitive].sourceType;
   }
 
@@ -716,6 +736,26 @@ export function generateJvmScabiPackage(
             nullable: true,
             ownership: Object.freeze({ kind: "value" as const }),
             marshal: Object.freeze({ ...stringMarshal, release: "free" }),
+          }))
+        : method.result.kind === "string-vector"
+        ? (needStringVectorResultTypes(),
+          Object.freeze({
+            /* An owned two-level copy the projection consumes; the one
+             * release the marshal names frees elements and vector both,
+             * which is the adapter's generated spelling. Non-null: a null
+             * String[] refuses at the adapter as a named absence, exactly
+             * as a null byte[] does. */
+            type: "utf8_vector",
+            passMode: "pointer" as const,
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" as const }),
+            marshal: Object.freeze({
+              kind: "string-vector" as const,
+              encoding: "utf-8" as const,
+              termination: "nul" as const,
+              embeddedNul: "reject" as const,
+              release: options.adapter.stringVectorSupport!.releaseSymbol,
+            }),
           }))
         : method.result.kind === "byte-span"
         ? (needByteSpanResultTypes(),

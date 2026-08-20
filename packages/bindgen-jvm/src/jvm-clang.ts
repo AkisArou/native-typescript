@@ -40,6 +40,7 @@ function resultCType(result: JvmAdapterResult): string {
   if (result.kind === "void") return "void";
   if (result.kind === "string") return "char*";
   if (result.kind === "byte-span") return "uint8_t*";
+  if (result.kind === "string-vector") return "char**";
   if (result.kind === "primitive") return jniCTypes[result.primitive];
   return "void*";
 }
@@ -82,6 +83,16 @@ export function generateJvmClangAbiProbe(
       "void",
       ["void*"],
     ),
+    ...(adapter.stringVectorSupport === null
+      ? []
+      : [
+          candidate(
+            `jvm.strv.${adapter.stringVectorSupport.releaseSymbol}`,
+            adapter.stringVectorSupport.releaseSymbol,
+            "void",
+            ["char**"],
+          ),
+        ]),
     candidate(
       `jvm.error.message.${adapter.errorSupport.messageSymbol}`,
       adapter.errorSupport.messageSymbol,

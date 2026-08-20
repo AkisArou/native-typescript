@@ -76,6 +76,22 @@ public class Widget {
     return null;
   }
 
+  public static String[] splitWords(String text) {
+    return text.split(" ");
+  }
+
+  public static String[] emptyWords() {
+    return new String[0];
+  }
+
+  public static String[] nullElement() {
+    return new String[] {"a", null};
+  }
+
+  public static int countTags(String[] tags) {
+    return tags.length;
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

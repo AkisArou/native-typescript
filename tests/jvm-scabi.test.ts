@@ -50,6 +50,7 @@ function snapshot() {
             "greet",
             "sumBytes",
             "reverseBytes",
+            "splitWords",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -210,6 +211,34 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     mutability: "mutable",
     release: "free",
   });
+
+  // A String[] result: an owned NUL-terminated vector whose one release —
+  // the adapter's generated symbol — frees elements and vector both. The
+  // element type is non-null by construction: a NULL slot is the
+  // terminator, so element absence is unrepresentable.
+  assert.match(
+    generated.declarations,
+    /static splitWords\(a0: string \| null\): string\[\];/u,
+  );
+  const splitBinding =
+    generated.manifest.bindings["fixture.fixture.widget.splitwords"];
+  assert.ok(splitBinding !== undefined && splitBinding.kind !== "constant");
+  assert.equal(splitBinding.signature.result.type, "utf8_vector");
+  assert.equal(splitBinding.signature.result.nullable, false);
+  assert.deepEqual(splitBinding.signature.result.marshal, {
+    kind: "string-vector",
+    encoding: "utf-8",
+    termination: "nul",
+    embeddedNul: "reject",
+    release: "nts_jvm_fixture_strv_free",
+  });
+  assert.deepEqual(generated.manifest.types["utf8_vector"], {
+    kind: "pointer",
+    pointee: "utf8_owned",
+    mutability: "mutable",
+    nullable: false,
+    addressSpace: 0,
+  });
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
@@ -322,4 +351,14 @@ test("each ownership shape translates through the neutral compiler input", () =>
     ({ projection }) => projection.kind === "errorOut",
   );
   assert.equal(reverse.parameters.indexOf(lengthOut!), errorSlotIndex - 1);
+
+  // A String[] RESULT: the projection copies the terminated vector into a
+  // managed string array and disposes through the adapter's one release.
+  const split = binding("fixture.fixture.widget.splitwords");
+  assert.equal(split.error.detect.kind, "outParameterIsNotNull");
+  assert.deepEqual(split.result.projection, {
+    kind: "utf8CStringArray",
+    nullable: false,
+    release: { kind: "symbol", symbol: "nts_jvm_fixture_strv_free" },
+  });
 });

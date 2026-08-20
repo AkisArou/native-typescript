@@ -38,6 +38,9 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "sumBytes",
     "reverseBytes",
     "nullBytes",
+    "splitWords",
+    "emptyWords",
+    "nullElement",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -103,7 +106,17 @@ test("the adapter source is deterministic and carries its member table", () => {
 
   assert.deepEqual(
     first.staticMethods.map(({ name }) => name).sort(),
-    ["checkedAdd", "greet", "nullBytes", "reverseBytes", "sumBytes", "withNul"],
+    [
+      "checkedAdd",
+      "emptyWords",
+      "greet",
+      "nullBytes",
+      "nullElement",
+      "reverseBytes",
+      "splitWords",
+      "sumBytes",
+      "withNul",
+    ],
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
@@ -111,6 +124,18 @@ test("the adapter source is deterministic and carries its member table", () => {
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
   assert.deepEqual(first.byteSpanSupport, { region: "copy" });
+  // One release frees the vector and its elements; its symbol is what the
+  // manifest's string-vector marshal names.
+  assert.ok(first.stringVectorSupport !== null);
+  assert.ok(
+    first.source.includes(
+      `void ${first.stringVectorSupport!.releaseSymbol}(char **vector)`,
+    ),
+  );
+  const splitWords = first.staticMethods.find(
+    ({ name }) => name === "splitWords",
+  )!;
+  assert.deepEqual(splitWords.result, { kind: "string-vector" });
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
   assert.deepEqual(sumBytes.parameters, [{ kind: "byte-span" }]);
   const resizeSymbols = first.instanceMethods
@@ -150,6 +175,7 @@ test("every generated-C family carries a classification", () => {
       "release",
       "staticMethods",
       "stringSupport",
+      "stringVectorSupport",
     ],
   );
   // The env lookup is the package's one declared gap; everything else is a
@@ -178,6 +204,28 @@ test("positions outside the slice algebra are refused precisely", () => {
     );
     const messages = error.diagnostics.map(({ message }) => message).join("\n");
     assert.match(messages, /array type 'int\[\]', whose element family/u);
+  }
+});
+
+test("a String[] argument refuses while the result crosses", () => {
+  // The failing program for the string-vector ARGUMENT slice: countTags
+  // takes String[] and today only the result direction is projected.
+  const withCount = ingestSurface([
+    { binaryName: "fixture/Widget", methods: ["countTags"] },
+  ]);
+  try {
+    generateJvmAdapterSource(withCount, { packageSlug: "fixture" });
+    assert.fail("expected JvmGenerationError");
+  } catch (error) {
+    assert.ok(error instanceof JvmGenerationError);
+    assert.deepEqual(
+      error.diagnostics.map(({ code }) => code),
+      ["NTS7001"],
+    );
+    assert.match(
+      error.diagnostics[0]!.message,
+      /String\[\], which crosses only as a result/u,
+    );
   }
 });
 
@@ -242,6 +290,16 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const nullBytesSymbol = adapter.staticMethods.find(
       ({ name }) => name === "nullBytes",
     )!.adapterSymbol;
+    const splitWordsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "splitWords",
+    )!.adapterSymbol;
+    const emptyWordsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "emptyWords",
+    )!.adapterSymbol;
+    const nullElementSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "nullElement",
+    )!.adapterSymbol;
+    const strvFreeSymbol = adapter.stringVectorSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
@@ -316,6 +374,22 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  reversed = ${nullBytesSymbol}(&outLength, &error);`,
       "  if (reversed != NULL || error == NULL ||",
       `      strstr(${messageSymbol}(error), "null byte[]") == NULL) return 32;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
+      /* String[] result: a real vector with a NUL terminator the adapter
+       * synthesized, the empty vector as one terminator slot, and a null
+       * element refusing rather than truncating the vector early. */
+      `  char **words = ${splitWordsSymbol}("alpha beta", &error);`,
+      "  if (words == NULL || error != NULL) return 33;",
+      '  if (words[0] == NULL || strcmp(words[0], "alpha") != 0 ||',
+      '      words[1] == NULL || strcmp(words[1], "beta") != 0 ||',
+      "      words[2] != NULL) return 34;",
+      `  ${strvFreeSymbol}(words);`,
+      `  words = ${emptyWordsSymbol}(&error);`,
+      "  if (words == NULL || error != NULL || words[0] != NULL) return 35;",
+      `  ${strvFreeSymbol}(words);`,
+      `  words = ${nullElementSymbol}(&error);`,
+      "  if (words != NULL || error == NULL ||",
+      `      strstr(${messageSymbol}(error), "null element") == NULL) return 36;`,
       `  ${releaseSymbol}(error); error = NULL;`,
       `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",

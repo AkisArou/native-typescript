@@ -75,6 +75,8 @@ test(
             "greet",
             "sumBytes",
             "reverseBytes",
+            "splitWords",
+            "emptyWords",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
