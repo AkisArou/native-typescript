@@ -105,7 +105,7 @@ test("a compiler that implements a different contract is refused", () => {
     protocolVersion: 1,
     /* One version behind and otherwise identical: the shape a stale build
      * actually has, not a wholly foreign object. */
-    irVersion: 42,
+    irVersion: 43,
     executablePlanVersion: 1,
     libraryPlanVersion: 1,
     externalCcPlanVersion: 1,
@@ -116,7 +116,7 @@ test("a compiler that implements a different contract is refused", () => {
     (error: Error) => {
       /* Both sides named, and the remedy, because the likely cause is a
        * build older than the checkout rather than a foreign fork. */
-      assert.match(error.message, /irVersion: expected 43, found 42/u);
+      assert.match(error.message, /irVersion: expected 44, found 43/u);
       assert.match(error.message, /its build is stale/u);
       assert.match(error.message, /pnpm scriptc:build/u);
       /* And only the version that moved is reported. */
@@ -136,7 +136,7 @@ test("a compiler that implements a different contract is refused", () => {
     {
       protocol: "scriptc.embedder",
       protocolVersion: 1,
-      irVersion: 43,
+      irVersion: 44,
       executablePlanVersion: 1,
       libraryPlanVersion: 1,
       externalCcPlanVersion: 1,

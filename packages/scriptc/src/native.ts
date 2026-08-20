@@ -2963,12 +2963,14 @@ export function translateScabiNativeProgram(
         marshal.termination !== "none" ||
         marshal.embeddedNul !== "allow" ||
         binding.signature.result.passMode !== "pointer" ||
-        binding.signature.result.nullable ||
         /* Consumed by the projection: the text is copied into managed storage
          * and the pointer disposed inside the call. */
         binding.signature.result.ownership.kind !== "value" ||
         pointer?.kind !== "pointer" ||
-        pointer.nullable ||
+        /* The pointer's nullability and the position's must agree. A slot
+         * that admits absence described by a type that does not is a
+         * contract disagreeing with itself. */
+        pointer.nullable !== binding.signature.result.nullable ||
         pointer.addressSpace !== 0 ||
         pointee?.kind !== "integer" ||
         pointee.bits !== 8
@@ -2976,9 +2978,10 @@ export function translateScabiNativeProgram(
         diagnostics.push(diagnostic(
           "NTS3002",
           resultPath,
-          "a UTF-8 span result must be a non-null 8-bit pointer consumed by the " +
-            "projection, admitting embedded NUL with no terminator, and its " +
-            "length in the compiler's slot",
+          "a UTF-8 span result must be an 8-bit pointer consumed by the " +
+            "projection, admitting embedded NUL with no terminator, its " +
+            "length in the compiler's slot, and its nullability matching " +
+            "the pointer that carries it",
         ));
         valid = false;
       } else {
@@ -2991,6 +2994,7 @@ export function translateScabiNativeProgram(
         resultOwnership = Object.freeze({ kind: "value" });
         resultProjection = Object.freeze({
           kind: "utf8Span",
+          nullable: binding.signature.result.nullable,
           release: marshal.release === undefined
             ? Object.freeze({ kind: "none" } as const)
             : Object.freeze({ kind: "symbol", symbol: marshal.release } as const),

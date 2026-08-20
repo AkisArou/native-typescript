@@ -1686,6 +1686,7 @@ test("text that may contain NUL crosses out with a length, not a terminator", ()
 
   assert.deepEqual(lowered?.result.projection, {
     kind: "utf8Span",
+    nullable: false,
     release: { kind: "symbol", symbol: "nts_cstring_free" },
   });
   /* Consumed by the projection: the text is copied into managed storage and
@@ -1699,6 +1700,41 @@ test("text that may contain NUL crosses out with a length, not a terminator", ()
     ),
     true,
   );
+
+  /* And the same projection admits absence, because a producer may need both
+   * facts at once and no metadata separates them: a Java String result is
+   * routinely null AND may contain U+0000, with nothing in a class file
+   * saying which methods do which. A projection offering only one would force
+   * a boundary to choose between refusing ordinary absence and refusing
+   * ordinary text. */
+  const nullableText = structuredClone(spanText);
+  const nullableBinding = nullableText.bindings.bytes_reverse;
+  assert.notEqual(nullableBinding?.kind, "constant");
+  if (nullableBinding === undefined || nullableBinding.kind === "constant") return;
+  Object.assign(nullableBinding.signature.result, { nullable: true });
+  const nullablePointer = nullableText.types[nullableBinding.signature.result.type];
+  assert.equal(nullablePointer?.kind, "pointer");
+  if (nullablePointer?.kind === "pointer") {
+    Object.assign(nullablePointer, { nullable: true });
+  }
+  const nullableResult = translateScabiNativeProgram(
+    nullableText,
+    selectImports(["bytes_reverse"]),
+  );
+  assert.equal(
+    nullableResult.ok,
+    true,
+    nullableResult.ok ? undefined : JSON.stringify(nullableResult.diagnostics),
+  );
+  if (!nullableResult.ok) return;
+  const nullableLowered = nullableResult.input.bindings.find(({ id }) =>
+    id.endsWith("#bytes_reverse")
+  );
+  assert.deepEqual(nullableLowered?.result.projection, {
+    kind: "utf8Span",
+    nullable: true,
+    release: { kind: "symbol", symbol: "nts_cstring_free" },
+  });
 
   /* A terminator and an embedded NUL cannot both be admitted: the first NUL
    * would end a value the contract says may contain one. */
