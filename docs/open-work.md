@@ -72,26 +72,27 @@ cannot enter a shared object — the exact defect the PIC gate was written for,
 reintroduced through the door that was holding it shut. The two are one slice,
 in that order.
 
-### C and LLVM disagree about `callbacksMayThrow` — a live defect
+### C and LLVM throw-checkpoint divergence — FIXED (fork 804e8cd1)
 
-Found while surveying the legalizer's scope, and it is exactly the class
-[0004](records/0004-one-decision-two-backends.md) exists for.
+Kept here because the SHAPE recurs. C treated any callback argument as a throw
+checkpoint; LLVM additionally required call-scoped ownership, so the two
+disagreed about where an unwind belongs for every owner-scoped retained
+callback — a signal connected to a handle. The predicate gates 8 of 20
+pending-check sites.
 
-`emit-exprs.ts` tests `argument.type.kind === "func"`. `llvm/emitter.ts`
-additionally requires `argument.callback?.owner.kind === "call"`. So a binding
-with an OWNER-scoped retained callback — `owner.kind` of `"result"` or
-`"argument"` — inside a module with no process-scoped registration is a throw
-checkpoint in C and not in LLVM. The predicate gates 8 of the 20 pending-check
-sites, so the two backends unwind at different points.
+It survived because the decision was never given a type. The exhaustiveness
+guards only see arms of `NativeResultForm`/`NativeArgumentForm`; a decision
+read straight off the binding in both files is outside the mechanism entirely.
+The survey that found it counted three of six shared vocabularies guarded on
+both backends, one on a single backend, and two on neither —
+`NativeTrampolineShape`, `NativeClosureSource` and `NativeCallSetup` all fall
+through to a default in at least one emitter.
 
-A GTK signal connected to a widget handle is that shape. The exhaustiveness
-guards cannot see it because the decision was never given a type — it is read
-straight off the binding in both files, outside every shared form.
-
-**What would admit it:** it is a defect, not a feature; it needs no admitting
-program. What it needs is a test that can observe a backend-dependent unwind
-POINT rather than a backend-dependent outcome, since both backends do
-eventually unwind.
+`nativeCallIsThrowCheckpoint` now lives in `native-call-plan.ts`, and the fix
+carried the first test that imports that module directly. Everything there had
+been covered end-to-end only, which catches a decision that is WRONG and is
+useless against one that is merely DIFFERENT on the two sides — both emit a
+working program, just not the same one.
 
 ### `validate.ts` restates manifest unions instead of importing them
 
@@ -124,9 +125,18 @@ covers 12 of 14 arms with no `default`, so a new arm gets no validation and a
 misleading "incomplete or ambiguous ABI projection" message; and one
 `release` shape check is copied identically four times.
 
-**What would admit it:** a defect, not a feature. It is worth doing before the
-legalizer, since the legalizer's whole premise is one decision living in one
-place.
+**Mostly landed** in fork 56ea70ce. `Untrusted<T>` derives the loosened view
+from the published union, so neither result-side site enumerates arms any
+more and omission is structurally impossible. The parameter switch gained the
+`default` it never had, binding `never`, so a new parameter arm upstream stops
+the file compiling. The four identical release checks are one function.
+
+**What remains:** the terminal `kind !== ... && kind !== ...` whitelist in the
+call-site chain still restates the arms handled above it. Removing it means
+turning a long if/else ladder into a switch — a restructure, not a correctness
+fix, and a new arm reaching it now fails loudly rather than silently. Worth
+folding into the legalizer work rather than doing alone, since that pass
+rewrites the same ladder.
 
 ### Backend-neutral foreign-boundary legalizer
 
