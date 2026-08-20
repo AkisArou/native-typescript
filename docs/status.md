@@ -243,10 +243,13 @@ What remains refused, measured rather than assumed:
   no terminated variant exists, and the elements already project. The same
   arm, wanted for opposite reasons, and admitted when the platform whose
   elements already work asks for it.
-- **A property whose accessors disagree about the vector is refused.** That is
-  `css-classes`: the getter hands over a vector the caller frees and the
-  setter borrows one it does not, which is normal for a vector property and is
-  not one type. Either accessor alone is reachable, so no member is lost.
+- **A property whose accessors disagree about the TYPE is refused** — but not
+  one that disagrees only about the C spelling. `css-classes` projects: the
+  getter hands over a vector (`char **`) and the setter borrows one
+  (`const char **`), and GIR names `array<utf8>` in both, so the difference is
+  ownership and constness rather than type. Three GTK pairs still refuse, and
+  each genuinely is not one property: two setters take a length beside their
+  value, and one getter is a void method filling an out-parameter.
 
 **A span's length says what it counts.** Both readings appear in real
 signatures — a `memcpy`-shaped function takes bytes, an array-shaped one takes

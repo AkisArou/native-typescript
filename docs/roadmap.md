@@ -553,8 +553,11 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3227 bindings project and 797 members are refused**,
-with twelve namespaces supplied as imports. A bucket naming a qualified type
+Measured that way: **3057 bindings project and 799 members are refused**,
+with twelve namespaces supplied as imports. (The projected count fell from an
+earlier 3227 when one release per upcast chain replaced one per class — 182
+fewer generated symbols for the same coverage, which is why a binding count
+is only comparable within one generator revision.) A bucket naming a qualified type
 whose namespace is NOT in that supplied list is an unsupplied import rather
 than a gap in the algebra; one naming an unqualified type is a real gap.
 
@@ -570,11 +573,12 @@ The ordered list, largest first:
 - **A parameter outside the slice — 21**, unqualified and therefore real.
 - **`filename` — 20**, still a path-encoding decision rather than a
   projection.
-- **A property whose accessors disagree — 18 pairs**, and not one member as
-  first recorded. A vector or owned-string getter hands over storage the
-  setter borrows, which is normal for such a property and is not one type.
-  Both accessors stay individually reachable, so nothing is lost, but 36
-  members are spelled as methods where a property would read better.
+- **A property whose accessors disagree — 3 pairs**, down from 18. The
+  fifteen that moved differed only in C SPELLING: a getter handing over
+  storage writes `char **` where the setter borrowing it writes
+  `const char **`, and GIR names the same type in both. What remains is
+  genuinely not one property — two setters take a length beside their value,
+  and one getter is a void method filling an out-parameter.
 - **A boxed record from a caller-allocated output — 15**, which the boxed
   work below already anticipates.
 
