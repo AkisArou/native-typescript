@@ -84,10 +84,11 @@ test(
             "reverseFloats",
             "measure",
             "ping",
+            "tick",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
-          callbacks: ["onPing"],
+          callbacks: ["onPing", "onTick"],
         },
       ],
       target: {

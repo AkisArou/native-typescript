@@ -113,8 +113,27 @@ try {
 }
 if (!pingThrew) failed = true;
 
-/* The VM is deliberately not destroyed: the runtime releases live handles
+/* The queued inward direction: tick's deliveries drain AFTER this file's
+ * top level returns, at the runtime's pump, so the exit-code decision
+ * moves into the handler — the shape a platform lifecycle forces anyway.
+ * The handler receives its sender, proves the payloads arrive in order,
+ * and disconnects so the loop can exhaust.
+ *
+ * The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
- * anyway - process exit is its honest end. applicationStop exists for a
- * program that has released everything and knows it. */
-applicationComplete(failed ? 1 : 0);
+ * anyway - process exit is its honest end. */
+let ticks = 0;
+let deliveries = 0;
+const tickConnection = widget.onTick((sender, value) => {
+  if (sender.depth() !== 7) failed = true;
+  if (value !== deliveries) failed = true;
+  deliveries += 1;
+  ticks += value;
+  if (deliveries === 3) {
+    tickConnection.disconnect();
+    applicationComplete(failed || ticks !== 3 ? 1 : 0);
+  }
+});
+widget.tick(3);
+/* Top level ends here; the pump drains the three deliveries and the
+ * handler above decides the exit code. */

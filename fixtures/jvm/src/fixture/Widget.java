@@ -131,6 +131,15 @@ public class Widget {
     return accepted;
   }
 
+  /** The queued inward direction: answers nothing, delivered at the pump. */
+  public native void onTick(int value);
+
+  public void tick(int count) {
+    for (int i = 0; i < count; i++) {
+      onTick(i);
+    }
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

@@ -834,10 +834,11 @@ export function generateJvmScabiPackage(
         variadic: false as const,
         parameters: Object.freeze(callbackParameters),
         result: Object.freeze({
-          /* The answered contract: the handler's boolean IS the emitting
-           * call's result, which is what lets delivery run on the caller's
-           * thread with no queue. */
-          type: needScalar("boolean"),
+          /* Answered: the handler's boolean IS the emitting call's result,
+           * which is what lets delivery run on the caller's thread with no
+           * queue. Queued: nothing comes back, and delivery runs at the
+           * runtime's pump. */
+          type: callback.answers ? needScalar("boolean") : "void",
           passMode: "value" as const,
           nullable: false,
           ownership: Object.freeze({ kind: "value" as const }),
@@ -874,19 +875,32 @@ export function generateJvmScabiPackage(
             allowedInvocationExecutors: Object.freeze([
               Object.freeze({ kind: "same-as-caller" as const }),
             ]),
-            synchronousReturn: true,
+            synchronousReturn: callback.answers,
+            /* An answered handler borrows during the call; a queued one is
+             * copied because delivery outlives the emission. */
             arguments: Object.freeze(callbackParameters.map((parameter) =>
               Object.freeze({
                 parameter: parameter.name,
-                transport: "borrow" as const,
+                transport: callback.answers
+                  ? ("borrow" as const)
+                  : ("copy" as const),
               })
             )),
-            sourceArguments: Object.freeze(callbackParameters.map((parameter) =>
-              Object.freeze({
-                kind: "callback-parameter" as const,
-                parameter: parameter.name,
-              })
-            )),
+            sourceArguments: Object.freeze([
+              /* A queued handler receives its sender; an answering one does
+               * not — injecting one would mean a managed handle for the
+               * length of the call, which a borrowed payload does not have.
+               * The same reasoning the GObject contract states. */
+              ...(callback.answers
+                ? []
+                : [Object.freeze({ kind: "registration-owner" as const })]),
+              ...callbackParameters.map((parameter) =>
+                Object.freeze({
+                  kind: "callback-parameter" as const,
+                  parameter: parameter.name,
+                })
+              ),
+            ]),
           }),
         }),
         Object.freeze({
@@ -911,12 +925,18 @@ export function generateJvmScabiPackage(
       bindingDependencies: [connectionDisconnectId, connectionReleaseId],
     }));
     adapterBindings.push(bindingId);
-    const handlerParameters = callback.parameters
-      .map((parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`)
-      .join(", ");
+    const handlerParameters = [
+      /* The queued handler's first argument is its sender. */
+      ...(callback.answers ? [] : [`sender: ${className}`]),
+      ...callback.parameters.map(
+        (parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`,
+      ),
+    ].join(", ");
     declareMember(
       callback.className,
-      `  ${callback.name}(callback: (${handlerParameters}) => boolean): JvmConnection;`,
+      `  ${callback.name}(callback: (${handlerParameters}) => ${
+        callback.answers ? "boolean" : "void"
+      }): JvmConnection;`,
     );
   }
 

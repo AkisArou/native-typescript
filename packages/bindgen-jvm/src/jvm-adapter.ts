@@ -108,14 +108,17 @@ export interface JvmReleaseAdapter {
 }
 
 /** One callback registration point: a native method whose implementation
- * TypeScript provides, answered synchronously on the caller's thread. */
+ * TypeScript provides. An ANSWERED one (boolean result) runs during the
+ * emitting call on the caller's thread; a QUEUED one (void result) is
+ * delivered at the runtime's pump. */
 export interface JvmCallbackAdapter {
   readonly className: string;
   readonly name: string;
   readonly descriptor: string;
   readonly connectSymbol: string;
-  /** Exact scalars only — the answered contract's set. */
+  /** Exact scalars only — the retained contract's payload set. */
   readonly parameters: readonly JvmAdapterPosition[];
+  readonly answers: boolean;
 }
 
 /** The shared connection machinery, present when any callback is selected:
@@ -140,7 +143,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 14;
+  readonly schemaVersion: 15;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -280,9 +283,9 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "a second connect answers NULL through the nullable contract. Java " +
       "calling with no live registration gets IllegalStateException - the " +
       "absence is the JAVA caller's to catch, and it names the method. " +
-      "Delivery is answered-synchronous on the caller's thread only: the " +
-      "non-answering variant queues onto the runtime owner, which needs a " +
-      "pump this runtime does not yet have",
+      "An answered callback runs during the emitting call because its " +
+      "boolean is that call's result; a queued one enqueues at the " +
+      "trampoline and is delivered at the runtime's pump",
   },
   connectionSupport: {
     kind: "translation",
@@ -1092,15 +1095,12 @@ export function generateJvmAdapterSource(
       });
       const answers = callback.result.kind === "primitive" &&
         callback.result.name === "boolean";
-      if (!answers) {
+      if (!answers && callback.result.kind !== "void") {
         diagnostics.push(diagnostic(
           `${path}/result`,
-          callback.result.kind === "void"
-            ? "A non-answering delivery queues onto the runtime owner, " +
-              "which needs a pump this runtime does not yet have; " +
-              "answered (boolean) callbacks are the implemented arm"
-            : "An answered callback answers with a boolean - the question " +
-              "a platform asks a handler",
+          "A callback answers with a boolean or answers nothing; any other " +
+            "result would make the handler's value the emitting call's " +
+            "without a contract for it",
         ));
         continue;
       }
@@ -1117,7 +1117,11 @@ export function generateJvmAdapterSource(
           ? `${jniCTypes[parameter.primitive]} a${index}`
           : `void *a${index}`
       );
-      const callbackPointer = `jboolean (*)(${[
+      /* An answered trampoline returns the handler's boolean; a queued one
+       * returns nothing - the handler's C thunk enqueues and the delivery
+       * runs at the runtime's pump. */
+      const answerType = answers ? "jboolean" : "void";
+      const callbackPointer = `${answerType} (*)(${[
         ...parameters.map((parameter) =>
           parameter.kind === "primitive" ? jniCTypes[parameter.primitive] : "void *"
         ),
@@ -1129,7 +1133,7 @@ export function generateJvmAdapterSource(
         trampolineSymbol,
       });
       callbackForwardDeclarations.push(
-        `static jboolean JNICALL ${trampolineSymbol}(${[
+        `static ${answerType} JNICALL ${trampolineSymbol}(${[
           "JNIEnv *env",
           "jobject self",
           ...jniParameters,
@@ -1145,7 +1149,7 @@ export function generateJvmAdapterSource(
         `/* ${class_.binaryName}.${callback.name}${callback.descriptor} - Java calls in */`,
         `static ${prefix}_connection *${headVariable};`,
         "",
-        `static jboolean JNICALL ${trampolineSymbol}(${[
+        `static ${answerType} JNICALL ${trampolineSymbol}(${[
           "JNIEnv *env",
           "jobject self",
           ...jniParameters,
@@ -1154,15 +1158,16 @@ export function generateJvmAdapterSource(
         "       connection != NULL; connection = connection->next) {",
         "    if (connection->live &&",
         "        (*env)->IsSameObject(env, connection->instance, self)) {",
-        `      return ((${callbackPointer})connection->callback)(${[
+        `      ${answers ? "return " : ""}((${callbackPointer})connection->callback)(${[
           ...parameters.map((_, index) => `a${index}`),
           "connection->context",
         ].join(", ")});`,
+        ...(answers ? [] : ["      return;"]),
         "    }",
         "  }",
         `  (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
         `      "no TypeScript handler is registered for ${class_.binaryName}.${callback.name}");`,
-        "  return JNI_FALSE;",
+        ...(answers ? ["  return JNI_FALSE;"] : []),
         "}",
         "",
         `void *${connectSymbol}(void *self, ${callbackPointer.replace(
@@ -1210,6 +1215,7 @@ export function generateJvmAdapterSource(
         descriptor: callback.descriptor,
         connectSymbol,
         parameters: Object.freeze([...parameters]),
+        answers,
       }));
     }
     if (
@@ -1670,7 +1676,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 14,
+    schemaVersion: 15,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

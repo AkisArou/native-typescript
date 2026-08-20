@@ -55,10 +55,11 @@ function snapshot() {
             "sumInts",
             "measure",
             "ping",
+            "tick",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
-          callbacks: ["onPing"],
+          callbacks: ["onPing", "onTick"],
         },
       ],
     },
@@ -301,6 +302,27 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     "fixture.connection.disconnect",
   );
   assert.equal(callbackParameter.callback.synchronousReturn, true);
+  // The queued variant: void answer, copied transport, the sender
+  // injected as the handler's first argument.
+  assert.match(
+    generated.declarations,
+    /onTick\(callback: \(sender: Widget, a0: jint\) => void\): JvmConnection;/u,
+  );
+  const tickBinding =
+    generated.manifest.bindings["fixture.fixture.widget.ontick"];
+  assert.ok(tickBinding !== undefined && tickBinding.kind !== "constant");
+  const tickCallback = tickBinding.signature.parameters.find(
+    ({ name }) => name === "callback",
+  );
+  assert.ok(tickCallback?.callback !== undefined);
+  assert.equal(tickCallback.callback.synchronousReturn, false);
+  assert.deepEqual(tickCallback.callback.arguments, [
+    { parameter: "a0", transport: "copy" },
+  ]);
+  assert.ok(tickCallback.callback.sourceArguments !== undefined);
+  assert.deepEqual(tickCallback.callback.sourceArguments[0], {
+    kind: "registration-owner",
+  });
   const connectionType = generated.manifest.types["jvm.connection"];
   assert.ok(connectionType !== undefined && connectionType.kind === "handle");
   if (connectionType.kind === "handle") {

@@ -1,8 +1,10 @@
 #include "nts_jvm_runtime.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "scr_runtime.h"
 
@@ -32,17 +34,82 @@ void nts_jvm_runtime_register(jint (*bind)(JavaVM *, char **)) {
   nts_jvm_binds[nts_jvm_bind_count++] = bind;
 }
 
-/* The retained-callback service's wake pumps QUEUED deliveries onto the
- * owner thread. This target admits only ANSWERED callbacks, which run
- * during the emitting call and queue nothing, so a wake firing means a
- * queued delivery reached a runtime that has no pump - the named next
- * slice, not a recoverable state. */
+/* The pump: the desktop JVM has no native loop of its own, so the queue
+ * IS the platform source — a condition variable the wake signals and the
+ * poll sleeps on. GTK's runtime is the same shape with GLib underneath;
+ * an Android Looper slots in here later the same way. */
+static struct {
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  bool woken;
+} nts_jvm_loop = {
+    PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_COND_INITIALIZER,
+    false,
+};
+
 static void nts_jvm_runtime_wake(void *context) {
   (void)context;
-  fprintf(stderr,
-          "nts_jvm_runtime: a queued delivery reached a runtime with no "
-          "pump; only answered callbacks are admitted\n");
-  abort();
+  pthread_mutex_lock(&nts_jvm_loop.mutex);
+  nts_jvm_loop.woken = true;
+  pthread_cond_signal(&nts_jvm_loop.cond);
+  pthread_mutex_unlock(&nts_jvm_loop.mutex);
+}
+
+static bool nts_jvm_runtime_pending(void *context) {
+  (void)context;
+  return scr_retained_callbacks_pending() != 0;
+}
+
+static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
+                                                      double max_wait_ms) {
+  (void)context;
+  pthread_mutex_lock(&nts_jvm_loop.mutex);
+  if (!nts_jvm_loop.woken && scr_retained_callbacks_pending() == 0 &&
+      max_wait_ms != 0) {
+    if (max_wait_ms < 0) {
+      pthread_cond_wait(&nts_jvm_loop.cond, &nts_jvm_loop.mutex);
+    } else {
+      struct timespec deadline;
+      clock_gettime(CLOCK_REALTIME, &deadline);
+      time_t seconds = (time_t)(max_wait_ms / 1000.0);
+      long nanoseconds =
+          (long)((max_wait_ms - (double)seconds * 1000.0) * 1e6);
+      deadline.tv_sec += seconds;
+      deadline.tv_nsec += nanoseconds;
+      if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+      }
+      /* A spurious or early wake is harmless: the scheduler recomputes its
+       * deadline on the next poll. */
+      pthread_cond_timedwait(&nts_jvm_loop.cond, &nts_jvm_loop.mutex,
+                             &deadline);
+    }
+  }
+  nts_jvm_loop.woken = false;
+  pthread_mutex_unlock(&nts_jvm_loop.mutex);
+
+  /* One host turn: at most one delivery, then the checkpoint the attached
+   * contract requires after each delivered callback. An exception out of a
+   * queued handler has no emitting call to answer to, so it is reported
+   * and the exit code notes the failure rather than aborting the drain. */
+  ScrRetainedCallbackDispatch dispatched = scr_retained_callbacks_dispatch();
+  if (dispatched == SCR_RETAINED_CALLBACK_DISPATCH_EXCEPTION) {
+    fprintf(stderr,
+            "nts_jvm_runtime: uncaught exception in a queued callback\n");
+    scr_exit_code_note(1);
+  }
+  ScrLoopCheckpointResult checkpoint = scr_loop_checkpoint();
+  if (checkpoint == SCR_LOOP_CHECKPOINT_EXCEPTION) {
+    fprintf(stderr,
+            "nts_jvm_runtime: uncaught exception at a loop checkpoint\n");
+    scr_exit_code_note(1);
+  } else if (checkpoint == SCR_LOOP_CHECKPOINT_UNHANDLED_REJECTION) {
+    fprintf(stderr, "nts_jvm_runtime: unhandled promise rejection\n");
+    scr_exit_code_note(1);
+  }
+  return SCR_ATTACHED_LOOP_POLL_COMPLETE;
 }
 
 void nts_jvm_application_start(char **error) {
@@ -98,6 +165,14 @@ void nts_jvm_application_start(char **error) {
         "retained-callback service configuration failed");
     return;
   }
+  if (!scr_loop_set_attached(nts_jvm_runtime_pending, nts_jvm_runtime_poll,
+                             &nts_jvm_loop)) {
+    (void)scr_retained_callbacks_destroy();
+    (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
+    nts_jvm_vm = NULL;
+    *error = nts_jvm_owned_message("attaching the pump to the loop failed");
+    return;
+  }
 }
 
 void nts_jvm_application_stop(void) {
@@ -116,6 +191,7 @@ void nts_jvm_application_stop(void) {
             "nts_jvm_runtime: stopped with live callback registrations\n");
   }
   (void)scr_retained_callbacks_destroy();
+  (void)scr_loop_clear_attached(&nts_jvm_loop);
   (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
   nts_jvm_vm = NULL;
 }

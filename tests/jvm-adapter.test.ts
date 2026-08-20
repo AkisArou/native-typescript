@@ -48,10 +48,11 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "reverseFloats",
     "measure",
     "ping",
+    "tick",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
-  callbacks: Object.freeze(["onPing"]),
+  callbacks: Object.freeze(["onPing", "onTick"]),
 });
 
 function ingestSurface(
@@ -142,6 +143,7 @@ test("the adapter source is deterministic and carries its member table", () => {
       "resize",
       "resize",
       "resized",
+      "tick",
     ],
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
@@ -160,12 +162,16 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.deepEqual(splitWords.result, { kind: "string-vector" });
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
   assert.deepEqual(sumBytes.parameters, [{ kind: "span", elem: "u8" }]);
-  // The inward direction: one registration point, its trampoline installed
-  // at bind, its connection machinery shared.
-  assert.equal(first.callbacks.length, 1);
-  assert.deepEqual(first.callbacks[0]!.parameters, [
-    { kind: "primitive", primitive: "int" },
-  ]);
+  // The inward direction: registration points with their trampolines
+  // installed at bind, the answered/queued split carried on the table.
+  assert.equal(first.callbacks.length, 2);
+  assert.deepEqual(
+    first.callbacks.map(({ name, answers }) => ({ name, answers })),
+    [
+      { name: "onPing", answers: true },
+      { name: "onTick", answers: false },
+    ],
+  );
   assert.ok(first.connectionSupport !== null);
   assert.ok(first.source.includes("RegisterNatives"));
   const resizeSymbols = first.instanceMethods
@@ -374,7 +380,15 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const pingSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "ping",
     )!.adapterSymbol;
-    const connectOnPing = adapter.callbacks[0]!.connectSymbol;
+    const connectOnPing = adapter.callbacks.find(
+      ({ name }) => name === "onPing",
+    )!.connectSymbol;
+    const connectOnTick = adapter.callbacks.find(
+      ({ name }) => name === "onTick",
+    )!.connectSymbol;
+    const tickSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "tick",
+    )!.adapterSymbol;
     const disconnectSymbol = adapter.connectionSupport!.disconnectSymbol;
     const connectionFreeSymbol = adapter.connectionSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
@@ -391,6 +405,10 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "static jboolean nts_test_on_ping(jint value, void *context) {",
       "  *(int *)context += value;",
       "  return value % 2 == 0 ? JNI_TRUE : JNI_FALSE;",
+      "}",
+      "",
+      "static void nts_test_on_tick(jint value, void *context) {",
+      "  *(int *)context += value + 1;",
       "}",
       "",
       "int main(void) {",
@@ -517,6 +535,19 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `      strstr(${messageSymbol}(error), "no TypeScript handler") == NULL) return 51;`,
       `  ${releaseSymbol}(error); error = NULL;`,
       `  ${connectionFreeSymbol}(connection);`,
+      /* The queued trampoline at the C level is an inline call - the queue
+       * exists only in the compiler's thunk - so the void round-trip
+       * proves the plumbing: three ticks accumulate (1+2+3), and release
+       * without a prior disconnect cancels on the way out. */
+      "  int tickContext = 0;",
+      `  void *tickConnection = ${connectOnTick}(w, nts_test_on_tick, &tickContext);`,
+      "  if (tickConnection == NULL) return 52;",
+      `  ${tickSymbol}(w, 3, &error);`,
+      "  if (error != NULL || tickContext != 6) return 53;",
+      `  ${connectionFreeSymbol}(tickConnection);`,
+      `  (void)${tickSymbol}(w, 1, &error);`,
+      "  if (error == NULL) return 54;",
+      `  ${releaseSymbol}(error); error = NULL;`,
       "  size_t measureCount = 0;",
       `  int32_t *measured = (int32_t *)${measureSymbol}(\n      w, "label", JNI_TRUE, &measureCount, &error);`,
       "  if (measured == NULL || error != NULL || measureCount != 2) return 45;",
