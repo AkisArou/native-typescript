@@ -21,6 +21,19 @@ import type {
 
 const identityPattern = /^[A-Za-z0-9][A-Za-z0-9._:/@#+-]*$/u;
 const cIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+/**
+ * An enum member's source-side NAME, which is a label rather than a C
+ * identifier and may therefore begin with a digit.
+ *
+ * A member arrives as a pair: `cIdentifier` is the constant this probe emits
+ * into C (`GTK_LICENSE_0BSD`) and `name` is what the source metadata called
+ * it (`0bsd`). Only the identifier is ever written into the generated
+ * translation unit; the name exists to pair a measurement back to the member
+ * that asked for it. Holding the label to the identifier's rule refused every
+ * enum with a digit-leading member — `2d`, `24h`, `2big`, `802_3` — even
+ * though the C this probe would emit was always well-formed.
+ */
+const memberNamePattern = /^[A-Za-z0-9_][A-Za-z0-9_]*$/u;
 const headerSegmentPattern = /^[A-Za-z0-9_+.-]+$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 const qualifierOrder: readonly CQualifier[] = ["const", "volatile", "restrict"];
@@ -481,7 +494,7 @@ export function generateClangAbiProbe(input: {
     const seenMemberIdentifiers = new Set<string>();
     const members = enum_.members.map((member, memberIndex) => {
       const memberPath = `${path}/members/${memberIndex}`;
-      if (!cIdentifierPattern.test(member.name)) {
+      if (!memberNamePattern.test(member.name)) {
         diagnostics.push(diagnostic(
           "NTS5001",
           `${memberPath}/name`,

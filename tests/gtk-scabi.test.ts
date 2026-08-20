@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   CBindgenError,
   digestClangAbiEvidence,
+  generateClangAbiProbe,
   renderCFunctionPointerType,
   renderCType,
 } from "@native-typescript/bindgen-c";
@@ -72,6 +73,63 @@ function snapshot(
     enumerations: withOrientation
       ? [{ name: "Orientation", members: ["horizontal", "vertical"] }]
       : [],
+  });
+}
+
+/**
+ * An enumeration whose first member's name begins with a digit, and a method
+ * returning it.
+ *
+ * `GTK_LICENSE_0BSD` is the real one this reproduces; `2d`, `24h`, `2big` and
+ * `802_3` are others, across ninety-three enumerations in the installed GIRs.
+ * Three separate layers each assumed a member name is a C identifier, and each
+ * refused it: ingestion dropped the member from the selection, the probe
+ * refused the candidate, and generation could not spell the declaration. Every
+ * method typed by the enumeration disappeared with it, reported as a result
+ * outside the implemented slice — naming the projection rather than the
+ * selection that had already removed the type.
+ */
+function digitLeadingEnumSnapshot(): GirSnapshot {
+  const source = girSource.replace(
+    "  </namespace>",
+    `    <enumeration name="License"
+                 glib:type-name="GtkLicense"
+                 glib:get-type="gtk_license_get_type"
+                 c:type="GtkLicense">
+      <member name="0bsd"
+              value="0"
+              c:identifier="GTK_LICENSE_0BSD"
+              glib:nick="0bsd"
+              glib:name="GTK_LICENSE_0BSD"/>
+      <member name="custom"
+              value="1"
+              c:identifier="GTK_LICENSE_CUSTOM"
+              glib:nick="custom"
+              glib:name="GTK_LICENSE_CUSTOM"/>
+    </enumeration>
+  </namespace>`,
+  ).replace(
+    "<method name=\"get_label\"",
+    `<method name="get_license" c:identifier="gtk_button_get_license">
+        <return-value transfer-ownership="none">
+          <type name="License" c:type="GtkLicense"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Button" c:type="GtkButton*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="get_label"`,
+  );
+  return ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [
+      { name: "Widget" },
+      { name: "Button", methods: ["get_license"] },
+    ],
+    enumerations: [{ name: "License", members: ["0bsd", "custom"] }],
   });
 }
 
@@ -2292,6 +2350,67 @@ test("Clang-proven GTK enums become idiomatic exact constants", () => {
     value: "1",
   }]);
   assert.deepEqual(translated.build, { linkInputs: [], adapterInputs: [] });
+});
+
+test("an enumeration member may begin with a digit at every layer that names it", () => {
+  const selected = digitLeadingEnumSnapshot();
+
+  /* Ingestion. The member has to survive selection, because a refused member
+   * takes its enumeration with it and every method typed by it off the
+   * surface. */
+  const license = selected.enumerations.find((enum_) => enum_.name === "License");
+  assert.ok(license, "the enumeration survived selection");
+  assert.deepEqual(license.members.map((member) => member.name), ["0bsd", "custom"]);
+
+  /* The probe. A member's `name` is the label GIR gave it and its
+   * `cIdentifier` is the constant emitted into C; only the second is a C
+   * identifier, and holding the first to that rule is what refused the
+   * candidate. The emitted translation unit still names the constant, not the
+   * label. */
+  const gobjectAdapter = generateGObjectAdapterSource(selected, []);
+  const girProbe = generateGirClangAbiProbe(selected, gobjectAdapter, []);
+  const licenseCandidate = girProbe.enums.find(
+    (enum_) => enum_.id === "Gtk.License.enumeration",
+  );
+  assert.ok(licenseCandidate, "the enumeration reached the probe");
+  assert.deepEqual(
+    licenseCandidate.members.map((member) => member.name),
+    ["0bsd", "custom"],
+  );
+  const compiled = generateClangAbiProbe({
+    includes: ["gtk/gtk.h"],
+    functions: [],
+    records: [],
+    enums: [licenseCandidate],
+  });
+  assert.match(compiled.source, /GTK_LICENSE_0BSD == \(GtkLicense\)\(0\)/u);
+  /* The label does appear in the emitted C, but only inside the assertion's
+   * diagnostic string, where it names which member disagreed. Outside string
+   * literals the translation unit sees the C identifier and nothing else,
+   * which is why relaxing the label's rule cannot produce invalid C. */
+  const outsideStrings = compiled.source.replace(/"(?:[^"\\]|\\.)*"/gu, '""');
+  assert.doesNotMatch(outsideStrings, /0bsd/u);
+  assert.match(compiled.source, /mismatch for Gtk\.License\.enumeration\.0bsd/u);
+
+  /* Generation. `0bsd` is not a TypeScript identifier, so the declaration name
+   * takes a leading underscore — the smallest rule that makes it legal without
+   * renaming any member that was already spellable. */
+  const generated = generateGObjectScabiPackage(options(selected));
+  assert.match(
+    generated.declarations,
+    /export declare namespace License \{\n  const _0bsd: License;\n  const Custom: License;\n\}/u,
+  );
+  assert.deepEqual(generated.manifest.types.gtk_license, {
+    kind: "enum",
+    underlying: "gtk_license_storage",
+    members: { _0bsd: "0", Custom: "1" },
+  });
+
+  /* And the member that motivated all of it: a method returning the
+   * enumeration, which is the thing that vanished when any layer refused. */
+  const getter = generated.manifest.bindings.gtk_button_get_license;
+  assert.ok(getter && getter.kind !== "constant");
+  assert.equal(getter.signature.result.type, "gtk_license");
 });
 
 test("Clang-proven GTK flags project through constructors and properties", () => {

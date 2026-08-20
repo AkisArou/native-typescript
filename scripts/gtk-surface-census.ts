@@ -22,7 +22,7 @@
  *
  *   node --experimental-strip-types scripts/gtk-surface-census.ts [Namespace]
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import {
   digestClangAbiEvidence,
   renderCFunctionPointerType,
@@ -42,9 +42,36 @@ import {
 import type { GirSnapshot } from "@native-typescript/bindgen-gir";
 import type { PackageIdentity } from "@native-typescript/scabi";
 
+const GIR_DIRECTORY = "/usr/share/gir-1.0";
 const namespace = process.argv[2] ?? "Gtk";
-const version = namespace === "Gtk" ? "4.0" : "2.0";
-const girPath = `/usr/share/gir-1.0/${namespace}-${version}.gir`;
+/* Discovered rather than assumed. The version used to be `Gtk ? "4.0" : "2.0"`,
+ * which made the instrument answer for two namespaces and crash on the rest —
+ * `Gsk-2.0.gir` does not exist. Since a census of Gsk or Pango is exactly how
+ * you find out whether a fix reached beyond the namespace you tested it on,
+ * guessing here quietly limited what could be measured. */
+const version = (function resolveVersion(): string {
+  const prefix = `${namespace}-`;
+  const versions = readdirSync(GIR_DIRECTORY)
+    .filter((entry) => entry.startsWith(prefix) && entry.endsWith(".gir"))
+    .map((entry) => entry.slice(prefix.length, -".gir".length))
+    /* Highest wins, compared field by field so 4.0 beats 3.0 and 10.0 beats
+     * 9.0, which a lexical sort would get backwards. */
+    .sort((left, right) => {
+      const l = left.split(".").map(Number);
+      const r = right.split(".").map(Number);
+      for (let i = 0; i < Math.max(l.length, r.length); i += 1) {
+        const d = (r[i] ?? 0) - (l[i] ?? 0);
+        if (d !== 0) return d;
+      }
+      return 0;
+    });
+  if (versions[0] === undefined) {
+    console.error(`No ${namespace}-*.gir in ${GIR_DIRECTORY}`);
+    process.exit(1);
+  }
+  return versions[0];
+})();
+const girPath = `${GIR_DIRECTORY}/${namespace}-${version}.gir`;
 
 /* Synthesized, not probed. Sizes and offsets are plausible rather than true;
  * nothing counted here depends on them, because a record that carries a
@@ -204,7 +231,7 @@ function includedNamespaces(source: string): { name: string; version: string }[]
       const key = `${name}-${version}`;
       if (found.has(key)) continue;
       found.set(key, { name, version });
-      const path = `/usr/share/gir-1.0/${key}.gir`;
+      const path = `${GIR_DIRECTORY}/${key}.gir`;
       if (existsSync(path)) pending.push(readFileSync(path, "utf8"));
     }
   }
@@ -221,7 +248,7 @@ function importedSnapshot(
   name: string,
   girVersion: string,
 ): { snapshot: GirSnapshot; package: PackageIdentity } | null {
-  const path = `/usr/share/gir-1.0/${name}-${girVersion}.gir`;
+  const path = `${GIR_DIRECTORY}/${name}-${girVersion}.gir`;
   if (!existsSync(path)) return null;
   const text = readFileSync(path, "utf8");
   const slug = name.toLowerCase() + girVersion.replace(/\./gu, "");

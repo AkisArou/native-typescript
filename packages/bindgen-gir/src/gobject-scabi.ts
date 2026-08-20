@@ -128,6 +128,31 @@ function upperCamel(value: string): string {
     .join("");
 }
 
+/**
+ * The declaration name for an enumeration member.
+ *
+ * C enumeration members may begin with a digit — `GTK_LICENSE_0BSD`,
+ * `GSK_TRANSFORM_CATEGORY_2D`, `G_SPAWN_ERROR_2BIG` — and GIR keeps the tail
+ * verbatim, so upper-camelling one yields `0bsd`, which no TypeScript
+ * declaration can name. Ninety-three enumerations across the installed GIRs
+ * have at least one such member.
+ *
+ * A leading underscore is added in exactly that case. It is the smallest rule
+ * that makes the name legal without inventing a spelling: every currently
+ * legal member keeps the name it already had, so nothing that projects today
+ * is renamed, and the collision check below still refuses two members that
+ * would land on one name.
+ *
+ * Dropping the offending member instead would be a silent truncation of the
+ * enumeration, and refusing the enumeration — which is what happened before —
+ * silently removed every member typed by it from the surface. One unnameable
+ * constant is not a reason to withhold the other eighteen.
+ */
+function enumerationMemberName(value: string): string {
+  const camel = upperCamel(value);
+  return /^[0-9]/u.test(camel) ? `_${camel}` : camel;
+}
+
 function lowerCamel(value: string): string {
   const upper = upperCamel(value);
   return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
@@ -1666,11 +1691,23 @@ export function generateGObjectScabiPackage(
     const memberLines: string[] = [];
     let valid = true;
     for (const member of enum_.members) {
-      const memberName = upperCamel(member.name);
+      const memberName = enumerationMemberName(member.name);
       const declaration = `${enum_.name}.${memberName}`;
       const bindingId = `${namespacePrefix}_${snakeCase(enum_.name)}_${snakeCase(member.name)}`;
+      /* Separated because they are different failures with different fixes: a
+       * name TypeScript cannot spell is a gap in the naming rule above, while
+       * two members landing on one name is a genuine ambiguity in the source
+       * that no rule here may paper over. */
+      if (!identifierPattern.test(memberName)) {
+        diagnostics.push(diagnostic(
+          `${path}/member/${member.name}`,
+          `Enumeration member projects to '${memberName}', which is not a ` +
+            "TypeScript identifier",
+        ));
+        valid = false;
+        continue;
+      }
       if (
-        !identifierPattern.test(memberName) ||
         declarations.has(declaration) ||
         bindings[bindingId] !== undefined ||
         members[memberName] !== undefined
@@ -1765,7 +1802,7 @@ export function generateGObjectScabiPackage(
     }
     const members: Record<string, string> = {};
     for (const member of enum_.members) {
-      members[upperCamel(member.name)] = member.value;
+      members[enumerationMemberName(member.name)] = member.value;
     }
     types[storageId] = Object.freeze({
       kind: "integer",

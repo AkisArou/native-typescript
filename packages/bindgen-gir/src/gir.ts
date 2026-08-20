@@ -34,6 +34,23 @@ const cNamespace = "http://www.gtk.org/introspection/c/1.0";
 const glibNamespace = "http://www.gtk.org/introspection/glib/1.0";
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 const selectionNamePattern = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
+/**
+ * An enumeration member selection, which may begin with a digit.
+ *
+ * GIR names a member by the tail of its C identifier, and a C enumeration is
+ * free to put a digit there: `GTK_LICENSE_0BSD` is `0bsd`,
+ * `GSK_TRANSFORM_CATEGORY_2D` is `2d`, `G_SPAWN_ERROR_2BIG` is `2big`.
+ * Ninety-three enumerations across the installed GIRs have such a member.
+ *
+ * Requiring a leading letter here refused those selections at ingestion,
+ * which took the whole enumeration with them and every member typed by it
+ * off the surface — a Gtk method returning `GtkLicense` was reported as a
+ * result outside the implemented slice, naming the projection rather than
+ * the selection that had already dropped the type. The declaration name is a
+ * separate question, answered where declarations are generated; what belongs
+ * here is only whether GIR could have spelled it.
+ */
+const memberSelectionNamePattern = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/u;
 
 interface NormalizedClassSelection {
   readonly name: string;
@@ -632,7 +649,7 @@ function normalizeEnumerationSelections(
     }
     const members = new Set<string>();
     for (const [memberIndex, name] of selection.members.entries()) {
-      if (!selectionNamePattern.test(name)) {
+      if (!memberSelectionNamePattern.test(name)) {
         diagnostics.push(diagnostic(
           "NTS4001",
           `${path}/members/${memberIndex}`,
