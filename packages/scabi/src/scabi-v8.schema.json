@@ -23,7 +23,7 @@
       "const": "native-typescript.scabi"
     },
     "schemaVersion": {
-      "const": 7
+      "const": 8
     },
     "package": {
       "$ref": "#/$defs/packageIdentity"
@@ -1244,7 +1244,7 @@
               "const": "bytes"
             },
             "length": {
-              "$ref": "#/$defs/parameterLength"
+              "$ref": "#/$defs/spanLength"
             },
             "mutability": {
               "enum": [
@@ -1254,6 +1254,14 @@
             },
             "release": {
               "$ref": "#/$defs/nonEmptyString"
+            },
+            "elem": {
+              "enum": [
+                "u8",
+                "u32",
+                "i32",
+                "f32"
+              ]
             }
           }
         },
@@ -1940,6 +1948,29 @@
         },
         "destructor": {
           "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "spanLength": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "parameter",
+        "units"
+      ],
+      "properties": {
+        "kind": {
+          "const": "parameter"
+        },
+        "parameter": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "units": {
+          "enum": [
+            "elements",
+            "bytes"
+          ]
         }
       }
     }

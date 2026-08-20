@@ -1,4 +1,5 @@
 export { canonicalizeJson, digestScabiManifest } from "./canonical-json.ts";
+export { SCABI_SCHEMA_VERSION } from "./model.ts";
 export {
   assertScabiManifest,
   parseScabiManifest,

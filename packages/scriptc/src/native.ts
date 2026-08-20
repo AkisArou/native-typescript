@@ -689,6 +689,11 @@ type BorrowedDataParameterPair = {
   readonly kind: "utf8" | "bytes";
   readonly lengthIndex: number;
   readonly pointee: "i8" | "u8";
+  /** What the length counts. A UTF-8 span's is bytes by definition; a typed
+   * array's is whatever its contract says. */
+  readonly units: "elements" | "bytes";
+  /** The typed array's element. `u8` for a UTF-8 span, which has none. */
+  readonly elem: "u8" | "u32" | "i32" | "f32";
 } | {
   readonly kind: "utf8-c-string";
   readonly pointee: "i8" | "u8";
@@ -1504,9 +1509,10 @@ function supportedBorrowedDataPair(
     if (
       marshal.mutability !== "const" ||
       marshal.length?.kind !== "parameter" ||
+      (marshal.length.units !== "elements" && marshal.length.units !== "bytes") ||
       marshal.release !== undefined
     ) {
-      return "only borrowed const byte spans with an explicit byte length are supported";
+      return "a borrowed span input needs a const pointer and a length that says what it counts";
     }
   } else {
     return "only borrowed UTF-8 strings and const byte spans are supported";
@@ -1548,6 +1554,12 @@ function supportedBorrowedDataPair(
     kind: marshal.kind === "string" ? "utf8" : "bytes",
     lengthIndex,
     pointee: pointee.signed ? "i8" : "u8",
+    /* A UTF-8 span's elements ARE bytes, so its length counts both and the
+     * contract does not ask. A typed array's contract says. */
+    units: marshal.kind === "string" || !("units" in spanLength)
+      ? "bytes"
+      : spanLength.units,
+    elem: marshal.kind === "bytes" ? marshal.elem ?? "u8" : "u8",
   };
 }
 
@@ -2381,7 +2393,10 @@ export function translateScabiNativeProgram(
                       kind: "array",
                       elem: Object.freeze({ kind: "string" } as const),
                     } as const)
-              : Object.freeze({ kind: "bytes", elem: "u8" } as const),
+              : Object.freeze({
+                  kind: "bytes",
+                  elem: borrowed.kind === "bytes" ? borrowed.elem : "u8",
+                } as const),
           }),
         );
         argumentByParameter.set(index, argument);
@@ -2777,12 +2792,19 @@ export function translateScabiNativeProgram(
                     type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
                     passMode: "value",
                     ownership: Object.freeze({ kind: "value" } as const),
-                    projection: Object.freeze({
-                      kind: borrowedLength.kind === "utf8"
-                        ? "utf8ByteLength"
-                        : "bytesByteLength",
-                      argument,
-                    } as const),
+                    /* A UTF-8 span's length is a byte count by definition —
+                     * its elements ARE bytes — so it keeps the projection
+                     * that says so. A typed array's says what it counts,
+                     * because for anything wider than u8 the two differ. */
+                    projection: borrowedLength.kind === "utf8"
+                      ? Object.freeze({ kind: "utf8ByteLength", argument } as const)
+                      : Object.freeze({
+                          kind: "bytesLength",
+                          argument,
+                          units: borrowedLength.kind === "bytes"
+                            ? borrowedLength.units
+                            : "bytes",
+                        } as const),
                   }
                 : {
                     name: parameter.name,
@@ -2905,7 +2927,7 @@ export function translateScabiNativeProgram(
         resultOwnership = Object.freeze({ kind: "value" });
         resultProjection = Object.freeze({
           kind: "bytes",
-          elem: "u8",
+          elem: marshal.elem ?? "u8",
           release: marshal.release === undefined
             ? Object.freeze({ kind: "none" } as const)
             : Object.freeze({ kind: "symbol", symbol: marshal.release } as const),

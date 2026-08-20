@@ -863,7 +863,7 @@ test("SCABI projects one borrowed Uint8Array into exact data and byte-length slo
           type: { kind: "nativeScalar", scalar: "usize" },
           passMode: "value",
           ownership: { kind: "value" },
-          projection: { kind: "bytesByteLength", argument: 0 },
+          projection: { kind: "bytesLength", argument: 0, units: "elements" },
         },
       ],
       result: {
@@ -891,7 +891,7 @@ test("SCABI refuses byte contracts that require mutable native access", () => {
   if (result.ok) return;
   assert.equal(
     result.diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("borrowed const byte spans")
+      diagnostic.message.includes("a borrowed span input needs a const pointer")
     ),
     true,
   );
@@ -1564,6 +1564,40 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
 });
 
+test("a span argument's length carries the denomination its signature takes", () => {
+  /* Both readings exist in real signatures and for u8 they are the same
+   * number, which is how a projection named for bytes emitted an element
+   * count unnoticed for as long as only u8 crossed. The contract says which,
+   * and the element it says it about can be wider than a byte. */
+  const result = translateScabiNativeProgram(manifest, selectImports(["i32_span_bytes"]));
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.diagnostics));
+  if (!result.ok) return;
+  const lowered = result.input.bindings.find(({ id }) => id.endsWith("#i32_span_bytes"));
+  assert.deepEqual(lowered?.arguments, [
+    { name: "data", type: { kind: "bytes", elem: "i32" } },
+  ]);
+  assert.deepEqual(lowered?.parameters[1]?.projection, {
+    kind: "bytesLength",
+    argument: 0,
+    units: "bytes",
+  });
+
+  /* A length that does not say is refused rather than assumed: the field
+   * exists to carry the one fact a manifest cannot leave to a reader. */
+  const silent = structuredClone(manifest);
+  const binding = silent.bindings.i32_span_bytes;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const marshal = binding.signature.parameters[0]?.marshal;
+  assert.equal(marshal?.kind, "bytes");
+  if (marshal === undefined || marshal.kind !== "bytes") return;
+  Object.assign(binding.signature.parameters[0]!, {
+    marshal: { ...marshal, length: { kind: "parameter", parameter: "length" } },
+  });
+  const rejected = translateScabiNativeProgram(silent, selectImports(["i32_span_bytes"]));
+  assert.equal(rejected.ok, false);
+});
+
 test("a byte span crosses out with its length in the compiler's own slot", () => {
   /* An input span's extent comes from a sibling the caller fills; a returned
    * span's is written by the callee into a slot no manifest names. Same word,
@@ -1579,7 +1613,7 @@ test("a byte span crosses out with its length in the compiler's own slot", () =>
   assert.deepEqual(lowered?.arguments, [{ name: "data", type: { kind: "bytes", elem: "u8" } }]);
   assert.deepEqual(
     lowered?.parameters.map((parameter) => parameter.projection.kind),
-    ["bytesData", "bytesByteLength", "bytesLengthOut"],
+    ["bytesData", "bytesLength", "bytesLengthOut"],
   );
 
   /* The third is the compiler's, appended rather than declared, and typed as

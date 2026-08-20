@@ -15,6 +15,7 @@ import {
   canonicalizeJson,
   digestScabiManifest,
   parseScabiManifest,
+  SCABI_SCHEMA_VERSION,
 } from "@native-typescript/scabi";
 import type {
   AbiParameter,
@@ -3323,7 +3324,7 @@ export function generateGObjectScabiPackage(
   }));
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    schemaVersion: 7,
+    schemaVersion: SCABI_SCHEMA_VERSION,
     package: options.package,
     target: {
       ...options.target,

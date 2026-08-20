@@ -304,7 +304,15 @@ export type MarshallingContract =
       readonly kind: "bytes";
       /**
        * Where the extent comes from, for an INPUT: a sibling position the
-       * caller fills.
+       * caller fills, and WHAT IT COUNTS.
+       *
+       * `units` is required rather than defaulted. Both readings exist in
+       * real signatures — a `memcpy`-shaped function takes bytes, an
+       * array-shaped one takes elements — and for `u8` they are the same
+       * number, which is exactly how a compiler projection named for bytes
+       * emitted an element count for as long as only `u8` crossed. Which
+       * count a foreign signature takes is an ABI-adjacent fact, and this
+       * manifest does not infer those.
        *
        * Absent on a RESULT, and deliberately not reused there. A returned
        * span's length is written by the callee into a slot the compiler owns
@@ -313,8 +321,21 @@ export type MarshallingContract =
        * filled this" in one position and "the callee wrote this" in another,
        * distinguished only by where you found it.
        */
-      readonly length?: { readonly kind: "parameter"; readonly parameter: string };
+      readonly length?: {
+        readonly kind: "parameter";
+        readonly parameter: string;
+        readonly units: "elements" | "bytes";
+      };
       readonly mutability: "const" | "mutable";
+      /**
+       * The span's element, for a RESULT. Absent means `u8`, which is what
+       * every span meant before wider elements crossed.
+       *
+       * Carried in both directions now that the length beside an input says
+       * what it counts. A result's length is the compiler's own slot and
+       * counts ELEMENTS by construction; an input's says so explicitly.
+       */
+      readonly elem?: "u8" | "u32" | "i32" | "f32";
       /**
        * What frees the span once its bytes have been copied, for a RESULT the
        * caller must dispose of. Absent for a span the callee keeps and for
@@ -592,9 +613,21 @@ export interface TypeImport {
   readonly destructor?: NativeBindingId;
 }
 
+/**
+ * The manifest format's current version, exported so a producer names it once
+ * rather than carrying a literal.
+ *
+ * Every bump before this one required every producer to edit its own copy,
+ * and each time a producer that had not yet edited it stopped compiling
+ * against a workspace that had. That is a coordination cost with no
+ * information in it: a producer does not choose the version, it reports the
+ * one it was built against.
+ */
+export const SCABI_SCHEMA_VERSION = 8;
+
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 7;
+  readonly schemaVersion: typeof SCABI_SCHEMA_VERSION;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
