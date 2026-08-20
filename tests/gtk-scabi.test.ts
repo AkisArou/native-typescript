@@ -939,6 +939,82 @@ test(
 );
 
 test(
+  "a value-returning member takes the object arguments any other member takes",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
+  () => {
+    /* `gtk_text_view_get_iter_location(const GtkTextIter *iter, GdkRectangle *out)`
+     * fails on both halves of what an adapter input may be, and neither is
+     * about the value-return shape at all.
+     *
+     * GIR spells a boxed record the callee only READS as `const GtkTextIter *`
+     * and one it may write as `GtkTextIter *`. Both name one pointer to one
+     * instance — the RECEIVER has always accepted both — so accepting only
+     * the bare spelling here refused every member taking a boxed record it
+     * does not modify.
+     *
+     * And absence has a representation for a pointer and none for a value,
+     * which is where the ordinary parameter path has always drawn the line.
+     * This adapter drew it earlier and refused every value-returning member
+     * with an optional object argument. */
+    const gdk = ingestGir(readFileSync(systemGdkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gdk-4.0.gir",
+      namespace: { name: "Gdk", version: "4.0" },
+      records: [{ name: "Rectangle", fields: ["x", "y", "width", "height"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "TextView", methods: ["get_iter_location"] },
+        { name: "CellRenderer" },
+        { name: "IconView", methods: ["get_cell_rect"] },
+      ],
+      /* Selected for their TYPE, not for a surface: a boxed record's copy and
+       * free are its contract and are read whether or not a project asks for
+       * them, so an empty method list is how you say "I need the type". */
+      records: [{ name: "TextIter", methods: [] }, { name: "TreePath", methods: [] }],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gdk, package: gdk4Package }]),
+    );
+
+    /* The const-spelled boxed record is an ordinary borrowed input. */
+    assert.match(
+      generated.declarations,
+      /getIterLocation\(iter: TextIter\): \w+;/u,
+    );
+
+    /* And an absent cell is a value the signature admits, not a member the
+     * projection refuses. `gtk_icon_view_get_cell_rect(path, NULL, &rect)`
+     * asks about the whole row, which is the common call. */
+    assert.match(
+      generated.declarations,
+      /getCellRect\(path: TreePath, cell: CellRenderer \| null\): \w+;/u,
+    );
+    const cellRect = Object.values(generated.manifest.bindings).find((binding) =>
+      binding.kind !== "constant" &&
+      binding.declaration.name.startsWith("IconView.getCellRect")
+    );
+    assert.ok(cellRect && cellRect.kind !== "constant");
+    const cell = cellRect.signature.parameters.find(
+      (parameter) => parameter.name === "cell",
+    );
+    assert.ok(cell, "the cell argument reaches the manifest");
+    assert.equal(cell.nullable, true);
+    assert.equal(cell.passMode, "pointer");
+    /* The path beside it is not nullable, so admitting absence did not admit
+     * it everywhere. */
+    assert.equal(
+      cellRect.signature.parameters.find((parameter) => parameter.name === "path")
+        ?.nullable,
+      false,
+    );
+  },
+);
+
+test(
   "a path crosses as a string wherever it appears, not only as an argument",
   { skip: !existsSync(systemGtkGir) },
   () => {

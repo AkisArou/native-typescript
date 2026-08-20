@@ -2255,7 +2255,7 @@ export function generateGObjectScabiPackage(
     const value = (type: string, sourceName: string, conversion: NumberConversion | null) =>
       Object.freeze({
         abi: Object.freeze({
-          name: input.parameterName,
+          name: manifestParameterName(input.parameterName),
           type,
           passMode: "value" as const,
           nullable: false,
@@ -2277,15 +2277,20 @@ export function generateGObjectScabiPackage(
         : value(enumeration.typeId, enumeration.sourceName, null);
     }
     const handle = typeIdByClass.get(input.sourceName);
+    /* An absent object is spelled by the pointer itself, so the source type
+     * carries the union and the ABI slot carries the nullability — the same
+     * pair an ordinary handle parameter uses. */
     return handle === undefined ? null : Object.freeze({
       abi: Object.freeze({
-        name: input.parameterName,
+        name: manifestParameterName(input.parameterName),
         type: handle,
         passMode: "pointer" as const,
-        nullable: false,
+        nullable: input.nullable === true,
         ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
       }),
-      sourceName: input.sourceName,
+      sourceName: input.nullable === true
+        ? `${input.sourceName} | null`
+        : input.sourceName,
     });
   }
 

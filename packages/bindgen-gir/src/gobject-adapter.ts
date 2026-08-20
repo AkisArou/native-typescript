@@ -119,6 +119,16 @@ export interface GObjectValueMethodInputAdapter {
   readonly parameterName: string;
   readonly sourceName: string;
   readonly nativeType: string;
+  /**
+   * True when GIR says absence is meaningful for this input.
+   *
+   * Only an object input can carry it: the pointer is the whole
+   * representation, so NULL is a value the C already accepts and the adapter
+   * forwards it unchanged. A scalar or an enumeration has no spare
+   * representation to spend on absence — a nullable `gint` is a `gint *`,
+   * which is a different shape entirely and not this one.
+   */
+  readonly nullable?: boolean;
 }
 
 /**
@@ -877,7 +887,6 @@ function forwardedInput(
     const shared = parameter.kind === "parameter" &&
       parameter.direction === "in" &&
       parameter.transferOwnership === "none" &&
-      !parameter.nullable &&
       !parameter.optional &&
       !parameter.callerAllocates &&
       !parameter.skip &&
@@ -885,7 +894,14 @@ function forwardedInput(
       parameter.closureParameter === null &&
       parameter.destroyParameter === null &&
       named !== null;
-    if (shared && scalar !== undefined && named!.cType !== null &&
+    /* Absence has a representation for a pointer and none for a value, so
+     * nullability is admitted for the object rung below and refused for the
+     * scalar and enumeration rungs above it. The ordinary parameter path has
+     * always drawn the line here; only this adapter drew it earlier, refusing
+     * every value-returning member with an optional object argument —
+     * `gtk_tree_store_append(iter, parent)` with no parent among them. */
+    const value = shared && !parameter.nullable;
+    if (value && scalar !== undefined && named!.cType !== null &&
       scalar.cTypes.includes(named!.cType)) {
       return Object.freeze({
         kind: "scalar" as const,
@@ -897,7 +913,7 @@ function forwardedInput(
     /* GIR gives an enumeration parameter no c:type of its own often enough
      * that the spelling comes from the enumeration's declaration, exactly as
      * it does for a signal payload. */
-    if (shared && enumerationCType !== undefined &&
+    if (value && enumerationCType !== undefined &&
       (named!.cType === null || named!.cType === enumerationCType)) {
       return Object.freeze({
         kind: "enumeration" as const,
@@ -909,13 +925,20 @@ function forwardedInput(
     /* An object input is borrowed for the duration of the call: the adapter
      * forwards the pointer and takes no reference, because the callee does not
      * keep one either. */
+    /* GIR spells a boxed record the callee only READS as `const GtkTextIter *`
+     * and one it may write as `GtkTextIter *`. Both name one pointer to one
+     * instance, which is why the receiver already accepts both — and why
+     * accepting only the bare spelling here refused every member taking a
+     * boxed record it does not modify. The adapter forwards the pointer
+     * either way; constness is the callee's promise, not a different type. */
     if (shared && inputClass !== undefined &&
-      named!.cType === `${inputClass.cType}*`) {
+      isInstancePointer(named!.cType, inputClass)) {
       return Object.freeze({
         kind: "class" as const,
         parameterName: parameter.name,
         sourceName: inputClass.name,
         nativeType: `${inputClass.cType} *`,
+        ...(parameter.nullable ? { nullable: true } : {}),
       });
     }
     diagnostics.push({

@@ -553,7 +553,7 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3154 bindings project and 498 members are refused**,
+Measured that way: **3171 bindings project and 481 members are refused**,
 with twelve namespaces supplied as imports. (The projected count fell from an
 earlier 3227 when one release per upcast chain replaced one per class — 182
 fewer generated symbols for the same coverage, which is why a binding count
