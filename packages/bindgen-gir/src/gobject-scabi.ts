@@ -2284,6 +2284,33 @@ export function generateGObjectScabiPackage(
         getter.result.type.name === "utf8";
     }
 
+    /* What a property's two accessors have to agree about: the TYPE, not the
+     * SDK's spelling of the pointer to it.
+     *
+     * A getter that hands over storage writes `char **` where the setter that
+     * borrows it writes `const char *const *`; a setter accepting a subclass
+     * receiver writes `GtkWidget *` where the getter writes `GtkPopover *`.
+     * GIR names the same type in both, and what differs is per-position —
+     * ownership and constness, which this generator already projects
+     * separately and which do not make one property into two.
+     *
+     * Comparing the raw reference compared the spelling too, and refused
+     * fifteen of GTK's eighteen accessor pairs for saying the same thing
+     * twice in C. */
+    const logicalType = (type: GirTypeReference): unknown =>
+      type.kind === "array"
+        ? {
+            kind: type.kind,
+            lengthParameter: type.lengthParameter,
+            fixedSize: type.fixedSize,
+            zeroTerminated: type.zeroTerminated,
+            element: logicalType(type.element),
+          }
+        : {
+            kind: type.kind,
+            name: type.name,
+            arguments: type.arguments.map(logicalType),
+          };
     for (const [propertyName, accessors] of propertyAccessors) {
       if (accessors.getter === undefined || accessors.setter === undefined) {
         continue;
@@ -2294,7 +2321,8 @@ export function generateGObjectScabiPackage(
         accessors.setter.parameters.length !== 2 ||
         accessors.setter.result.type.cType !== "void" ||
         setterValue === undefined ||
-        canonicalizeJson(accessors.getter.result.type) !== canonicalizeJson(setterValue.type)
+        canonicalizeJson(logicalType(accessors.getter.result.type)) !==
+          canonicalizeJson(logicalType(setterValue.type))
       ) {
         diagnostics.push(
           diagnostic(

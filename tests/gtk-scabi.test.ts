@@ -1594,43 +1594,48 @@ test(
 );
 
 test(
-  "a property whose accessors disagree about the vector is refused, not guessed",
+  "a property's accessors must agree about the type, not about the spelling",
   { skip: !existsSync(systemGtkGir) },
   () => {
-    /* `css-classes` is a GObject property, and its two accessors cannot agree:
-     * the getter hands over a vector the caller frees (`char**`, transfer
-     * full) and the setter borrows one it does not (`const char**`, transfer
-     * none). That asymmetry is normal for a vector property and is exactly
-     * what a property may not have here, because a property has ONE type and
-     * these two positions do not describe one.
+    /* `css-classes` is a GObject property whose accessors are written
+     * differently in C and identically in GIR: the getter hands over a vector
+     * (`char **`, transfer full) and the setter borrows one
+     * (`const char **`, transfer none). Both name `array<utf8>`.
      *
-     * Refusing is the honest answer until a property with asymmetric
-     * accessors has a designed source shape. Selecting either accessor alone
-     * works, which is how the members remain reachable meanwhile. This pins
-     * the refusal so it is a decision rather than a surprise. */
+     * What differs is ownership and constness, which this generator already
+     * projects per position and which do not make one property into two —
+     * `get cssClasses(): string[]` beside `set cssClasses(v: readonly string[])`
+     * is a coherent pair, because the getter's type is assignable to the
+     * setter's. Comparing the raw GIR reference compared the C spelling too,
+     * and refused fifteen of GTK's eighteen accessor pairs on that basis. */
     const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
       logicalPath: "system-sdk/gir/Gtk-4.0.gir",
       namespace: { name: "Gtk", version: "4.0" },
       classes: [{ name: "Widget", methods: ["set_css_classes", "get_css_classes"] }],
     });
+    const generated = generateGObjectScabiPackage(options(gtk));
+    assert.equal(
+      generated.manifest.bindings.gtk_widget_get_css_classes?.kind,
+      "getter",
+    );
+    assert.equal(
+      generated.manifest.bindings.gtk_widget_set_css_classes?.kind,
+      "setter",
+    );
+
+    /* What stays refused is a pair that genuinely is not one property.
+     * `gtk_entry_buffer_set_text` takes a LENGTH beside its value, so the
+     * setter is not the getter's inverse however the types are compared. */
+    const buffer = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "EntryBuffer", methods: ["get_text", "set_text"] }],
+    });
     assert.throws(
-      () => generateGObjectScabiPackage(options(gtk)),
+      () => generateGObjectScabiPackage(options(buffer)),
       (error: unknown) =>
         error instanceof Error &&
         /do not form one coherent property type contract/u.test(error.message),
-    );
-
-    /* And the getter alone is reachable, so the refusal costs the member
-     * nothing that matters. */
-    const getterOnly = ingestGir(readFileSync(systemGtkGir, "utf8"), {
-      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
-      namespace: { name: "Gtk", version: "4.0" },
-      classes: [{ name: "Widget", methods: ["get_css_classes"] }],
-    });
-    const generated = generateGObjectScabiPackage(options(getterOnly));
-    assert.equal(
-      generated.manifest.bindings.gtk_widget_get_css_classes?.kind,
-      "method",
     );
   },
 );
