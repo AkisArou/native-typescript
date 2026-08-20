@@ -2,7 +2,7 @@
 
 Status: normative direction; the legalizer and three of five dimensions are
 partly implemented
-Last revised: 2026-08-19
+Last revised: 2026-08-21
 
 This document defines what the compiler knows about a call that leaves
 TypeScript, and what it deliberately does not. It is the contract every
@@ -162,11 +162,28 @@ five defects in this repository's own history, every one of them a decision
 made in the C backend and not the LLVM one. Every dimension above is
 cross-cutting, so each one added ahead of the legalizer is added twice.
 
-**Current state.** A decision layer landed — `nativeCallbackPayloads`,
-`nativeTrampolineForm`, `nativeCallLifecycle` — which returns typed data that
-each backend materializes. It is deliberately weaker than the legalizer: it
-shares the *decision* but not the *lowering*, so each backend still writes
-its own control flow. It is the floor, not the target.
+**Current state.** A decision layer landed across two modules —
+`native-callbacks.ts` (`nativeCallbackPayloads`, `nativeTrampolineForm`,
+`nativeCallLifecycle`, `nativeCallbackAdapterKey`,
+`nativeCallbackCancellationArgument`, `allocateNativeCallbackAdapters`) and
+`native-call-plan.ts` (`nativeResultForm`, `nativeArgumentForm`,
+`nativeFailureForm`, `nativeCallDisposal`, `nativeCallIsThrowCheckpoint`) —
+each returning typed data that both backends materialize.
+
+It is deliberately weaker than the legalizer: it shares the *decision* but not
+the *lowering*, so each backend still writes its own control flow. It is the
+floor, not the target, and the floor is not holding on its own. The two
+`nativeCall` lowerings are 817 lines in the C backend and 1368 in the LLVM one
+against 608 and 1049 when [0004](records/0004-one-decision-two-backends.md)
+measured them, and `nativeCallIsThrowCheckpoint` is in that list because the
+two backends had already drifted on it — one treating any callback argument as
+a throw checkpoint and the other additionally requiring call scope, so they
+unwound at different points for the most ordinary registration shape there is.
+
+The lesson is narrower than "share more". The exhaustiveness guards catch a
+missing arm of a shared TYPE; they cannot see a decision that was never given
+one. Every divergence found so far has been a predicate read straight off the
+binding in both files, outside the shared vocabulary entirely.
 
 ## ABI capsules
 

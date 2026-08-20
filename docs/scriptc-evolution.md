@@ -1,7 +1,7 @@
 # scriptc Evolution Policy
 
 Status: normative project policy  
-Last revised: 2026-08-19
+Last revised: 2026-08-21
 
 Native TypeScript builds on scriptc, but scriptc is an active experimental
 compiler. Its current limitations are observations about one revision, not the
@@ -197,27 +197,33 @@ and its test suite passes.
 
 ### Current upstream baseline
 
-The fork merges upstream through `729f809` (`Merge pull request #153 from
-vercel-labs/split/filter-truthy-predicate`), which carries FFI formats 3, 4,
-and 5 — copy-in string and byte-span callback parameters, retained
-registrations with paired release descriptors, and foreign-thread callbacks
-marshalled over an MPSC queue — alongside Windows system CA trust and the NaN
-comparison-refinement fix. Which fork commit is pinned is the submodule's to
-say, and naming it here only creates a second place to be wrong: read it from
-`third_party/scriptc`. On the merged fork, upstream's own FFI suite passes
-across both backends, and Native TypeScript's focused Native IR,
-retained-callback, callback table/token/handle, owner-gateway,
-executable-plan, native-build-executor, and host compiler-driver gates pass
-beside it. The full upstream differential lane remains a VCR-sandbox gate: an
-arbitrary host SDK and declaration set is not an accepted replacement for its
-pinned image.
+The fork is merged up to `d7b4480e` (v0.0.34) and is zero commits behind.
+Which fork commit the workspace pins is the submodule's to say, and naming it
+here only creates a second place to be wrong: read it from
+`third_party/scriptc`.
 
-That merge puts two outbound native-call paths in one tree on purpose. The
-capability-by-capability adjudication this policy's upstream section requires
-— adopt, keep, or merge, judged against our conformance tests rather than
-against the diff — is only answerable with both paths present and runnable,
-so nothing was deleted in the merge itself. Until that adjudication lands,
-the duplication is a known, deliberate, and temporary state.
+Keeping that number at zero is a policy, not housekeeping. A slice measured
+against a stale base describes a diff nobody will review, and the merge cost
+grows superlinearly with the gap — six upstream commits cost 16 conflicted
+files, while #178's restructure of the lowering entry point this fork extends
+cost two, precisely because it arrived alone.
+
+On the merged fork, upstream's own FFI suite passes across both backends, and
+this project's focused Native IR, retained-callback, callback
+table/token/handle, owner-gateway, executable-plan, library-plan,
+native-build-executor, native-call-plan, native-manifest, and host
+compiler-driver gates pass beside it. The full upstream differential lane
+remains a VCR-sandbox gate: an arbitrary host SDK and declaration set is not an
+accepted replacement for its pinned image. The fork's whole corpus is NOT a
+gate — it carries a large pre-existing baseline of Node-surface refusals that
+predate this project.
+
+The two-outbound-path duplication that earlier versions of this document
+described as deliberate and temporary is **resolved**. The adjudication landed:
+Native IR is the single outbound path, and the outbound FFI subsystem was
+deleted rather than kept beside it. `ffiCall` survives only as library mode's
+host-callback channel, which is an inbound concern and not a second dialect for
+calls leaving TypeScript.
 
 ## Upstream policy
 
@@ -307,33 +313,44 @@ Clean code does not mean avoiding migrations. It means completing them.
 
 ## Upstreaming
 
-The fork is not a vendor patch. Measured against merge base `ff98ee23` it is
-**139 commits and roughly 30,900 changed lines**, of which about 13,100 are
-tests. Line count overstates the risk: the divergence is overwhelmingly
-ADDITIVE — new files and new code paths beside existing ones rather than
-rewrites of upstream logic — which is why merging six upstream commits after
-139 of ours produced 16 conflicted files and 31 hunks rather than a rewrite.
+The fork is not a vendor patch. Measured against `d7b4480e` (v0.0.34), which it
+is merged up to, it is **152 commits and roughly 32,400 changed lines**, of
+which about 13,600 are tests. Line count overstates the risk badly, and the
+breakdown is the argument: **20,300 of the insertions are in 118 files that do
+not exist upstream**, and only about **2,500 lines of upstream's own code are
+replaced**.
 
-That property is worth protecting deliberately, because the work most likely
-to destroy it is work this project wants: a backend-neutral foreign-boundary
+The divergence is ADDITIVE — new files and new paths beside existing ones
+rather than rewrites — and the merges are the evidence rather than the claim.
+Upstream's six library-caching commits cost 16 conflicted files and 31 hunks.
+#178's reachability rework, which restructured the very lowering entry point
+this fork threads its Native IR input through, cost exactly two conflicts.
+
+That property is worth protecting deliberately, because the work most likely to
+destroy it is work this project wants: a backend-neutral foreign-boundary
 legalizer rewrites both emitters, which are the two files with the largest
 overlap. **Merge before restructuring, not after.**
 
 ### What is upstreamable
 
 Each slice below is a generic compiler or runtime capability with no GTK, JNI,
-Android, or Cocoa knowledge in it. Ordered by dependency, which is also the
-order they should be proposed.
+Android, or Cocoa knowledge in it. Commit counts come from classifying all 152,
+not from estimating.
 
-| Slice | Rough size | Why it is generic |
+| Slice | Commits | Why it is generic |
 | --- | --- | --- |
-| Embedder plans and external build execution | ~8 commits | Serializable, path-free compilation plans and a seam that hands an embedder the exact driver commands. No semantics at all. |
-| Exact native scalars and arithmetic | ~20 commits | Exact integer widths, target-sized integers, 32-bit floats, bigint, and the operations an operator cannot carry. Language capability. |
-| Native aggregates | ~4 commits | Structs by value, nested aggregates, exact aggregate ABI signatures. |
-| Strings and byte views | ~12 commits | Borrowed UTF-8, checked C strings, byte spans with explicit element and unit denomination. |
-| Native handles and ownership | ~15 commits | Opaque handles, nullable handles, identity upcasts, pointer-keyed interning, transfer, use-after-dispose. |
-| Outcome contracts | ~5 commits | Errno, error-object failure, and the reduction of eleven conventions to three questions. |
-| Callbacks | ~25 commits | Call-scoped and retained registrations, owner gateway, transport tokens, answered and queued arms, foreign-thread ingress. The largest and most valuable slice. |
+| Embedder plans and external build execution | 16 | Serializable, path-free compilation plans and a seam that hands an embedder the exact driver commands. No semantics at all. |
+| Exact native scalars and arithmetic | 29 | Exact integer widths, target-sized integers, 32-bit floats, bigint, and the operations an operator cannot carry. Language capability. |
+| Native aggregates | 4 | Structs by value, nested aggregates, exact aggregate ABI signatures. |
+| Strings and byte views | 18 | Borrowed UTF-8, checked C strings, C-string vectors, byte spans with explicit element and unit denomination. |
+| Native handles and ownership | 16 | Opaque handles, nullable handles, identity upcasts, pointer-keyed interning, transfer, use-after-dispose. |
+| Outcome contracts | 6 | Errno, error-object failure, and the reduction of eleven conventions to three questions. |
+| Callbacks | 28 | Call-scoped and retained registrations, owner gateway, transport tokens, answered and queued arms, foreign-thread ingress. The largest slice. |
+| Shared boundary decisions | 4 | One module deciding what a foreign call's arguments, result, failure and shape become, so both backends stop deciding it twice. |
+| Native manifest contract | 3 | The declaration file an embedder writes against: no imports, no runtime value, so a consumer needs no build of the compiler. |
+
+That is 124 of 152 commits. The remaining 28 are upstream merges, housekeeping,
+fixture scoping, and fixes to this fork's own code.
 
 ### What stays in the fork
 
@@ -343,6 +360,36 @@ removed the second path. Upstream would be right to refuse it, and the merge
 has already shown the cost — a conflict where upstream's code calls a function
 this fork deleted. Fork housekeeping (fixture scoping, artifact untracking)
 likewise stays.
+
+### What upstreaming would actually buy
+
+Ranked by value to this project rather than by size, because the two orderings
+disagree and the disagreement is the useful part.
+
+**Shared boundary decisions and the manifest contract first (7 commits).** They
+are tiny, and they are the VOCABULARY every other slice is written in. If they
+land, each later slice becomes additive against an upstream that already speaks
+the language instead of introducing it.
+
+**Exact scalars second (29).** The largest single removable chunk of the diff,
+and it touches nothing upstream is currently working in.
+
+**Embedder plans last, despite being the obvious opener.** Two facts overturned
+the original ordering. It touches `compileLibrary`, which is exactly where
+upstream spent the week of 2026-08-17. And most of it lives in files upstream
+does not have, so it is among the CHEAPEST slices to keep forked — its
+footprint in upstream's own code is `cc.ts` and part of `index.ts`.
+
+The general form: what is expensive to keep forked is not what is big, but what
+sits inside upstream's files. Upstream has no `nativeCall` lowering at all, so
+roughly 3,600 of this fork's lines live inside upstream's two emitters. That is
+the merge cost, and no single slice removes it — the legalizer does, by moving
+that lowering into this fork's own modules, which is why it is a merge-cost
+decision as much as a correctness one.
+
+Un-forking was never available. Even the whole list landing leaves this project
+needing a fork until Native IR itself is upstream, which is not a proposal
+anyone should make. The goal is a lower merge tax, not zero.
 
 ### PR strategy
 
@@ -377,6 +424,13 @@ branch and starts showing a cumulative diff. Both argue for keeping the stack
 SHORT — propose the first two or three, land them, then restack the rest
 rather than opening seven at once.
 
-The first contribution should be embedder plans. It has no semantic risk, it
-is the smallest, and every later slice is easier to review once a reviewer has
-seen how this project talks to the compiler.
+**Asked before proposing.** [vercel-labs/scriptc#185](https://github.com/vercel-labs/scriptc/issues/185)
+describes the fork's shape and asks which slices, if any, are wanted, rather
+than opening a stack nobody requested. There was no cheaper opening available:
+this fork holds no standalone upstream bugfix to lead with. Every small change
+to upstream's files here is a consequence of this project's own work, the
+manifest contract is this fork's file rather than upstream's, and the one
+backend divergence found was introduced here — upstream spells that predicate
+identically in both emitters.
+
+Nothing is proposed until that question is answered.

@@ -1,7 +1,7 @@
 # Implementation Status
 
 Status: current implementation state  
-Last revised: 2026-08-16
+Last revised: 2026-08-21
 
 This document records what is **built and proven**, and by which gate. The
 normative specifications say what must be true; this says how far the
@@ -35,7 +35,11 @@ The repository is not yet an application framework or a production compiler.
 | Application build pipeline and `build` command | implemented |
 | Provider compiler requirements | read by the build |
 | Cross-namespace GIR composition | implemented |
-| Terminal, mobile, React, partitions, DOM | not started |
+| JVM class-file ingestion and SCABI projection | implemented |
+| JNI adapters, native subclassing, `super` dispatch | implemented on the desktop JDK |
+| Android application crossing | blocked on two named contract arms |
+| Library compilation planning and caching | implemented; three producers refused |
+| Terminal, iOS, macOS, Windows, React, partitions, DOM | not started |
 
 ## Compiler and runtime
 
@@ -488,12 +492,25 @@ offset is a field late is exactly the defect the probe exists to prevent.
 
 ### The manifest format
 
-SCABI is at schema version 4. That version deleted `entry.kind`, which said
-whether a symbol came from the SDK or from a generated adapter — build
-information stated inside a signature, and stated twice, because an adapter
-input already lists the bindings it provides. A binding now carries only its
-symbol, and `entry` remains a record because that is the position a call
-target other than a plain symbol will occupy.
+SCABI is at schema version 9, and every version since 4 was bought by a
+program that needed it:
+
+- **v4** deleted `entry.kind`, which said whether a symbol came from the SDK or
+  from a generated adapter — build information stated inside a signature, and
+  stated twice, because an adapter input already lists the bindings it
+  provides. A binding carries only its symbol, and `entry` remains a record
+  because that is the position a call target other than a plain symbol will
+  occupy.
+- **v5** described a vector of C strings.
+- **v6** let a returned string be one the caller must free.
+- **v7** described a byte span coming back.
+- **v8** made a span's length say what it counts, rather than assuming bytes.
+- **v9** made a string result's length optional, so text that may contain NUL
+  crosses with a length instead of a terminator.
+
+A bump invalidates incompatible caches by design, and the version is exported
+as `SCABI_SCHEMA_VERSION` so no producer carries the literal. Two generators
+did carry one, and the v9 bump is what surfaced them.
 
 The envelope split [0001](records/0001-native-manifest-boundary.md) sequences
 next — the manifest carrying the compiler's document verbatim under one key,
@@ -561,7 +578,32 @@ emissions.
 Vendored objects (the regex engine, zlib) and symbol localization are refused
 when planning, by name. Each builds artifacts of its own through its own
 cached helpers, which an external graph has to declare before anything
-produces them; they are separate slices rather than silent gaps.
+produces them; they are separate slices rather than silent gaps. They are also
+not one slice: the vendored pair compiles a fixed source list through the
+driver and would become plannable through the existing command seam, while
+localization rewrites objects through four platform arms of which two run IN
+PROCESS, so for half the matrix there is no command to hand a graph at all.
+[Open work](open-work.md) records the ordering they imply — vendored objects
+are not position-independent, and a planned archive is uniformly PIC today
+only because these cases are refused.
+
+The BUILDER's lane caches, and the planner's deliberately does not. Upstream's
+two library cache tiers are wired into `compileLibrary`: an early tier that
+skips the frontend when nothing a build read has changed, and a semantic tier
+that reuses the lowered module across edits the language cannot observe, such
+as comments and layout. `planLibraryCompilation` consults neither, because its
+product is a path-free plan the artifact graph content-addresses itself, and a
+file cache beneath it would be a second answer to a settled question.
+
+A cache entry carries the archive SETTINGS rather than the reached feature set
+they were derived from. Three of this project's settings are read off the
+lowered module or the embedder's request, and a cache hit has no module, so
+recomputing them was not possible — carrying them also retires the obligation
+for two computations to agree. The key includes the embedder's requested
+runtime services, without which two builds of one profile differing only in
+what was asked for collided, and the loser linked against an archive missing
+the units behind its own request. The PIC gate caught that, and removing the
+key input reproduces it.
 
 ### Outbound native calls: one node, two input dialects
 
@@ -998,6 +1040,50 @@ both targets' versions of the mistake, and why every suite passed anyway.
 The fixture asserts stdout as well as status. A handler that never ran also
 exits 0, and that reading of success is exactly what this gate must refuse.
 
+## JVM target
+
+The second binding family, and the reason it exists: GIR describes a C library,
+while class files describe a LANGUAGE. Projecting both through one manifest is
+what tests whether the boundary is general or whether it was shaped around GTK.
+
+**Ingestion reads class files directly.** No `javap`, no reflection, no running
+JVM. A bounded selection ingests into a frozen canonical snapshot, hierarchy
+references split internal from external at the selection edge, a pinned digest
+mismatch is refused, and a malformed class file fails with a positioned
+diagnostic. Selections naming something that does not exist fail precisely
+rather than producing an empty surface.
+
+**The Android SDK ingests as itself.** The real `Activity` surface ingests with
+its contract intact, selecting `Activity` without its ancestry is refused, and
+every class in the platform SDK either ingests or is refused by design — the
+gate enumerates the whole jar rather than sampling it.
+
+**Adapters are generated C.** Every generated family carries a classification,
+so an adapter shape nobody has classified cannot be emitted silently. A
+`String[]` argument crosses as a borrowed terminated vector, a `byte[]` result
+as an owned copy with a compiler-supplied length slot, and refused array
+elements name the carrier each is missing rather than failing as a class.
+
+**Native subclassing runs on the desktop JDK.** A generated Java subclass
+associates a host-constructed object with its TypeScript peer and dispatches
+the reached override. `super.onCreate()` reaches the base implementation the
+override replaced through javac's own `invokespecial`, emitted as an ordinary
+generated method — non-virtual dispatch with no new JNI machinery. A TypeScript
+handler can call back into Java from inside the handler the framework invoked,
+which is the first reentrant native call from within an answered one.
+
+**Both JVM lanes run.** The runtime creates a JVM and runs the program, and a
+JVM the runtime did not create hosts it — the attached-loop service is what
+makes the second one possible, since the host owns the loop.
+
+**Android itself is not crossed, and the block is named rather than described.**
+A real `Activity` forces two contract arms this compiler does not have:
+void-synchronous callback delivery, for a lifecycle method that must complete
+inside the caller's frame, and handle payloads, for a `KeyEvent` argument. Both
+are pinned by a gate that runs the subclass generator over the real
+`android.jar` and asserts the refusals by name. When either arm lands the pin
+FAILS, which is the signal that the acceptance program advances.
+
 ## Building an application
 
 `native-typescript build <project>` reads a `native-typescript.json`, generates
@@ -1035,10 +1121,13 @@ These are deliberate, not oversights. Each is a named future slice.
 - **Only two GIR namespaces have ever been linked together.** gio2 and gtk4
   compose and run; nothing proves a third, and no namespace outside the GNOME
   stack has been attempted.
-- **A project cannot describe a non-GTK target.** `target` accepts `gtk4` and
-  nothing else, and the parser says so rather than pretending otherwise. The
-  Target SPI stays descriptor-only until a second target exists to justify its
-  shape.
+- **The `build` command still describes only a GTK project.** `target` accepts
+  `gtk4` and nothing else, and the parser says so rather than pretending
+  otherwise. A second target now exists — the JVM lane has its own
+  `JvmApplicationProject` and is driven programmatically by its tests — so the
+  question the Target SPI was waiting on is answered, and unifying the two
+  project descriptions behind one command is the next slice rather than an
+  open design question.
 - **Absence is a value, and only for the results GIR says can be absent.** A
   method that hands back an object it keeps owning projects: the adapter takes
   a reference, which makes the result an owned handle, and the runtime interns

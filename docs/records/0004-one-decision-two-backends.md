@@ -220,3 +220,50 @@ cleanup regions, with backend code limited to materializing call targets and
 primitives. Revisit sooner if a slice cannot be made observationally inert:
 that would mean the two backends had already diverged in behavior, not only in
 structure, and the divergence would be the more urgent finding.
+
+## Addendum, 2026-08-21: the revisit condition fired
+
+The condition above named the case that would make this urgent — "the two
+backends had already diverged in behavior, not only in structure". They had.
+
+`callbacksMayThrow` decided whether a native call is a point where a foreign
+exception may already be pending. The C backend treated any callback argument
+as one; the LLVM backend additionally required the callback's owner to be
+call-scoped. The predicate gates 8 of the 20 pending-check sites in the
+lowering, so for any binding carrying an owner-scoped retained callback — a
+signal connected to a widget handle, the most ordinary shape this project has
+— the two backends unwound at different points. Fixed in fork `804e8cd1` by
+moving the decision into `native-call-plan.ts` as
+`nativeCallIsThrowCheckpoint`; C's reading was the correct one, because a
+redundant check costs a comparison while a missing one projects a result and
+releases arguments with an exception pending.
+
+Three corrections to what this record claimed:
+
+**"No decision about a native call is now made in two places" was false when
+written.** Not because a slice missed something, but because the sentence
+silently meant "no decision *expressed as a shared type*". `callbacksMayThrow`
+was read straight off the binding in both files, three lines above a comment
+promising the backends shared their decisions. The exhaustiveness guards
+cannot see such a decision — they catch a missing ARM of a shared type, and
+this had no type at all. That is the general lesson, and it demoted the guards
+from "turns the finding into a property of the build" to "turns PART of the
+finding into one".
+
+**The line counts have grown, not shrunk.** The C lowering is 817 lines and the
+LLVM one 1368, against the 608 and 1049 recorded above. Thirteen feature
+commits since each added the same family to both files. The duplication rate
+is current, not historical.
+
+**The shared layer had no direct test.** Everything in `native-call-plan.ts`
+was covered end to end only, which catches a decision that is WRONG and is
+useless against one that is merely DIFFERENT across the backends — both emit a
+working program, just not the same one. `packages/compiler/test/native-call-plan.test.ts`
+is the first test to import it directly.
+
+The removal condition is unchanged, and the case for it is stronger: upstream
+has no `nativeCall` lowering at all, so ~3,600 of this fork's lines sit inside
+upstream's two emitter files. Extracting them into this fork's own modules
+would cut its footprint in the two highest-conflict files by roughly two
+thirds, which makes the legalizer a merge-cost decision as much as a
+correctness one.

@@ -1,5 +1,8 @@
 # Development
 
+Status: how to work in this repository, not normative  
+Last revised: 2026-08-21
+
 ## Architecture first
 
 The documents linked from the repository README are normative. Implementation
@@ -35,6 +38,36 @@ Install its dependencies separately:
 ```bash
 pnpm scriptc:install
 ```
+
+### Point `TMPDIR` at a real filesystem
+
+Not optional, and the failure it causes names nothing. `/tmp` is a tmpfs on
+most Linux installations, and a cold GTK build — or any run after a schema bump
+invalidates the action cache — exhausts it and fails with a bare `errno -122`
+that identifies neither the file nor the cause.
+
+```bash
+export TMPDIR="$HOME/.cache/nts-tmp" && mkdir -p "$TMPDIR"
+```
+
+The suite builds real executables through a sandbox and links against real
+system libraries; the intermediate objects are large and numerous, and they are
+written where `TMPDIR` says.
+
+### Host requirements
+
+`clang`, `pkg-config`, `bwrap`, `xvfb-run`, GTK 4, and the
+GObject-introspection GIRs in `/usr/share/gir-1.0`.
+
+A JDK provides the JVM suites. An Android SDK platform is optional and gates
+only the Android-specific lane, which looks in `ANDROID_SDK_ROOT`, then
+`ANDROID_HOME`, then `~/Android/Sdk`, taking the highest-numbered
+`platforms/android-N` that contains `android.jar`.
+
+Suites skip cleanly when a dependency is missing, and the JVM suite names the
+reason on the test line — so **check the pass count, not the exit code alone**.
+A green run that skipped the half you cared about is the failure mode this
+warning exists for.
 
 ## Workspace commands
 
@@ -116,9 +149,16 @@ upstream or replaced cleanly by later upstream work.
 ## Validation before commit
 
 `pnpm test` is the gate. It runs every workspace test, including the ones that
-drive Clang, the Bubblewrap sandbox, and a real GTK executable through both
-backends, and it takes about half a minute. A green subset is not evidence, so
-run it before every commit.
+drive Clang, the Bubblewrap sandbox, and real GTK executables through both
+backends. Budget **two to four minutes** with a warm action cache and longer
+cold — it compiles several native programs and opens real windows, so it is not
+a unit-test run. A green subset is not evidence, so run it before every commit.
+
+It proves behavior and says nothing about references. After changing
+registration lifetime, payload ownership, or the delivery transport, also run
+`pnpm scriptc:test:sanitized`, which rebuilds the callback suites under the
+sanitizer and reads the runtime's reference audit at exit. A closure that is
+never released passes every ordinary lane; that is the one that notices.
 
 The commands below are focused accelerators for iterating on one area. They do
 not replace the full run.

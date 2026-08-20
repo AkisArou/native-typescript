@@ -326,7 +326,14 @@ These documents are normative for implementation:
 
 [Implementation status](docs/status.md) is not normative. It records what is
 currently built and proven, so the specifications above can stay a statement of
-what must be true rather than a changelog.
+what must be true rather than a changelog. [Open work](docs/open-work.md) is
+the companion index: everything deferred, with the reason and the condition
+that would admit it, so a reason is never lost by being remembered only in a
+conversation.
+
+[Investigation records](docs/records/) are dated findings rather than
+specifications. Each states what was measured, what was decided, and what would
+supersede it. They are the archive a specification is allowed to assume.
 
 When documents conflict, [Architecture](docs/architecture.md) owns system
 invariants. The focused specification owns details in its domain. A conflict
@@ -339,19 +346,25 @@ packages/
 ├── bindgen-c/    target-neutral Clang C ABI evidence and probe generation
 ├── bindgen-gir/  GObject-introspection binding family: GIR ingestion, GObject
 │                 adapters, and the GObject SCABI/declaration projection
+├── bindgen-jvm/  JVM binding family: class-file ingestion, JNI adapter and
+│                 subclass generation, and the JVM SCABI projection
 ├── cli/          command-line entry point, including `build`
 ├── core/         build planning and orchestration
 ├── scabi/        native binding schema, canonicalization, and validation
 ├── scriptc/      integration with the pinned scriptc fork
 ├── target-api/   target-provider contracts
-└── target-gtk/   GTK target: GLib owner-runtime adapter, process bootstrap,
-                  native object fragment, and the application build pipeline
+├── target-gtk/   GTK target: GLib owner-runtime adapter, process bootstrap,
+│                 native object fragment, and the application build pipeline
+└── target-jvm/   JVM target: JDK/Android SDK discovery, javac invocation, and
+                  the hosted and self-launched application lanes
 
 third_party/
 └── scriptc/      pinned fork as a Git submodule
 
 docs/             normative architecture and development documentation
+docs/records/     dated investigation records: what was measured and decided
 fixtures/         permanent native ABI and conformance fixtures
+scripts/          gates and falsifiers that are not part of `pnpm test`
 tests/            workspace-level tests
 ```
 
@@ -376,11 +389,21 @@ pnpm test
 Native TypeScript is in early implementation. It is not yet an application
 framework or a production compiler.
 
-The C ABI foundation and the first GTK vertical slice are the working surface
-today. A narrow but real GTK application — window, button, properties, signals,
-the `GApplication` lifecycle, deterministic teardown — compiles from TypeScript
+The C ABI foundation and the GTK vertical slice are the working surface today.
+A narrow but real GTK application — window, button, properties, signals, the
+`GApplication` lifecycle, deterministic teardown — compiles from TypeScript
 through both the C and LLVM backends and runs against real GTK with no
 JavaScript engine in the executable.
+
+A second binding family exercises the same boundary against a language rather
+than a library. The JVM lane ingests class files directly, generates JNI
+adapters and Java subclasses from them, dispatches TypeScript overrides through
+a host-constructed object, and reaches the base implementation an override
+replaced through javac's own `super`. It runs on the desktop JDK, in a JVM this
+runtime created and in one it did not. Android itself is not yet crossed: the
+two contract arms a real `Activity` forces — void-synchronous callback delivery
+and handle payloads — are named refusals, pinned against the real
+`android.jar` so the gate fails the moment either lands.
 
 One command builds one:
 
@@ -401,7 +424,8 @@ everything else — ABI probes, adapter generation, link order — is derived.
 | GTK target runtime and generated widget surface | implemented, narrow surface |
 | GTK application lifecycle | generated and executed |
 | `build` command, project description, action cache | implemented |
-| Terminal, mobile, React, partitions, DOM | not started |
+| JVM/Android bindings, JNI adapters, native subclassing | implemented, two arms pinned open |
+| Terminal, iOS, macOS, Windows, React, partitions, DOM | not started |
 
 [Implementation status](docs/status.md) records what is built and proven, by
 layer and by gate, including the deliberate boundaries that remain. The
