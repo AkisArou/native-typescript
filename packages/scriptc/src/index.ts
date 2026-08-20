@@ -37,6 +37,10 @@ export type {
   ScriptCExternalCcPlan,
   ScriptCExternalBuild,
   ScriptCExternalRuntimeObject,
+  ScriptCLibraryCompilationPlan,
+  ScriptCLibraryExternalBuild,
+  ScriptCLibraryNativeBuildPlan,
+  ScriptCLibraryObject,
 } from "./external-build.ts";
 
 export { locateScriptCCheckout } from "./checkout.ts";

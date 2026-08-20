@@ -6,6 +6,7 @@ export { planTarget, TargetPlanningError } from "./target-plan.ts";
 export {
   planScriptCExecutable,
   planScriptCRuntimeObject,
+  planScriptCLibraryEmission,
   planScriptCProgramEmission,
 } from "./scriptc-build.ts";
 export type {

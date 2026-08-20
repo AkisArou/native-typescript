@@ -1,5 +1,6 @@
 import type {
   ScriptCExecutableCompilationPlan,
+  ScriptCLibraryCompilationPlan,
   ScriptCExternalCcPlan,
 } from "@native-typescript/scriptc";
 import type {
@@ -111,6 +112,105 @@ export function planScriptCProgramEmission(input: {
  * nobody declared, which is why it records what it read: the entry is reused
  * only while every one of those files is unchanged.
  */
+/**
+ * The library counterpart of program emission.
+ *
+ * Emission is a graph ACTION on both paths, for the same reasons: it is
+ * deterministic, it is expensive, and its output is exactly what a
+ * content-addressed cache should hold. An embedder that emitted in its own
+ * build script would keep the program translation unit outside the graph that
+ * builds everything else from it — no provenance, no reuse, and nothing to
+ * execute remotely later.
+ *
+ * A library profile PINS its emission, so unlike the executable path there is
+ * no backend fallback to reconcile; an artifact whose extension disagrees
+ * with the plan is a build describing one thing and naming another.
+ */
+export function planScriptCLibraryEmission(input: {
+  readonly actionId: string;
+  readonly plan: ScriptCLibraryCompilationPlan;
+  readonly planArtifact: string;
+  readonly compilerArtifact: string;
+  readonly artifactId: string;
+  readonly artifactFileName: string;
+  readonly tool: ArtifactActionDefinition["tool"];
+  readonly executionPlatform: string;
+  readonly targetPlatform: string;
+  readonly target: string;
+}): ScriptCProgramEmissionArtifactPlan {
+  if (
+    input.plan.schema !== "scriptc.library-compilation-plan" ||
+    input.plan.schemaVersion !== 1
+  ) {
+    throw new Error("Unsupported ScriptC library compilation plan schema");
+  }
+  if (input.tool.id !== "tool/node") {
+    throw new Error(
+      `ScriptC library emission requires tool/node, but received ${input.tool.id}`,
+    );
+  }
+  if (input.plan.target.platform !== input.targetPlatform) {
+    throw new Error(
+      `ScriptC planned ${input.plan.target.platform}, but emission targets ${input.targetPlatform}`,
+    );
+  }
+  const extension = input.plan.emission === "llvm" ? ".ll" : ".c";
+  if (!input.artifactFileName.endsWith(extension)) {
+    throw new Error(
+      `ScriptC ${input.plan.emission} emission requires a ${extension} artifact`,
+    );
+  }
+  return Object.freeze({
+    artifact: Object.freeze({
+      id: input.artifactId,
+      kind: "generated-source",
+      entryType: "file",
+      mediaType: input.plan.emission === "llvm" ? "text/x-llvm" : "text/x-c",
+      target: input.target,
+      domain: "target",
+      cache: "exportable",
+      origin: Object.freeze({
+        kind: "action",
+        action: input.actionId,
+        fileName: input.artifactFileName,
+      }),
+    }),
+    action: Object.freeze({
+      id: input.actionId,
+      implementation: Object.freeze({
+        id: "native-typescript/scriptc-library-emission",
+        version: String(input.plan.schemaVersion),
+      }),
+      tool: Object.freeze({ ...input.tool }),
+      arguments: Object.freeze([
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: input.compilerArtifact,
+          path: "library-emitter-cli.js",
+        }),
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: input.planArtifact,
+        }),
+        Object.freeze({
+          kind: "output-path" as const,
+          artifact: input.artifactId,
+        }),
+      ]),
+      environment: Object.freeze([]),
+      inputs: Object.freeze([input.compilerArtifact, input.planArtifact]),
+      outputs: Object.freeze([input.artifactId]),
+      standardOutput: Object.freeze({ kind: "report" as const }),
+      workingDirectory: "isolated",
+      network: "denied",
+      executionPlatform: input.executionPlatform,
+      target: input.target,
+      deterministic: true,
+      cacheable: true,
+    }),
+  });
+}
+
 export function planScriptCRuntimeObject(input: {
   readonly actionId: string;
   readonly plan: ScriptCExternalCcPlan;
