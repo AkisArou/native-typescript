@@ -939,6 +939,58 @@ test(
 );
 
 test(
+  "a filled record the member may decline to fill is absent, not failed",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `gtk_tree_model_get_iter(GtkTreeModel *, GtkTreeIter *out, GtkTreePath *)`
+     * fills an iterator AND returns whether there was a row to fill it from.
+     * The adapter for a filled boxed record accepted only the VOID spelling,
+     * so every reader that also answers — most of the tree model's surface —
+     * was refused for a reason that was about the boolean rather than the
+     * record.
+     *
+     * A false answer leaves the caller's storage untouched, so copying it
+     * anyway would hand back a zeroed record indistinguishable from a real
+     * one. The adapter answers NULL instead, and the projection is a plain
+     * nullable handle: no error contract is declared, because a model with no
+     * such row has ANSWERED. That distinction already exists one layer down —
+     * a binding that declares the nullable error contract says NULL means the
+     * call failed, which is right for a constructor and wrong for a reader. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      interfaces: [{ name: "TreeModel", methods: ["get_iter_first"] }],
+      records: [{ name: "TreeIter", methods: [] }],
+    });
+
+    const generated = generateGObjectScabiPackage(options(gtk, []));
+
+    assert.match(
+      generated.declarations,
+      /getIterFirst\(\): TreeIter \| null;/u,
+    );
+    const binding = Object.values(generated.manifest.bindings).find((entry) =>
+      entry.kind !== "constant" &&
+      entry.declaration.name === "TreeModel.getIterFirst"
+    );
+    assert.ok(binding && binding.kind !== "constant");
+    assert.equal(binding.signature.result.nullable, true);
+    assert.equal(binding.signature.result.ownership.kind, "owned");
+    /* Absence is not a failure, and the manifest says so in as many words
+     * rather than by omitting a contract. */
+    assert.deepEqual(binding.error, { kind: "no-fail" });
+
+    /* And the generated C must not copy storage the callee never filled: a
+     * zeroed record would be indistinguishable from a real one. */
+    const adapter = generateGObjectAdapterSource(gtk, []);
+    assert.match(
+      adapter.source,
+      /if \(!gtk_tree_model_get_iter_first\(instance, &value\)\) return NULL;/u,
+    );
+  },
+);
+
+test(
   "a value-returning member takes the object arguments any other member takes",
   { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
   () => {

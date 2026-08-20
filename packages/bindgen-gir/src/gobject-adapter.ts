@@ -150,6 +150,15 @@ export interface GObjectBoxedResultMethodAdapter {
   readonly resultName: string;
   readonly resultNativeType: string;
   readonly inputs: readonly GObjectValueMethodInputAdapter[];
+  /**
+   * True when the member also says whether it filled the output.
+   *
+   * `gtk_tree_model_get_iter` fills an iterator and returns whether there was
+   * a row to fill it from; a false answer leaves the storage meaningless. So
+   * the adapter answers with NULL, and the projection is a nullable owned
+   * handle — absence, not failure. A container with no child has answered.
+   */
+  readonly answers: boolean;
 }
 
 /** The field a value-return adapter puts its answer in. One name, because the
@@ -218,7 +227,7 @@ export interface GObjectRetainedResultMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 13;
+  readonly schemaVersion: 14;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -966,6 +975,29 @@ function boxedProducerShape(
     boxedByName.has(output.type.name);
 }
 
+/**
+ * Whether a member's own result is compatible with handing back a boxed
+ * record it filled.
+ *
+ * Two spellings qualify. A void member fills the output unconditionally. A
+ * boolean member fills it only when it answers true — `gtk_tree_model_
+ * get_iter` returns whether there was a row — and a false answer leaves the
+ * caller's storage meaningless, which is absence rather than failure.
+ *
+ * Anything else is a member with two results, which this shape does not
+ * describe.
+ */
+function boxedResultAnswerShape(callable: GirCallable): boolean {
+  if (callable.result.type.kind !== "named") return false;
+  if (callable.result.type.cType === "void") return true;
+  return callable.result.type.cType === "gboolean" &&
+    callable.result.transferOwnership === "none" &&
+    !callable.result.nullable &&
+    callable.result.scope === null &&
+    callable.result.closureParameter === null &&
+    callable.result.destroyParameter === null;
+}
+
 function generateBoxedResultMethod(
   class_: GirClass,
   callable: GirCallable,
@@ -994,7 +1026,7 @@ function generateBoxedResultMethod(
     callable.throws ||
     receiver?.kind !== "instance" ||
     !isInstancePointer(receiver.type.cType, class_) ||
-    callable.result.type.cType !== "void" ||
+    !boxedResultAnswerShape(callable) ||
     !output!.callerAllocates ||
     output!.transferOwnership !== "none" ||
     output!.type.cType !== `${boxed.cType}*` ||
@@ -1032,6 +1064,8 @@ function generateBoxedResultMethod(
   const callArguments = declared.map((parameter) =>
     inputByName.has(parameter.name) ? parameter.name : "&value"
   );
+  const answers = callable.result.type.cType !== "void";
+  const call = `${callable.cIdentifier}(${["instance", ...callArguments].join(", ")})`;
   const lines = [
     `${boxed.cType} *${adapterSymbol}(${[
       `${class_.cType} *instance`,
@@ -1039,7 +1073,12 @@ function generateBoxedResultMethod(
     ].join(", ")}) {`,
     `  ${boxed.cType} value;`,
     "  memset(&value, 0, sizeof value);",
-    `  ${callable.cIdentifier}(${["instance", ...callArguments].join(", ")});`,
+    /* A false answer means the storage was never filled, so there is nothing
+     * to copy and nothing to hand back. Copying it anyway would produce a
+     * zeroed record indistinguishable from a real one. */
+    ...(answers
+      ? [`  if (!${call}) return NULL;`]
+      : [`  ${call};`]),
     `  return ${boxed.boxed.copy.cIdentifier}(&value);`,
     "}",
     "",
@@ -1053,6 +1092,7 @@ function generateBoxedResultMethod(
       resultName: boxed.name,
       resultNativeType: boxed.cType,
       inputs: Object.freeze(validInputs),
+      answers,
     }),
     lines: Object.freeze(lines),
   };
@@ -1702,7 +1742,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 13,
+    schemaVersion: 14,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),

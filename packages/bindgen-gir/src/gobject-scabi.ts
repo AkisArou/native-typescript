@@ -2801,10 +2801,13 @@ export function generateGObjectScabiPackage(
             }),
             ...inputs.map((input) => input!.abi),
           ],
+          /* An answering member reports absence with NULL, which is an
+           * answer rather than a failure — no error contract is declared,
+           * so the projection is a plain nullable handle. */
           result: Object.freeze({
             type: resultHandle.typeId,
             passMode: "pointer",
-            nullable: false,
+            nullable: boxedResult.answers,
             ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
           }),
           dependencies: dependencies({
@@ -2819,7 +2822,11 @@ export function generateGObjectScabiPackage(
           ...deprecationDoc(callable, "  "),
           `  ${sourceMember}(${inputs.map((input, index) =>
             `${lowerCamel(boxedResult.inputs[index]!.parameterName)}: ${input!.sourceName}`
-          ).join(", ")}): ${resultHandle.sourceName};`,
+          ).join(", ")}): ${
+            boxedResult.answers
+              ? `${resultHandle.sourceName} | null`
+              : resultHandle.sourceName
+          };`,
         );
         continue;
       }
