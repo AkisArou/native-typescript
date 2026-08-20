@@ -19,7 +19,16 @@ export const jvmRuntimeProvider = defineProvider({
       capabilities.retainedCallbackV1,
     ],
     requires: {
-      compiler: [capabilities.retainedCallbackV1],
+      /* runtimeOwnerExecutorV1 is REQUIRED as well as provided: this
+       * runtime's pump calls the owner loop's attached-source API and
+       * checkpoint in both products. For an executable the loop is main
+       * and the statement is satisfied trivially; for a library it is
+       * what puts the loop unit into the archive - once the capability
+       * mapping learns the difference. */
+      compiler: [
+        capabilities.retainedCallbackV1,
+        capabilities.runtimeOwnerExecutorV1,
+      ],
       providers: [],
     },
   },

@@ -8,6 +8,7 @@ import {
   executeArtifactGraph,
   nativeRuntimeServices,
   planScriptCExecutable,
+  planScriptCLibraryEmission,
   planScriptCProgramEmission,
   planScriptCRuntimeObject,
   resolveSourceArtifact,
@@ -26,7 +27,6 @@ import {
   loadScriptCExecutablePlanners,
   loadScriptCLibraryPlanners,
   locateScriptCCheckout,
-  scriptCCompilerDistribution,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
 import type { ScriptCNativeTranslationSuccess } from "@native-typescript/scriptc";
@@ -653,6 +653,17 @@ export async function buildJvmApplication(input: {
       profilePath,
       externalTypes,
       native: composed.input,
+      /* The owner runtime calls the retained-callback service whether or
+       * not the program connects anything, so the archive carries it on
+       * the target's say-so — the executable path's rule, now stated on
+       * the library plan too. "attached-loop" is passed by hand until the
+       * capability mapping learns that runtime-owner-executor places a
+       * demand on a LIBRARY's compiled runtime (the embedder pumps); the
+       * provider already states the requirement. */
+      nativeRuntimeRequires: [
+        ...nativeRuntimeServices([jvmRuntimeProvider]),
+        "attached-loop",
+      ],
     });
     if (!libraryPlanned.ok) {
       throw new Error(
@@ -663,43 +674,44 @@ export async function buildJvmApplication(input: {
       );
     }
 
-    /* STOPGAP, stated rather than smuggled: emission belongs in the graph
-     * as a sandboxed cached action, exactly as the executable path does it,
-     * but the dist ships no library-emitter-cli yet. Until it lands, the
-     * plan is emitted in-process through the sanctioned runtime-import
-     * discipline and the program enters the graph as a resolved source.
-     * Swapping to the action is a one-path change. */
-    const distribution = scriptCCompilerDistribution();
-    const compilerModule = (await import(
-      new URL(`file://${join(distribution, "index.js")}`).href
-    )) as {
-      emitLibraryCompilationPlan?: (plan: unknown) => string;
-    };
-    if (typeof compilerModule.emitLibraryCompilationPlan !== "function") {
-      throw new Error(
-        "The pinned ScriptC compiler exports no emitLibraryCompilationPlan",
-      );
-    }
-    const programText = compilerModule.emitLibraryCompilationPlan(
-      libraryPlanned.plan,
-    );
+    /* Emission is a graph action, exactly as the executable path does it:
+     * the plan enters as a metadata artifact and library-emitter-cli
+     * materializes the program inside the sandbox. */
     const programFileName = input.backend === "llvm"
       ? "program.ll"
       : "program.c";
-    const programPath = join(input.scratch, programFileName);
-    writeFileSync(programPath, programText);
     const programId = `generated/scriptc/${input.backend}/library-program`;
-    const programResolution = await resolveSourceArtifact({
-      id: programId,
-      path: programPath,
-      kind: "generated-source",
+    const libraryPlanId =
+      `metadata/scriptc/${input.backend}/library-compilation-plan`;
+    const libraryPlanPath = join(
+      input.scratch,
+      `${input.backend}-library-compilation-plan.json`,
+    );
+    writeFileSync(libraryPlanPath, JSON.stringify(libraryPlanned.plan));
+    const libraryPlanResolution = await resolveSourceArtifact({
+      id: libraryPlanId,
+      path: libraryPlanPath,
+      kind: "metadata",
       entryType: "file",
-      mediaType: input.backend === "llvm" ? "text/x-llvm" : "text/x-c",
-      target,
-      domain: "target",
+      mediaType: "application/vnd.scriptc.library-compilation-plan+json",
+      target: executionPlatform,
+      domain: "host",
       cache: "exportable",
-      fileName: programFileName,
-      logicalPath: `generated/scriptc/${input.backend}/${programFileName}`,
+      fileName: "library-compilation-plan.json",
+      logicalPath:
+        `generated/scriptc/${input.backend}/library-compilation-plan.json`,
+    });
+    const libraryEmission = planScriptCLibraryEmission({
+      actionId: `emit/scriptc-library/${input.backend}`,
+      plan: libraryPlanned.plan,
+      planArtifact: libraryPlanId,
+      compilerArtifact: compilerEmitter.id,
+      artifactId: programId,
+      artifactFileName: programFileName,
+      tool: nodeTool,
+      executionPlatform,
+      targetPlatform: "linux",
+      target,
     });
 
     const archiveId = `generated/scriptc/${input.backend}/library-archive`;
@@ -858,13 +870,16 @@ export async function buildJvmApplication(input: {
          * executable path's emission action, which the stopgap replaces. */
         scriptcRuntime,
         scriptcHeaders,
-        programResolution.artifact,
+        compilerEmitter,
+        libraryPlanResolution.artifact,
+        libraryEmission.artifact,
         ...targetObjects.artifacts,
         ...objectPlans.map(({ artifact }) => artifact),
         archiveArtifact,
         soArtifact,
       ],
       actions: [
+        libraryEmission.action,
         ...targetObjects.actions,
         ...objectPlans.map(({ action }) => action),
         archiveAction,
@@ -878,7 +893,8 @@ export async function buildJvmApplication(input: {
         [targetRuntimeArtifactIds.sourceTree]: runtimePath,
         [scriptcRuntime.id]: scriptcRuntimeRoot,
         [scriptcHeaders.id]: scriptcRuntimeInclude,
-        [programId]: programPath,
+        [compilerEmitter.id]: compilerDistribution,
+        [libraryPlanId]: libraryPlanPath,
         ...Object.fromEntries(
           targetObjects.adapters.map(({ plan }) => [plan.source.id, adapterPath]),
         ),
