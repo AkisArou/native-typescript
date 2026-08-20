@@ -104,6 +104,22 @@ public class Widget {
     return new long[] {1L};
   }
 
+  public static int sumInts(int[] values) {
+    int total = 0;
+    for (int v : values) total += v;
+    return total;
+  }
+
+  public static int countInts(int[] values) {
+    return values.length;
+  }
+
+  public static float[] reverseFloats(float[] values) {
+    float[] out = new float[values.length];
+    for (int i = 0; i < values.length; i++) out[values.length - 1 - i] = values[i];
+    return out;
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

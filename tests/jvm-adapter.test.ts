@@ -43,6 +43,10 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "nullElement",
     "countTags",
     "joinWords",
+    "sumInts",
+    "countInts",
+    "reverseFloats",
+    "measure",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -110,6 +114,7 @@ test("the adapter source is deterministic and carries its member table", () => {
     first.staticMethods.map(({ name }) => name).sort(),
     [
       "checkedAdd",
+      "countInts",
       "countTags",
       "emptyWords",
       "greet",
@@ -117,17 +122,19 @@ test("the adapter source is deterministic and carries its member table", () => {
       "nullBytes",
       "nullElement",
       "reverseBytes",
+      "reverseFloats",
       "splitWords",
       "sumBytes",
+      "sumInts",
       "withNul",
     ],
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
-    ["compareDepth", "depth", "label", "resize", "resize", "resized"],
+    ["compareDepth", "depth", "label", "measure", "resize", "resize", "resized"],
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
-  assert.deepEqual(first.byteSpanSupport, { region: "copy" });
+  assert.deepEqual(first.spanSupport, { region: "copy" });
   // One release frees the vector and its elements; its symbol is what the
   // manifest's string-vector marshal names.
   assert.ok(first.stringVectorSupport !== null);
@@ -141,7 +148,7 @@ test("the adapter source is deterministic and carries its member table", () => {
   )!;
   assert.deepEqual(splitWords.result, { kind: "string-vector" });
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
-  assert.deepEqual(sumBytes.parameters, [{ kind: "byte-span" }]);
+  assert.deepEqual(sumBytes.parameters, [{ kind: "span", elem: "u8" }]);
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
     .map(({ adapterSymbol }) => adapterSymbol);
@@ -171,12 +178,12 @@ test("every generated-C family carries a classification", () => {
     Object.keys(JVM_ADAPTER_FAMILIES).sort(),
     [
       "bind",
-      "byteSpanSupport",
       "constructors",
       "envSupport",
       "errorSupport",
       "instanceMethods",
       "release",
+      "spanSupport",
       "staticMethods",
       "stringSupport",
       "stringVectorSupport",
@@ -191,27 +198,22 @@ test("every generated-C family carries a classification", () => {
   assert.equal(gapCount, 1);
 });
 
-test("positions outside the slice algebra are refused precisely", () => {
-  const withMeasure = ingestSurface([
-    { binaryName: "fixture/Widget", methods: ["measure"] },
-  ]);
-  try {
-    generateJvmAdapterSource(withMeasure, { packageSlug: "fixture" });
-    assert.fail("expected JvmGenerationError");
-  } catch (error) {
-    assert.ok(error instanceof JvmGenerationError);
-    // The String parameter projects now; only the int[] result refuses,
-    // named by its element family.
-    assert.deepEqual(
-      error.diagnostics.map(({ code }) => code),
-      ["NTS7001"],
-    );
-    const messages = error.diagnostics.map(({ message }) => message).join("\n");
-    assert.match(
-      messages,
-      /array type 'int\[\]', which waits on the widened span boundary for its carrier Int32Array/u,
-    );
-  }
+test("the founding refusal resolves: measure returns a typed span", () => {
+  // measure's int[] result opened this family's file as a refusal; the
+  // widened span boundary is what finally admits it.
+  const withMeasure = generateJvmAdapterSource(
+    ingestSurface([{ binaryName: "fixture/Widget", methods: ["measure"] }]),
+    { packageSlug: "fixture" },
+  );
+  const measure = withMeasure.instanceMethods.find(
+    ({ name }) => name === "measure",
+  )!;
+  assert.deepEqual(measure.result, { kind: "span", elem: "i32" });
+  assert.ok(
+    withMeasure.header.includes(
+      `uint8_t *${measure.adapterSymbol}(void *self, const char *a0, jboolean a1, size_t *out_length, char **error);`,
+    ),
+  );
 });
 
 test("a String[] argument crosses as a borrowed terminated vector", () => {
@@ -237,10 +239,10 @@ test("refused array elements name the carrier each is missing", () => {
   // rather than concluding arrays are unsupported.
   for (
     const [method, pattern] of [
-      ["samples", /'double\[\]'; its carrier Float64Array has no compiler runtime representation/u],
+      ["samples", /'double\[\]': element carrier Float64Array has no runtime representation in the compiler/u],
       [
         "ids",
-        /'long\[\]'; its carrier BigInt64Array has no compiler runtime representation, and bigint itself is outside the compilable value set/u,
+        /'long\[\]': element carrier BigInt64Array has no runtime representation in the compiler, and bigint is outside the compilable value set \(SC2001\)/u,
       ],
     ] as const
   ) {
@@ -267,8 +269,8 @@ test("a byte[] result crosses as an owned copy with a length out slot", () => {
   const reverse = withReverse.staticMethods.find(
     ({ name }) => name === "reverseBytes",
   )!;
-  assert.deepEqual(reverse.result, { kind: "byte-span" });
-  assert.deepEqual(withReverse.byteSpanSupport, { region: "copy" });
+  assert.deepEqual(reverse.result, { kind: "span", elem: "u8" });
+  assert.deepEqual(withReverse.spanSupport, { region: "copy" });
   // The length rides a compiler-owned out slot beside the error slot.
   assert.ok(
     withReverse.header.includes(
@@ -334,6 +336,18 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       ({ name }) => name === "joinWords",
     )!.adapterSymbol;
     const strvFreeSymbol = adapter.stringVectorSupport!.releaseSymbol;
+    const sumIntsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "sumInts",
+    )!.adapterSymbol;
+    const countIntsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "countInts",
+    )!.adapterSymbol;
+    const reverseFloatsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "reverseFloats",
+    )!.adapterSymbol;
+    const measureSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "measure",
+    )!.adapterSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
@@ -437,6 +451,25 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  (void)${countTagsSymbol}(NULL, &error);`,
       "  if (error == NULL) return 40;",
       `  ${releaseSymbol}(error); error = NULL;`,
+      /* Typed spans: signed content survives (sumInts), the length echo is
+       * the units mirror (four elements must count four; a bytes-crossed
+       * count would build sixteen), floats come back REVERSED with exact
+       * f32-representable values, and measure - the founding refusal -
+       * answers as a live int[] result with an element-counted length. */
+      "  int32_t ints[3] = {1, -2, 4};",
+      `  if (${sumIntsSymbol}((const uint8_t *)ints, 3, &error) != 3 ||\n      error != NULL) return 41;`,
+      `  if (${countIntsSymbol}((const uint8_t *)ints, 3, &error) != 3 ||\n      error != NULL) return 42;`,
+      "  float floats[2] = {1.5f, -2.25f};",
+      "  size_t floatCount = 0;",
+      `  float *rev = (float *)${reverseFloatsSymbol}(\n      (const uint8_t *)floats, 2, &floatCount, &error);`,
+      "  if (rev == NULL || error != NULL || floatCount != 2) return 43;",
+      "  if (rev[0] != -2.25f || rev[1] != 1.5f) return 44;",
+      "  free(rev);",
+      "  size_t measureCount = 0;",
+      `  int32_t *measured = (int32_t *)${measureSymbol}(\n      w, "label", JNI_TRUE, &measureCount, &error);`,
+      "  if (measured == NULL || error != NULL || measureCount != 2) return 45;",
+      "  if (measured[0] != 5 || measured[1] != 1) return 46;",
+      "  free(measured);",
       `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",

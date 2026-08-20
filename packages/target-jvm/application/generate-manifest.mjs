@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  SCABI_SCHEMA_VERSION,
   canonicalizeJson,
   parseScabiManifest,
 } from "../../scabi/src/index.ts";
@@ -140,7 +141,8 @@ const manifest = {
   },
   permissions: [],
   schema: "native-typescript.scabi",
-  schemaVersion: 7,
+  /* Reported, never chosen: the version this generator was built against. */
+  schemaVersion: SCABI_SCHEMA_VERSION,
   sdk: {
     deploymentTarget: "x86_64-unknown-linux-gnu",
     metadataDigest: headerDigest,

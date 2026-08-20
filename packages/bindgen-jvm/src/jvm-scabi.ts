@@ -19,6 +19,7 @@ import {
 } from "@native-typescript/bindgen-c";
 import type { ClangAbiEvidenceSnapshot } from "@native-typescript/bindgen-c";
 import {
+  SCABI_SCHEMA_VERSION,
   canonicalizeJson,
   digestScabiManifest,
   parseScabiManifest,
@@ -43,6 +44,7 @@ import type {
   JvmAdapterSource,
   JvmConstructorAdapter,
   JvmMethodAdapter,
+  JvmSpanElement,
 } from "./jvm-adapter.ts";
 import { generateJvmClangAbiProbe } from "./jvm-clang.ts";
 import { JvmGenerationError } from "./jvm-model.ts";
@@ -498,24 +500,33 @@ export function generateJvmScabiPackage(
     });
   }
 
-  function needByteSpanTypes(): void {
-    types["u8"] ??= Object.freeze({ kind: "integer", signed: false, bits: 8 });
-    types["const_bytes"] ??= Object.freeze({
-      kind: "pointer",
-      pointee: "u8",
-      mutability: "const",
-      nullable: false,
-      addressSpace: 0,
-    });
-    types["usize"] ??= Object.freeze({
-      kind: "integer",
-      signed: false,
-      bits: "pointer",
-    });
-  }
+  /** The TS carrier per span element. */
+  const spanCarriers: Readonly<Record<JvmSpanElement, string>> = Object.freeze({
+    u8: "Uint8Array",
+    i32: "Int32Array",
+    f32: "Float32Array",
+  });
 
-  function needByteSpanResultTypes(): void {
+  /* The physical slot is a byte pointer for EVERY element — the element
+   * size is the managed side's business and lives in the marshal — so one
+   * pair of pointer types serves the whole family. */
+  function needSpanTypes(direction: "argument" | "result"): string {
     types["u8"] ??= Object.freeze({ kind: "integer", signed: false, bits: 8 });
+    if (direction === "argument") {
+      types["usize"] ??= Object.freeze({
+        kind: "integer",
+        signed: false,
+        bits: "pointer",
+      });
+      types["const_bytes"] ??= Object.freeze({
+        kind: "pointer",
+        pointee: "u8",
+        mutability: "const",
+        nullable: false,
+        addressSpace: 0,
+      });
+      return "const_bytes";
+    }
     types["bytes_result"] ??= Object.freeze({
       kind: "pointer",
       pointee: "u8",
@@ -523,6 +534,15 @@ export function generateJvmScabiPackage(
       nullable: false,
       addressSpace: 0,
     });
+    return "bytes_result";
+  }
+
+  /* `elem` is stated only when it is not the default the contract reads an
+   * absence as. */
+  function spanElemField(
+    elem: JvmSpanElement,
+  ): { readonly elem: JvmSpanElement } | Record<never, never> {
+    return elem === "u8" ? {} : { elem };
   }
 
   function needStringVectorArgumentTypes(): void {
@@ -596,23 +616,27 @@ export function generateJvmScabiPackage(
         }),
       })];
     }
-    if (position.kind === "byte-span") {
-      needByteSpanTypes();
-      /* The bytes contract admits only a non-null borrowed span, so a null
-       * Java byte[] argument is not offered; the adapter copies during the
-       * call, exactly as a string crosses. */
+    if (position.kind === "span") {
+      const argType = needSpanTypes("argument");
+      /* The span contract admits only a non-null borrowed span, so a null
+       * Java array argument is not offered; the adapter copies during the
+       * call, exactly as a string crosses. The length names its units
+       * because a sibling length in a foreign signature may denominate
+       * either way — here it is elements, JNI's only denomination. */
       return [
         Object.freeze({
           name: `a${index}`,
-          type: "const_bytes",
+          type: argType,
           passMode: "pointer" as const,
           nullable: false,
           ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
           marshal: Object.freeze({
             kind: "bytes" as const,
+            ...spanElemField(position.elem),
             length: Object.freeze({
               kind: "parameter" as const,
               parameter: `a${index}_length`,
+              units: "elements" as const,
             }),
             mutability: "const" as const,
           }),
@@ -663,7 +687,7 @@ export function generateJvmScabiPackage(
     }
     if (position.kind === "string") return "string | null";
     /* Two physical slots, one source value: the view and its byteLength. */
-    if (position.kind === "byte-span") return "Uint8Array";
+    if (position.kind === "span") return spanCarriers[position.elem];
     if (position.kind === "string-vector") return "string[]";
     return scalarProjections[position.primitive].sourceType;
   }
@@ -797,25 +821,26 @@ export function generateJvmScabiPackage(
               release: options.adapter.stringVectorSupport!.releaseSymbol,
             }),
           }))
-        : method.result.kind === "byte-span"
-        ? (needByteSpanResultTypes(),
-          Object.freeze({
+        : method.result.kind === "span"
+        ? Object.freeze({
             /* An owned copy exactly like the string result, with the one
              * new fact stated by absence: the marshal carries no length,
              * because the extent returns in a compiler-owned slot beside
-             * the error slot. The slot is non-null — a null byte[] refuses
-             * at the adapter as a named absence — and free() ends the
-             * program's claim on the malloc'd copy. */
-            type: "bytes_result",
+             * the error slot, counting elements by construction. The slot
+             * is non-null — a null array refuses at the adapter as a named
+             * absence — and free() ends the program's claim on the
+             * malloc'd copy. */
+            type: needSpanTypes("result"),
             passMode: "pointer" as const,
             nullable: false,
             ownership: Object.freeze({ kind: "value" as const }),
             marshal: Object.freeze({
               kind: "bytes" as const,
+              ...spanElemField(method.result.elem),
               mutability: "mutable" as const,
               release: "free",
             }),
-          }))
+          })
         : method.result.kind === "handle"
         ? Object.freeze({
             type: selectedTypeIds.get(method.result.binaryName)!,
@@ -902,10 +927,9 @@ export function generateJvmScabiPackage(
 
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    /* v7: the bytes marshalling contract gained an optional release and an
-     * optional length, for the span that comes back beside a compiler-owned
-     * length slot. */
-    schemaVersion: 7,
+    /* Reported, never chosen: a producer states the contract version it
+     * was built against. */
+    schemaVersion: SCABI_SCHEMA_VERSION,
     package: options.package,
     target: {
       ...options.target,

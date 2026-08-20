@@ -75,6 +75,23 @@ try {
 }
 if (!caught) failed = true;
 
+/* Typed spans: signed content survives (sumInts), the length echo is the
+ * units mirror (four elements must count four; a bytes-denominated count
+ * crossing would build sixteen), floats come back REVERSED with exact
+ * f32-representable values, and measure — the refusal that opened this
+ * family's file — finally answers as a live Int32Array. */
+if (Widget.sumInts(new Int32Array([1, -2, 4])) !== 3) failed = true;
+if (Widget.countInts(new Int32Array(4)) !== 4) failed = true;
+const reversedFloats = Widget.reverseFloats(new Float32Array([1.5, -2.25]));
+if (
+  reversedFloats.length !== 2 || reversedFloats[0] !== -2.25 ||
+  reversedFloats[1] !== 1.5
+) failed = true;
+const measured = widget.measure("label", true);
+if (measured.length !== 2 || measured[0] !== 5 || measured[1] !== 1) {
+  failed = true;
+}
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a

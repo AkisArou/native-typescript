@@ -30,9 +30,11 @@ import type {
 function positionCTypes(position: JvmAdapterPosition): readonly string[] {
   if (position.kind === "primitive") return [jniCTypes[position.primitive]];
   if (position.kind === "string") return ["const char*"];
-  /* A byte span is one position across two physical slots; the probe
-   * proves both, in the order the adapter declares them. */
-  if (position.kind === "byte-span") return ["const uint8_t*", "size_t"];
+  /* A span is one position across two physical slots; the probe proves
+   * both, in the order the adapter declares them. */
+  /* A byte pointer for every element: the element lives in the marshal
+   * and the managed side, never in the slot. */
+  if (position.kind === "span") return ["const uint8_t*", "size_t"];
   if (position.kind === "string-vector") return ["const char* const*"];
   return ["void*"];
 }
@@ -40,16 +42,16 @@ function positionCTypes(position: JvmAdapterPosition): readonly string[] {
 function resultCType(result: JvmAdapterResult): string {
   if (result.kind === "void") return "void";
   if (result.kind === "string") return "char*";
-  if (result.kind === "byte-span") return "uint8_t*";
+  if (result.kind === "span") return "uint8_t*";
   if (result.kind === "string-vector") return "char**";
   if (result.kind === "primitive") return jniCTypes[result.primitive];
   return "void*";
 }
 
-/** A byte-span result's length rides a compiler-owned out slot placed
- * beside the error slot; the probe proves both trailing slots. */
+/** A span result's length rides a compiler-owned out slot placed beside
+ * the error slot; the probe proves both trailing slots. */
 function trailingCTypes(result: JvmAdapterResult): readonly string[] {
-  return result.kind === "byte-span" ? ["size_t*", "char**"] : ["char**"];
+  return result.kind === "span" ? ["size_t*", "char**"] : ["char**"];
 }
 
 function candidate(

@@ -52,6 +52,8 @@ function snapshot() {
             "reverseBytes",
             "splitWords",
             "joinWords",
+            "sumInts",
+            "measure",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -181,7 +183,7 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.equal(span!.nullable, false);
   assert.deepEqual(span!.marshal, {
     kind: "bytes",
-    length: { kind: "parameter", parameter: "a0_length" },
+    length: { kind: "parameter", parameter: "a0_length", units: "elements" },
     mutability: "const",
   });
   assert.equal(spanLength!.name, "a0_length");
@@ -212,6 +214,40 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     mutability: "mutable",
     release: "free",
   });
+
+  // Typed spans: elem is stated when it is not the u8 the contract reads
+  // an absence as, the argument length says units:"elements" (JNI's only
+  // denomination), and the carriers are the runtime's typed arrays.
+  assert.match(
+    generated.declarations,
+    /static sumInts\(a0: Int32Array\): jint;/u,
+  );
+  assert.match(
+    generated.declarations,
+    /measure\(a0: string \| null, a1: boolean\): Int32Array;/u,
+  );
+  const sumIntsBinding =
+    generated.manifest.bindings["fixture.fixture.widget.sumints"];
+  assert.ok(sumIntsBinding !== undefined && sumIntsBinding.kind !== "constant");
+  assert.deepEqual(sumIntsBinding.signature.parameters[0]!.marshal, {
+    kind: "bytes",
+    elem: "i32",
+    length: { kind: "parameter", parameter: "a0_length", units: "elements" },
+    mutability: "const",
+  });
+  const measureBinding =
+    generated.manifest.bindings["fixture.fixture.widget.measure"];
+  assert.ok(measureBinding !== undefined && measureBinding.kind !== "constant");
+  assert.equal(measureBinding.signature.result.type, "bytes_result");
+  assert.deepEqual(measureBinding.signature.result.marshal, {
+    kind: "bytes",
+    elem: "i32",
+    mutability: "mutable",
+    release: "free",
+  });
+  // The physical slot is a byte pointer for every element; the element
+  // lives in the marshal and the carrier, never in the type table.
+  assert.equal(generated.manifest.types["i32_span_result"], undefined);
 
   // A String[] result: an owned NUL-terminated vector whose one release —
   // the adapter's generated symbol — frees elements and vector both. The
@@ -346,10 +382,10 @@ test("each ownership shape translates through the neutral compiler input", () =>
   assert.equal(sum.error.detect.kind, "outParameterIsNotNull");
   const spanProjections = sum.parameters
     .map(({ projection }) => projection)
-    .filter(({ kind }) => kind === "bytesData" || kind === "bytesByteLength");
+    .filter(({ kind }) => kind === "bytesData" || kind === "bytesLength");
   assert.deepEqual(
     spanProjections.map(({ kind }) => kind).sort(),
-    ["bytesByteLength", "bytesData"],
+    ["bytesData", "bytesLength"],
   );
   const spanArguments = new Set(
     spanProjections.map((projection) =>

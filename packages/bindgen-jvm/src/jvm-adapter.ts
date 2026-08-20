@@ -13,12 +13,13 @@
  *
  * The algebra is deliberately bounded and refuses precisely: JNI primitive
  * scalars and void, selected-class handles, java/lang/String through an
- * exact UTF-16 bridge, byte[] both directions through JNI's Region copy
- * convention (borrowed span in, owned copy out beside a compiler-owned
- * length slot), String[] both directions as NUL-terminated vectors
- * (borrowed in, owned copy out), constructors, and the checked failure
- * channel (pending exception captured to an error-out slot). The
- * remaining element families refuse naming exactly what each is missing.
+ * exact UTF-16 bridge, byte[]/int[]/float[] both directions through JNI's
+ * Region copy convention (borrowed span in, owned copy out beside a
+ * compiler-owned length slot, every length an element count), String[]
+ * both directions as NUL-terminated vectors (borrowed in, owned copy
+ * out), constructors, and the checked failure channel (pending exception
+ * captured to an error-out slot). The remaining element families refuse
+ * naming exactly what each is missing.
  */
 
 import { createHash } from "node:crypto";
@@ -32,20 +33,26 @@ import type {
   JvmTypeReference,
 } from "./jvm-model.ts";
 
+/** The span elements the compiler runtime carries for this platform: Java
+ * has no unsigned arrays, so u32 never appears here even though the
+ * runtime holds it. */
+export type JvmSpanElement = "u8" | "i32" | "f32";
+
 /** One adapter position: a JNI primitive scalar, a stable reference to a
- * class this selection projects, a string, a borrowed byte span (two C
- * slots carrying one Java byte[]), or a borrowed NUL-terminated string
- * vector carrying one Java String[]. */
+ * class this selection projects, a string, a borrowed typed span (two C
+ * slots carrying one Java primitive array), or a borrowed NUL-terminated
+ * string vector carrying one Java String[]. */
 export type JvmAdapterPosition =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
   | { readonly kind: "handle"; readonly binaryName: string }
   | { readonly kind: "string" }
-  | { readonly kind: "byte-span" }
+  | { readonly kind: "span"; readonly elem: JvmSpanElement }
   | { readonly kind: "string-vector" };
 
-/** A byte-span result crosses as an owned copy with a compiler-owned
- * length out slot beside the error slot:
- * `uint8_t *sym(args, size_t *out_length, char **error)`. A string-vector
+/** A span result crosses as an owned copy with a compiler-owned length
+ * out slot beside the error slot, counting ELEMENTS by construction:
+ * `uint8_t *sym(args, size_t *out_length, char **error)` — a byte pointer
+ * for every element, the element living in the marshal. A string-vector
  * result crosses as an owned NUL-terminated `char **` copy — JNI hands
  * the adapter the length, and the adapter normalizes it into the
  * terminator the contract already speaks. */
@@ -54,7 +61,7 @@ export type JvmAdapterResult =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
   | { readonly kind: "handle"; readonly binaryName: string }
   | { readonly kind: "string" }
-  | { readonly kind: "byte-span" }
+  | { readonly kind: "span"; readonly elem: JvmSpanElement }
   | { readonly kind: "string-vector" };
 
 export interface JvmConstructorAdapter {
@@ -114,7 +121,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 12;
+  readonly schemaVersion: 13;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -128,9 +135,10 @@ export interface JvmAdapterSource {
   /** Present when any position is a java/lang/String: the generated UTF-16
    * bridge both directions cross through. Null when no string crosses. */
   readonly stringSupport: { readonly bridge: "utf-16" } | null;
-  /** Present when any position is a byte[]: spans cross by one Region copy
-   * in either direction. Null when no span crosses. */
-  readonly byteSpanSupport: { readonly region: "copy" } | null;
+  /** Present when any position is a primitive array (byte[], int[],
+   * float[]): spans cross by one Region copy in either direction. Null
+   * when no span crosses. */
+  readonly spanSupport: { readonly region: "copy" } | null;
   /** Present when any result is a String[]: the generated release that
    * frees the owned vector AND its elements, which is what makes one
    * release symbol sufficient for a two-level copy. Null when none. */
@@ -222,18 +230,20 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "contract rejects embedded NUL, and an unpaired surrogate refuses " +
       "because it has no UTF-8 at all",
   },
-  byteSpanSupport: {
+  spanSupport: {
     kind: "translation",
     custom:
-      "byte[] crosses by JNI's own Region convention in both directions, " +
-      "not by decision: an argument becomes a frame-scoped jbyteArray " +
-      "(NewByteArray + SetByteArrayRegion, released after the call; a span " +
-      "past the jsize bound refuses because no Java array can hold it), " +
-      "and a result copies out (GetArrayLength + GetByteArrayRegion) into " +
-      "owned storage whose release is free, with its length written to the " +
-      "compiler-owned out slot beside the error slot. A null byte[] result " +
-      "is a named absence that refuses through the error channel; an empty " +
-      "one is a real allocation with length zero",
+      "primitive arrays cross by JNI's own Region convention in both " +
+      "directions, not by decision: an argument becomes a frame-scoped " +
+      "typed array (New<Prim>Array + Set<Prim>ArrayRegion, released after " +
+      "the call; a span past the jsize bound refuses because no Java " +
+      "array can hold it), and a result copies out (GetArrayLength + " +
+      "Get<Prim>ArrayRegion) into owned storage whose release is free, " +
+      "its length in the compiler-owned out slot beside the error slot. " +
+      "Every length is an ELEMENT count because JNI has no other " +
+      "denomination, which is what units:'elements' states. A null array " +
+      "result is a named absence that refuses through the error channel; " +
+      "an empty one is a real allocation with length zero",
   },
   stringVectorSupport: {
     kind: "translation",
@@ -303,6 +313,40 @@ function diagnostic(path: string, message: string): JvmDiagnostic {
   return { code: "NTS7001", severity: "error", path, message };
 }
 
+/** Per-element span vocabulary: the C spelling of the slot, the jni.h
+ * types the body casts through, the Region-call family name, and the Java
+ * spelling refusal messages use. */
+const spanVocabulary: Readonly<
+  Record<
+    JvmSpanElement,
+    {
+      readonly jniScalar: string;
+      readonly jniArray: string;
+      readonly callName: string;
+      readonly javaName: string;
+    }
+  >
+> = Object.freeze({
+  u8: Object.freeze({
+    jniScalar: "jbyte",
+    jniArray: "jbyteArray",
+    callName: "Byte",
+    javaName: "byte[]",
+  }),
+  i32: Object.freeze({
+    jniScalar: "jint",
+    jniArray: "jintArray",
+    callName: "Int",
+    javaName: "int[]",
+  }),
+  f32: Object.freeze({
+    jniScalar: "jfloat",
+    jniArray: "jfloatArray",
+    callName: "Float",
+    javaName: "float[]",
+  }),
+});
+
 function cSafe(binaryName: string): string {
   return binaryName.replace(/[/$]/gu, "_");
 }
@@ -319,6 +363,10 @@ function renderArrayType(
     : type.element.binaryName;
   return `${element}${"[]".repeat(type.dimensions)}`;
 }
+
+/** The span element each admitted primitive array carries. */
+const spanElements: Readonly<Partial<Record<JvmPrimitive, JvmSpanElement>>> =
+  Object.freeze({ byte: "u8", int: "i32", float: "f32" });
 
 /** The typed-array carrier each refused primitive element WOULD use, so a
  * reader meeting double[] learns Float64Array is the missing piece rather
@@ -367,23 +415,21 @@ function positionOf(
   }
   if (type.dimensions === 1 && type.element.kind === "primitive") {
     const element = type.element.name;
-    if (element === "byte") return { kind: "byte-span" };
+    const spanElement = spanElements[element];
+    if (spanElement !== undefined) {
+      return { kind: "span", elem: spanElement };
+    }
     const carrier = missingElementCarriers[element];
     diagnostics.push(diagnostic(
       path,
-      element === "int" || element === "float"
-        ? `${what} is array type '${renderArrayType(type)}', which waits ` +
-          "on the widened span boundary for its carrier " +
-          `${element === "int" ? "Int32Array" : "Float32Array"}`
-        : carrier !== undefined
-          ? `${what} is array type '${renderArrayType(type)}'; its carrier ` +
-            `${carrier} has no compiler runtime representation` +
-            (element === "long"
-              ? ", and bigint itself is outside the compilable value set"
-              : "") +
-            ", so this element family is its own admission"
-          : `${what} is boolean[]: jboolean's u8 storage makes its carrier ` +
-            "a decision rather than a translation, so it is its own admission",
+      carrier !== undefined
+        ? `${what} is array type '${renderArrayType(type)}': element ` +
+          `carrier ${carrier} has no runtime representation in the compiler` +
+          (element === "long"
+            ? ", and bigint is outside the compilable value set (SC2001)"
+            : "")
+        : `${what} is boolean[]: jboolean's u8 storage makes its carrier ` +
+          "a decision rather than a translation",
     ));
     return null;
   }
@@ -447,9 +493,12 @@ function positionDeclaration(
     return `${jniCTypes[position.primitive]} a${index}`;
   }
   if (position.kind === "string") return `const char *a${index}`;
-  if (position.kind === "byte-span") {
-    /* One source value, two C slots: the bytes marshalling contract pairs a
-     * borrowed const pointer with a usize length parameter it names. */
+  if (position.kind === "span") {
+    /* One source value, two C slots: the span marshalling contract pairs a
+     * borrowed const pointer with a usize length parameter counting
+     * ELEMENTS. The slot is a byte pointer for every element - the element
+     * size is the managed side's business - and the cast at the Region
+     * call is where the element reasserts itself. */
     return `const uint8_t *a${index}, size_t a${index}_length`;
   }
   if (position.kind === "string-vector") {
@@ -497,7 +546,7 @@ export function generateJvmAdapterSource(
     snapshot.classes.map(({ binaryName }) => binaryName),
   );
   let usesStrings = false;
-  let usesByteSpans = false;
+  let usesSpans = false;
   let usesStringVectors = false;
   let usesStringVectorArguments = false;
 
@@ -511,7 +560,7 @@ export function generateJvmAdapterSource(
     return parameters.slice(0, before).flatMap((prior, earlier) =>
       prior.kind === "string"
         ? [`${indent}if (js${earlier} != NULL) (*env)->DeleteLocalRef(env, js${earlier});`]
-        : prior.kind === "byte-span"
+        : prior.kind === "span"
           ? [`${indent}(*env)->DeleteLocalRef(env, ba${earlier});`]
           : prior.kind === "string-vector"
             ? [`${indent}if (jv${earlier} != NULL) (*env)->DeleteLocalRef(env, jv${earlier});`]
@@ -585,34 +634,36 @@ export function generateJvmAdapterSource(
           `  }`,
         );
       }
-      if (parameter.kind === "byte-span") {
-        usesByteSpans = true;
+      if (parameter.kind === "span") {
+        usesSpans = true;
+        const span = spanVocabulary[parameter.elem];
         lines.push(
-          /* jsize is jint, so a span longer than INT32_MAX has no Java
-           * array; the contract's span is non-null, so there is no null
-           * arm. The Region copy's bounds are valid by construction and
-           * cannot throw. */
+          /* jsize is jint, so a span of more elements than INT32_MAX has
+           * no Java array; the contract's span is non-null, so there is no
+           * null arm. The Region copy's bounds are valid by construction
+           * and cannot throw. The length counts ELEMENTS — JNI's only
+           * denomination — which is what the units contract states. */
           `  if (a${index}_length > (size_t)INT32_MAX) {`,
-          `    *error = ${prefix}_message("byte span exceeds the JVM array bound");`,
+          `    *error = ${prefix}_message("span exceeds the JVM array bound");`,
           ...priorBridgeCleanup(parameters, index, "    "),
           `    ${zeroReturn}`,
           `  }`,
-          `  jbyteArray ba${index} =`,
-          `      (*env)->NewByteArray(env, (jsize)a${index}_length);`,
+          `  ${span.jniArray} ba${index} =`,
+          `      (*env)->New${span.callName}Array(env, (jsize)a${index}_length);`,
           `  if ((*env)->ExceptionCheck(env)) {`,
           `    ${prefix}_capture(env, error);`,
           ...priorBridgeCleanup(parameters, index, "    "),
           `    ${zeroReturn}`,
           `  }`,
           `  if (ba${index} == NULL) {`,
-          `    *error = ${prefix}_message("NewByteArray failed");`,
+          `    *error = ${prefix}_message("New${span.callName}Array failed");`,
           ...priorBridgeCleanup(parameters, index, "    "),
           `    ${zeroReturn}`,
           `  }`,
           `  if (a${index}_length > 0) {`,
-          `    (*env)->SetByteArrayRegion(env, ba${index}, 0,`,
+          `    (*env)->Set${span.callName}ArrayRegion(env, ba${index}, 0,`,
           `                               (jsize)a${index}_length,`,
-          `                               (const jbyte *)a${index});`,
+          `                               (const ${span.jniScalar} *)a${index});`,
           `  }`,
         );
       }
@@ -624,7 +675,7 @@ export function generateJvmAdapterSource(
     return parameters.flatMap((parameter, index) =>
       parameter.kind === "string"
         ? [`  if (js${index} != NULL) (*env)->DeleteLocalRef(env, js${index});`]
-        : parameter.kind === "byte-span"
+        : parameter.kind === "span"
           ? [`  (*env)->DeleteLocalRef(env, ba${index});`]
           : parameter.kind === "string-vector"
             ? [`  if (jv${index} != NULL) (*env)->DeleteLocalRef(env, jv${index});`]
@@ -635,7 +686,7 @@ export function generateJvmAdapterSource(
   function argumentOf(parameter: JvmAdapterPosition, index: number): string {
     if (parameter.kind === "handle") return `(jobject)a${index}`;
     if (parameter.kind === "string") return `js${index}`;
-    if (parameter.kind === "byte-span") return `ba${index}`;
+    if (parameter.kind === "span") return `ba${index}`;
     if (parameter.kind === "string-vector") return `jv${index}`;
     return `a${index}`;
   }
@@ -726,7 +777,7 @@ export function generateJvmAdapterSource(
       });
       const adapterSymbol = `${prefix}_call_${classToken}_${method.name}${suffix}`;
       const result = signature.result;
-      if (result.kind === "byte-span") usesByteSpans = true;
+      if (result.kind === "span") usesSpans = true;
       if (result.kind === "string-vector") {
         usesStringVectors = true;
         /* Elements cross through the same bridge single strings do. */
@@ -738,7 +789,7 @@ export function generateJvmAdapterSource(
           ? jniCTypes[result.primitive]
           : result.kind === "string"
             ? "char *"
-            : result.kind === "byte-span"
+            : result.kind === "span"
               ? "uint8_t *"
               : result.kind === "string-vector"
                 ? "char **"
@@ -762,9 +813,9 @@ export function generateJvmAdapterSource(
       const callFamily = method.access.static ? "CallStatic" : "Call";
       const parameterDeclarations = signature.parameters.map(positionDeclaration);
       const argumentList = signature.parameters.map(argumentOf);
-      /* A byte-span result's length comes back beside the pointer, in a
+      /* A span result's length comes back beside the pointer, in a
        * compiler-owned out slot placed with the error slot. */
-      const trailing = result.kind === "byte-span"
+      const trailing = result.kind === "span"
         ? ["size_t *out_length", "char **error"]
         : ["char **error"];
       const call = `(*env)->${callFamily}${callName}Method(${[
@@ -877,16 +928,17 @@ export function generateJvmAdapterSource(
                     `  (*env)->DeleteLocalRef(env, resultVector);`,
                     `  return vector;`,
                   ]
-              : result.kind === "byte-span"
-                ? [
-                    /* A byte-span result is an owned copy out of JNI's own
+              : result.kind === "span"
+                ? ((span) => [
+                    /* A span result is an owned copy out of JNI's own
                      * Region convention; the array never survives the call.
-                     * The contract's span is non-null, so a null byte[] is
+                     * The contract's span is non-null, so a null array is
                      * a named absence that refuses through the error
                      * channel. An empty array is a real allocation with
-                     * length zero, never a null pointer. The Region copy's
-                     * bounds are valid by construction and cannot throw. */
-                    `  jbyteArray resultArray = (jbyteArray)${call};`,
+                     * length zero, never a null pointer, and the length
+                     * slot counts ELEMENTS by construction. The Region
+                     * copy's bounds are valid and cannot throw. */
+                    `  ${span.jniArray} resultArray = (${span.jniArray})${call};`,
                     ...bridgedEpilogue(signature.parameters),
                     `  if ((*env)->ExceptionCheck(env)) {`,
                     `    ${prefix}_capture(env, error);`,
@@ -894,24 +946,26 @@ export function generateJvmAdapterSource(
                     `  }`,
                     `  if (resultArray == NULL) {`,
                     `    *error = ${prefix}_message(`,
-                    `        "Java method returned a null byte[], which the bytes result contract rejects");`,
+                    `        "Java method returned a null ${span.javaName}, which the span result contract rejects");`,
                     `    return NULL;`,
                     `  }`,
                     `  jsize resultLength = (*env)->GetArrayLength(env, resultArray);`,
-                    `  uint8_t *owned =`,
-                    `      (uint8_t *)malloc(resultLength > 0 ? (size_t)resultLength : 1);`,
+                    `  uint8_t *owned = (uint8_t *)malloc(`,
+                    `      resultLength > 0`,
+                    `          ? (size_t)resultLength * sizeof(${span.jniScalar})`,
+                    `          : 1);`,
                     `  if (owned == NULL) {`,
-                    `    fprintf(stderr, "${prefix}: out of memory copying a byte[] result\\n");`,
+                    `    fprintf(stderr, "${prefix}: out of memory copying a ${span.javaName} result\\n");`,
                     `    abort();`,
                     `  }`,
                     `  if (resultLength > 0) {`,
-                    `    (*env)->GetByteArrayRegion(env, resultArray, 0, resultLength,`,
-                    `                               (jbyte *)owned);`,
+                    `    (*env)->Get${span.callName}ArrayRegion(env, resultArray, 0, resultLength,`,
+                    `                               (${span.jniScalar} *)owned);`,
                     `  }`,
                     `  (*env)->DeleteLocalRef(env, resultArray);`,
                     `  *out_length = (size_t)resultLength;`,
                     `  return owned;`,
-                  ]
+                  ])(spanVocabulary[result.elem])
                 : [
                   `  ${returnType} result = ${call};`,
                   ...bridgedEpilogue(signature.parameters),
@@ -1300,7 +1354,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 12,
+    schemaVersion: 13,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -1315,7 +1369,7 @@ export function generateJvmAdapterSource(
     stringSupport: usesStrings
       ? Object.freeze({ bridge: "utf-16" as const })
       : null,
-    byteSpanSupport: usesByteSpans
+    spanSupport: usesSpans
       ? Object.freeze({ region: "copy" as const })
       : null,
     stringVectorSupport: usesStringVectors
