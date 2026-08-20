@@ -553,7 +553,7 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3101 bindings project and 754 members are refused**,
+Measured that way: **3149 bindings project and 706 members are refused**,
 with twelve namespaces supplied as imports. (The projected count fell from an
 earlier 3227 when one release per upcast chain replaced one per class — 182
 fewer generated symbols for the same coverage, which is why a binding count
@@ -568,6 +568,19 @@ limited it to two namespaces. That mattered more than it sounds: three of the
 four defects found on 2026-08-20 are invisible from Gtk alone, and two of them
 refuse whole namespaces. Gio measures **1109 projected, 738 refused**; Gsk 51
 and 164.
+
+It also reports which DECLARATIONS an import dropped, which is what turned
+the largest cross-namespace buckets from a projection question into an
+instrument bug. A member dropped from an import costs the census nothing; a
+CLASS dropped from one costs the subject every member that names it, and the
+subject reported those as "outside the implemented slice" — a missing
+projection, when the type had simply never been supplied. Gio was dropping
+twelve real classes that way, `MenuModel`, `OutputStream`, `Menu`, `MenuItem`
+and `Settings` among them, because a variadic method emits TWO diagnostics —
+one saying the method is not introspectable, one naming the `...` parameter —
+and the second, finding the method already dropped, escalated to dropping the
+whole class. Fixing it moved 3101 to 3149 and removed `Gio.MenuModel` (14
+members) and `GObject.Object` (9) from the refusal list entirely.
 
 Four refusals that looked like missing algebra were not, and are worth naming
 because each hid the same way — the layer that refuses was not the layer that
@@ -591,7 +604,7 @@ reports:
 
 The ordered list, largest first:
 
-- **A result outside the value families — 94 members.** The largest genuinely
+- **A result outside the value families — 75 members.** The largest genuinely
   algebraic bucket. Lists, `GType`, and boxed records, once imports are
   supplied — which halved this bucket from 187 and is why the census now
   supplies them.

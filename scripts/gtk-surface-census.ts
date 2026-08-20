@@ -260,6 +260,9 @@ function importedSnapshot(
    * type in it as unsupplied. */
   const surface = declaredSurface(text);
   const dropped = new Set<string>();
+  /* Why each declaration went, so a reader can tell an SDK's private
+   * boilerplate from a type the subject actually wanted. */
+  const droppedReasons = new Map<string, string>();
   for (let round = 1; round <= 40; round++) {
     const selection = {
       logicalPath: `system-sdk/gir/${name}-${girVersion}.gir`,
@@ -288,8 +291,40 @@ function importedSnapshot(
       ),
     };
     try {
+      const snapshot = ingestGir(text, selection);
+      /* A METHOD dropped from an import costs the census nothing, but a whole
+       * DECLARATION dropped from one costs the subject every member that names
+       * it — and the subject reports those as "outside the implemented slice",
+       * which reads as a missing projection rather than as a type that was
+       * never supplied. Naming them here is the difference between a bucket
+       * somebody can act on and one that sends them into the wrong package. */
+      const declarationsDropped = [...dropped]
+        .filter((entry) => entry.endsWith("#!"))
+        .map((entry) => entry.slice(0, -2))
+        .sort();
+      if (declarationsDropped.length > 0) {
+        const byReason = new Map<string, string[]>();
+        for (const entry of declarationsDropped) {
+          const reason = droppedReasons.get(entry) ?? "(unrecorded)";
+          byReason.set(reason, [...(byReason.get(reason) ?? []), entry]);
+        }
+        console.log(
+          `  ${name}-${girVersion} dropped ${declarationsDropped.length} ` +
+            "declaration(s), whose types stay in the refusal list:",
+        );
+        for (const [reason, entries] of [...byReason].sort((a, b) =>
+          b[1].length - a[1].length
+        )) {
+          console.log(
+            `    ${String(entries.length).padStart(4)}  ${reason}`,
+          );
+          console.log(`          ${entries.slice(0, 8).join(", ")}${
+            entries.length > 8 ? ", ..." : ""
+          }`);
+        }
+      }
       return {
-        snapshot: ingestGir(text, selection),
+        snapshot,
         package: {
           name: `@native-typescript/${slug}`,
           version: "0.0.0",
@@ -321,9 +356,21 @@ function importedSnapshot(
         const named =
           /(?:^|\/)(?:class|interface|record|enumeration|bitfield)\/([A-Za-z0-9_]+)\/(?:method|constructor)\/([^/]+)/u
             .exec(diagnostic.path);
-        if (named !== null && !dropped.has(`${named[1]}#${named[2]}`)) {
-          dropped.add(`${named[1]}#${named[2]}`);
-          shrank = true;
+        if (named !== null) {
+          /* Naming a member is what decides this branch; whether dropping it
+           * SHRANK anything is a separate question. Folding the two together
+           * meant a second diagnostic about an already-dropped member fell
+           * through to the declaration branch below and took the whole class
+           * with it — and a variadic method emits exactly two, one saying it
+           * is not introspectable and one naming the `...` parameter. That
+           * cost Gio twelve real classes, MenuModel and OutputStream and
+           * Settings among them, every one of which then appeared in the
+           * subject's refusals as a type outside the implemented slice. */
+          const key = `${named[1]}#${named[2]}`;
+          if (!dropped.has(key)) {
+            dropped.add(key);
+            shrank = true;
+          }
           continue;
         }
         /* A refusal naming a declaration and no member is about the
@@ -334,6 +381,7 @@ function importedSnapshot(
             .exec(diagnostic.path)?.[1];
         if (owner !== undefined && !dropped.has(`${owner}#!`)) {
           dropped.add(`${owner}#!`);
+          droppedReasons.set(owner, diagnostic.message);
           shrank = true;
         }
       }
