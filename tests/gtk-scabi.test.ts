@@ -89,6 +89,44 @@ function snapshot(
  * outside the implemented slice — naming the projection rather than the
  * selection that had already removed the type.
  */
+/**
+ * A method handing back an owned instance of a class whose release collapsed
+ * onto an ancestor.
+ *
+ * Button's release is hosted by Widget — one `g_object_unref` ends the claim
+ * whatever produced the reference, so the chain shares one binding. A member
+ * RETURNING a Button therefore depends on `gtk_widget_release`, and naming
+ * `gtk_button_release` would name a binding that was never emitted.
+ *
+ * Gtk's own shape hid this: its chains collapse onto classes it declares, so
+ * a wrong id still found something. Generating Gio failed on the first member
+ * returning a FileOutputStream, whose release lives on an ancestor.
+ */
+function collapsedReleaseSnapshot(): GirSnapshot {
+  const source = girSource.replace(
+    '<method name="get_label"',
+    `<method name="duplicate" c:identifier="gtk_button_duplicate">
+        <return-value transfer-ownership="full">
+          <type name="Button" c:type="GtkButton*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Button" c:type="GtkButton*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="get_label"`,
+  );
+  return ingestGir(source, {
+    logicalPath: "fixtures/gir/Gtk-4.0.selected.gir",
+    namespace: { name: "Gtk", version: "4.0" },
+    classes: [
+      { name: "Widget" },
+      { name: "Button", methods: ["duplicate"] },
+    ],
+  });
+}
+
 function digitLeadingEnumSnapshot(): GirSnapshot {
   const source = girSource.replace(
     "  </namespace>",
@@ -2350,6 +2388,36 @@ test("Clang-proven GTK enums become idiomatic exact constants", () => {
     value: "1",
   }]);
   assert.deepEqual(translated.build, { linkInputs: [], adapterInputs: [] });
+});
+
+test("a returned handle depends on the release its chain actually hosts", () => {
+  const generated = generateGObjectScabiPackage(options(collapsedReleaseSnapshot()));
+
+  /* The chain hosts one release, on Widget. Button declares none. */
+  assert.ok(generated.manifest.bindings.gtk_widget_release);
+  assert.equal(generated.manifest.bindings.gtk_button_release, undefined);
+
+  /* So a member handing back an owned Button must depend on the binding that
+   * exists. Spelling the id from the returned class's own symbol prefix — the
+   * formula this used to use — produces `gtk_button_release`, and the manifest
+   * refuses the package for depending on a binding nobody defined. */
+  const duplicate = generated.manifest.bindings.gtk_button_duplicate;
+  assert.ok(duplicate && duplicate.kind !== "constant");
+  const dependencies = duplicate.dependencies.bindings ?? [];
+  assert.ok(
+    dependencies.includes("gtk_widget_release"),
+    `expected the host's release among ${JSON.stringify(dependencies)}`,
+  );
+  assert.ok(!dependencies.includes("gtk_button_release"));
+
+  /* Every binding a manifest depends on has to exist, which is the check that
+   * caught this in the first place. */
+  for (const dependency of dependencies) {
+    assert.ok(
+      generated.manifest.bindings[dependency],
+      `dependency ${dependency} is defined`,
+    );
+  }
 });
 
 test("an enumeration member may begin with a digit at every layer that names it", () => {

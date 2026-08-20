@@ -350,6 +350,18 @@ const declared = declaredSurface(source);
  * subject's selection shrinks, and re-reading five GIRs per round would
  * dominate the runtime. */
 let imports: { snapshot: GirSnapshot; package: PackageIdentity }[] | null = null;
+/* The pkg-config packages a GIR says it belongs to. Generation checks that
+ * every namespace it touches is covered by the SDK's module list, so a census
+ * of anything other than Gtk needs the subject's own packages and its
+ * imports' — hardcoding `["gtk4"]` made every other namespace stall on "SDK
+ * modules do not include GIR package 'gio-2.0'", which reads like a gap in
+ * the algebra and is nothing of the kind. */
+function girPackages(text: string): string[] {
+  return [...text.matchAll(/<package name="([^"]+)"\s*\/>/gu)].map((match) =>
+    match[1]!
+  );
+}
+
 function importedNamespaces() {
   if (imports !== null) return imports;
   const wanted = includedNamespaces(source);
@@ -369,6 +381,18 @@ function importedNamespaces() {
   );
   return imports;
 }
+/* The subject's packages and every supplied import's, deduplicated and
+ * ordered so the census is deterministic. */
+function sdkModules(): string[] {
+  return [...new Set([
+    ...girPackages(source),
+    ...includedNamespaces(source).flatMap(({ name, version: girVersion }) => {
+      const path = `${GIR_DIRECTORY}/${name}-${girVersion}.gir`;
+      return existsSync(path) ? girPackages(readFileSync(path, "utf8")) : [];
+    }),
+  ])].sort();
+}
+
 const declaredMethods =
   declared.classes.reduce((total, class_) => total + class_.methods.length, 0) +
   declared.interfaces.reduce((total, item) => total + item.methods.length, 0) +
@@ -445,6 +469,13 @@ for (let round = 1; round <= 40; round++) {
     const importedSnapshots = imports.map(({ snapshot: imported }) => imported);
     const generated = generateGObjectScabiPackage({
       ...baseOptions,
+      sdk: { ...baseOptions.sdk, modules: sdkModules() },
+      linkInputs: sdkModules().map((name, order) => ({
+        id: name,
+        kind: "system-library" as const,
+        name,
+        order,
+      })),
       snapshot,
       importedNamespaces: imports,
       gobjectAdapter: adapter,

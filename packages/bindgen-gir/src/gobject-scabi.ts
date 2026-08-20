@@ -153,6 +153,40 @@ function enumerationMemberName(value: string): string {
   return /^[0-9]/u.test(camel) ? `_${camel}` : camel;
 }
 
+/**
+ * The manifest's name for a parameter GIR may have escaped.
+ *
+ * GIR appends an underscore to a name that would collide with a keyword in
+ * some binding language: `index_`, `interface_`, `border_`, `virtual_`,
+ * `this_`. The manifest's own name rule is canonical lowercase segments, so a
+ * trailing underscore is refused there — by a JSON-schema message quoting a
+ * regular expression, which told a reader nothing about which parameter or
+ * why. It stalled a census of Gio entirely and refused five Gtk members whose
+ * types were all inside the slice.
+ *
+ * The escape is dropped because it carries no information this manifest
+ * needs: the name is data here, not an identifier in any language, and the
+ * declaration file already drops it when it camel-cases the same name.
+ */
+function manifestParameterName(value: string): string {
+  return value.replace(/_+$/u, "");
+}
+
+/**
+ * True for a source name TypeScript would read as something other than an
+ * ordinary parameter.
+ *
+ * `this` is the whole list. A leading parameter named `this` in a declaration
+ * is a receiver-type annotation rather than an argument, so emitting one would
+ * silently change the signature's arity and meaning. GIR's `this_` unescapes
+ * straight onto it, which is why unescaping has to be checked rather than
+ * assumed safe — and why such a member is refused instead of being given an
+ * invented spelling that no header ever used.
+ */
+function reservedSourceParameterName(value: string): boolean {
+  return value === "this";
+}
+
 function lowerCamel(value: string): string {
   const upper = upperCamel(value);
   return `${upper[0]?.toLowerCase() ?? ""}${upper.slice(1)}`;
@@ -627,7 +661,7 @@ function stringVectorParameter(
     return null;
   }
   return Object.freeze({
-    name: parameter.name,
+    name: manifestParameterName(parameter.name),
     type: parameter.nullable ? "nullable_const_utf8_vector" : "const_utf8_vector",
     passMode: "pointer",
     nullable: parameter.nullable,
@@ -664,7 +698,7 @@ function cStringParameter(
     return null;
   }
   return Object.freeze({
-    name: parameter.name,
+    name: manifestParameterName(parameter.name),
     type: typeId,
     passMode: "pointer",
     nullable: parameter.nullable,
@@ -722,7 +756,7 @@ function requiredValueParameter(
     return null;
   }
   return Object.freeze({
-    name: parameter.name,
+    name: manifestParameterName(parameter.name),
     type: type.abiType,
     passMode: "value",
     nullable: false,
@@ -809,7 +843,7 @@ function handleParameter(
   }
   return Object.freeze({
     abi: Object.freeze({
-      name: parameter.name,
+      name: manifestParameterName(parameter.name),
       type: class_.typeId,
       passMode: "pointer",
       /* GIR says whether the callee accepts absence, and absence is what
@@ -852,6 +886,16 @@ function inputParameter(
   path: string,
   diagnostics: CBindgenDiagnostic[],
 ): { readonly abi: AbiParameter; readonly sourceType: string } | null {
+  /* Checked before any rung, because it is a property of the NAME rather than
+   * of the type, and every rung would otherwise have to remember it. */
+  if (reservedSourceParameterName(lowerCamel(parameter.name))) {
+    diagnostics.push(diagnostic(
+      path,
+      `Parameter '${parameter.name}' unescapes to 'this', which TypeScript ` +
+        "reads as a receiver annotation rather than an argument",
+    ));
+    return null;
+  }
   if (nulTerminatedUtf8Vector(parameter.type)) {
     const abi = stringVectorParameter(parameter, path, diagnostics);
     /* `readonly` because the callee reads the vector and nothing writes back
@@ -1461,15 +1505,12 @@ export function generateGObjectScabiPackage(
     const local = girName.includes(".") ? undefined : classByName.get(girName);
     if (local !== undefined) {
       const typeId = typeIdByClass.get(local.name);
-      const prefix = options.snapshot.namespace.name.toLowerCase();
       return typeId === undefined ? undefined : Object.freeze({
         typeId,
         sourceName: local.name,
         cType: local.cType,
         boxed: local.kind === "record",
-        localDestructor: local.kind === "record"
-          ? `${prefix}_${local.cSymbolPrefix}_free`
-          : `${prefix}_${local.cSymbolPrefix}_release`,
+        localDestructor: localReleaseId(local),
       });
     }
     return girName.includes(".")
@@ -1552,6 +1593,37 @@ export function generateGObjectScabiPackage(
       release.hostClassName,
     ]),
   );
+  /**
+   * The binding that releases one instance of a class this namespace declares.
+   *
+   * One `g_object_unref` ends this program's claim on a GObject whatever
+   * produced the reference, so a whole upcast chain shares ONE release, named
+   * for the topmost class this package can reach. Which class hosts it is the
+   * adapter's decision, read here rather than recomputed.
+   *
+   * This exists as a function because the formula was written twice and only
+   * one copy consulted the host. The other — the one that answers "what
+   * releases this handle?" for a member's result — spelled the id from the
+   * class's OWN symbol prefix, so every class that had collapsed onto an
+   * ancestor produced a dependency on a release binding that no longer
+   * existed. Gtk never saw it because its chains collapse onto classes it
+   * declares itself; generating Gio failed on the first member returning a
+   * FileOutputStream, whose release lives on an ancestor.
+   *
+   * A boxed record is the other shape: its free is a destructor of its own
+   * and belongs to that record alone, so it never collapses.
+   */
+  function localReleaseId(class_: GirClass): string {
+    const boxed = class_.kind === "record";
+    const host = boxed
+      ? class_.name
+      : releaseHostByClass.get(class_.name) ?? class_.name;
+    const hostPrefix = boxed
+      ? class_.cSymbolPrefix
+      : classByName.get(host)?.cSymbolPrefix ?? class_.cSymbolPrefix;
+    return `${namespacePrefix}_${hostPrefix}_${boxed ? "free" : "release"}`;
+  }
+
   const adapterByRetainedResult = new Map(
     options.gobjectAdapter.retainedResultMethods.map((method) => [
       method.id,
@@ -2172,12 +2244,7 @@ export function generateGObjectScabiPackage(
     const releaseHost = boxed
       ? class_.name
       : releaseHostByClass.get(class_.name) ?? class_.name;
-    const releaseHostPrefix = boxed
-      ? class_.cSymbolPrefix
-      : classByName.get(releaseHost)?.cSymbolPrefix ?? class_.cSymbolPrefix;
-    const releaseId = boxed
-      ? `${options.snapshot.namespace.name.toLowerCase()}_${releaseHostPrefix}_free`
-      : `${options.snapshot.namespace.name.toLowerCase()}_${releaseHostPrefix}_release`;
+    const releaseId = localReleaseId(class_);
     const releaseDeclaration = `${releaseHost}.dispose`;
     /* Only the host reserves the release's identity. Every class beneath it
      * NAMES the same binding — that is the point — so a subclass finding it
@@ -2659,7 +2726,7 @@ export function generateGObjectScabiPackage(
           symbol: boxedResult.adapterSymbol,
           parameters: [
             Object.freeze({
-              name: receiver.name,
+              name: manifestParameterName(receiver.name),
               type: typeId,
               passMode: "pointer",
               nullable: false,
@@ -2723,7 +2790,7 @@ export function generateGObjectScabiPackage(
           symbol: valueMethod.adapterSymbol,
           parameters: [
             Object.freeze({
-              name: receiver.name,
+              name: manifestParameterName(receiver.name),
               type: typeId,
               passMode: "pointer",
               nullable: false,
@@ -2755,7 +2822,7 @@ export function generateGObjectScabiPackage(
       const sourceParameters: string[] = [];
       const sourceParameterTypes: string[] = [];
       const abiParameters: AbiParameter[] = [Object.freeze({
-        name: receiver.name,
+        name: manifestParameterName(receiver.name),
         type: typeId,
         passMode: "pointer",
         nullable: false,
@@ -2783,7 +2850,7 @@ export function generateGObjectScabiPackage(
       }
       const result = methodResult(
         callable,
-        receiver.name,
+        manifestParameterName(receiver.name),
         callable.result.nullable ? "nullable_const_utf8" : "const_utf8",
         enumerations,
         resolveHandle,
@@ -3117,7 +3184,7 @@ export function generateGObjectScabiPackage(
             continue;
           }
           signalParameters.push(Object.freeze({
-            name: parameter.name,
+            name: manifestParameterName(parameter.name),
             type: payloadTypeId,
             passMode: "pointer",
             nullable: false,
