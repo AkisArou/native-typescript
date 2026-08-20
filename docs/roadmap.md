@@ -547,6 +547,31 @@ namespaces GTK references supplied as imports: **2389 of 3006**. The bucket
 list that follows is from the earlier run and its shares are unchanged; what
 moved is the cross-namespace item.)*
 
+**Both of those numbers were measured by hand, and the instrument is now kept**
+— `scripts/gtk-surface-census.ts`, which selects everything the namespace
+declares, generates, drops what was refused, and asks again until the refusals
+stop. Re-run it before trusting any share below; the string-vector and
+owned-string families moved it twice in one day, and the list they left is
+different from the one recorded here. The census supplies no imports, so its
+total is lower than the 2389 above and any bucket naming a QUALIFIED type is
+an unsupplied namespace rather than a gap in the algebra.
+
+Read against that instrument, the ordered list is:
+
+- **A result outside the value families — 187 members**, and the largest
+  bucket whose refusal is genuinely the algebra. Roughly half are
+  cross-namespace types the census did not supply; the rest are lists,
+  `GType`, and boxed records.
+- **Value-return adapter outputs and inputs — 45 and 22**, which is the
+  out-parameter work below arriving under a different name.
+- **A property whose accessors disagree — 17 pairs**, and not one member as
+  first recorded. A vector or owned-string getter hands over storage the
+  setter borrows, which is normal for such a property and is not one type.
+  Both accessors stay individually reachable, so nothing is lost, but 34
+  members are spelled as methods where a property would read better.
+- **`filename` — 20 members**, still a path-encoding decision rather than a
+  projection.
+
 The largest bucket by raw count is misleading, so it is worth stating what it
 is: `TreePath` blocks 47 methods, `TreeIter` 42, and `TreeModel` 46 — and GTK
 deprecated every one of them. Counting only members neither the class nor the
@@ -578,10 +603,17 @@ method marks deprecated, the order is:
   over a struct field the IR does not have. On its own it unlocks 10 of the
   60; the other 50 also name a boxed record, so that work comes first.
 
-Two things are deliberately absent from that list. `filename` (17 live
-members) is a distinct GIR type from `utf8` and needs a decision about path
-encoding rather than a projection. Arrays and lists are not counted at all,
-because the selection above cannot reach them.
+One thing is deliberately absent from that list: `filename` is a distinct GIR
+type from `utf8` and needs a decision about path encoding rather than a
+projection.
+
+Arrays were absent too, with the note that the selection could not reach them.
+That is no longer true in either half — the census reaches everything, and the
+string-vector family projects 21 argument positions and 12 results that were
+refused when this was written. What remains of arrays is the COUNTED vector,
+deliberately unbuilt: two Gtk-4.0 members carry a length beside the pointer
+instead of a terminator, and on the JVM every array does, so that arm belongs
+to the platform that needs it rather than to this one.
 
 **Proposed: a boxed record projects as an owned handle.** Counting only live
 members, records the projection refuses divide cleanly by what their fields
