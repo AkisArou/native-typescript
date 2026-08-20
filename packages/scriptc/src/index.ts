@@ -43,9 +43,12 @@ export { locateScriptCCheckout } from "./checkout.ts";
 export type { ScriptCCheckout } from "./checkout.ts";
 export {
   loadScriptCExecutablePlanners,
+  loadScriptCLibraryPlanners,
   scriptCCompilerDistribution,
 } from "./compiler-host.ts";
 export type {
   ScriptCExecutableCompilationResult,
   ScriptCExecutablePlanners,
+  ScriptCLibraryCompilationResult,
+  ScriptCLibraryPlanners,
 } from "./compiler-host.ts";

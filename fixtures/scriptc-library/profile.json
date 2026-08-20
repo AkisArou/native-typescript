@@ -1,0 +1,17 @@
+{
+  "profile_format": 1,
+  "name": "native-typescript-library-plan",
+  "entry": "lib.ts",
+  "emission": "c",
+  "abi": {
+    "prefix": "nts_lib_",
+    "init_symbol": "nts_lib_init",
+    "sink_register_symbol": "nts_lib_set_panic_sink",
+    "collect_symbol": null,
+    "result_reset_symbol": null
+  },
+  "exports": [
+    { "export": "add", "symbol": "nts_lib_add", "params": ["f64", "f64"], "returns": "f64" },
+    { "export": "invert", "symbol": "nts_lib_invert", "params": ["bool"], "returns": "bool" }
+  ]
+}
