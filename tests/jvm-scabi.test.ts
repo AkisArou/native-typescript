@@ -41,7 +41,10 @@ function snapshot() {
           constructors: ["()V", "(I)V"],
           methods: [
             "depth",
+            "checkedAdd",
             "nativeHandle",
+            "resized",
+            "compareDepth",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -141,6 +144,9 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.match(generated.declarations, /export type jlong = bigint & \{/u);
   assert.match(generated.declarations, /nativeHandle\(\): jlong;/u);
   assert.match(generated.declarations, /depth\(\): jint;/u);
+  assert.match(generated.declarations, /static checkedAdd\(a0: jint, a1: jint\): jint;/u);
+  assert.match(generated.declarations, /resized\(a0: jint\): Widget \| null;/u);
+  assert.match(generated.declarations, /compareDepth\(a0: Widget \| null\): jint;/u);
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
@@ -185,4 +191,18 @@ test("each ownership shape translates through the neutral compiler input", () =>
     entry.id.startsWith(`${instance}#fixture.fixture.widget.resize`)
   );
   assert.ok(resize !== undefined);
+
+  // A static method translates without a receiver, through the same
+  // checked channel.
+  const add = binding("fixture.fixture.widget.checkedadd");
+  assert.equal(add.error.detect.kind, "outParameterIsNotNull");
+  assert.equal(add.result.projection.kind, "number");
+
+  // An object result is an owned NULLABLE handle - a Java method may
+  // return null on success, and the translator keeps that distinct from
+  // the constructor's non-null direct projection.
+  const resized = binding("fixture.fixture.widget.resized");
+  assert.equal(resized.result.projection.kind, "nullableHandle");
+  const compare = binding("fixture.fixture.widget.comparedepth");
+  assert.ok(compare !== undefined);
 });

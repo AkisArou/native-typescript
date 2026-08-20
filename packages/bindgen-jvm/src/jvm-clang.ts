@@ -21,7 +21,22 @@ import type {
   ClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import { jniCTypes } from "./jvm-adapter.ts";
-import type { JvmAdapterSource } from "./jvm-adapter.ts";
+import type {
+  JvmAdapterPosition,
+  JvmAdapterResult,
+  JvmAdapterSource,
+} from "./jvm-adapter.ts";
+
+function positionCType(position: JvmAdapterPosition): string {
+  return position.kind === "primitive"
+    ? jniCTypes[position.primitive]
+    : "void*";
+}
+
+function resultCType(result: JvmAdapterResult): string {
+  if (result.kind === "void") return "void";
+  return positionCType(result);
+}
 
 function candidate(
   id: string,
@@ -73,7 +88,7 @@ export function generateJvmClangAbiProbe(
         constructor.adapterSymbol,
         "void*",
         [
-          ...constructor.parameters.map((parameter) => jniCTypes[parameter]),
+          ...constructor.parameters.map(positionCType),
           "char**",
         ],
       )
@@ -82,10 +97,10 @@ export function generateJvmClangAbiProbe(
       candidate(
         `jvm.${method.kind}.${method.adapterSymbol}`,
         method.adapterSymbol,
-        method.result === "void" ? "void" : jniCTypes[method.result],
+        resultCType(method.result),
         [
           ...(method.kind === "instance" ? ["void*"] : []),
-          ...method.parameters.map((parameter) => jniCTypes[parameter]),
+          ...method.parameters.map(positionCType),
           "char**",
         ],
       )

@@ -30,6 +30,8 @@ const adapterSurface: JvmClassSelection = Object.freeze({
   methods: Object.freeze([
     "depth",
     "checkedAdd",
+    "resized",
+    "compareDepth",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -99,7 +101,7 @@ test("the adapter source is deterministic and carries its member table", () => {
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
-    ["depth", "resize", "resize"],
+    ["compareDepth", "depth", "resize", "resize", "resized"],
   );
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
@@ -178,6 +180,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const resizeIISymbol = adapter.instanceMethods.find(
       ({ name, descriptor }) => name === "resize" && descriptor === "(II)V",
     )!.adapterSymbol;
+    const resizedSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "resized",
+    )!.adapterSymbol;
+    const compareSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "compareDepth",
+    )!.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
     const releaseSymbol = adapter.errorSupport.releaseSymbol;
@@ -206,6 +214,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  ${releaseSymbol}(error); error = NULL;`,
       `  ${resizeIISymbol}(w, 2, 3, &error);`,
       "  if (error != NULL) return 16;",
+      `  void *w2 = ${resizedSymbol}(w, 3, &error);`,
+      "  if (w2 == NULL || error != NULL) return 17;",
+      `  if (${depthSymbol}(w2, &error) != 3 || error != NULL) return 18;`,
+      `  if (${compareSymbol}(w, w2, &error) <= 0 || error != NULL) return 19;`,
+      `  if (${compareSymbol}(w, NULL, &error) != -1 || error != NULL) return 20;`,
+      `  ${adapter.classRelease.adapterSymbol}(w2);`,
       `  ${adapter.classRelease.adapterSymbol}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",

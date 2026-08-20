@@ -34,7 +34,7 @@ function fixtureSource(
 const widgetSource = () =>
   fixtureSource(
     "Widget",
-    "sha256:00a0918eb3ec271117bfa4524e53b8e5633e0c318159430fc62a640ebf92f1f5",
+    "sha256:9e80772b52ec73e9807c179793e728437147eb99571ca325115669e43a67b5a3",
   );
 const buttonSource = () =>
   fixtureSource(
@@ -49,12 +49,12 @@ const clickableSource = () =>
 const metricsSource = () =>
   fixtureSource(
     "Widget$Metrics",
-    "sha256:10f468c4a59e85012fb6b42c9b9dc7e0a3d40d115a2408df038b3b0df6394936",
+    "sha256:ca8ac9f1cb36fbc54ad8d3d13c93cf5348bfab2b7781aea6469ddabc416e74ac",
   );
 const painterSource = () =>
   fixtureSource(
     "Widget$Painter",
-    "sha256:e8d58b1bac8244e3227e97d0b04982627602d37b1ba2f0f61f694ecdff76ee31",
+    "sha256:2d3425bc2046db6eb0167cd0f548cc6f3e01dad01f3eadd1edfe467823677795",
   );
 
 function allSources(): JvmClassSource[] {

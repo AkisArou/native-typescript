@@ -38,6 +38,7 @@ import type {
 } from "@native-typescript/scabi";
 import { generateJvmAdapterSource } from "./jvm-adapter.ts";
 import type {
+  JvmAdapterPosition,
   JvmAdapterSource,
   JvmConstructorAdapter,
   JvmMethodAdapter,
@@ -465,14 +466,25 @@ export function generateJvmScabiPackage(
     });
   }
 
-  function scalarParameter(
-    primitive: JvmPrimitive,
+  function positionParameter(
+    position: JvmAdapterPosition,
     index: number,
   ): AbiParameter {
-    const projection = scalarProjections[primitive];
+    if (position.kind === "handle") {
+      /* Java's type system says any reference may be null, and the class
+       * file carries no narrower fact, so the honest slot is nullable. */
+      return Object.freeze({
+        name: `a${index}`,
+        type: selectedTypeIds.get(position.binaryName)!,
+        passMode: "pointer",
+        nullable: true,
+        ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+      });
+    }
+    const projection = scalarProjections[position.primitive];
     return Object.freeze({
       name: `a${index}`,
-      type: needScalar(primitive),
+      type: needScalar(position.primitive),
       passMode: "value",
       nullable: false,
       ownership: Object.freeze({ kind: "value" }),
@@ -487,8 +499,11 @@ export function generateJvmScabiPackage(
     declarationsByClass.set(binaryName, lines);
   }
 
-  function sourceTypeOf(primitive: JvmPrimitive): string {
-    return scalarProjections[primitive].sourceType;
+  function sourceTypeOf(position: JvmAdapterPosition): string {
+    if (position.kind === "handle") {
+      return `${classNameOf.get(position.binaryName)!} | null`;
+    }
+    return scalarProjections[position.primitive].sourceType;
   }
 
   /* Constructors: the first selected one is THE constructor; the rest are
@@ -509,7 +524,7 @@ export function generateJvmScabiPackage(
         declaration: first ? className : `${className}.${member}`,
         kind: first ? "constructor" : "factory",
         symbol: constructor.adapterSymbol,
-        parameters: constructor.parameters.map(scalarParameter),
+        parameters: constructor.parameters.map(positionParameter),
         result: Object.freeze({
           type: typeId,
           passMode: "pointer",
@@ -544,21 +559,6 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
-    /* The scriptc translator lowers no 'static-method' binding kind yet;
-     * the adapter already generates these symbols, so the moment the kind
-     * lands this refusal is deleted and nothing else moves. Java surfaces
-     * are full of statics, so this is a deferral with a measured demand,
-     * not a decision that they are out of scope. */
-    if (method.kind === "static") {
-      diagnostics.push(
-        diagnostic(
-          `class/${method.className}/method/${method.name}`,
-          `Static method '${method.name}' waits on the translator's ` +
-            "'static-method' binding kind; deferred, not unsupported",
-        ),
-      );
-      continue;
-    }
     const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
     const baseName = method.name;
     const memberKey = `${method.className}.${baseName}`;
@@ -567,45 +567,63 @@ export function generateJvmScabiPackage(
       : baseName;
     memberNames.add(memberKey);
     const bindingId = `${slug}.${idToken(method.className)}.${member.toLowerCase()}`;
-    const receiver: AbiParameter[] = [
-      Object.freeze({
-        name: "self",
-        type: typeId,
-        passMode: "pointer" as const,
-        nullable: false,
-        ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
-      }),
-    ];
-    const projection = method.result === "void"
-      ? null
-      : scalarProjections[method.result];
+    const receiver: AbiParameter[] = method.kind === "static"
+      ? []
+      : [
+          Object.freeze({
+            name: "self",
+            type: typeId,
+            passMode: "pointer" as const,
+            nullable: false,
+            ownership: Object.freeze({
+              kind: "borrowed" as const,
+              scope: "call" as const,
+            }),
+          }),
+        ];
+    const projection = method.result.kind === "primitive"
+      ? scalarProjections[method.result.primitive]
+      : null;
     defineBinding(bindingId, callable({
       declaration: `${className}.${member}`,
-      kind: "method",
+      kind: method.kind === "static" ? "static-method" : "method",
       symbol: method.adapterSymbol,
       parameters: [
         ...receiver,
-        ...method.parameters.map(scalarParameter),
+        ...method.parameters.map(positionParameter),
       ],
-      result: Object.freeze({
-        type: method.result === "void" ? "void" : needScalar(method.result),
-        passMode: "value",
-        nullable: false,
-        ownership: Object.freeze({ kind: "value" }),
-        ...(projection === null || projection.conversion === null
-          ? {}
-          : { conversion: projection.conversion }),
-      }),
+      result: method.result.kind === "handle"
+        ? Object.freeze({
+            type: selectedTypeIds.get(method.result.binaryName)!,
+            passMode: "pointer" as const,
+            /* A Java method may return null on success; the error slot is
+             * what distinguishes failure, so null is an ordinary value. */
+            nullable: true,
+            ownership: Object.freeze({ kind: "owned" as const, transfer: "to-runtime" as const }),
+          })
+        : Object.freeze({
+            type: method.result.kind === "void"
+              ? "void"
+              : needScalar(method.result.primitive),
+            passMode: "value" as const,
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" as const }),
+            ...(projection === null || projection.conversion === null
+              ? {}
+              : { conversion: projection.conversion }),
+          }),
       error: errorContract,
     }));
     adapterBindings.push(bindingId);
     const parameterList = method.parameters
       .map((parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`)
       .join(", ");
-    const resultType = method.result === "void" ? "void" : sourceTypeOf(method.result);
+    const resultType = method.result.kind === "void"
+      ? "void"
+      : sourceTypeOf(method.result);
     declareMember(
       method.className,
-      `  ${member}(${parameterList}): ${resultType};`,
+      `  ${method.kind === "static" ? "static " : ""}${member}(${parameterList}): ${resultType};`,
     );
   }
   if (diagnostics.length > 0) throw new JvmGenerationError(diagnostics);

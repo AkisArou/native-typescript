@@ -30,12 +30,20 @@ import type {
   JvmTypeReference,
 } from "./jvm-model.ts";
 
+/** One adapter position: a JNI primitive scalar, or a stable reference to
+ * a class this selection projects. */
+export type JvmAdapterPosition =
+  | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
+  | { readonly kind: "handle"; readonly binaryName: string };
+
+export type JvmAdapterResult = { readonly kind: "void" } | JvmAdapterPosition;
+
 export interface JvmConstructorAdapter {
   readonly className: string;
   /** The JNI identity the adapter resolves: ("<init>", descriptor). */
   readonly descriptor: string;
   readonly adapterSymbol: string;
-  readonly parameters: readonly JvmPrimitive[];
+  readonly parameters: readonly JvmAdapterPosition[];
 }
 
 export interface JvmMethodAdapter {
@@ -44,8 +52,8 @@ export interface JvmMethodAdapter {
   readonly name: string;
   readonly descriptor: string;
   readonly adapterSymbol: string;
-  readonly result: "void" | JvmPrimitive;
-  readonly parameters: readonly JvmPrimitive[];
+  readonly result: JvmAdapterResult;
+  readonly parameters: readonly JvmAdapterPosition[];
 }
 
 export interface JvmBindAdapter {
@@ -81,7 +89,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -176,13 +184,16 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
     kind: "translation",
     custom:
       "the call is CallStatic<Type>Method through the env table with a " +
-      "cached class reference and method ID",
+      "cached class reference and method ID; an object result is promoted " +
+      "to a stable global reference exactly as a constructor's is",
   },
   instanceMethods: {
     kind: "translation",
     custom:
       "the call is Call<Type>Method through the env table on a stable " +
-      "receiver reference with a cached method ID",
+      "receiver reference with a cached method ID; an object result is a " +
+      "frame-scoped local reference, so its acquisition is normalized to a " +
+      "stable global reference exactly as a constructor's is",
   },
 });
 
@@ -222,53 +233,94 @@ function descriptorSuffix(descriptor: string): string {
   return createHash("sha256").update(descriptor).digest("hex").slice(0, 8);
 }
 
-/** A primitive-or-void position, or null with a precise refusal. */
-function scalarOf(
+/** One position, or null with a precise refusal. A selected class is an
+ * ordinary handle; an unselected one is a boundary the caller can move by
+ * selecting the class. */
+function positionOf(
   type: JvmTypeReference,
+  selectedNames: ReadonlySet<string>,
   path: string,
   what: string,
   diagnostics: JvmDiagnostic[],
-): "void" | JvmPrimitive | null {
-  if (type.kind === "void") return "void";
-  if (type.kind === "primitive") return type.name;
-  const shape = type.kind === "array"
-    ? "an array, which waits on the counted-vector contract"
-    : `object type '${type.binaryName}'`;
+): JvmAdapterResult | null {
+  if (type.kind === "void") return { kind: "void" };
+  if (type.kind === "primitive") {
+    return { kind: "primitive", primitive: type.name };
+  }
+  if (type.kind === "object") {
+    if (type.binaryName === "java/lang/String") {
+      diagnostics.push(
+        diagnostic(
+          path,
+          `${what} is java/lang/String, which waits on the string ` +
+            "projection slice",
+        ),
+      );
+      return null;
+    }
+    if (selectedNames.has(type.binaryName)) {
+      return { kind: "handle", binaryName: type.binaryName };
+    }
+    diagnostics.push(
+      diagnostic(
+        path,
+        `${what} is object type '${type.binaryName}', which this selection ` +
+          "does not project; select the class to move the boundary",
+      ),
+    );
+    return null;
+  }
   diagnostics.push(
     diagnostic(
       path,
-      `${what} is ${shape}; the generated-adapter algebra covers JNI ` +
-        "primitive scalars and void in this slice",
+      `${what} is an array, which waits on the counted-vector contract`,
     ),
   );
   return null;
 }
 
 interface ResolvedSignature {
-  readonly parameters: readonly JvmPrimitive[];
-  readonly result: "void" | JvmPrimitive;
+  readonly parameters: readonly JvmAdapterPosition[];
+  readonly result: JvmAdapterResult;
 }
 
 function resolveSignature(
   method: JvmMethod,
+  selectedNames: ReadonlySet<string>,
   path: string,
   diagnostics: JvmDiagnostic[],
 ): ResolvedSignature | null {
-  const parameters: JvmPrimitive[] = [];
+  const parameters: JvmAdapterPosition[] = [];
   let refused = false;
   method.parameters.forEach((parameter, index) => {
-    const scalar = scalarOf(
+    const position = positionOf(
       parameter,
+      selectedNames,
       `${path}/parameters/${index}`,
       `Parameter ${index}`,
       diagnostics,
     );
-    if (scalar === null || scalar === "void") refused = true;
-    else parameters.push(scalar);
+    if (position === null || position.kind === "void") refused = true;
+    else parameters.push(position);
   });
-  const result = scalarOf(method.result, `${path}/result`, "Result", diagnostics);
+  const result = positionOf(
+    method.result,
+    selectedNames,
+    `${path}/result`,
+    "Result",
+    diagnostics,
+  );
   if (result === null || refused) return null;
   return { parameters, result };
+}
+
+function positionDeclaration(
+  position: JvmAdapterPosition,
+  index: number,
+): string {
+  return position.kind === "primitive"
+    ? `${jniCTypes[position.primitive]} a${index}`
+    : `void *a${index}`;
 }
 
 export interface JvmAdapterOptions {
@@ -306,6 +358,9 @@ export function generateJvmAdapterSource(
   const instanceMethods: JvmMethodAdapter[] = [];
   const bodies: string[] = [];
   const headerDeclarations: string[] = [];
+  const selectedNames: ReadonlySet<string> = new Set(
+    snapshot.classes.map(({ binaryName }) => binaryName),
+  );
 
   for (const class_ of snapshot.classes) {
     const classToken = cSafe(class_.binaryName);
@@ -323,7 +378,7 @@ export function generateJvmAdapterSource(
     );
     for (const constructor of class_.constructors) {
       const path = `class/${class_.binaryName}/constructor/${constructor.descriptor}`;
-      const signature = resolveSignature(constructor, path, diagnostics);
+      const signature = resolveSignature(constructor, selectedNames, path, diagnostics);
       if (signature === null) continue;
       const suffix = class_.constructors.length > 1
         ? `_${descriptorSuffix(constructor.descriptor)}`
@@ -336,10 +391,10 @@ export function generateJvmAdapterSource(
         static: false,
       });
       const adapterSymbol = `${prefix}_new_${classToken}${suffix}`;
-      const parameterDeclarations = signature.parameters.map(
-        (parameter, index) => `${jniCTypes[parameter]} a${index}`,
+      const parameterDeclarations = signature.parameters.map(positionDeclaration);
+      const argumentList = signature.parameters.map((parameter, index) =>
+        parameter.kind === "handle" ? `(jobject)a${index}` : `a${index}`
       );
-      const argumentList = signature.parameters.map((_, index) => `a${index}`);
       headerDeclarations.push(
         `void *${adapterSymbol}(${[...parameterDeclarations, "char **error"].join(", ")});`,
       );
@@ -379,7 +434,7 @@ export function generateJvmAdapterSource(
     }
     for (const method of class_.methods) {
       const path = `class/${class_.binaryName}/method/${method.name}`;
-      const signature = resolveSignature(method, path, diagnostics);
+      const signature = resolveSignature(method, selectedNames, path, diagnostics);
       if (signature === null) continue;
       const suffix = overloadedNames.has(method.name)
         ? `_${descriptorSuffix(method.descriptor)}`
@@ -392,12 +447,17 @@ export function generateJvmAdapterSource(
         static: method.access.static,
       });
       const adapterSymbol = `${prefix}_call_${classToken}_${method.name}${suffix}`;
-      const returnType = signature.result === "void"
+      const result = signature.result;
+      const returnType = result.kind === "void"
         ? "void"
-        : jniCTypes[signature.result];
-      const callName = signature.result === "void"
+        : result.kind === "primitive"
+          ? jniCTypes[result.primitive]
+          : "void *";
+      const callName = result.kind === "void"
         ? "Void"
-        : jniCallNames[signature.result];
+        : result.kind === "primitive"
+          ? jniCallNames[result.primitive]
+          : "Object";
       const receiver = method.access.static
         ? []
         : ["void *self"];
@@ -405,10 +465,10 @@ export function generateJvmAdapterSource(
         ? plan.classVar
         : "(jobject)self";
       const callFamily = method.access.static ? "CallStatic" : "Call";
-      const parameterDeclarations = signature.parameters.map(
-        (parameter, index) => `${jniCTypes[parameter]} a${index}`,
+      const parameterDeclarations = signature.parameters.map(positionDeclaration);
+      const argumentList = signature.parameters.map((parameter, index) =>
+        parameter.kind === "handle" ? `(jobject)a${index}` : `a${index}`
       );
-      const argumentList = signature.parameters.map((_, index) => `a${index}`);
       const call = `(*env)->${callFamily}${callName}Method(${[
         "env",
         callTarget,
@@ -416,7 +476,7 @@ export function generateJvmAdapterSource(
         ...argumentList,
       ].join(", ")})`;
       headerDeclarations.push(
-        `${returnType} ${adapterSymbol}(${[
+        `${returnType}${returnType.endsWith("*") ? "" : " "}${adapterSymbol}(${[
           ...receiver,
           ...parameterDeclarations,
           "char **error",
@@ -424,28 +484,46 @@ export function generateJvmAdapterSource(
       );
       bodies.push(
         `/* ${class_.binaryName}.${method.name}${method.descriptor} */`,
-        `${returnType} ${adapterSymbol}(${[
+        `${returnType}${returnType.endsWith("*") ? "" : " "}${adapterSymbol}(${[
           ...receiver,
           ...parameterDeclarations,
           "char **error",
         ].join(", ")}) {`,
         `  JNIEnv *env = ${prefix}_env(error);`,
-        signature.result === "void"
+        result.kind === "void"
           ? `  if (env == NULL) return;`
-          : `  if (env == NULL) return (${returnType})0;`,
-        ...(signature.result === "void"
+          : result.kind === "handle"
+            ? `  if (env == NULL) return NULL;`
+            : `  if (env == NULL) return (${returnType})0;`,
+        ...(result.kind === "void"
           ? [
               `  ${call};`,
               `  if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, error);`,
             ]
-          : [
-              `  ${returnType} result = ${call};`,
-              `  if ((*env)->ExceptionCheck(env)) {`,
-              `    ${prefix}_capture(env, error);`,
-              `    return (${returnType})0;`,
-              `  }`,
-              `  return result;`,
-            ]),
+          : result.kind === "handle"
+            ? [
+                /* An object result is a frame-scoped local reference; its
+                 * acquisition is normalized exactly as a constructor's. A
+                 * NULL local with no exception is a successful null. */
+                `  jobject local = ${call};`,
+                `  if ((*env)->ExceptionCheck(env)) {`,
+                `    ${prefix}_capture(env, error);`,
+                `    return NULL;`,
+                `  }`,
+                `  if (local == NULL) return NULL;`,
+                `  jobject stable = (*env)->NewGlobalRef(env, local);`,
+                `  (*env)->DeleteLocalRef(env, local);`,
+                `  if (stable == NULL) *error = ${prefix}_message("JNI global reference table exhausted");`,
+                `  return stable;`,
+              ]
+            : [
+                `  ${returnType} result = ${call};`,
+                `  if ((*env)->ExceptionCheck(env)) {`,
+                `    ${prefix}_capture(env, error);`,
+                `    return (${returnType})0;`,
+                `  }`,
+                `  return result;`,
+              ]),
         `}`,
         "",
       );
@@ -638,7 +716,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 3,
+    schemaVersion: 4,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

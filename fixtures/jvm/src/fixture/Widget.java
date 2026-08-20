@@ -36,6 +36,14 @@ public class Widget {
     return Math.addExact(a, b);
   }
 
+  public Widget resized(int depth) {
+    return new Widget(depth);
+  }
+
+  public int compareDepth(Widget other) {
+    return other == null ? -1 : Integer.compare(depth, other.depth);
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}
