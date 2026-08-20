@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@native-typescript/bindgen-c": "workspace:*",
-    "@native-typescript/scabi": "workspace:*"
+    "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/core": "workspace:*"
   }
 }

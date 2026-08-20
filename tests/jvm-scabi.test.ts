@@ -164,7 +164,7 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
-  assert.equal(widget.destructor, "fixture.object.release");
+  assert.equal(widget.destructor, "fixture.fixture.widget.release");
   assert.deepEqual(widget.upcasts, [{ kind: "identity", target: "jvm.object" }]);
 });
 

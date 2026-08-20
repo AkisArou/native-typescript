@@ -15,6 +15,8 @@ export type {
   JvmErrorSupportAdapter,
   JvmMethodAdapter,
 } from "./jvm-adapter.ts";
+export { planJvmAdapterObject } from "./jvm-adapter-object.ts";
+export type { JvmAdapterObjectPlan } from "./jvm-adapter-object.ts";
 export { generateJvmClangAbiProbe } from "./jvm-clang.ts";
 export { generateJvmScabiPackage } from "./jvm-scabi.ts";
 export type {

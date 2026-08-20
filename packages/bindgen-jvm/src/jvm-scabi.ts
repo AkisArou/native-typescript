@@ -281,7 +281,6 @@ export function generateJvmScabiPackage(
   const linkIds = options.linkInputs.map(({ id }) => id);
   const errorMessageBindingId = `${slug}.error.message`;
   const errorReleaseBindingId = `${slug}.error.release`;
-  const releaseBindingId = `${slug}.object.release`;
 
   function needScalar(primitive: JvmPrimitive): string {
     const id = scalarTypeId(primitive);
@@ -380,38 +379,17 @@ export function generateJvmScabiPackage(
     release: errorReleaseBindingId,
   });
 
-  /* One root handle every class upcasts to; the unary release is its
-   * destructor, and importing any class handle therefore imports it. */
+  /* One root handle every class upcasts to. Nothing owns a bare jvm.object,
+   * so it names no destructor; each class handle names its own, because the
+   * compiler requires a destructor to consume exactly the type it releases. */
   types["jvm.object"] = Object.freeze({
     kind: "handle",
     nativeName: "jobject",
     threadSafety: "confined",
     identity: "none",
     upcasts: Object.freeze([]),
-    destructor: releaseBindingId,
   });
   declarationTypes["jvm.object"] = Object.freeze({ module: ".", name: "JvmObject" });
-  defineBinding(releaseBindingId, callable({
-    declaration: "JvmObject.__release",
-    kind: "method",
-    symbol: options.adapter.classRelease.adapterSymbol,
-    parameters: [
-      Object.freeze({
-        name: "instance",
-        type: "jvm.object",
-        passMode: "pointer",
-        nullable: false,
-        ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-      }),
-    ],
-    result: Object.freeze({
-      type: "void",
-      passMode: "value",
-      nullable: false,
-      ownership: Object.freeze({ kind: "value" }),
-    }),
-  }));
-  adapterBindings.push(releaseBindingId);
 
   /* Class handles: TS names are the last segment of the binary name, with
    * nesting flattened; a collision is refused rather than mangled. */
@@ -452,6 +430,41 @@ export function generateJvmScabiPackage(
       )?.superclass ?? null;
     }
     upcasts.push(Object.freeze({ kind: "identity" as const, target: "jvm.object" }));
+    const releaseBindingId = `${slug}.${idToken(class_.binaryName)}.release`;
+    const releaseAdapter = options.adapter.classReleases.find(
+      (release) => release.className === class_.binaryName,
+    );
+    if (releaseAdapter === undefined) {
+      throw new JvmGenerationError([
+        diagnostic(
+          `class/${class_.binaryName}`,
+          "The adapter carries no release for this class",
+        ),
+      ]);
+    }
+    defineBinding(releaseBindingId, callable({
+      declaration: `${classNameOf.get(class_.binaryName)!}.__release`,
+      kind: "method",
+      symbol: releaseAdapter.adapterSymbol,
+      parameters: [
+        Object.freeze({
+          name: "instance",
+          type: typeId,
+          passMode: "pointer" as const,
+          /* A destructor CONSUMES the reference it releases; the runtime
+           * never calls one without a live handle. */
+          nullable: false,
+          ownership: Object.freeze({ kind: "owned" as const, transfer: "to-native" as const }),
+        }),
+      ],
+      result: Object.freeze({
+        type: "void",
+        passMode: "value" as const,
+        nullable: false,
+        ownership: Object.freeze({ kind: "value" as const }),
+      }),
+    }));
+    adapterBindings.push(releaseBindingId);
     types[typeId] = Object.freeze({
       kind: "handle",
       nativeName: class_.binaryName,

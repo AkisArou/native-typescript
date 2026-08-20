@@ -113,7 +113,11 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.equal(new Set(resizeSymbols).size, 2);
 
   assert.ok(first.source.includes(`jint ${first.bind.adapterSymbol}(`));
-  assert.ok(first.source.includes(`void ${first.classRelease.adapterSymbol}(`));
+  assert.ok(
+    first.classReleases.every(({ adapterSymbol }) =>
+      first.source.includes(`void ${adapterSymbol}(`)
+    ),
+  );
   assert.ok(
     first.source.includes(`const char *${first.errorSupport.messageSymbol}(`),
   );
@@ -131,7 +135,7 @@ test("every generated-C family carries a classification", () => {
     Object.keys(JVM_ADAPTER_FAMILIES).sort(),
     [
       "bind",
-      "classRelease",
+      "classReleases",
       "constructors",
       "envSupport",
       "errorSupport",
@@ -200,6 +204,9 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const withNulSymbol = adapter.staticMethods.find(
       ({ name }) => name === "withNul",
     )!.adapterSymbol;
+    const releaseWidget = adapter.classReleases.find(
+      ({ className }) => className === "fixture/Widget",
+    )!.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
     const releaseSymbol = adapter.errorSupport.releaseSymbol;
@@ -234,7 +241,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  if (${depthSymbol}(w2, &error) != 3 || error != NULL) return 18;`,
       `  if (${compareSymbol}(w, w2, &error) <= 0 || error != NULL) return 19;`,
       `  if (${compareSymbol}(w, NULL, &error) != -1 || error != NULL) return 20;`,
-      `  ${adapter.classRelease.adapterSymbol}(w2);`,
+      `  ${releaseWidget}(w2);`,
       `  char *text = ${labelSymbol}(w, 5, &error);`,
       "  if (text == NULL || error != NULL) return 21;",
       '  if (strcmp(text, "widget-5") != 0) return 22;',
@@ -251,7 +258,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (text != NULL || error == NULL ||",
       `      strstr(${messageSymbol}(error), "embedded NUL") == NULL) return 26;`,
       `  ${releaseSymbol}(error); error = NULL;`,
-      `  ${adapter.classRelease.adapterSymbol}(w);`,
+      `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",
       "  return 0;",

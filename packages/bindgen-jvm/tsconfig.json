@@ -11,6 +11,9 @@
       "path": "../bindgen-c"
     },
     {
+      "path": "../core"
+    },
+    {
       "path": "../scabi"
     }
   ]
