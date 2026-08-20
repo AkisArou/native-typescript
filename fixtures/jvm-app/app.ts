@@ -154,6 +154,24 @@ if (!bridgeThrew) failed = true;
 
 let ticks = 0;
 let deliveries = 0;
+let ticksDone = false;
+let timerFired = false;
+
+/* Completion waits for BOTH the queued deliveries and an armed timer:
+ * the timer proves the executable loop composes ScriptC deadlines with
+ * the pump's wait (the timer station fires between polls), and the dual
+ * gate keeps the test order-independent — either may finish first. */
+function maybeComplete(): void {
+  if (ticksDone && timerFired) {
+    applicationComplete(failed || ticks !== 3 ? 1 : 0);
+  }
+}
+
+setTimeout(() => {
+  timerFired = true;
+  maybeComplete();
+}, 10);
+
 const tickConnection = widget.onTick((sender, value) => {
   if (sender.depth() !== 7) failed = true;
   if (value !== deliveries) failed = true;
@@ -161,9 +179,11 @@ const tickConnection = widget.onTick((sender, value) => {
   ticks += value;
   if (deliveries === 3) {
     tickConnection.disconnect();
-    applicationComplete(failed || ticks !== 3 ? 1 : 0);
+    ticksDone = true;
+    maybeComplete();
   }
 });
 widget.tick(3);
-/* Top level ends here; the pump drains the three deliveries and the
- * handler above decides the exit code. */
+/* Top level ends here; the pump drains the three deliveries, the timer
+ * fires at its deadline, and whichever finishes second decides the exit
+ * code. */

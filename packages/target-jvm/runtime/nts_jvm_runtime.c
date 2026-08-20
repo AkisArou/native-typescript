@@ -192,8 +192,15 @@ static void *nts_jvm_owner_main(void *opaque) {
   }
   /* The program's top level ended without completing: park in the pump so
    * queued deliveries keep draining — hosted service semantics. ScriptC
-   * timers do not fire in this park; the hosted scheduler integration is
-   * its own slice with its own contract reading. */
+   * timers do not fire in this park, and the COMPILER is what keeps that
+   * honest: library emission requires an async_free module graph, so a
+   * hosted program reaching the timers surface refuses by name before
+   * this code can strand one (fixtures/jvm-app/hosted-timers.ts pins
+   * it). When that refusal lifts, this park must become the loop:
+   * adopted pending() answering true turns scr_loop_run into the park —
+   * its exhaustion break never fires and its timer station is the only
+   * place timers fire — where a hand-rolled deadline wait here would
+   * carry the loop's one decision in two places. */
   for (;;) {
     nts_jvm_runtime_poll(NULL, -1.0);
   }

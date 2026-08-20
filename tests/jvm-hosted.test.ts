@@ -34,6 +34,43 @@ const skip =
             ? "ar is unavailable"
             : false;
 
+const hostedProject = {
+  name: "jvm-hosted",
+  entry: "hosted.ts",
+  output: "jvmhosted",
+  packageSlug: "fixture",
+  javaSources: {
+    root: join(workspace, "fixtures/jvm/src"),
+    logicalPath: "fixtures/jvm/src",
+    files: ["fixture/Widget.java", "fixture/Host.java"],
+  },
+  classes: [
+    {
+      binaryName: "fixture/Widget",
+      constructors: ["(I)V"],
+      methods: ["depth", "greet"],
+    },
+    {
+      binaryName: "fixture/Host",
+      constructors: ["()V"],
+      methods: ["run"],
+    },
+  ],
+  subclasses: [
+    { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
+  ],
+  target: {
+    triple: "x86_64-unknown-linux-gnu",
+    executionPlatform: "x86_64-linux",
+  },
+  sdk: {
+    vendor: "openjdk",
+    name: "jdk",
+    version: "21",
+    deploymentTarget: "21",
+  },
+} as const;
+
 test(
   "a JVM the runtime did not create loads compiled TypeScript and adopts it",
   { skip },
@@ -54,42 +91,7 @@ test(
     ]);
     assert.equal(existsSync(scriptCCompilerDistribution()), true);
 
-    const project = {
-      name: "jvm-hosted",
-      entry: "hosted.ts",
-      output: "jvmhosted",
-      packageSlug: "fixture",
-      javaSources: {
-        root: join(workspace, "fixtures/jvm/src"),
-        logicalPath: "fixtures/jvm/src",
-        files: ["fixture/Widget.java", "fixture/Host.java"],
-      },
-      classes: [
-        {
-          binaryName: "fixture/Widget",
-          constructors: ["(I)V"],
-          methods: ["depth", "greet"],
-        },
-        {
-          binaryName: "fixture/Host",
-          constructors: ["()V"],
-          methods: ["run"],
-        },
-      ],
-      subclasses: [
-        { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
-      ],
-      target: {
-        triple: "x86_64-unknown-linux-gnu",
-        executionPlatform: "x86_64-linux",
-      },
-      sdk: {
-        vendor: "openjdk",
-        name: "jdk",
-        version: "21",
-        deploymentTarget: "21",
-      },
-    } as const;
+    const project = hostedProject;
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-jvm-hosted-"));
     try {
@@ -139,6 +141,46 @@ test(
         run.status,
         0,
         `hosted: status ${run.status}\n${run.stdout}\n${run.stderr}`,
+      );
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a hosted library reaching the timers surface refuses by name",
+  { skip },
+  async () => {
+    /* The trigger program, committed BEFORE its arm: a hosted verdict
+     * riding a setTimeout. Library emission requires an async_free
+     * module graph today, so the refusal is the COMPILER's and the park
+     * never sees a timer it would strand; this pin is what notices the
+     * refusal lifting, at which point hosted-timers.ts goes live and
+     * the park must become the loop (the recipe is written at the park). */
+    const scratch = mkdtempSync(join(tmpdir(), "nts-jvm-hosted-timers-"));
+    try {
+      await assert.rejects(
+        buildJvmApplication({
+          projectRoot: fixtureRoot,
+          project: {
+            ...hostedProject,
+            name: "jvm-hosted-timers",
+            entry: "hosted-timers.ts",
+            output: "jvmhostedtimers",
+          },
+          scratch: join(scratch, "c"),
+          backend: "c",
+          product: "hosted-library",
+          javaHome: javaHome!,
+          tools: {
+            clang: executable("clang"),
+            node: process.execPath,
+            sandbox: executable("bwrap"),
+            ar: executable("ar"),
+          },
+        }),
+        /async_free module graph.*timers surface \(setTimeout family\)/u,
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
