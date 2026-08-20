@@ -553,13 +553,41 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3077 bindings project and 779 members are refused**,
+Measured that way: **3101 bindings project and 754 members are refused**,
 with twelve namespaces supplied as imports. (The projected count fell from an
 earlier 3227 when one release per upcast chain replaced one per class — 182
 fewer generated symbols for the same coverage, which is why a binding count
 is only comparable within one generator revision.) A bucket naming a qualified type
 whose namespace is NOT in that supplied list is an unsupplied import rather
 than a gap in the algebra; one naming an unqualified type is a real gap.
+
+**The instrument now answers for any installed namespace**, not just Gtk. It
+discovers a namespace's version from disk and derives its SDK module list
+from the GIRs rather than assuming `["gtk4"]`, both of which had quietly
+limited it to two namespaces. That mattered more than it sounds: three of the
+four defects found on 2026-08-20 are invisible from Gtk alone, and two of them
+refuse whole namespaces. Gio measures **1109 projected, 738 refused**; Gsk 51
+and 164.
+
+Four refusals that looked like missing algebra were not, and are worth naming
+because each hid the same way — the layer that refuses was not the layer that
+reports:
+
+- A parameter ladder written three times, where only one copy had all six
+  rungs. A `gint` argument on any method returning a borrowed object was
+  refused as "not a selected class", because that path went straight to the
+  handle rung. +18 members; the ladder is now one function.
+- An enumeration member beginning with a digit (`0bsd`, `2d`, `2big`) refused
+  at three separate layers, each of which took the whole enumeration and every
+  member typed by it off the surface. Ninety-three enumerations across the
+  installed GIRs have such a member.
+- A GIR keyword-escape in a parameter name (`index_`, `interface_`) refused by
+  the manifest's canonical-name rule, reported as a bare regular expression.
+  Five Gtk members, and it stalled Gio's census entirely.
+- A release id spelled from a class's own symbol prefix instead of the host
+  its upcast chain collapsed onto — so a member returning such a class
+  depended on a binding that was never emitted. Gtk never saw it; Gio failed
+  on the first member returning a `FileOutputStream`.
 
 The ordered list, largest first:
 
@@ -570,7 +598,7 @@ The ordered list, largest first:
 - **The value-return adapter's outputs and inputs — 42 and 20**, which is the
   out-parameter work below arriving under another name, and the largest
   bucket a single slice could close.
-- **A parameter outside the slice — 21**, unqualified and therefore real.
+- **A parameter outside the slice — 22**, unqualified and therefore real.
 - ~~**`filename` — 20**~~ — decided and built. GLib's file name encoding is
   UTF-8 on this project's only target, so a path is a string and the same
   projection carries both. Converting through `g_filename_from_utf8` would

@@ -926,6 +926,28 @@ generated receiver-owned connections, and disposes deterministically.
 The executable contains no JavaScript engine and no part of the Node build
 tool.
 
+### A handler's exception ends the process
+
+A separate application exists to fail: its `activate` handler throws, and the
+gate asserts the process exits **1** with the uncaught error on stderr. Both
+backends are built and run, because each emits its own `main` and its own
+loop-rejection branch.
+
+The route matters and is not the obvious one. The GLib failure sink also calls
+`scr_exit_code_note(1)`, and that call is not what carries the status: the
+sink marking the runtime failed is, because it makes the attached poll answer
+`SCR_ATTACHED_LOOP_POLL_FAILED`, which makes `scr_loop_run` return true, which
+the emitted `main` returns as 1. Deleting that one line — leaving the hint as
+the only signal — makes the application print its uncaught error and exit 0.
+That mutation is what establishes the property rather than a reading of the
+code, and it is the same defect the JVM target found in its own completion
+path on the same day.
+[0010](records/0010-an-exit-code-hint-is-not-a-status.md) records the claim,
+both targets' versions of the mistake, and why every suite passed anyway.
+
+The fixture asserts stdout as well as status. A handler that never ran also
+exits 0, and that reading of success is exactly what this gate must refuse.
+
 ## Building an application
 
 `native-typescript build <project>` reads a `native-typescript.json`, generates
