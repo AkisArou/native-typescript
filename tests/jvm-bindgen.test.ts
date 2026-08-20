@@ -379,6 +379,7 @@ test("a jar yields exactly its class entries, bytes identical to the files", () 
       "fixtures/jvm/fixture.jar!/fixture/Button.class",
       "fixtures/jvm/fixture.jar!/fixture/Clickable.class",
       "fixtures/jvm/fixture.jar!/fixture/Host.class",
+      "fixtures/jvm/fixture.jar!/fixture/Lifecycle.class",
       "fixtures/jvm/fixture.jar!/fixture/Widget$Metrics.class",
       "fixtures/jvm/fixture.jar!/fixture/Widget$Painter.class",
       "fixtures/jvm/fixture.jar!/fixture/Widget.class",
@@ -411,7 +412,7 @@ test("a jmod-style archive with leading bytes still reads", () => {
   jmodish.set([0x4a, 0x4d, 0x01, 0x00], 0);
   jmodish.set(jar, 4);
   const sources = readJarClassSources(jmodish, "fixtures/jvm/fixture.jmodish");
-  assert.equal(sources.length, 6);
+  assert.equal(sources.length, 7);
 });
 
 test("archives that are not ZIP fail precisely", () => {

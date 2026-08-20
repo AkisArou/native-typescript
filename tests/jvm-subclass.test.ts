@@ -90,6 +90,52 @@ test("refusals name Java's own rules and the missing contract arms", () => {
   }
 });
 
+test("the void-synchronous arm's failing program is committed evidence", () => {
+  // Lifecycle.start() calls onCreate and then OBSERVES it, so queued
+  // delivery is distinguishable from synchronous by construction: a
+  // handler that ran late answers 0 where 1 is the truth. The refusal
+  // this test pins is what the eventual arm deletes, arriving with this
+  // fixture as its evidence rather than being designed from a
+  // description. Its proposal must answer three questions recorded on
+  // the fixture itself: the void result, handle payloads, and where a
+  // synchronous void handler's throw goes.
+  const lifecycle = ingestJvmClasses(
+    [
+      {
+        logicalPath: "fixtures/jvm/classes/fixture/Lifecycle.class",
+        bytes: readFileSync(
+          resolve(
+            repositoryRoot,
+            "fixtures/jvm/classes/fixture/Lifecycle.class",
+          ),
+        ),
+      },
+    ],
+    {
+      classes: [
+        {
+          binaryName: "fixture/Lifecycle",
+          constructors: ["()V"],
+          methods: ["onCreate", "start"],
+        },
+      ],
+    },
+  );
+  try {
+    generateJvmSubclassSource(lifecycle, {
+      baseBinaryName: "fixture/Lifecycle",
+      overrides: ["onCreate"],
+    });
+    assert.fail("expected the void-synchronous refusal");
+  } catch (error) {
+    assert.ok(error instanceof JvmGenerationError);
+    assert.match(
+      error.diagnostics[0]!.message,
+      /void-synchronous arm is its own admission, and a lifecycle method is its failing program/u,
+    );
+  }
+});
+
 /**
  * The spanning proof, javac being the authority: the generated source
  * compiles against the base's real classes, the compiled subclass ingests,
