@@ -72,9 +72,18 @@ else
 fi
 
 patch=$(mktemp "$tmpdir/nt-gate-candidate.XXXXXX.patch")
-git diff --binary --cached -- . ':(exclude)third_party/scriptc' >"$patch"
+# NT_GATE_PATHS restricts the candidate to the named pathspecs. The index is
+# shared between sessions, so a peer's partial stage (half of a multi-file
+# change) would otherwise ride into the gate and false-red it; this gates
+# exactly what the pathspec commit will take.
+if [ -n "${NT_GATE_PATHS:-}" ]; then
+  # shellcheck disable=SC2086
+  git diff --binary --cached -- $NT_GATE_PATHS >"$patch"
+else
+  git diff --binary --cached -- . ':(exclude)third_party/scriptc' >"$patch"
+fi
 if [ -s "$patch" ]; then
-  echo "gate-isolated: applying staged candidate ($(git diff --cached --stat | tail -1 | sed 's/^ *//'))"
+  echo "gate-isolated: applying staged candidate ($(git apply --stat "$patch" | tail -1 | sed 's/^ *//'))"
   git -C "$worktree" apply --index "$patch"
 else
   echo "gate-isolated: nothing staged; gating HEAD as it stands"
