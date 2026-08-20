@@ -1564,6 +1564,49 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
 });
 
+test("SCABI lowers a static method as a call with no receiver", () => {
+  /* A static method is a method in every way except the one that matters to
+   * lowering: it has no receiver. So it lowers to a plain call, and what
+   * makes it a static MEMBER rather than a free function is its declaration
+   * identity naming a containing type — which is also what the frontend
+   * matches against a `static` member of that class. */
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["counter_identity_static"]),
+  );
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.diagnostics));
+  if (!result.ok) return;
+  const lowered = result.input.bindings.find(({ id }) =>
+    id.endsWith("#counter_identity_static")
+  );
+  assert.deepEqual(lowered?.sourceCall, { kind: "function" });
+  assert.deepEqual(lowered?.declaration, {
+    module: "@scriptc/native-abi-fixture",
+    name: "NativeCounter.identity",
+  });
+
+  /* And the identity is required to name one: a static method spelled like a
+   * free function has no class to be static on, which the frontend could not
+   * resolve and the translator therefore refuses first. */
+  const unqualified = structuredClone(manifest);
+  const binding = unqualified.bindings.counter_identity_static;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.declaration, { name: "identity" });
+  const rejected = translateScabiNativeProgram(
+    unqualified,
+    selectImports(["counter_identity_static"]),
+  );
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("must name its containing type and member")
+    ),
+    true,
+  );
+});
+
 test("SCABI projects a string vector in both directions", () => {
   const result = translateScabiNativeProgram(
     manifest,

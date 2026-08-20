@@ -1534,14 +1534,20 @@ function bindingUnsupported(
   bindingId: string,
   binding: CallableBinding,
 ): string | null {
-  if (!["function", "constructor", "factory", "method", "getter", "setter"].includes(binding.kind)) {
+  if (
+    !["function", "constructor", "factory", "static-method", "method", "getter", "setter"]
+      .includes(binding.kind)
+  ) {
     return `binding kind '${binding.kind}'`;
   }
   if (binding.kind === "constructor" && binding.declaration.name.includes(".")) {
     return "constructor declaration identity must name its constructed type";
   }
   if (
-    (binding.kind === "method" || binding.kind === "getter" || binding.kind === "setter") &&
+    (binding.kind === "method" ||
+      binding.kind === "static-method" ||
+      binding.kind === "getter" ||
+      binding.kind === "setter") &&
     !binding.declaration.name.includes(".")
   ) {
     return `${binding.kind} declaration identity must name its containing type and member`;
