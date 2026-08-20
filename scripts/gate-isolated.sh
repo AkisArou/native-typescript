@@ -19,9 +19,10 @@
 #   * applies the STAGED changes (and only those; the peer's unstaged work
 #     never enters the gate); the submodule gitlink itself is excluded — the
 #     fork-SHA argument is how a pointer bump rides along;
-#   * builds the fork compiler once, OUTSIDE per-test timeouts, because after
-#     an IR_VERSION bump a cold worktree's first gate times out in the lanes
-#     that build it and reports a false red;
+#   * builds the fork compiler once, BEFORE the suite, because in a cold
+#     worktree several lanes otherwise race to build it concurrently and
+#     trip over each other's partial dist — a false red that looks like a
+#     lane failure but is a build race;
 #   * runs the full gate with TMPDIR on a real filesystem.
 #
 # NT_GATE_KEEP=1 keeps the worktree on failure for inspection.
@@ -84,9 +85,9 @@ if (
   cd "$worktree"
   pnpm install >/dev/null
   pnpm scriptc:install >/dev/null
-  # Warm the fork compiler outside per-test timeouts: after an IR_VERSION
-  # bump this build is cold, and a lane that waits for it times out as a
-  # false red rather than failing on anything real.
+  # Build the fork compiler once before the suite: in a cold worktree the
+  # lanes that need it otherwise each start the build concurrently and read
+  # one another's partial dist, failing on nothing real.
   pnpm --dir third_party/scriptc --filter @scriptc/compiler build >/dev/null
   TMPDIR="$tmpdir" pnpm test
 ); then
