@@ -1,0 +1,47 @@
+{
+  "schema": "native-typescript.project",
+  "schemaVersion": 1,
+  "name": "gtk-callback-failure",
+  "target": "gtk4",
+  "entry": "app.ts",
+  "output": "gtk-callback-failure",
+  "sdkModules": ["gtk4"],
+  "namespaces": [
+    {
+      "name": "Gio",
+      "version": "2.0",
+      "sdkModules": ["gio-2.0"],
+      "classes": [
+        { "name": "Cancellable", "constructors": ["new"] },
+        {
+          "name": "Application",
+          "constructors": ["new"],
+          "methods": [
+            "activate",
+            "get_application_id",
+            "get_is_remote",
+            "hold",
+            "quit",
+            "register",
+            "release",
+            "set_application_id"
+          ],
+          "signals": ["activate"]
+        }
+      ],
+      "enumerations": [
+        {
+          "name": "ApplicationFlags",
+          "members": ["default_flags", "is_service", "non_unique"]
+        }
+      ]
+    },
+    {
+      "name": "Gtk",
+      "version": "4.0",
+      "sdkModules": ["gtk4"],
+      "imports": [{ "name": "Gio", "version": "2.0" }],
+      "classes": [{ "name": "Application", "constructors": ["new"] }]
+    }
+  ]
+}

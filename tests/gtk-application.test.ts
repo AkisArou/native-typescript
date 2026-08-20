@@ -19,6 +19,7 @@ const fixtureRoot = join(workspace, "fixtures/gtk-application");
 const windowFixtureRoot = join(workspace, "fixtures/gtk-window");
 const payloadFixtureRoot = join(workspace, "fixtures/gtk-signal-payload");
 const widgetsFixtureRoot = join(workspace, "fixtures/gtk-widgets");
+const callbackFailureFixtureRoot = join(workspace, "fixtures/gtk-callback-failure");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const hasGtk = spawnSync("pkg-config", ["--exists", "gtk4"]).status === 0;
@@ -162,6 +163,58 @@ test(
           signal: null,
           stdout: "activated 1\n",
           stderr: "",
+        }, backend);
+      }
+    } finally {
+      rmSync(scratch, { force: true, recursive: true });
+    }
+  },
+);
+
+test(
+  "an exception escaping a GTK handler fails the process",
+  { skip: unavailable || !existsSync(bindingToolPath) },
+  async () => {
+    /* An application that exits 0 while its handler threw is worse than one
+     * that crashes: nothing downstream can tell the difference between that
+     * and success. Both backends emit their own `main`, and the branch that
+     * turns a failed loop into a non-zero return lives in each of them, so
+     * both are checked rather than one standing in for the other.
+     *
+     * What makes this worth a build is that the status does NOT come from the
+     * exit-code hint the failure sink also sets. It comes from the sink
+     * marking the runtime failed, which makes the attached poll answer FAILED,
+     * which makes `scr_loop_run` return true, which the emitted `main` returns
+     * as 1. A sibling target found its own version of that chain was dead
+     * plumbing — every assertion had passed because the happy path had zero on
+     * both sides. */
+    const project = parseGtkApplicationProject(
+      readFileSync(join(callbackFailureFixtureRoot, "native-typescript.json"), "utf8"),
+    );
+    const scratch = mkdtempSync(join(tmpdir(), "nts-gtk-callback-failure-"));
+    try {
+      for (const backend of ["c", "llvm"] as const) {
+        const built = await buildGtkApplication({
+          projectRoot: callbackFailureFixtureRoot,
+          project,
+          scratch: join(scratch, backend),
+          backend,
+          tools: {
+            clang: executable("clang"),
+            node: process.execPath,
+            pkgConfig: executable("pkg-config"),
+            sandbox: executable("bwrap"),
+          },
+        });
+
+        assert.deepEqual(runApplication(built.productPath), {
+          status: 1,
+          signal: null,
+          /* The handler ran and reached its end: the failure is the throw,
+           * not the handler never being reached, which would exit 0 for a
+           * reason this gate must not accept. */
+          stdout: "activated\n",
+          stderr: "Uncaught Error: the handler failed\n",
         }, backend);
       }
     } finally {
