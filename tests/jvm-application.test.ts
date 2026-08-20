@@ -60,7 +60,7 @@ test(
       javaSources: {
         root: join(workspace, "fixtures/jvm/src"),
         logicalPath: "fixtures/jvm/src",
-        files: ["fixture/Widget.java"],
+        files: ["fixture/Widget.java", "fixture/Host.java"],
       },
       classes: [
         {
@@ -90,6 +90,14 @@ test(
           ],
           callbacks: ["onPing", "onTick"],
         },
+        {
+          binaryName: "fixture/Host",
+          constructors: ["()V"],
+          methods: ["run"],
+        },
+      ],
+      subclasses: [
+        { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
       ],
       target: {
         triple: "x86_64-unknown-linux-gnu",
@@ -132,7 +140,7 @@ test(
           encoding: "utf8",
           env: {
             ...process.env,
-            NT_JVM_CLASSPATH: built.builtClassesPath,
+            NT_JVM_CLASSPATH: `${built.builtClassesPath}:${built.builtSubclassesPath}`,
             LD_LIBRARY_PATH: built.jvmLibraryPath,
           },
           timeout: 120_000,
@@ -164,7 +172,7 @@ test(
         encoding: "utf8",
         env: {
           ...process.env,
-          NT_JVM_CLASSPATH: failing.builtClassesPath,
+          NT_JVM_CLASSPATH: `${failing.builtClassesPath}:${failing.builtSubclassesPath}`,
           LD_LIBRARY_PATH: failing.jvmLibraryPath,
         },
         timeout: 120_000,

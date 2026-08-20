@@ -2,7 +2,7 @@ import {
   applicationComplete,
   applicationStart,
 } from "@native-typescript/jvm-application";
-import { Widget } from "@native-typescript/jvm-fixture";
+import { Host, HostBridge, Widget } from "@native-typescript/jvm-fixture";
 
 /* The target brings the JVM up and binds every registered package; from
  * here on everything is ordinary generated surface. Scalars, handles,
@@ -122,6 +122,28 @@ if (!pingThrew) failed = true;
  * The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. */
+/* The generated subclass: HostBridge exists because this build wrote its
+ * Java, and Host.run's own loop dispatches VIRTUALLY into the TypeScript
+ * handler - the framework-constructs-your-class shape, on the desktop.
+ * The plain base is the control: its un-overridden answer is false, so
+ * its run accepts nothing, and the bridge accepting 2 proves the override
+ * ran rather than the base. After disconnect the override still exists
+ * and its missing registration throws - into Java, out of run, and into
+ * this catch. */
+const plainHost = new Host();
+if (plainHost.run(2) !== 0) failed = true;
+const bridge = new HostBridge();
+const bridgeConnection = bridge.onEvent((value) => value % 2 === 0);
+if (bridge.run(4) !== 2) failed = true;
+bridgeConnection.disconnect();
+let bridgeThrew = false;
+try {
+  bridge.run(1);
+} catch {
+  bridgeThrew = true;
+}
+if (!bridgeThrew) failed = true;
+
 let ticks = 0;
 let deliveries = 0;
 const tickConnection = widget.onTick((sender, value) => {

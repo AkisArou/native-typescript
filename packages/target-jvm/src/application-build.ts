@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   defineArtifactGraph,
@@ -32,9 +32,13 @@ import {
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
   generateJvmScabiPackage,
+  generateJvmSubclassSource,
   ingestJvmClasses,
 } from "@native-typescript/bindgen-jvm";
-import type { JvmClassSelection } from "@native-typescript/bindgen-jvm";
+import type {
+  JvmClassSelection,
+  JvmSubclassSelection,
+} from "@native-typescript/bindgen-jvm";
 import { jvmRuntimeProvider } from "./provider.ts";
 import { resolveJdkSdk } from "./jdk-sdk.ts";
 import { planJavacClasses } from "./javac-classes.ts";
@@ -73,6 +77,11 @@ export interface JvmApplicationProject {
     readonly files: readonly string[];
   };
   readonly classes: readonly JvmClassSelection[];
+  /** Generated Java subclasses: a base among the compiled classes plus the
+   * overridable methods TypeScript implements. Each produces a generated
+   * source, a second javac action compiled against the primary classes,
+   * and a `callbacks:` selection on the compiled subclass. */
+  readonly subclasses?: readonly JvmSubclassSelection[];
   readonly target: {
     readonly triple: string;
     readonly executionPlatform: string;
@@ -96,6 +105,9 @@ export interface JvmApplicationBuildResult {
   /** Where the planned javac action left the classes, when the project
    * built from Java sources; the runner's NT_JVM_CLASSPATH. */
   readonly builtClassesPath?: string;
+  /** Where the subclass compilation left ITS classes; joins the runner's
+   * NT_JVM_CLASSPATH beside the primary directory. */
+  readonly builtSubclassesPath?: string;
   /** Directory holding the generated package: adapter C, header,
    * declarations, and manifest. */
   readonly generatedPackagePath: string;
@@ -229,13 +241,148 @@ export async function buildJvmApplication(input: {
     classSources = walkClasses(produced.path, "");
   }
 
+  /* Phase 0b: generated subclasses. Generation reads the BASE from the
+   * classes phase 0 produced, emits Java source, and a second javac action
+   * compiles it against those same classes — generation is itself a build,
+   * twice over. The compiled subclass joins ingestion and the runner's
+   * classpath beside the primary directory. */
+  let builtSubclassesPath: string | undefined;
+  const subclassSelections: JvmClassSelection[] = [];
+  if (project.subclasses !== undefined && project.subclasses.length > 0) {
+    if (builtClassesPath === undefined) {
+      throw new Error(
+        "Generated subclasses need javaSources: the base compiles first " +
+          "and the subclass compiles against it",
+      );
+    }
+    const javacTool = await toolIdentity(
+      "tool/javac",
+      join(input.javaHome, "bin/javac"),
+    );
+    const generatedSourcesRoot = join(input.scratch, "subclass-sources");
+    const generatedFiles: string[] = [];
+    for (const specification of project.subclasses) {
+      const baseSource = classSources.find(({ logicalPath }) =>
+        logicalPath.endsWith(`/${specification.baseBinaryName}.class`)
+      );
+      if (baseSource === undefined) {
+        throw new Error(
+          `Subclass base '${specification.baseBinaryName}' is not among ` +
+            "the compiled classes",
+        );
+      }
+      const baseSnapshot = ingestJvmClasses(
+        [{
+          logicalPath: baseSource.logicalPath,
+          bytes: readFileSync(baseSource.path),
+        }],
+        {
+          classes: [{
+            binaryName: specification.baseBinaryName,
+            constructors: ["()V"],
+            methods: specification.overrides,
+          }],
+        },
+      );
+      const generated = generateJvmSubclassSource(baseSnapshot, specification);
+      const sourcePath = join(generatedSourcesRoot, generated.logicalPath);
+      mkdirSync(dirname(sourcePath), { recursive: true });
+      writeFileSync(sourcePath, generated.source);
+      generatedFiles.push(generated.logicalPath);
+      subclassSelections.push({
+        binaryName: generated.subclassBinaryName,
+        constructors: ["()V"],
+        callbacks: generated.callbacks,
+      });
+    }
+    const classpathDigest = await digestArtifactPath(
+      builtClassesPath,
+      "directory",
+    );
+    const classpathArtifact: ArtifactDefinition = Object.freeze({
+      id: "generated/jvm-java-classes",
+      kind: "source-tree",
+      entryType: "directory",
+      mediaType: "inode/directory",
+      target,
+      domain: "target",
+      cache: "exportable",
+      origin: Object.freeze({
+        kind: "source",
+        digest: classpathDigest.digest,
+        fileName: "jvm-java-classes",
+        logicalPath: "generated/jvm-java-classes",
+      }),
+    });
+    const generatedDigest = await digestArtifactPath(
+      generatedSourcesRoot,
+      "directory",
+    );
+    const subclassJavac = planJavacClasses({
+      sourcesDigest: generatedDigest.digest,
+      files: generatedFiles,
+      logicalPath: "generated/jvm-subclass-sources",
+      tool: javacTool,
+      executionPlatform,
+      target,
+      variant: "-subclasses",
+      classpath: { artifact: classpathArtifact.id },
+    });
+    const subclassReport = await executeArtifactGraph(
+      defineArtifactGraph({
+        artifacts: [
+          subclassJavac.sources,
+          classpathArtifact,
+          subclassJavac.classes,
+        ],
+        actions: [subclassJavac.action],
+      }),
+      {
+        buildRoot: join(input.scratch, "javac-subclasses"),
+        sourcePaths: {
+          [subclassJavac.sources.id]: generatedSourcesRoot,
+          [classpathArtifact.id]: builtClassesPath,
+        },
+        tools: {
+          ...tools,
+          [javacTool.id]: { path: join(input.javaHome, "bin/javac") },
+        },
+        sandbox,
+        ...(cache === undefined ? {} : { cache }),
+      },
+    );
+    const producedSubclasses = subclassReport.artifacts.find(
+      ({ id }) => id === subclassJavac.classes.id,
+    );
+    if (producedSubclasses === undefined) {
+      throw new Error("subclass javac produced no class directory");
+    }
+    builtSubclassesPath = producedSubclasses.path;
+    classSources = [
+      ...classSources,
+      ...readdirSync(producedSubclasses.path, {
+        recursive: true,
+        withFileTypes: true,
+      })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".class"))
+        .map((entry) => {
+          const relative = join(entry.parentPath, entry.name)
+            .slice(producedSubclasses.path.length + 1);
+          return {
+            logicalPath: `generated/jvm-subclass-classes/${relative}`,
+            path: join(producedSubclasses.path, relative),
+          };
+        }),
+    ];
+  }
+
   // Phase one: ingest, generate, and prove the adapter ABI against jni.h.
   const snapshot = ingestJvmClasses(
     classSources.map(({ logicalPath, path }) => ({
       logicalPath,
       bytes: readFileSync(path),
     })),
-    { classes: project.classes },
+    { classes: [...project.classes, ...subclassSelections] },
   );
   const slug = project.packageSlug;
   const adapter = generateJvmAdapterSource(snapshot, { packageSlug: slug });
@@ -594,5 +741,6 @@ export async function buildJvmApplication(input: {
     generatedPackagePath: generatedRoot,
     jvmLibraryPath: sdk.libraryPath,
     ...(builtClassesPath === undefined ? {} : { builtClassesPath }),
+    ...(builtSubclassesPath === undefined ? {} : { builtSubclassesPath }),
   });
 }

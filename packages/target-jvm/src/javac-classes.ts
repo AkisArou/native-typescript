@@ -30,12 +30,24 @@ export function planJavacClasses(input: {
   readonly tool: ArtifactActionDefinition["tool"];
   readonly executionPlatform: string;
   readonly target: string;
+  /** Distinguishes a second compilation in the same build (generated
+   * subclass sources beside the project's own); suffixes every id so the
+   * two never collide. Empty for the primary compilation. */
+  readonly variant?: string;
+  /** A class directory the sources compile against — the id of an
+   * artifact the caller adds to the graph. The generated-subclass
+   * compilation names the primary compilation's output here. */
+  readonly classpath?: { readonly artifact: string };
 }): JavacClassesPlan {
   if (input.files.length === 0) {
     throw new Error("A Java compilation names at least one source file");
   }
+  const variant = input.variant ?? "";
+  const sourcesId = `${javacArtifactIds.sources}${variant}`;
+  const classesId = `generated/jvm-java${variant}-classes`;
+  const actionId = `compile/jvm-java${variant}/classes`;
   const sources: ArtifactDefinition = Object.freeze({
-    id: javacArtifactIds.sources,
+    id: sourcesId,
     kind: "source-tree",
     entryType: "directory",
     mediaType: "inode/directory",
@@ -45,12 +57,12 @@ export function planJavacClasses(input: {
     origin: Object.freeze({
       kind: "source",
       digest: input.sourcesDigest,
-      fileName: "jvm-java-sources",
+      fileName: `jvm-java${variant}-sources`,
       logicalPath: input.logicalPath,
     }),
   });
   const classes: ArtifactDefinition = Object.freeze({
-    id: javacArtifactIds.classes,
+    id: classesId,
     kind: "source-tree",
     entryType: "directory",
     mediaType: "inode/directory",
@@ -59,37 +71,49 @@ export function planJavacClasses(input: {
     cache: "exportable",
     origin: Object.freeze({
       kind: "action",
-      action: "compile/jvm-java/classes",
-      fileName: "jvm-java-classes",
+      action: actionId,
+      fileName: `jvm-java${variant}-classes`,
     }),
   });
   return Object.freeze({
     sources,
     classes,
     action: Object.freeze({
-      id: "compile/jvm-java/classes",
+      id: actionId,
       implementation: Object.freeze({
         id: "native-typescript/javac-classes",
-        version: "1",
+        version: "2",
       }),
       tool: Object.freeze({ ...input.tool }),
       arguments: Object.freeze([
+        ...(input.classpath === undefined
+          ? []
+          : [
+              Object.freeze({ kind: "literal" as const, value: "-cp" }),
+              Object.freeze({
+                kind: "input-path" as const,
+                artifact: input.classpath.artifact,
+              }),
+            ]),
         Object.freeze({ kind: "literal" as const, value: "-d" }),
         Object.freeze({
           kind: "output-path" as const,
-          artifact: javacArtifactIds.classes,
+          artifact: classesId,
         }),
         ...input.files.map((file) =>
           Object.freeze({
             kind: "input-path" as const,
-            artifact: javacArtifactIds.sources,
+            artifact: sourcesId,
             path: file,
           })
         ),
       ]),
       environment: Object.freeze([]),
-      inputs: Object.freeze([javacArtifactIds.sources]),
-      outputs: Object.freeze([javacArtifactIds.classes]),
+      inputs: Object.freeze([
+        sourcesId,
+        ...(input.classpath === undefined ? [] : [input.classpath.artifact]),
+      ]),
+      outputs: Object.freeze([classesId]),
       standardOutput: Object.freeze({ kind: "report" as const }),
       workingDirectory: "isolated",
       network: "denied",
