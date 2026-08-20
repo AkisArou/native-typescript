@@ -549,28 +549,34 @@ moved is the cross-namespace item.)*
 
 **Both of those numbers were measured by hand, and the instrument is now kept**
 — `scripts/gtk-surface-census.ts`, which selects everything the namespace
-declares, generates, drops what was refused, and asks again until the refusals
-stop. Re-run it before trusting any share below; the string-vector and
-owned-string families moved it twice in one day, and the list they left is
-different from the one recorded here. The census supplies no imports, so its
-total is lower than the 2389 above and any bucket naming a QUALIFIED type is
-an unsupplied namespace rather than a gap in the algebra.
+declares, supplies every namespace it transitively includes as an import,
+generates, drops what was refused, and asks again until the refusals stop.
+Re-run it before trusting any share below; three slices moved it in one day.
 
-Read against that instrument, the ordered list is:
+Measured that way: **3227 bindings project and 797 members are refused**,
+with twelve namespaces supplied as imports. A bucket naming a qualified type
+whose namespace is NOT in that supplied list is an unsupplied import rather
+than a gap in the algebra; one naming an unqualified type is a real gap.
 
-- **A result outside the value families — 187 members**, and the largest
-  bucket whose refusal is genuinely the algebra. Roughly half are
-  cross-namespace types the census did not supply; the rest are lists,
-  `GType`, and boxed records.
-- **Value-return adapter outputs and inputs — 45 and 22**, which is the
-  out-parameter work below arriving under a different name.
-- **A property whose accessors disagree — 17 pairs**, and not one member as
+The ordered list, largest first:
+
+- **A result outside the value families — 94 members.** The largest genuinely
+  algebraic bucket. Lists, `GType`, and boxed records, once imports are
+  supplied — which halved this bucket from 187 and is why the census now
+  supplies them.
+- **The value-return adapter's outputs and inputs — 42 and 20**, which is the
+  out-parameter work below arriving under another name, and the largest
+  bucket a single slice could close.
+- **A parameter outside the slice — 21**, unqualified and therefore real.
+- **`filename` — 20**, still a path-encoding decision rather than a
+  projection.
+- **A property whose accessors disagree — 18 pairs**, and not one member as
   first recorded. A vector or owned-string getter hands over storage the
   setter borrows, which is normal for such a property and is not one type.
-  Both accessors stay individually reachable, so nothing is lost, but 34
+  Both accessors stay individually reachable, so nothing is lost, but 36
   members are spelled as methods where a property would read better.
-- **`filename` — 20 members**, still a path-encoding decision rather than a
-  projection.
+- **A boxed record from a caller-allocated output — 15**, which the boxed
+  work below already anticipates.
 
 The largest bucket by raw count is misleading, so it is worth stating what it
 is: `TreePath` blocks 47 methods, `TreeIter` 42, and `TreeModel` 46 — and GTK

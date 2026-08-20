@@ -14,18 +14,15 @@
  * member counted here is one the generator will describe; whether the real
  * headers agree is what `pnpm test` is for.
  *
- * IT SUPPLIES NO IMPORTED NAMESPACES, and that is the number's largest
- * caveat. A member returning or taking `Gio.ListModel` is refused here for
- * lack of an import rather than for lack of an algebra, so the refusal list
- * OVERSTATES what is missing — roughly a hundred of the result refusals in
- * the first run are cross-namespace types. Read a bucket naming a qualified
- * type as "this namespace was not supplied", and only an unqualified one as a
- * gap in the algebra. Supplying imports is the obvious next improvement and
- * would make the total comparable to a real multi-package build.
+ * Every namespace the GIR declares an include for is supplied as an import,
+ * because a member refused for lack of an import is not a member the algebra
+ * cannot reach — and a census that conflated the two would rank an
+ * unsupplied namespace above a real gap. Imports are ingested with everything
+ * they declare selected, the same way the subject is.
  *
  *   node --experimental-strip-types scripts/gtk-surface-census.ts [Namespace]
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   digestClangAbiEvidence,
   renderCFunctionPointerType,
@@ -43,6 +40,7 @@ import {
   ingestGir,
 } from "@native-typescript/bindgen-gir";
 import type { GirSnapshot } from "@native-typescript/bindgen-gir";
+import type { PackageIdentity } from "@native-typescript/scabi";
 
 const namespace = process.argv[2] ?? "Gtk";
 const version = namespace === "Gtk" ? "4.0" : "2.0";
@@ -121,7 +119,6 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
  * round supplies. Nothing here affects what projects — the target is a real
  * one so the shapes are plausible, not so the count depends on it. */
 const baseOptions = {
-  importedNamespaces: [],
   package: {
     name: `@native-typescript/${namespace.toLowerCase()}`,
     version: "0.0.0",
@@ -188,8 +185,163 @@ function declaredSurface(source: string): Declared {
   return { classes, interfaces, records, enumerations };
 }
 
+/* The namespaces this one references, TRANSITIVELY, read from `<include>`
+ * lines rather than from a list somebody maintains — a GIR that grows a
+ * dependency should not need this file edited.
+ *
+ * Transitive because the direct includes are not the interesting ones: GTK
+ * includes Gdk and Gsk, and everything a member is likely to refuse over —
+ * Gio, GLib, GObject, Pango — arrives through them. Supplying only the direct
+ * two would leave most cross-namespace refusals mislabelled as gaps. */
+function includedNamespaces(source: string): { name: string; version: string }[] {
+  const found = new Map<string, { name: string; version: string }>();
+  const pending = [source];
+  while (pending.length > 0) {
+    const text = pending.pop()!;
+    for (const match of text.matchAll(/<include name="([^"]+)" version="([^"]+)"\s*\/>/gu)) {
+      const name = match[1]!;
+      const version = match[2]!;
+      const key = `${name}-${version}`;
+      if (found.has(key)) continue;
+      found.set(key, { name, version });
+      const path = `/usr/share/gir-1.0/${key}.gir`;
+      if (existsSync(path)) pending.push(readFileSync(path, "utf8"));
+    }
+  }
+  return [...found.values()];
+}
+
+function diagnosticsOf(error: unknown): readonly { path: string; message: string }[] {
+  const carried = (error as { diagnostics?: readonly { path: string; message: string }[] })
+    .diagnostics;
+  return carried ?? [];
+}
+
+function importedSnapshot(
+  name: string,
+  girVersion: string,
+): { snapshot: GirSnapshot; package: PackageIdentity } | null {
+  const path = `/usr/share/gir-1.0/${name}-${girVersion}.gir`;
+  if (!existsSync(path)) return null;
+  const text = readFileSync(path, "utf8");
+  const slug = name.toLowerCase() + girVersion.replace(/\./gu, "");
+  /* An import converges the same way the subject does — an SDK declares
+   * members outside the ingestion contract (variadics, non-introspectable
+   * calls) and a whole-namespace selection meets all of them. What an import
+   * contributes is its TYPES, so a member dropped here costs the census
+   * nothing; the alternative is dropping the namespace and mislabelling every
+   * type in it as unsupplied. */
+  const surface = declaredSurface(text);
+  const dropped = new Set<string>();
+  for (let round = 1; round <= 40; round++) {
+    const selection = {
+      logicalPath: `system-sdk/gir/${name}-${girVersion}.gir`,
+      namespace: { name, version: girVersion },
+      classes: surface.classes
+        .filter((item) => !dropped.has(`${item.name}#!`))
+        .map((item) => ({
+          ...item,
+          methods: item.methods.filter((m) => !dropped.has(`${item.name}#${m}`)),
+          constructors: item.constructors.filter((c) => !dropped.has(`${item.name}#${c}`)),
+        })),
+      interfaces: surface.interfaces
+        .filter((item) => !dropped.has(`${item.name}#!`))
+        .map((item) => ({
+          ...item,
+          methods: item.methods.filter((m) => !dropped.has(`${item.name}#${m}`)),
+        })),
+      records: surface.records
+        .filter((item) => !dropped.has(`${item.name}#!`))
+        .map((item) => ({
+          ...item,
+          methods: item.methods.filter((m) => !dropped.has(`${item.name}#${m}`)),
+        })),
+      enumerations: surface.enumerations.filter(
+        (item) => !dropped.has(`${item.name}#*`) && !dropped.has(`${item.name}#!`),
+      ),
+    };
+    try {
+      return {
+        snapshot: ingestGir(text, selection),
+        package: {
+          name: `@native-typescript/${slug}`,
+          version: "0.0.0",
+          namespace: `native-typescript.${slug}`,
+          instance: `native-typescript.${slug}@0.0.0`,
+        },
+      };
+    } catch (error) {
+      let shrank = false;
+      for (const diagnostic of diagnosticsOf(error)) {
+        const indexed =
+          /^(classes|interfaces|records|enumerations)\/(\d+)\/(methods|constructors|members)\/(\d+)/u
+            .exec(diagnostic.path);
+        if (indexed !== null) {
+          const [, group, ownerIndex, kind, memberIndex] = indexed;
+          const owner = (selection as Record<string, { name: string }[]>)[group!]?.[
+            Number(ownerIndex)
+          ];
+          if (owner === undefined) continue;
+          const member = kind === "members"
+            ? "*"
+            : (owner as unknown as Record<string, string[]>)[kind!]?.[Number(memberIndex)];
+          if (member === undefined) continue;
+          if (dropped.has(`${owner.name}#${member}`)) continue;
+          dropped.add(`${owner.name}#${member}`);
+          shrank = true;
+          continue;
+        }
+        const named =
+          /(?:^|\/)(?:class|interface|record|enumeration|bitfield)\/([A-Za-z0-9_]+)\/(?:method|constructor)\/([^/]+)/u
+            .exec(diagnostic.path);
+        if (named !== null && !dropped.has(`${named[1]}#${named[2]}`)) {
+          dropped.add(`${named[1]}#${named[2]}`);
+          shrank = true;
+          continue;
+        }
+        /* A refusal naming a declaration and no member is about the
+         * declaration itself — a record with no `get-type`, a class whose
+         * parent is unreachable — so the whole thing goes. */
+        const owner =
+          /(?:^|\/)(?:class|interface|record|enumeration|bitfield)\/([A-Za-z0-9_]+)/u
+            .exec(diagnostic.path)?.[1];
+        if (owner !== undefined && !dropped.has(`${owner}#!`)) {
+          dropped.add(`${owner}#!`);
+          shrank = true;
+        }
+      }
+      if (!shrank) return null;
+    }
+  }
+  return null;
+}
+
 const source = readFileSync(girPath, "utf8");
 const declared = declaredSurface(source);
+
+/* Ingested once and reused every round: the imports do not change as the
+ * subject's selection shrinks, and re-reading five GIRs per round would
+ * dominate the runtime. */
+let imports: { snapshot: GirSnapshot; package: PackageIdentity }[] | null = null;
+function importedNamespaces() {
+  if (imports !== null) return imports;
+  const wanted = includedNamespaces(source);
+  const resolved = wanted
+    .map(({ name, version: girVersion }) => importedSnapshot(name, girVersion));
+  const missing = wanted.filter((_, index) => resolved[index] === null);
+  if (missing.length > 0) {
+    console.log(
+      `imports not supplied (their types stay in the refusal list): ${
+        missing.map(({ name, version: v }) => `${name}-${v}`).join(", ")
+      }`,
+    );
+  }
+  imports = resolved.filter((entry) => entry !== null);
+  console.log(
+    `imports supplied: ${imports.map(({ package: p }) => p.namespace).join(", ") || "(none)"}`,
+  );
+  return imports;
+}
 const declaredMethods =
   declared.classes.reduce((total, class_) => total + class_.methods.length, 0) +
   declared.interfaces.reduce((total, item) => total + item.methods.length, 0) +
@@ -253,23 +405,25 @@ function selection() {
   };
 }
 
-function diagnosticsOf(error: unknown): readonly { path: string; message: string }[] {
-  const carried = (error as { diagnostics?: readonly { path: string; message: string }[] })
-    .diagnostics;
-  return carried ?? [];
-}
-
 let projected = 0;
 for (let round = 1; round <= 40; round++) {
   let refused = 0;
   try {
     const snapshot = ingestGir(source, selection());
-    const adapter = generateGObjectAdapterSource(snapshot, []);
+    const adapter = generateGObjectAdapterSource(
+      snapshot,
+      importedNamespaces().map(({ snapshot: imported }) => imported),
+    );
+    const imports = importedNamespaces();
+    const importedSnapshots = imports.map(({ snapshot: imported }) => imported);
     const generated = generateGObjectScabiPackage({
       ...baseOptions,
       snapshot,
+      importedNamespaces: imports,
       gobjectAdapter: adapter,
-      evidence: evidence(generateGirClangAbiProbe(snapshot, adapter, [])),
+      evidence: evidence(
+        generateGirClangAbiProbe(snapshot, adapter, importedSnapshots),
+      ),
     });
     projected = Object.values(generated.manifest.bindings).filter(
       (binding) => binding.kind !== "constant",
