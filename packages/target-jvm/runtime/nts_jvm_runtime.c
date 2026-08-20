@@ -32,6 +32,19 @@ void nts_jvm_runtime_register(jint (*bind)(JavaVM *, char **)) {
   nts_jvm_binds[nts_jvm_bind_count++] = bind;
 }
 
+/* The retained-callback service's wake pumps QUEUED deliveries onto the
+ * owner thread. This target admits only ANSWERED callbacks, which run
+ * during the emitting call and queue nothing, so a wake firing means a
+ * queued delivery reached a runtime that has no pump - the named next
+ * slice, not a recoverable state. */
+static void nts_jvm_runtime_wake(void *context) {
+  (void)context;
+  fprintf(stderr,
+          "nts_jvm_runtime: a queued delivery reached a runtime with no "
+          "pump; only answered callbacks are admitted\n");
+  abort();
+}
+
 void nts_jvm_application_start(char **error) {
   *error = NULL;
   if (nts_jvm_vm != NULL) {
@@ -76,10 +89,33 @@ void nts_jvm_application_start(char **error) {
       return;
     }
   }
+  /* The service links on this target's say-so (requires.compiler), so it
+   * is configured whether or not the program connects anything. */
+  if (!scr_retained_callbacks_configure(nts_jvm_runtime_wake, NULL)) {
+    (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
+    nts_jvm_vm = NULL;
+    *error = nts_jvm_owned_message(
+        "retained-callback service configuration failed");
+    return;
+  }
 }
 
 void nts_jvm_application_stop(void) {
   if (nts_jvm_vm == NULL) return;
+  /* Mirrors the GTK shutdown sequence: every clause runs, because pending
+   * work and a live registration are distinct faults and destroy must be
+   * attempted either way. A program that stops while either holds has a
+   * bug worth naming, not hiding. */
+  scr_retained_callbacks_stop_accepting();
+  if (scr_retained_callbacks_pending() != 0) {
+    fprintf(stderr,
+            "nts_jvm_runtime: stopped with queued callback work pending\n");
+  }
+  if (scr_retained_callbacks_active() != 0) {
+    fprintf(stderr,
+            "nts_jvm_runtime: stopped with live callback registrations\n");
+  }
+  (void)scr_retained_callbacks_destroy();
   (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
   nts_jvm_vm = NULL;
 }

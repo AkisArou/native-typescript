@@ -121,6 +121,11 @@ export interface JvmClassSelection {
   readonly constructors?: readonly string[];
   readonly methods?: readonly JvmMemberSelection[];
   readonly fields?: readonly JvmMemberSelection[];
+  /** Native methods selected as CALLBACK REGISTRATION points: TypeScript
+   * provides the implementation Java calls, rather than calling in. The
+   * member must carry ACC_NATIVE — that is the metadata fact that makes
+   * RegisterNatives legal — and must not also be selected as a method. */
+  readonly callbacks?: readonly JvmMemberSelection[];
 }
 
 export interface JvmIngestionOptions {
@@ -263,12 +268,15 @@ export interface JvmClass {
   readonly genericSignature: string | null;
   readonly constructors: readonly JvmMethod[];
   readonly methods: readonly JvmMethod[];
+  /** Selected callback registration points: native methods whose
+   * implementation TypeScript provides. Always ACC_NATIVE. */
+  readonly callbacks: readonly JvmMethod[];
   readonly fields: readonly JvmField[];
 }
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

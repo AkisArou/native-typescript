@@ -54,9 +54,11 @@ function snapshot() {
             "joinWords",
             "sumInts",
             "measure",
+            "ping",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
+          callbacks: ["onPing"],
         },
       ],
     },
@@ -277,6 +279,34 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     addressSpace: 0,
   });
 
+  // The inward direction: a connect binding whose callback is anchored to
+  // its receiver, cancelled by disconnect, answered synchronously — the
+  // GObject signal contract with JNI identities behind it.
+  assert.match(
+    generated.declarations,
+    /onPing\(callback: \(a0: jint\) => boolean\): JvmConnection;/u,
+  );
+  assert.match(generated.declarations, /export interface JvmConnection \{/u);
+  const connectBinding =
+    generated.manifest.bindings["fixture.fixture.widget.onping"];
+  assert.ok(connectBinding !== undefined && connectBinding.kind !== "constant");
+  assert.deepEqual(connectBinding.error, { kind: "nullable" });
+  const callbackParameter = connectBinding.signature.parameters.find(
+    ({ name }) => name === "callback",
+  );
+  assert.ok(callbackParameter?.callback !== undefined);
+  assert.equal(callbackParameter.callback.registrationOwner, "self");
+  assert.equal(
+    callbackParameter.callback.cancellationBinding,
+    "fixture.connection.disconnect",
+  );
+  assert.equal(callbackParameter.callback.synchronousReturn, true);
+  const connectionType = generated.manifest.types["jvm.connection"];
+  assert.ok(connectionType !== undefined && connectionType.kind === "handle");
+  if (connectionType.kind === "handle") {
+    assert.equal(connectionType.destructor, "fixture.connection.release");
+  }
+
   // A String[] ARGUMENT: borrowed for the call, nullable (NULL is an
   // omitted list, not an empty one), no release, and the source arm gains
   // null only on this side — a null result refuses at the adapter.
@@ -412,6 +442,14 @@ test("each ownership shape translates through the neutral compiler input", () =>
     ({ projection }) => projection.kind === "errorOut",
   );
   assert.equal(reverse.parameters.indexOf(lengthOut!), errorSlotIndex - 1);
+
+  // The inward direction lowers through the existing retained-callback
+  // machinery: the connect binding carries the function and context slots.
+  const onPing = binding("fixture.fixture.widget.onping");
+  assert.deepEqual(
+    onPing.parameters.map(({ projection }) => projection.kind),
+    ["argument", "callbackFunction", "callbackContext"],
+  );
 
   // A String[] RESULT: the projection copies the terminated vector into a
   // managed string array and disposes through the adapter's one release.

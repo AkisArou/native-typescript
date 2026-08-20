@@ -92,6 +92,27 @@ if (measured.length !== 2 || measured[0] !== 5 || measured[1] !== 1) {
   failed = true;
 }
 
+/* The inward direction: Java calls the TypeScript handler through a
+ * registered native method, its boolean answers steer Java's own loop, and
+ * the closure's captured state proves the payloads arrived. After
+ * disconnect, Java's call throws IllegalStateException, which arrives here
+ * as an ordinary catchable error. */
+let observed = 0;
+const connection = widget.onPing((value) => {
+  observed += value;
+  return value % 2 === 0;
+});
+if (widget.ping(4) !== 2) failed = true;
+if (observed !== 6) failed = true;
+connection.disconnect();
+let pingThrew = false;
+try {
+  widget.ping(1);
+} catch {
+  pingThrew = true;
+}
+if (!pingThrew) failed = true;
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a

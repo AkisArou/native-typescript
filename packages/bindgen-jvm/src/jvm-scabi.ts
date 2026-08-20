@@ -316,6 +316,9 @@ export function generateJvmScabiPackage(
     readonly result: AbiResult;
     readonly error?: CallableBinding["error"];
     readonly availability?: BindingAvailability;
+    /** Beyond the error-derived edges: what this binding reaches by
+     * contract, e.g. a callback registration reaching its cancellation. */
+    readonly bindingDependencies?: readonly string[];
   }): CallableBinding {
     return Object.freeze({
       kind: input.kind,
@@ -335,11 +338,12 @@ export function generateJvmScabiPackage(
       error: input.error ?? Object.freeze({ kind: "no-fail" as const }),
       /* A failable binding reaches its error's message and release, so the
        * dependency edge is derived from the contract, never restated. */
-      dependencies: dependencies(
-        input.error !== undefined && "message" in input.error
+      dependencies: dependencies([
+        ...(input.error !== undefined && "message" in input.error
           ? [input.error.message, input.error.release]
-          : [],
-      ),
+          : []),
+        ...(input.bindingDependencies ?? []),
+      ]),
       ...(input.availability === undefined ? {} : { availability: input.availability }),
     });
   }
@@ -741,6 +745,181 @@ export function generateJvmScabiPackage(
     });
   }
 
+  /* The inward direction: connection machinery once, then one connect
+   * binding per selected callback, mirroring the GObject signal contract —
+   * receiver-anchored registration, cancellation by disconnect, the handle
+   * destructor releasing the record. */
+  const connectionTypeId = "jvm.connection";
+  const connectionDisconnectId = `${slug}.connection.disconnect`;
+  const connectionReleaseId = `${slug}.connection.release`;
+  const usesCallbacks = options.adapter.connectionSupport !== null;
+  if (usesCallbacks) {
+    const support = options.adapter.connectionSupport!;
+    types["void_ptr"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "void",
+      mutability: "mutable",
+      nullable: true,
+      addressSpace: 0,
+    });
+    types[connectionTypeId] = Object.freeze({
+      kind: "handle",
+      nativeName: `nts_jvm_${slug}_connection`,
+      threadSafety: "confined",
+      identity: "none",
+      upcasts: Object.freeze([]),
+      destructor: connectionReleaseId,
+    });
+    declarationTypes[connectionTypeId] = Object.freeze({
+      module: ".",
+      name: "JvmConnection",
+    });
+    defineBinding(connectionDisconnectId, callable({
+      declaration: "JvmConnection.disconnect",
+      kind: "method",
+      symbol: support.disconnectSymbol,
+      parameters: [
+        Object.freeze({
+          name: "connection",
+          type: connectionTypeId,
+          passMode: "pointer" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        }),
+      ],
+      result: Object.freeze({
+        type: "void",
+        passMode: "value" as const,
+        nullable: false,
+        ownership: Object.freeze({ kind: "value" as const }),
+      }),
+    }));
+    defineBinding(connectionReleaseId, callable({
+      declaration: "JvmConnection.__release",
+      kind: "method",
+      symbol: support.releaseSymbol,
+      parameters: [
+        Object.freeze({
+          name: "connection",
+          type: connectionTypeId,
+          passMode: "pointer" as const,
+          nullable: true,
+          ownership: Object.freeze({ kind: "owned" as const, transfer: "to-native" as const }),
+        }),
+      ],
+      result: Object.freeze({
+        type: "void",
+        passMode: "value" as const,
+        nullable: false,
+        ownership: Object.freeze({ kind: "value" as const }),
+      }),
+    }));
+    adapterBindings.push(connectionDisconnectId, connectionReleaseId);
+  }
+  for (const callback of options.adapter.callbacks) {
+    const className = classNameOf.get(callback.className);
+    const typeId = selectedTypeIds.get(callback.className);
+    if (className === undefined || typeId === undefined) continue;
+    const callbackTypeId =
+      `jvm.${idToken(callback.className)}.${callback.name.toLowerCase()}.callback`;
+    const bindingId =
+      `${slug}.${idToken(callback.className)}.${callback.name.toLowerCase()}`;
+    const callbackParameters = callback.parameters.flatMap((position, index) =>
+      positionParameters(position, index)
+    );
+    types[callbackTypeId] = Object.freeze({
+      kind: "callback",
+      signature: Object.freeze({
+        callingConvention: "c" as const,
+        variadic: false as const,
+        parameters: Object.freeze(callbackParameters),
+        result: Object.freeze({
+          /* The answered contract: the handler's boolean IS the emitting
+           * call's result, which is what lets delivery run on the caller's
+           * thread with no queue. */
+          type: needScalar("boolean"),
+          passMode: "value" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" as const }),
+        }),
+      }),
+      context: Object.freeze({ placement: "last" as const, type: "void_ptr" }),
+    });
+    defineBinding(bindingId, callable({
+      declaration: `${className}.${callback.name}`,
+      kind: "method",
+      symbol: callback.connectSymbol,
+      parameters: [
+        Object.freeze({
+          name: "self",
+          type: typeId,
+          passMode: "pointer" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        }),
+        Object.freeze({
+          name: "callback",
+          type: callbackTypeId,
+          passMode: "pointer" as const,
+          nullable: false,
+          ownership: Object.freeze({
+            kind: "borrowed" as const,
+            scope: "registration" as const,
+            anchor: "self",
+          }),
+          callback: Object.freeze({
+            registrationOwner: "self",
+            cancellationBinding: connectionDisconnectId,
+            contextParameter: "context",
+            allowedInvocationExecutors: Object.freeze([
+              Object.freeze({ kind: "same-as-caller" as const }),
+            ]),
+            synchronousReturn: true,
+            arguments: Object.freeze(callbackParameters.map((parameter) =>
+              Object.freeze({
+                parameter: parameter.name,
+                transport: "borrow" as const,
+              })
+            )),
+            sourceArguments: Object.freeze(callbackParameters.map((parameter) =>
+              Object.freeze({
+                kind: "callback-parameter" as const,
+                parameter: parameter.name,
+              })
+            )),
+          }),
+        }),
+        Object.freeze({
+          name: "context",
+          type: "void_ptr",
+          passMode: "pointer" as const,
+          nullable: false,
+          ownership: Object.freeze({
+            kind: "borrowed" as const,
+            scope: "registration" as const,
+            anchor: "callback",
+          }),
+        }),
+      ],
+      result: Object.freeze({
+        type: connectionTypeId,
+        passMode: "pointer" as const,
+        nullable: true,
+        ownership: Object.freeze({ kind: "owned" as const, transfer: "to-runtime" as const }),
+      }),
+      error: Object.freeze({ kind: "nullable" as const }),
+      bindingDependencies: [connectionDisconnectId, connectionReleaseId],
+    }));
+    adapterBindings.push(bindingId);
+    const handlerParameters = callback.parameters
+      .map((parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`)
+      .join(", ");
+    declareMember(
+      callback.className,
+      `  ${callback.name}(callback: (${handlerParameters}) => boolean): JvmConnection;`,
+    );
+  }
+
   const methodAdapters = [
     ...options.adapter.staticMethods,
     ...options.adapter.instanceMethods,
@@ -892,6 +1071,17 @@ export function generateJvmScabiPackage(
   }
   const declarationLines: string[] = [
     ...(usesJlong ? ["declare const nativeScalar: unique symbol;", ""] : []),
+    ...(usesCallbacks
+      ? [
+          "declare const nativeResourceJvmConnection: unique symbol;",
+          "",
+          "export interface JvmConnection {",
+          "  readonly [nativeResourceJvmConnection]: true;",
+          "  disconnect(): void;",
+          "}",
+          "",
+        ]
+      : []),
     ...convertedScalarIds.map((id) => `export type ${id} = number;`),
     ...(usesJlong
       ? [

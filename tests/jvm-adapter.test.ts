@@ -47,9 +47,11 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "countInts",
     "reverseFloats",
     "measure",
+    "ping",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
+  callbacks: Object.freeze(["onPing"]),
 });
 
 function ingestSurface(
@@ -131,7 +133,16 @@ test("the adapter source is deterministic and carries its member table", () => {
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
-    ["compareDepth", "depth", "label", "measure", "resize", "resize", "resized"],
+    [
+      "compareDepth",
+      "depth",
+      "label",
+      "measure",
+      "ping",
+      "resize",
+      "resize",
+      "resized",
+    ],
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
   assert.deepEqual(first.spanSupport, { region: "copy" });
@@ -149,17 +160,27 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.deepEqual(splitWords.result, { kind: "string-vector" });
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
   assert.deepEqual(sumBytes.parameters, [{ kind: "span", elem: "u8" }]);
+  // The inward direction: one registration point, its trampoline installed
+  // at bind, its connection machinery shared.
+  assert.equal(first.callbacks.length, 1);
+  assert.deepEqual(first.callbacks[0]!.parameters, [
+    { kind: "primitive", primitive: "int" },
+  ]);
+  assert.ok(first.connectionSupport !== null);
+  assert.ok(first.source.includes("RegisterNatives"));
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
     .map(({ adapterSymbol }) => adapterSymbol);
   assert.equal(new Set(resizeSymbols).size, 2);
 
   assert.ok(first.source.includes(`jint ${first.bind.adapterSymbol}(`));
-  // One release for every class: DeleteGlobalRef is class-blind.
+  // Exactly two DeleteGlobalRef call sites, each a distinct claim ending:
+  // the class-blind handle release, and disconnect returning the reference
+  // a registration held on its instance.
   assert.ok(first.source.includes(`void ${first.release.adapterSymbol}(`));
   assert.equal(
     (first.source.match(/->DeleteGlobalRef/gu) ?? []).length,
-    1,
+    2,
   );
   assert.ok(
     first.source.includes(`const char *${first.errorSupport.messageSymbol}(`),
@@ -178,6 +199,8 @@ test("every generated-C family carries a classification", () => {
     Object.keys(JVM_ADAPTER_FAMILIES).sort(),
     [
       "bind",
+      "callbacks",
+      "connectionSupport",
       "constructors",
       "envSupport",
       "errorSupport",
@@ -348,6 +371,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const measureSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "measure",
     )!.adapterSymbol;
+    const pingSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "ping",
+    )!.adapterSymbol;
+    const connectOnPing = adapter.callbacks[0]!.connectSymbol;
+    const disconnectSymbol = adapter.connectionSupport!.disconnectSymbol;
+    const connectionFreeSymbol = adapter.connectionSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
@@ -359,6 +388,11 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "#include <stdlib.h>",
       "#include <string.h>",
       `#include "adapter.h"`,
+      "static jboolean nts_test_on_ping(jint value, void *context) {",
+      "  *(int *)context += value;",
+      "  return value % 2 == 0 ? JNI_TRUE : JNI_FALSE;",
+      "}",
+      "",
       "int main(void) {",
       `  char cp[] = "-Djava.class.path=${classpath}";`,
       "  JavaVMOption options[1] = { { .optionString = cp } };",
@@ -465,6 +499,24 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (rev == NULL || error != NULL || floatCount != 2) return 43;",
       "  if (rev[0] != -2.25f || rev[1] != 1.5f) return 44;",
       "  free(rev);",
+      /* The inward direction, end to end in C: connect a handler, let Java
+       * call it (ping dispatches onPing per iteration), check the answers
+       * steered Java's own control flow AND the context crossed; a second
+       * connect on the same instance refuses; after disconnect, Java's call
+       * throws IllegalStateException, which the ping ADAPTER captures into
+       * the checked channel; release after disconnect is idempotent. */
+      "  int pingContext = 0;",
+      `  void *connection = ${connectOnPing}(w, nts_test_on_ping, &pingContext);`,
+      "  if (connection == NULL) return 47;",
+      `  if (${connectOnPing}(w, nts_test_on_ping, &pingContext) != NULL) return 48;`,
+      `  if (${pingSymbol}(w, 4, &error) != 2 || error != NULL) return 49;`,
+      "  if (pingContext != 6) return 50;",
+      `  ${disconnectSymbol}(connection);`,
+      `  (void)${pingSymbol}(w, 1, &error);`,
+      "  if (error == NULL ||",
+      `      strstr(${messageSymbol}(error), "no TypeScript handler") == NULL) return 51;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
+      `  ${connectionFreeSymbol}(connection);`,
       "  size_t measureCount = 0;",
       `  int32_t *measured = (int32_t *)${measureSymbol}(\n      w, "label", JNI_TRUE, &measureCount, &error);`,
       "  if (measured == NULL || error != NULL || measureCount != 2) return 45;",

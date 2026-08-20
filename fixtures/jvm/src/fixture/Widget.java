@@ -120,6 +120,17 @@ public class Widget {
     return out;
   }
 
+  /** The inward direction: TypeScript provides this implementation. */
+  public native boolean onPing(int value);
+
+  public int ping(int count) {
+    int accepted = 0;
+    for (int i = 0; i < count; i++) {
+      if (onPing(i)) accepted++;
+    }
+    return accepted;
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

@@ -107,6 +107,25 @@ export interface JvmReleaseAdapter {
   readonly adapterSymbol: string;
 }
 
+/** One callback registration point: a native method whose implementation
+ * TypeScript provides, answered synchronously on the caller's thread. */
+export interface JvmCallbackAdapter {
+  readonly className: string;
+  readonly name: string;
+  readonly descriptor: string;
+  readonly connectSymbol: string;
+  /** Exact scalars only — the answered contract's set. */
+  readonly parameters: readonly JvmAdapterPosition[];
+}
+
+/** The shared connection machinery, present when any callback is selected:
+ * disconnect cancels a live registration, release is the connection
+ * handle's destructor (cancelling first if still live). */
+export interface JvmConnectionSupportAdapter {
+  readonly disconnectSymbol: string;
+  readonly releaseSymbol: string;
+}
+
 /**
  * The `error-out` support pair, shaped exactly as the landed SCABI contract
  * consumes it: every adapter writes an owned error object into a trailing
@@ -121,7 +140,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 13;
+  readonly schemaVersion: 14;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -143,9 +162,12 @@ export interface JvmAdapterSource {
    * frees the owned vector AND its elements, which is what makes one
    * release symbol sufficient for a two-level copy. Null when none. */
   readonly stringVectorSupport: { readonly releaseSymbol: string } | null;
+  /** Present when any callback is selected. */
+  readonly connectionSupport: JvmConnectionSupportAdapter | null;
   readonly constructors: readonly JvmConstructorAdapter[];
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
+  readonly callbacks: readonly JvmCallbackAdapter[];
 }
 
 /**
@@ -244,6 +266,32 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "denomination, which is what units:'elements' states. A null array " +
       "result is a named absence that refuses through the error channel; " +
       "an empty one is a real allocation with length zero",
+  },
+  callbacks: {
+    kind: "translation",
+    custom:
+      "a callback registration point is a native method Java declared " +
+      "unimplemented; RegisterNatives at bind installs a trampoline, and " +
+      "connecting stores {instance global ref, fn, context} in a per-" +
+      "callback list the trampoline searches by IsSameObject - JNI has no " +
+      "user_data slot, so identity recovery is the translation, not a " +
+      "decision. One live registration per instance per callback, because " +
+      "JNI's single dispatch slot cannot accumulate the way g_signal does; " +
+      "a second connect answers NULL through the nullable contract. Java " +
+      "calling with no live registration gets IllegalStateException - the " +
+      "absence is the JAVA caller's to catch, and it names the method. " +
+      "Delivery is answered-synchronous on the caller's thread only: the " +
+      "non-answering variant queues onto the runtime owner, which needs a " +
+      "pump this runtime does not yet have",
+  },
+  connectionSupport: {
+    kind: "translation",
+    custom:
+      "a connection is one malloc'd record the compiler owns through the " +
+      "handle contract: disconnect (the cancellation binding) unlinks it " +
+      "and releases the instance reference, release (the destructor) " +
+      "cancels first if still live and frees. Owner-confined like every " +
+      "release: an unattached thread traps",
   },
   stringVectorSupport: {
     kind: "translation",
@@ -535,11 +583,21 @@ export function generateJvmAdapterSource(
       readonly descriptor: string;
       readonly static: boolean;
     }[];
+    readonly nativeRegistrations: {
+      readonly name: string;
+      readonly descriptor: string;
+      readonly trampolineSymbol: string;
+    }[];
   }
   const plans: ClassPlan[] = [];
   const constructors: JvmConstructorAdapter[] = [];
   const staticMethods: JvmMethodAdapter[] = [];
   const instanceMethods: JvmMethodAdapter[] = [];
+  const callbacks: JvmCallbackAdapter[] = [];
+  /* Trampolines are defined with their callback's body, after bind in the
+   * file, while bind installs them by address — hence forward declarations
+   * beside the statics. */
+  const callbackForwardDeclarations: string[] = [];
   const bodies: string[] = [];
   const headerDeclarations: string[] = [];
   const selectedNames: ReadonlySet<string> = new Set(
@@ -549,6 +607,7 @@ export function generateJvmAdapterSource(
   let usesSpans = false;
   let usesStringVectors = false;
   let usesStringVectorArguments = false;
+  let usesCallbacks = false;
 
   /* Releases every bridged local built before `before`, for the path where
    * a later bridge refuses; strings and byte spans clean each other up. */
@@ -697,6 +756,7 @@ export function generateJvmAdapterSource(
       class_,
       classVar: `${prefix}_cls_${classToken}`,
       members: [],
+      nativeRegistrations: [],
     };
     const overloadedNames = new Set(
       class_.methods
@@ -990,7 +1050,172 @@ export function generateJvmAdapterSource(
       if (method.access.static) staticMethods.push(adapter);
       else instanceMethods.push(adapter);
     }
-    if (plan.members.length > 0 || class_.constructors.length > 0) {
+    const overloadedCallbackNames = new Set(
+      class_.callbacks
+        .map(({ name }) => name)
+        .filter((name, _, all) => all.indexOf(name) !== all.lastIndexOf(name)),
+    );
+    for (const callback of class_.callbacks) {
+      const path = `class/${class_.binaryName}/callback/${callback.name}`;
+      if (callback.access.static) {
+        diagnostics.push(diagnostic(
+          path,
+          "A callback registration anchors to its receiver; a static " +
+            "native method has no receiver and waits on a class-anchored " +
+            "owner spelling",
+        ));
+        continue;
+      }
+      const parameters: JvmAdapterPosition[] = [];
+      let refused = false;
+      callback.parameters.forEach((parameter, index) => {
+        const scalar = parameter.kind === "primitive" ? parameter.name : null;
+        if (
+          scalar !== null && scalar !== "float" && scalar !== "boolean"
+        ) {
+          parameters.push({ kind: "primitive", primitive: scalar });
+          return;
+        }
+        diagnostics.push(diagnostic(
+          `${path}/parameters/${index}`,
+          scalar === "float"
+            ? "Callback payload float is f32, outside the answered " +
+              "contract's exact-scalar set (integers and double)"
+            : scalar === "boolean"
+              ? "Callback payload boolean has no exact scalar position; " +
+                "carry it as an integer"
+              : "Callback payloads must be exact scalar values; nothing " +
+                "here outlives the emitting call, so a string or object " +
+                "payload would have no owner",
+        ));
+        refused = true;
+      });
+      const answers = callback.result.kind === "primitive" &&
+        callback.result.name === "boolean";
+      if (!answers) {
+        diagnostics.push(diagnostic(
+          `${path}/result`,
+          callback.result.kind === "void"
+            ? "A non-answering delivery queues onto the runtime owner, " +
+              "which needs a pump this runtime does not yet have; " +
+              "answered (boolean) callbacks are the implemented arm"
+            : "An answered callback answers with a boolean - the question " +
+              "a platform asks a handler",
+        ));
+        continue;
+      }
+      if (refused) continue;
+      usesCallbacks = true;
+      const suffix = overloadedCallbackNames.has(callback.name)
+        ? `_${descriptorSuffix(callback.descriptor)}`
+        : "";
+      const trampolineSymbol = `${prefix}_tramp_${classToken}_${callback.name}${suffix}`;
+      const connectSymbol = `${prefix}_connect_${classToken}_${callback.name}${suffix}`;
+      const headVariable = `${prefix}_reg_${classToken}_${callback.name}${suffix}`;
+      const jniParameters = parameters.map((parameter, index) =>
+        parameter.kind === "primitive"
+          ? `${jniCTypes[parameter.primitive]} a${index}`
+          : `void *a${index}`
+      );
+      const callbackPointer = `jboolean (*)(${[
+        ...parameters.map((parameter) =>
+          parameter.kind === "primitive" ? jniCTypes[parameter.primitive] : "void *"
+        ),
+        "void *",
+      ].join(", ")})`;
+      plan.nativeRegistrations.push({
+        name: callback.name,
+        descriptor: callback.descriptor,
+        trampolineSymbol,
+      });
+      callbackForwardDeclarations.push(
+        `static jboolean JNICALL ${trampolineSymbol}(${[
+          "JNIEnv *env",
+          "jobject self",
+          ...jniParameters,
+        ].join(", ")});`,
+      );
+      headerDeclarations.push(
+        `void *${connectSymbol}(void *self, ${callbackPointer.replace(
+          "(*)",
+          "(*callback)",
+        )}, void *context);`,
+      );
+      bodies.push(
+        `/* ${class_.binaryName}.${callback.name}${callback.descriptor} - Java calls in */`,
+        `static ${prefix}_connection *${headVariable};`,
+        "",
+        `static jboolean JNICALL ${trampolineSymbol}(${[
+          "JNIEnv *env",
+          "jobject self",
+          ...jniParameters,
+        ].join(", ")}) {`,
+        `  for (${prefix}_connection *connection = ${headVariable};`,
+        "       connection != NULL; connection = connection->next) {",
+        "    if (connection->live &&",
+        "        (*env)->IsSameObject(env, connection->instance, self)) {",
+        `      return ((${callbackPointer})connection->callback)(${[
+          ...parameters.map((_, index) => `a${index}`),
+          "connection->context",
+        ].join(", ")});`,
+        "    }",
+        "  }",
+        `  (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+        `      "no TypeScript handler is registered for ${class_.binaryName}.${callback.name}");`,
+        "  return JNI_FALSE;",
+        "}",
+        "",
+        `void *${connectSymbol}(void *self, ${callbackPointer.replace(
+          "(*)",
+          "(*callback)",
+        )}, void *context) {`,
+        "  char *error = NULL;",
+        `  JNIEnv *env = ${prefix}_env(&error);`,
+        "  if (env == NULL) {",
+        "    free(error);",
+        "    return NULL;",
+        "  }",
+        "  if (self == NULL || callback == NULL) return NULL;",
+        /* One live registration per instance: JNI's single dispatch slot
+         * cannot accumulate, so a second connect is refused as NULL rather
+         * than silently shadowing the first. */
+        `  for (${prefix}_connection *existing = ${headVariable};`,
+        "       existing != NULL; existing = existing->next) {",
+        "    if (existing->live &&",
+        "        (*env)->IsSameObject(env, existing->instance, self)) {",
+        "      return NULL;",
+        "    }",
+        "  }",
+        `  ${prefix}_connection *connection = calloc(1, sizeof *connection);`,
+        "  if (connection == NULL) return NULL;",
+        "  jobject stable = (*env)->NewGlobalRef(env, (jobject)self);",
+        "  if (stable == NULL) {",
+        "    free(connection);",
+        "    return NULL;",
+        "  }",
+        "  connection->instance = stable;",
+        "  connection->callback = (void *)callback;",
+        "  connection->context = context;",
+        "  connection->live = 1;",
+        `  connection->slot = &${headVariable};`,
+        `  connection->next = ${headVariable};`,
+        `  ${headVariable} = connection;`,
+        "  return connection;",
+        "}",
+        "",
+      );
+      callbacks.push(Object.freeze({
+        className: class_.binaryName,
+        name: callback.name,
+        descriptor: callback.descriptor,
+        connectSymbol,
+        parameters: Object.freeze([...parameters]),
+      }));
+    }
+    if (
+      plan.members.length > 0 || class_.constructors.length > 0 ||
+      plan.nativeRegistrations.length > 0
+    ) {
       plans.push(plan);
     }
   }
@@ -1003,6 +1228,8 @@ export function generateJvmAdapterSource(
   const bindVmSymbol = `${prefix}_bind_vm`;
   const releaseSymbol = `${prefix}_release`;
   const strvFreeSymbol = `${prefix}_strv_free`;
+  const disconnectSymbol = `${prefix}_disconnect`;
+  const connectionFreeSymbol = `${prefix}_connection_free`;
   const lines = [
     "/* Generated by @native-typescript/bindgen-jvm. */",
     "#include <jni.h>",
@@ -1015,6 +1242,27 @@ export function generateJvmAdapterSource(
     `static jmethodID ${prefix}_mid_get_message;`,
     ...(usesStringVectorArguments
       ? [`static jclass ${prefix}_cls_string; /* String[] arguments build with it */`]
+      : []),
+    ...(usesCallbacks
+      ? [
+          `static jclass ${prefix}_cls_illegal_state; /* thrown at an unregistered callback */`,
+          "",
+          "/* One registration record. JNI has no user_data slot, so the",
+          " * trampoline recovers the connection by instance identity; `slot`",
+          " * points at the per-callback list head so disconnect can unlink",
+          " * without knowing which callback it belongs to. Confined to the",
+          " * runtime owner by the same-as-caller contract, so unlocked. */",
+          `typedef struct ${prefix}_connection {`,
+          "  jobject instance;",
+          "  void *callback;",
+          "  void *context;",
+          "  int live;",
+          `  struct ${prefix}_connection *next;`,
+          `  struct ${prefix}_connection **slot;`,
+          `} ${prefix}_connection;`,
+          "",
+          ...callbackForwardDeclarations,
+        ]
       : []),
     ...plans.flatMap((plan) => [
       `static jclass ${plan.classVar};`,
@@ -1235,6 +1483,42 @@ export function generateJvmAdapterSource(
           "",
         ]
       : []),
+    ...(usesCallbacks
+      ? [
+          "/* Cancels a live registration: unlinks it and returns the",
+          " * instance reference. The record survives for its destructor.",
+          " * Owner-confined like every release: an unattached thread traps. */",
+          `void ${disconnectSymbol}(void *opaque) {`,
+          `  ${prefix}_connection *connection = opaque;`,
+          "  if (connection == NULL || !connection->live) return;",
+          "  JNIEnv *env = NULL;",
+          `  if (${prefix}_vm == NULL ||`,
+          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+          "                              JNI_VERSION_10) != JNI_OK) {",
+          `    fprintf(stderr, "${prefix}: disconnect on an unattached thread\\n");`,
+          "    abort();",
+          "  }",
+          `  for (${prefix}_connection **cursor = connection->slot;`,
+          "       *cursor != NULL; cursor = &(*cursor)->next) {",
+          "    if (*cursor == connection) {",
+          "      *cursor = connection->next;",
+          "      break;",
+          "    }",
+          "  }",
+          "  (*env)->DeleteGlobalRef(env, connection->instance);",
+          "  connection->live = 0;",
+          "}",
+          "",
+          "/* The connection handle's destructor: cancels first if the",
+          " * registration is still live, then frees the record. */",
+          `void ${connectionFreeSymbol}(void *opaque) {`,
+          "  if (opaque == NULL) return;",
+          `  ${disconnectSymbol}(opaque);`,
+          "  free(opaque);",
+          "}",
+          "",
+        ]
+      : []),
     "/* The one release: DeleteGlobalRef is class-blind, so one spelling",
     " * serves every stable reference this package hands out, typed at the",
     " * root handle every class identity-upcasts to. */",
@@ -1287,6 +1571,13 @@ export function generateJvmAdapterSource(
           `  if (${prefix}_cls_string == NULL) return -1;`,
         ]
       : []),
+    ...(usesCallbacks
+      ? [
+          `  ${prefix}_cls_illegal_state =`,
+          `      ${prefix}_resolve_class(env, "java/lang/IllegalStateException", error);`,
+          `  if (${prefix}_cls_illegal_state == NULL) return -1;`,
+        ]
+      : []),
     ...plans.flatMap((plan) => [
       `  ${plan.classVar} =`,
       `      ${prefix}_resolve_class(env, "${plan.class_.binaryName}", error);`,
@@ -1298,6 +1589,25 @@ export function generateJvmAdapterSource(
         `      env, ${plan.classVar}, "${member.name}", "${member.descriptor}");`,
         `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
       ]),
+      ...(plan.nativeRegistrations.length === 0
+        ? []
+        : [
+            /* Registration identity for the inward direction: the
+             * trampolines are installed once, beside the method IDs. */
+            "  {",
+            `    static const JNINativeMethod natives[] = {`,
+            ...plan.nativeRegistrations.map(({ name, descriptor, trampolineSymbol }) =>
+              `      { (char *)"${name}", (char *)"${descriptor}", (void *)${trampolineSymbol} },`
+            ),
+            "    };",
+            `    if ((*env)->RegisterNatives(env, ${plan.classVar}, natives,`,
+            `                                ${plan.nativeRegistrations.length}) != 0) {`,
+            `      if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, error);`,
+            `      else *error = ${prefix}_message("RegisterNatives failed");`,
+            "      return -1;",
+            "    }",
+            "  }",
+          ]),
     ]),
     "  return 0;",
     "}",
@@ -1345,6 +1655,12 @@ export function generateJvmAdapterSource(
     `jint ${bindVmSymbol}(JavaVM *vm, char **error);`,
     `void ${releaseSymbol}(void *ref);`,
     ...(usesStringVectors ? [`void ${strvFreeSymbol}(char **vector);`] : []),
+    ...(usesCallbacks
+      ? [
+          `void ${disconnectSymbol}(void *connection);`,
+          `void ${connectionFreeSymbol}(void *connection);`,
+        ]
+      : []),
     `const char *${errorMessageSymbol}(void *error);`,
     `void ${errorReleaseSymbol}(void *error);`,
     ...headerDeclarations,
@@ -1354,7 +1670,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 13,
+    schemaVersion: 14,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -1375,8 +1691,15 @@ export function generateJvmAdapterSource(
     stringVectorSupport: usesStringVectors
       ? Object.freeze({ releaseSymbol: strvFreeSymbol })
       : null,
+    connectionSupport: usesCallbacks
+      ? Object.freeze({
+          disconnectSymbol,
+          releaseSymbol: connectionFreeSymbol,
+        })
+      : null,
     constructors: Object.freeze(constructors),
     staticMethods: Object.freeze(staticMethods),
     instanceMethods: Object.freeze(instanceMethods),
+    callbacks: Object.freeze(callbacks),
   });
 }

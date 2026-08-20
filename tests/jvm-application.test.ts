@@ -83,9 +83,11 @@ test(
             "countInts",
             "reverseFloats",
             "measure",
+            "ping",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
+          callbacks: ["onPing"],
         },
       ],
       target: {

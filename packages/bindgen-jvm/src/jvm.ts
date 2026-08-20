@@ -320,6 +320,7 @@ interface NormalizedClassSelection {
   readonly constructors: ReadonlySet<string>;
   readonly methods: NormalizedMemberSelections;
   readonly fields: NormalizedMemberSelections;
+  readonly callbacks: NormalizedMemberSelections;
 }
 
 function normalizeClassSelections(
@@ -378,6 +379,11 @@ function normalizeClassSelections(
       fields: normalizeMemberSelections(
         selection.fields ?? [],
         `${path}/field`,
+        diagnostics,
+      ),
+      callbacks: normalizeMemberSelections(
+        selection.callbacks ?? [],
+        `${path}/callback`,
         diagnostics,
       ),
     });
@@ -732,6 +738,58 @@ export function ingestJvmClasses(
         ),
       )
       .filter((method): method is JvmMethod => method !== null);
+    const callbacks = resolveMembers(
+      declaredMethods,
+      selection.callbacks,
+      "callback",
+      `${path}/callback`,
+      diagnostics,
+    )
+      .map((method) =>
+        freezeMethod(
+          method,
+          "method",
+          `${path}/callback/${method.name}`,
+          selectedNames,
+          diagnostics,
+        ),
+      )
+      .filter((method): method is JvmMethod => method !== null)
+      .filter((method) => {
+        /* RegisterNatives is legal only against a native method: that is a
+         * fact the class file states, so its absence is a metadata refusal
+         * rather than a generation one. */
+        if (!method.access.native) {
+          diagnostics.push(
+            diagnostic(
+              "NTS6004",
+              `${path}/callback/${method.name}`,
+              `Selected callback '${method.name}' is not a native method; ` +
+                "a callback registration point is where Java declared the " +
+                "implementation missing",
+            ),
+          );
+          return false;
+        }
+        if (
+          methods.some(
+            (selected) =>
+              selected.name === method.name &&
+              selected.descriptor === method.descriptor,
+          )
+        ) {
+          diagnostics.push(
+            diagnostic(
+              "NTS6001",
+              `${path}/callback/${method.name}`,
+              `'${method.name}' is selected as both a method and a ` +
+                "callback; a registration point is not callable surface",
+            ),
+          );
+          return false;
+        }
+        return true;
+      });
     const fields = resolveMembers(
       parsed.fields,
       selection.fields,
@@ -773,6 +831,12 @@ export function ingestJvmClasses(
             compareText(left.descriptor, right.descriptor)
           ),
         ),
+        callbacks: Object.freeze(
+          callbacks.sort((left, right) =>
+            compareText(left.name, right.name) ||
+            compareText(left.descriptor, right.descriptor)
+          ),
+        ),
         fields: Object.freeze(
           fields.sort((left, right) =>
             compareText(left.name, right.name) ||
@@ -786,7 +850,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 1,
+    schemaVersion: 2,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

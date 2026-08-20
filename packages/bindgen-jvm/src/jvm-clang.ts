@@ -96,6 +96,27 @@ export function generateJvmClangAbiProbe(
             ["char**"],
           ),
         ]),
+    /* Connect symbols are NOT probed: a function-pointer parameter has no
+     * candidate spelling, and the registration machinery is generated C
+     * whose ABI is proven by the adapter compiling against its own header
+     * and by the live suite - the same boundary GTK's connect symbols sit
+     * behind. The unary connection operations are ordinary. */
+    ...(adapter.connectionSupport === null
+      ? []
+      : [
+          candidate(
+            `jvm.connection.disconnect.${adapter.connectionSupport.disconnectSymbol}`,
+            adapter.connectionSupport.disconnectSymbol,
+            "void",
+            ["void*"],
+          ),
+          candidate(
+            `jvm.connection.release.${adapter.connectionSupport.releaseSymbol}`,
+            adapter.connectionSupport.releaseSymbol,
+            "void",
+            ["void*"],
+          ),
+        ]),
     candidate(
       `jvm.error.message.${adapter.errorSupport.messageSymbol}`,
       adapter.errorSupport.messageSymbol,
