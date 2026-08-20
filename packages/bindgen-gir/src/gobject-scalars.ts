@@ -106,3 +106,28 @@ export function sourceScalarType(
       )
     : undefined;
 }
+
+/**
+ * The GIR types a borrowed C string may name, in any position.
+ *
+ * `filename` is a path in "GLib file name encoding", which the platform
+ * defines: `G_FILENAME_ENCODING` names it, and it is UTF-8 unless that
+ * variable says otherwise. On this project's only target —
+ * `x86_64-unknown-linux-gnu` — it is UTF-8, so a path and a string are the
+ * same bytes and the same projection carries both.
+ *
+ * That is a TARGET assumption and it is stated here rather than assumed
+ * silently. A target whose filename encoding differs would need the
+ * conversion GLib supplies for exactly this, `g_filename_from_utf8` — and
+ * would pay for it: that function can fail, so every path-taking member
+ * would become failable, including the many that GTK declares as void and
+ * non-throwing. Converting unconditionally to buy portability this project
+ * does not yet target would make twenty members worse to use and none of
+ * them more correct.
+ *
+ * It lives here because both the adapter and the manifest generator ask it,
+ * and a decision this size answered in two places is a decision that will be
+ * changed in one. It began as the manifest's alone, which is why a filename
+ * crossed as an argument and was refused as a result.
+ */
+export const borrowedStringGirTypes: ReadonlySet<string> = new Set(["utf8", "filename"]);

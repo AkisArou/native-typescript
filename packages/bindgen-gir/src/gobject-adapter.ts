@@ -22,7 +22,11 @@ import type {
   GirSnapshot,
   GirTransferOwnership,
 } from "./gir-model.ts";
-import { sourceScalarType, sourceScalarTypes } from "./gobject-scalars.ts";
+import {
+  borrowedStringGirTypes,
+  sourceScalarType,
+  sourceScalarTypes,
+} from "./gobject-scalars.ts";
 
 export interface GObjectConstructorAdapter {
   readonly id: string;
@@ -411,7 +415,7 @@ function signalParameter(
    * fires rather than holding the pointer — the adapter's job is only to
    * declare it faithfully. */
   const isUtf8 = parameter.type.kind === "named" &&
-    parameter.type.name === "utf8" &&
+    borrowedStringGirTypes.has(parameter.type.name) &&
     (parameter.type.cType === "gchar*" || parameter.type.cType === "char*" ||
       parameter.type.cType === "const gchar*" ||
       parameter.type.cType === "const char*");
@@ -429,8 +433,8 @@ function signalParameter(
     : undefined;
   const payloadCopy = payloadClass?.boxed?.copy.cIdentifier ?? null;
   const sourceType = scalar?.girName ??
-    (isUtf8
-      ? "utf8"
+    (isUtf8 && parameter.type.kind === "named"
+      ? parameter.type.name
       : payloadClass !== undefined && parameter.type.kind === "named"
         ? parameter.type.name
         : enumerationCType === undefined || parameter.type.kind !== "named"

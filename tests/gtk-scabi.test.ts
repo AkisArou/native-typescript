@@ -939,6 +939,42 @@ test(
 );
 
 test(
+  "a path crosses as a string wherever it appears, not only as an argument",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* `filename` is a path in GLib file name encoding, which is UTF-8 on this
+     * project's only target — so a path and a string are the same bytes and
+     * the same projection carries both. That decision was made once and then
+     * applied in ONE position: a filename crossed as an argument and was
+     * refused as a result, by a check that asked for the literal type name
+     * `utf8` rather than for the set the decision defines.
+     *
+     * `gtk_bookmark_list_get_filename()` returns `const char*` the receiver
+     * keeps, so it is the same borrowed string any `utf8` getter returns and
+     * differs only in what GIR calls it. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "BookmarkList", methods: ["get_filename"] }],
+    });
+
+    const generated = generateGObjectScabiPackage(options(gtk, []));
+
+    assert.match(generated.declarations, /getFilename\(\): string;/u);
+    const getter = generated.manifest.bindings.gtk_bookmark_list_get_filename;
+    assert.ok(getter && getter.kind !== "constant");
+    assert.equal(getter.signature.result.type, "const_utf8");
+    /* Borrowed from the receiver, which is what `transfer-ownership="none"`
+     * means and what keeps the storage alive for the read. */
+    assert.deepEqual(getter.signature.result.ownership, {
+      kind: "borrowed",
+      scope: "receiver",
+      anchor: "self",
+    });
+  },
+);
+
+test(
   "a record another namespace owns is proven here and named there",
   { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
   () => {
