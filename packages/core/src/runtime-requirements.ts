@@ -19,13 +19,24 @@ import type { CapabilityId, ProviderDefinition } from "@native-typescript/target
  */
 
 /** ScriptC's own vocabulary for services an embedder can require. */
-export type NativeRuntimeService = "retained-callbacks" | "native-handle";
+export type NativeRuntimeService =
+  | "retained-callbacks"
+  | "native-handle"
+  | "attached-loop";
 
 const serviceByCapability = new Map<CapabilityId, NativeRuntimeService>([
   [capabilities.retainedCallbackV1, "retained-callbacks"],
   /* Foreign-thread ingress is delivered through the retained-callback
    * service's owner gateway, so requiring it requires that service. */
   [capabilities.foreignCallbackIngressV1, "retained-callbacks"],
+  /* A runtime that owns an executor drives it through ScriptC's
+   * attached-source API, which is a demand on the compiled runtime in one
+   * product and free in the other: an executable's runtime carries the loop
+   * unconditionally, because there the loop IS main, while a library's base
+   * drops it. A target that both PROVIDES this capability and REQUIRES it is
+   * making the honest statement in both — trivially satisfied where the loop
+   * is already there, and load-bearing where it is not. */
+  [capabilities.runtimeOwnerExecutorV1, "attached-loop"],
 ]);
 
 /**
@@ -36,7 +47,6 @@ const serviceByCapability = new Map<CapabilityId, NativeRuntimeService>([
 const withoutRuntimeService: readonly CapabilityId[] = Object.freeze([
   capabilities.nativeIrV1,
   capabilities.scabiV1,
-  capabilities.runtimeOwnerExecutorV1,
   capabilities.artifactGraphV1,
   capabilities.partitionInterfaceV1,
 ]);
