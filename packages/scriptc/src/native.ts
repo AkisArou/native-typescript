@@ -44,6 +44,14 @@ export interface ScriptCNativeDeclaration {
  * carries no runtime value, needs no build of the submodule, and resolves on a
  * clean checkout before anything has been compiled.
  *
+ * The compiler now also publishes this file as `@scriptc/compiler/
+ * native-manifest.d.ts`, and that specifier is the one an outside embedder
+ * should use. It is deliberately NOT used here: the submodule is a pinned
+ * CHECKOUT that the gates build, not a workspace dependency, so the package
+ * name does not resolve from this package and adding it as a dependency would
+ * entangle two installs that are meant to stay independent. The relative path
+ * is what the checkout relationship actually is.
+ *
  * The `ScriptCNative` names stay because they are this package's public
  * surface; each is an alias of the one declaration rather than a second one. */
 import type {
