@@ -297,7 +297,13 @@ export function renderCFunctionPointerType(
   const parameters = function_.parameters.length === 0
     ? "void"
     : function_.parameters.map(renderCType).join(", ");
-  return `${renderCType(function_.result)} (*${name})(${parameters})`;
+  const result = renderCType(function_.result);
+  /* `void *(*)(int)`, not `void * (*)(int)` — the same rule as the pointee
+   * seam above, at the seam between a pointer result and the declarator.
+   * Clang binds a trailing star to what follows it, so a space here makes a
+   * textual comparison fail on a function whose result is a pointer. */
+  const separator = result.endsWith("*") ? "" : " ";
+  return `${result}${separator}(*${name})(${parameters})`;
 }
 
 export function generateClangAbiProbe(input: {

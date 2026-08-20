@@ -19,6 +19,7 @@ import {
   parseClangAbiEvidence,
   parseClangRecordCallingConventions,
   planClangAbiProbe,
+  renderCFunctionPointerType,
   renderCType,
 } from "@native-typescript/bindgen-c";
 import type {
@@ -179,7 +180,7 @@ test("C candidates produce a canonical immutable Clang probe", () => {
   assert.match(forward.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.match(
     forward.source,
-    /typedef const char \* \(\*nts_abi_expected_0001\)\(NTSWidget \*\);/u,
+    /typedef const char \*\(\*nts_abi_expected_0001\)\(NTSWidget \*\);/u,
   );
   assert.match(forward.source, /record_0000_field_0002_offset/u);
   assert.match(forward.source, /enum_0000_signed/u);
@@ -296,6 +297,50 @@ test("a parsed C type renders back to the spelling it was parsed from", () => {
   ) {
     assert.equal(renderCType(parseCTypeCandidate(spelling)), spelling, spelling);
   }
+});
+
+test("a function pointer's result seam is spelled the way Clang spells it", () => {
+  /* The other seam, and the one the round trip above cannot reach because the
+   * candidate parser refuses function types by design. A pointer result binds
+   * its trailing star to the declarator — `void *(*)(int)` and not
+   * `void * (*)(int)` — and a non-pointer result takes a space.
+   *
+   * Also read out of Clang rather than asserted from style: three typedefs
+   * through `-ast-dump=json`. GTK's probes never exercised it because none of
+   * their candidates has a bare pointer result; a JVM constructor adapter
+   * returning `void *` is what found it. */
+  const pointer = (name: string): CTypeCandidate => ({
+    kind: "pointer",
+    qualifiers: [],
+    pointee: { kind: "named", name, qualifiers: [] },
+  });
+  const int = { kind: "named", name: "int", qualifiers: [] } as const;
+  assert.equal(
+    renderCFunctionPointerType(
+      { id: "x", symbol: "x", result: pointer("void"), parameters: [int] },
+      "",
+    ),
+    "void *(*)(int)",
+  );
+  assert.equal(
+    renderCFunctionPointerType(
+      { id: "x", symbol: "x", result: int, parameters: [pointer("char")] },
+      "",
+    ),
+    "int (*)(char *)",
+  );
+  assert.equal(
+    renderCFunctionPointerType(
+      {
+        id: "x",
+        symbol: "x",
+        result: { kind: "pointer", qualifiers: [], pointee: pointer("char") },
+        parameters: [int],
+      },
+      "",
+    ),
+    "char **(*)(int)",
+  );
 });
 
 test("Clang verifies selected function, record, and enum ABI and emits structured evidence", async () => {
