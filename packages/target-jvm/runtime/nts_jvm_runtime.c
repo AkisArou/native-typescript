@@ -48,6 +48,17 @@ static struct {
     false,
 };
 
+/* A recorded failure is STICKY: the drain continues so later work runs,
+ * but the exit code is settled - a later completion cannot launder a
+ * failure into success. scr_exit_code_note itself is last-write-wins by
+ * design (main's own policy), so the stickiness is this target's. */
+static bool nts_jvm_failed;
+
+static void nts_jvm_runtime_note_failure(void) {
+  nts_jvm_failed = true;
+  scr_exit_code_note(1);
+}
+
 static void nts_jvm_runtime_wake(void *context) {
   (void)context;
   pthread_mutex_lock(&nts_jvm_loop.mutex);
@@ -98,16 +109,22 @@ static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
   if (dispatched == SCR_RETAINED_CALLBACK_DISPATCH_EXCEPTION) {
     fprintf(stderr,
             "nts_jvm_runtime: uncaught exception in a queued callback\n");
-    scr_exit_code_note(1);
+    /* The failure sink must CONSUME the exception or the loop treats it
+     * as fatal (the GLib runtime traps on a sink that leaves one
+     * pending). Printing releases the payload, which is what lets the
+     * drain continue past the failure it just recorded. */
+    scr_exc_print_uncaught();
+    nts_jvm_runtime_note_failure();
   }
   ScrLoopCheckpointResult checkpoint = scr_loop_checkpoint();
   if (checkpoint == SCR_LOOP_CHECKPOINT_EXCEPTION) {
     fprintf(stderr,
             "nts_jvm_runtime: uncaught exception at a loop checkpoint\n");
-    scr_exit_code_note(1);
+    scr_exc_print_uncaught();
+    nts_jvm_runtime_note_failure();
   } else if (checkpoint == SCR_LOOP_CHECKPOINT_UNHANDLED_REJECTION) {
     fprintf(stderr, "nts_jvm_runtime: unhandled promise rejection\n");
-    scr_exit_code_note(1);
+    nts_jvm_runtime_note_failure();
   }
   return SCR_ATTACHED_LOOP_POLL_COMPLETE;
 }
@@ -196,8 +213,21 @@ void nts_jvm_application_stop(void) {
   nts_jvm_vm = NULL;
 }
 
+/* Terminal by contract, with process.exit()'s own semantics: exit
+ * listeners run, streams flush, and _Exit ends the process - the JVM and
+ * every live handle die with it, which is the "process exit is its honest
+ * end" story stated where it is implemented. A plain hint could not be
+ * this: a normally exhausting main returns its program verdict without
+ * consulting the hint, so completion-as-a-note was dead plumbing - the
+ * sticky-failure test is what exposed it. */
 void nts_jvm_application_complete(int code) {
-  scr_exit_code_note(code);
+  if (nts_jvm_failed) {
+    fprintf(stderr,
+            "nts_jvm_runtime: completion ignored - a failure was already "
+            "recorded and the exit code is settled\n");
+    code = 1;
+  }
+  scr_process_exit((double)code);
 }
 
 const char *nts_jvm_application_error_message(void *error) {

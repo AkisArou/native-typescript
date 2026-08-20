@@ -143,6 +143,45 @@ test(
           `backend ${backend}: status ${run.status}\n${run.stdout}\n${run.stderr}`,
         );
       }
+
+      /* The sticky-failure property: a queued handler throws, a later one
+       * completes with 0, and the process must still exit non-zero — a
+       * recorded failure settles the exit code. One backend suffices: the
+       * policy lives in the runtime C both backends link unchanged. */
+      const failing = await buildJvmApplication({
+        projectRoot: fixtureRoot,
+        project: { ...project, entry: "fail.ts", output: "jvm-fail" },
+        scratch: join(scratch, "fail"),
+        backend: "c",
+        javaHome: javaHome!,
+        tools: {
+          clang: executable("clang"),
+          node: process.execPath,
+          sandbox: executable("bwrap"),
+        },
+      });
+      const failedRun = spawnSync(failing.productPath, [], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NT_JVM_CLASSPATH: failing.builtClassesPath,
+          LD_LIBRARY_PATH: failing.jvmLibraryPath,
+        },
+        timeout: 120_000,
+      });
+      assert.notEqual(
+        failedRun.status,
+        0,
+        `a laundered failure: exit 0 after a handler threw\n${failedRun.stderr}`,
+      );
+      assert.match(
+        failedRun.stderr,
+        /uncaught exception in a queued callback/u,
+      );
+      assert.match(
+        failedRun.stderr,
+        /completion ignored - a failure was already recorded/u,
+      );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
