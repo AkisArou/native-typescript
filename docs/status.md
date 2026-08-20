@@ -190,7 +190,8 @@ while rejecting undeclared nominal conversions.
 | Checked C string input | one-pointer projection over the runtime's existing trailing NUL; throws before native entry on an embedded NUL |
 | Nullable C string input | `string \| null` becomes the checked pointer or `NULL`, including through a runtime union |
 | Borrowed C string result | copied into managed UTF-8 storage before the receiver is released; preserves declared `string \| null` |
-| Borrowed `Uint8Array` input | exact view offsets and lengths, live backing-store mutation, single evaluation, prompt post-call release, no copy |
+| Borrowed typed-array input | exact view offsets and lengths, live backing-store mutation, single evaluation, prompt post-call release, no copy; `u8`, `u32`, `i32`, `f32` |
+| Owned span result | copied into a managed typed array, then disposed through the symbol the binding names; the length arrives in a slot the compiler owns |
 | Borrowed string-array input | a managed `string[]` as the NUL-terminated `char **` a C API takes; the elements keep owning their bytes, so only the vector is built and released |
 
 Unicode and embedded-NUL behavior, temporary-receiver lifetime, and null
@@ -246,6 +247,33 @@ What remains refused, measured rather than assumed:
   `css-classes`: the getter hands over a vector the caller frees and the
   setter borrows one it does not, which is normal for a vector property and is
   not one type. Either accessor alone is reachable, so no member is lost.
+
+**A span's length says what it counts.** Both readings appear in real
+signatures — a `memcpy`-shaped function takes bytes, an array-shaped one takes
+elements — and for `u8` they are the same number, which is how a projection
+named for bytes emitted an element count unnoticed for as long as `u8` was the
+only element that crossed. The contract now requires the denomination on an
+input's length; a result's arrives in the compiler's own slot and counts
+elements by construction.
+
+The elements are every one the language has. `Float64Array` and
+`BigInt64Array` are absent from that set because they are absent from the
+language rather than refused by this boundary, and `boolean[]` is a storage
+decision rather than a translation. A fifth element would arrive as a runtime
+feature and widen this by one entry in a set.
+
+**The family delivers nothing to GTK, and that is the admission rule working.**
+It was admitted entirely on JVM evidence — 1,122 measured positions across
+android.jar, and a committed program that could not be written. Measured
+against live Gtk-4.0 afterwards: **two members have a span-shaped array, and
+neither is in the family.** `IconTheme.get_icon_sizes` returns a TERMINATED
+primitive span and `Snapshot.append_border` takes a FIXED-SIZE one; both are
+adjacent shapes with a demand of one apiece, and both stay unbuilt.
+
+An arm built for the platform that needed it, delivering zero members to the
+platform that did not, is the outcome the rule is for — and the measurement is
+worth keeping precisely because the opposite result would have been the
+argument for building it here first.
 
 ### Callbacks
 
