@@ -1564,6 +1564,48 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
 });
 
+test("a string result pairs with a failure that arrives in a slot", () => {
+  /* A failure that READS the result cannot coexist with a string result: the
+   * pointer would have to mean the value and the failure at once. A failure
+   * that arrives in a SLOT reads nothing, which is what `error-out` is for —
+   * so this pairing is the one the compiler already validates, and refusing
+   * every failable contract was stricter than anything downstream needed. */
+  const result = translateScabiNativeProgram(
+    manifest,
+    selectImports(["error_out_label"]),
+  );
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.diagnostics));
+  if (!result.ok) return;
+  const lowered = result.input.bindings.find(({ id }) => id.endsWith("#error_out_label"));
+  assert.equal(lowered?.error.detect.kind, "outParameterIsNotNull");
+  assert.deepEqual(lowered?.result.projection, {
+    kind: "utf8CString",
+    nullable: false,
+    release: { kind: "symbol", symbol: "nts_cstring_free" },
+  });
+  /* Consumed by the projection, so the string outlives nothing — and on the
+   * failure path the unwind precedes the projection, so neither the copy nor
+   * the release runs. */
+  assert.deepEqual(lowered?.result.ownership, { kind: "value" });
+
+  /* The contracts that DO read the result stay refused, and the diagnostic
+   * says which fact makes them incompatible rather than naming a list. */
+  const reading = structuredClone(manifest);
+  const binding = reading.bindings.error_out_label;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding, { error: { kind: "errno", failureValue: "0" } as const });
+  const rejected = translateScabiNativeProgram(reading, selectImports(["error_out_label"]));
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("reads the result the string occupies")
+    ),
+    true,
+  );
+});
+
 test("SCABI lowers a static method as a call with no receiver", () => {
   /* A static method is a method in every way except the one that matters to
    * lowering: it has no receiver. So it lowers to a plain call, and what

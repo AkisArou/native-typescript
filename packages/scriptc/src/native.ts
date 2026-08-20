@@ -772,8 +772,22 @@ function supportedBorrowedStringResult(
   ) {
     return `UTF-8 result anchor '${anchorName}' must name the borrowed handle receiver`;
   }
-  if (binding.error.kind !== "no-fail") {
-    return "UTF-8 string results require a no-fail contract; nullability is a source value";
+  /* A failure that READS the result cannot coexist with a string result: the
+   * pointer would have to mean "the value" and "it failed" at once, and
+   * nullability here is a source value rather than a failure. A failure that
+   * arrives in a SLOT reads nothing, which is the whole reason `error-out`
+   * exists — "the difference is only where the object arrives, and therefore
+   * whether the result is free to mean something".
+   *
+   * The compiler draws exactly this line already (`nativeFailureReadsResult`
+   * admits `never` and `outParameterIsNotNull` and no others), so refusing
+   * every failable contract here was stricter than anything downstream
+   * required. On the failure path the unwind happens before the projection,
+   * so neither the copy nor the release runs — a callee that both reports a
+   * failure and allocates a string is violating its own contract, and this
+   * follows the contract rather than guessing around it. */
+  if (binding.error.kind !== "no-fail" && binding.error.kind !== "error-out") {
+    return `UTF-8 string results cannot pair with a '${binding.error.kind}' contract, which reads the result the string occupies`;
   }
   return {
     pointee: pointee.signed ? "i8" : "u8",
