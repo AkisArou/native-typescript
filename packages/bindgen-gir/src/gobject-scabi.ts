@@ -40,12 +40,13 @@ import {
   reachedForeignTypeNames,
 } from "./gir-clang.ts";
 import type {
-  GirCallable,
   GirClass,
   GirEnumeration,
   GirParameter,
+  GirRecord,
   GirSnapshot,
   GirTypeReference,
+GirCallable,
 } from "./gir-model.ts";
 import {
   borrowedResultClass,
@@ -1715,6 +1716,9 @@ export function generateGObjectScabiPackage(
     options.gobjectAdapter.boxedResultMethods.map((method) => [method.id, method]),
   );
   const typeIdByRecord = new Map<string, string>();
+  /* What the declaration file calls each projected record: its own name
+   * locally, its import alias for a foreign one. */
+  const recordSourceNameByTypeId = new Map<string, string>();
   /* A scalar's SCABI identity is its own abiType, so a scalar output resolves
    * without the record table. Every scalar a method reaches is already
    * registered above, out-parameters included. The whole entry is kept rather
@@ -1895,19 +1899,54 @@ export function generateGObjectScabiPackage(
     );
   }
 
-  for (const record of options.snapshot.records) {
-    const path = `${options.snapshot.namespace.name}/${record.name}`;
-    const evidence = recordEvidenceById.get(
-      `${options.snapshot.namespace.name}.${record.name}.record`,
-    );
-    const typeId = `${namespacePrefix}_${record.cSymbolPrefix ?? snakeCase(record.name)}`;
+  /**
+   * Projects a layout record, whichever namespace declares it.
+   *
+   * A layout record is a VALUE, and that is what makes a foreign one
+   * projectable at all. It reaches TypeScript as a plain object and reaches C
+   * as bytes this package lays out itself; no pointer into another package's
+   * memory ever crosses, so the two packages have nothing to agree about at
+   * runtime and there is no identity to import. What a consumer needs is the
+   * size and the field offsets, and it can prove those against its own
+   * headers — `gtk/gtk.h` includes `gdk/gdk.h`.
+   *
+   * So a foreign record is DEFINED HERE FOR ITS ABI and DECLARED AS THE
+   * OWNING PACKAGE'S FOR ITS IDENTITY, which is exactly what a foreign
+   * enumeration already does. The type id is the owner's, because that is
+   * what the record is; the layout under it is this package's own proof.
+   * Independent proof is the point rather than duplicated work: two packages
+   * built from different SDK headers disagree here rather than at a call.
+   *
+   * The declaration BODY belongs to the owner. This package imports the
+   * interface under a namespace-qualified alias rather than restating the
+   * fields, so a `Gdk.Rectangle` handed to a Gtk member is the same
+   * TypeScript type the Gdk package exports.
+   */
+  function projectRecord(
+    namespaceName: string,
+    record: GirRecord,
+    owner: PackageIdentity | undefined,
+  ): void {
+    const path = `${namespaceName}/${record.name}`;
+    const evidence = recordEvidenceById.get(`${namespaceName}.${record.name}.record`);
+    const recordPrefix = namespaceName.toLowerCase();
+    const sourceName = owner === undefined
+      ? record.name
+      : `${namespaceName}${record.name}`;
+    const typeId = `${recordPrefix}_${record.cSymbolPrefix ?? snakeCase(record.name)}`;
     const fields = record.fields.map((field, fieldIndex) => {
       const scalar = sourceScalarType(field.type);
       if (scalar === undefined) {
-        diagnostics.push(diagnostic(
-          `${path}/fields/${fieldIndex}`,
-          "Selected record field is outside the exact scalar projection",
-        ));
+        /* A SELECTED record must project or say why. A foreign one was only
+         * REACHED, so this package declines to project it and the member
+         * naming it is refused where the reference is — which names the
+         * member and the type, as a field path cannot. */
+        if (owner === undefined) {
+          diagnostics.push(diagnostic(
+            `${path}/fields/${fieldIndex}`,
+            "Selected record field is outside the exact scalar projection",
+          ));
+        }
         return null;
       }
       const fieldEvidence = evidence?.fields[fieldIndex];
@@ -1923,12 +1962,17 @@ export function generateGObjectScabiPackage(
       evidence === undefined ||
       fields.some((field) => field === null) ||
       types[typeId] !== undefined ||
-      declarationTypes[typeId] !== undefined
+      declarationTypes[typeId] !== undefined ||
+      (owner !== undefined &&
+        (classByName.has(sourceName) || declarations.has(sourceName)))
     ) {
-      if (evidence !== undefined && fields.every((field) => field !== null)) {
+      if (
+        owner === undefined && evidence !== undefined &&
+        fields.every((field) => field !== null)
+      ) {
         diagnostics.push(diagnostic(path, "Generated record identity collides"));
       }
-      continue;
+      return;
     }
     types[typeId] = Object.freeze({
       kind: "struct",
@@ -1945,17 +1989,45 @@ export function generateGObjectScabiPackage(
       }),
       fields: Object.freeze(fields.filter((field) => field !== null)),
     });
-    declarationTypes[typeId] = Object.freeze({ module: ".", name: record.name });
-    typeIdByRecord.set(record.name, typeId);
-    declarationLines.push(
-      `export interface ${record.name} {`,
-      ...record.fields.map((field) => {
-        const scalar = sourceScalarType(field.type);
-        return `  readonly ${lowerCamel(field.name)}: ${scalar?.girName ?? "never"};`;
-      }),
-      "}",
-      "",
+    declarationTypes[typeId] = Object.freeze({
+      module: owner === undefined ? "." : owner.name,
+      name: record.name,
+    });
+    /* Keyed as GIR spells the reference: bare for this namespace's own,
+     * qualified for a foreign one, so one lookup answers both. */
+    typeIdByRecord.set(
+      owner === undefined ? record.name : `${namespaceName}.${record.name}`,
+      typeId,
     );
+    recordSourceNameByTypeId.set(typeId, sourceName);
+    if (owner === undefined) {
+      declarationLines.push(
+        `export interface ${record.name} {`,
+        ...record.fields.map((field) => {
+          const scalar = sourceScalarType(field.type);
+          return `  readonly ${lowerCamel(field.name)}: ${scalar?.girName ?? "never"};`;
+        }),
+        "}",
+        "",
+      );
+      return;
+    }
+    importedDeclarationLines.push(
+      `import type { ${record.name} as ${sourceName} } from "${owner.name}";`,
+    );
+  }
+
+  for (const record of options.snapshot.records) {
+    projectRecord(options.snapshot.namespace.name, record, undefined);
+  }
+  // Only records this package REACHES are projected, matching the probe
+  // exactly, so evidence and declarations cover the same set.
+  for (const imported of options.importedNamespaces ?? []) {
+    const namespace = imported.snapshot.namespace.name;
+    for (const record of imported.snapshot.records) {
+      if (!reachedForeign.has(`${namespace}.${record.name}`)) continue;
+      projectRecord(namespace, record, imported.package);
+    }
   }
   for (const method of options.gobjectAdapter.valueMethods) {
     const path = `${options.snapshot.namespace.name}/${method.className}/method/${method.sourceSymbol}/result`;
@@ -2026,9 +2098,17 @@ export function generateGObjectScabiPackage(
     declarationLines.push(
       `export interface ${method.resultName} {`,
       ...(method.answers ? [`  readonly ${ANSWER_FIELD}: boolean;`] : []),
-      ...method.outputs.map((output) =>
-        `  readonly ${output.fieldName}: ${output.sourceName};`
-      ),
+      ...method.outputs.map((output) => {
+        /* A record output's GIR spelling is not its TypeScript name: a
+         * foreign one is declared under the import alias, and `Gdk.Rectangle`
+         * is not an identifier. */
+        const declared = output.kind === "record"
+          ? recordSourceNameByTypeId.get(
+              typeIdByRecord.get(output.sourceName) ?? "",
+            ) ?? output.sourceName
+          : output.sourceName;
+        return `  readonly ${output.fieldName}: ${declared};`;
+      }),
       "}",
       "",
     );

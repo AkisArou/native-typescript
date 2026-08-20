@@ -939,6 +939,111 @@ test(
 );
 
 test(
+  "a record another namespace owns is proven here and named there",
+  { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
+  () => {
+    /* gtk_popover_get_pointing_to(GtkPopover *, GdkRectangle *out) fills a
+     * rectangle and says whether there was one. The record belongs to Gdk;
+     * the layout belongs to whoever needs it.
+     *
+     * That split is what makes a foreign LAYOUT record work where a foreign
+     * handle needs an import. A handle is a pointer into memory one package
+     * owns, so its identity has to cross. A layout record is a VALUE: it
+     * reaches TypeScript as a plain object and reaches C as bytes this
+     * package lays out itself, and nothing of the owner's ever crosses. So
+     * the type is DEFINED HERE FOR ITS ABI and DECLARED AS THE OWNER'S FOR
+     * ITS IDENTITY — exactly what a foreign enumeration already does — and
+     * the manifest imports nothing.
+     *
+     * Proving the layout here rather than importing it is the point rather
+     * than duplicated work: two packages built from different SDK headers
+     * disagree at generation instead of at a call. */
+    const gdk = ingestGir(readFileSync(systemGdkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gdk-4.0.gir",
+      namespace: { name: "Gdk", version: "4.0" },
+      records: [{ name: "Rectangle", fields: ["x", "y", "width", "height"] }],
+    });
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [
+        { name: "Widget" },
+        { name: "Popover", methods: ["get_pointing_to"] },
+      ],
+    });
+
+    const generated = generateGObjectScabiPackage(
+      options(gtk, [{ snapshot: gdk, package: gdk4Package }]),
+    );
+
+    /* The type id is the owner's, because that is what the record IS. The
+     * layout under it is this package's own Clang proof. */
+    const rectangle = generated.manifest.types.gdk_rectangle;
+    assert.ok(rectangle && rectangle.kind === "struct", "the record is a struct here");
+    if (rectangle?.kind === "struct") {
+      assert.equal(rectangle.triviallyCopyable, true);
+      assert.equal(rectangle.destruction, "trivial");
+      assert.deepEqual(
+        rectangle.fields.map((field) => field.name),
+        ["x", "y", "width", "height"],
+      );
+      /* Every field is an exact scalar carried at a proven offset. The
+       * offsets here come from this suite's SYNTHESIZED evidence, so what is
+       * asserted is that each field carries one and that they are distinct
+       * and ascending — the real numbers are Clang's, and the application
+       * lane compiles against the actual headers to prove them. */
+      assert.deepEqual(
+        rectangle.fields.map((field) => field.type),
+        ["gint", "gint", "gint", "gint"],
+      );
+      const offsets = rectangle.fields.map((field) => field.offset);
+      assert.deepEqual(offsets, [...offsets].sort((a, b) => a - b));
+      assert.equal(new Set(offsets).size, offsets.length);
+    }
+
+    /* Identity is the owner's: the declaration comes from gdk4 under a
+     * namespace-qualified alias, so a Rectangle produced through gdk4 is the
+     * same TypeScript type as one produced here. */
+    assert.deepEqual(generated.manifest.declarations.types.gdk_rectangle, {
+      module: "@native-typescript/gdk4",
+      name: "Rectangle",
+    });
+    assert.match(
+      generated.declarations,
+      /^import type \{ Rectangle as GdkRectangle \} from "@native-typescript\/gdk4";$/mu,
+    );
+    /* And the fields are NOT restated here. The owner declares the interface;
+     * this package names it. */
+    assert.doesNotMatch(generated.declarations, /export interface Rectangle \{/u);
+
+    /* Nothing is imported at the SCABI type level, which is the whole claim:
+     * a value type has no cross-package identity to carry, so there is no
+     * destructor to name and no package to depend on for one. */
+    assert.equal(generated.manifest.imports?.gdk_rectangle, undefined);
+
+    /* The member that motivated it: the output is typed by the imported
+     * alias, and its field reads the proven layout. */
+    assert.match(generated.declarations, /readonly rect: GdkRectangle;/u);
+    /* The member also answers, so its synthesized result carries both the
+     * boolean and the foreign record — which is the point of the value-return
+     * shape, and is unaffected by whose record the output is. The result type
+     * is found by its shape rather than by a symbol, because the binding is
+     * keyed by the adapter's symbol rather than by the C identifier. */
+    const answered = Object.values(generated.manifest.types).find((type) =>
+      type.kind === "struct" &&
+      type.fields.some((field) => field.type === "gdk_rectangle")
+    );
+    assert.ok(answered, "a result record carries the foreign record");
+    if (answered?.kind === "struct") {
+      assert.deepEqual(
+        answered.fields.map((field) => field.type),
+        ["gboolean", "gdk_rectangle"],
+      );
+    }
+  },
+);
+
+test(
   "a method taking another namespace's object imports the handle it names",
   { skip: !existsSync(systemGtkGir) || !existsSync(systemGdkGir) },
   () => {

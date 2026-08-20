@@ -809,7 +809,7 @@ export function ingestGir(
       ),
     );
   }
-  const selections = normalizeSelections(options.classes, diagnostics);
+  const selections = normalizeSelections(options.classes ?? [], diagnostics);
   const interfaceSelections = normalizeSelections(
     options.interfaces ?? [],
     diagnostics,

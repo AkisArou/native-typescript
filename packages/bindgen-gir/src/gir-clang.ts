@@ -13,6 +13,7 @@ import type {
 } from "@native-typescript/bindgen-c";
 import type {
   GirCallable,
+  GirRecord,
   GirSnapshot,
   GirTypeReference,
 } from "./gir-model.ts";
@@ -174,18 +175,42 @@ export function generateGirClangAbiProbe(
       if (candidate !== null) functions.push(candidate);
     }
   }
-  for (const record of snapshot.records) {
+  /* A package proves the layout of every record it reaches against its own
+   * SDK headers, including one another namespace owns — the same rule the
+   * enumerations above follow, and for the same reason: independent proof is
+   * what catches SDK skew between two packages built from different headers.
+   *
+   * A layout record is a VALUE. It crosses a package boundary as a plain
+   * object, never as a pointer into memory one side allocated, so there is
+   * nothing for the two packages to agree about at runtime and no identity to
+   * import. What each needs is the size and the field offsets, and each can
+   * measure them: `gtk/gtk.h` includes `gdk/gdk.h`, so a Gtk probe can size a
+   * GdkRectangle exactly as well as a Gdk one can. */
+  function pushRecordCandidate(
+    namespaceName: string,
+    record: GirRecord,
+    selected: boolean,
+  ): void {
+    /* A record this project SELECTED must project or say why; one merely
+     * REACHED through another namespace's type reference need not. If a
+     * foreign record's field has no C spelling here, this package simply does
+     * not project that record, and the member naming it is refused where the
+     * reference is — with a diagnostic that names the member and the type,
+     * which a bare field path does not. Sending the field diagnostic up
+     * instead would fail the whole generation over a type nobody asked to
+     * declare. */
+    const fieldDiagnostics = selected ? diagnostics : [];
     const fields = record.fields.map((field, index) => ({
       name: field.name,
       type: physicalType(
         field.type,
-        `${snapshot.namespace.name}/${record.name}/field/${index}`,
-        diagnostics,
+        `${namespaceName}/${record.name}/field/${index}`,
+        fieldDiagnostics,
       ),
     }));
     if (fields.every((field) => field.type !== null)) {
       records.push({
-        id: `${snapshot.namespace.name}.${record.name}.record`,
+        id: `${namespaceName}.${record.name}.record`,
         typeName: record.cType,
         definition: "external",
         fields: fields.map((field) => ({
@@ -193,6 +218,17 @@ export function generateGirClangAbiProbe(
           type: field.type!,
         })),
       });
+    }
+  }
+  for (const record of snapshot.records) {
+    pushRecordCandidate(snapshot.namespace.name, record, true);
+  }
+  for (const imported of importedSnapshots) {
+    for (const record of imported.records) {
+      if (!reachedForeign.has(`${imported.namespace.name}.${record.name}`)) {
+        continue;
+      }
+      pushRecordCandidate(imported.namespace.name, record, false);
     }
   }
   for (const method of adapter.valueMethods) {

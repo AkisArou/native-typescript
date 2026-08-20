@@ -553,7 +553,7 @@ declares, supplies every namespace it transitively includes as an import,
 generates, drops what was refused, and asks again until the refusals stop.
 Re-run it before trusting any share below; three slices moved it in one day.
 
-Measured that way: **3149 bindings project and 706 members are refused**,
+Measured that way: **3154 bindings project and 498 members are refused**,
 with twelve namespaces supplied as imports. (The projected count fell from an
 earlier 3227 when one release per upcast chain replaced one per class — 182
 fewer generated symbols for the same coverage, which is why a binding count
@@ -568,6 +568,13 @@ limited it to two namespaces. That mattered more than it sounds: three of the
 four defects found on 2026-08-20 are invisible from Gtk alone, and two of them
 refuse whole namespaces. Gio measures **1109 projected, 738 refused**; Gsk 51
 and 164.
+
+It also skips records GIR itself marks as not-surface. 207 of Gtk's 253
+records are gtype-structs — class vtables — and 23 more are `disguised`,
+meaning their fields are private, which IS the handle projection. Selecting
+the layout of a class vtable produced two hundred refusals about internal
+structs no project would ever name and buried every bucket that named a real
+gap; refusals fell from 714 to 498 with the projected count unchanged.
 
 It also reports which DECLARATIONS an import dropped, which is what turned
 the largest cross-namespace buckets from a projection question into an
@@ -631,12 +638,22 @@ is: `TreePath` blocks 47 methods, `TreeIter` 42, and `TreeModel` 46 — and GTK
 deprecated every one of them. Counting only members neither the class nor the
 method marks deprecated, the order is:
 
-- **Types another namespace owns** — `Gio.ListModel` on 34 live members,
-  `Gio.MenuModel` on 22, `Gio.File` on 22, `Gio.Cancellable` on 20,
-  `Gdk.Rectangle` on 10. Classes and interfaces now cross in both directions.
-  The records among them do not, and wait on a different question: an
-  enumeration lowers to a bare scalar and needs no identity, while a struct's
-  layout would have to be proven in one package and named in another.
+- ~~**Types another namespace owns**~~ — closed. Classes and interfaces
+  crossed already; layout records now do too, and the question the roadmap
+  posed — "a struct's layout would have to be proven in one package and named
+  in another" — turned out to describe the answer rather than an obstacle. A
+  layout record is a VALUE: it reaches TypeScript as a plain object and reaches
+  C as bytes the consumer lays out itself, so nothing of the owner's crosses
+  at runtime and there is no identity to import. The type is defined here for
+  its ABI and declared as the owner's for its identity, which is exactly what
+  a foreign ENUMERATION already did. Proving the layout in both packages is
+  the point rather than duplicated work: two packages built from different SDK
+  headers disagree at generation instead of at a call.
+
+  What remains under this heading is narrower than it looked. `Gtk.Allocation`
+  is a GIR `<alias>` for `Gdk.Rectangle` — a typedef — and ingestion does not
+  resolve aliases, which costs two members (`Widget.get_allocation` and
+  `Widget.size_allocate`). Gtk declares exactly one alias.
 - **User data and the callbacks that carry it** — `gpointer` on 41 live
   members, `Gio.AsyncReadyCallback` on 20, `GLib.DestroyNotify` on 17. The
   async ones need the asynchronous story; the rest are sort, filter and

@@ -1116,7 +1116,12 @@ function generateValueMethod(
           kind: "record" as const,
           parameterName: parameter.name,
           fieldName: lowerCamel(parameter.name),
-          sourceName: record.name,
+          /* The GIR spelling rather than the bare name, so a consumer
+           * resolves this output the same way it resolves the type
+           * reference — qualified for a foreign record, bare for one of
+           * this namespace's own. What the declaration file calls it is a
+           * separate question, answered where declarations are written. */
+          sourceName: recordName,
           nativeType: record.cType,
         });
       }
@@ -1470,7 +1475,20 @@ export function generateGObjectAdapterSource(
       "",
     );
   }
-  const recordsByName = new Map(snapshot.records.map((record) => [record.name, record]));
+  /* Keyed as GIR spells the reference — bare for this namespace's own,
+   * qualified for an imported one — exactly like the classes below. A layout
+   * record is a value, so a foreign one needs nothing from its owner at
+   * runtime: the adapter reserves the storage and the callee fills it, and
+   * the C spelling is the same fact wherever the record is declared, because
+   * this namespace's headers include the ones that declare it. */
+  const recordsByName = new Map<string, GirRecord>([
+    ...snapshot.records.map((record) => [record.name, record] as const),
+    ...importedSnapshots.flatMap((imported) =>
+      imported.records.map((record) =>
+        [`${imported.namespace.name}.${record.name}`, record] as const
+      )
+    ),
+  ]);
   /* Keyed as GIR spells the reference: bare for this namespace's own, and
    * qualified for an imported one, which is how a result naming another
    * namespace's object resolves to the class that describes it. The adapter

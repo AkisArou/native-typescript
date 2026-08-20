@@ -181,7 +181,7 @@ const baseOptions = {
 type Declared = {
   readonly classes: { name: string; methods: string[]; constructors: string[] }[];
   readonly interfaces: { name: string; methods: string[] }[];
-  readonly records: { name: string; methods: string[] }[];
+  readonly records: { name: string; methods?: string[]; fields?: string[] }[];
   readonly enumerations: { name: string; members: string[] }[];
 };
 
@@ -196,6 +196,9 @@ function declaredSurface(source: string): Declared {
     /<(class|interface|record|enumeration|bitfield)\s+name="([^"]+)"([\s\S]*?)<\/\1>/gu,
   );
   for (const [, kind, name, body] of owners) {
+    /* The attribute text between the captured name and the tag's close, which
+     * is where GIR states what KIND of record this is. */
+    const recordAttributes = /^([\s\S]*?)>/u.exec(body ?? "")?.[1] ?? "";
     const named = (tag: string): string[] =>
       [...(body ?? "").matchAll(new RegExp(`<${tag}\\s+name="([^"]+)"`, "gu"))]
         .map((match) => match[1]!);
@@ -204,7 +207,38 @@ function declaredSurface(source: string): Declared {
     } else if (kind === "interface") {
       interfaces.push({ name: name!, methods: named("method") });
     } else if (kind === "record") {
-      records.push({ name: name!, methods: named("method") });
+      /* A record offers two projections and the SELECTION picks one: asking
+       * for methods projects it as a handle, asking for fields projects its
+       * layout. A handle needs the copy and free it is duplicated and
+       * released by, so a record that declares neither cannot be one — and
+       * asking for its methods anyway guaranteed a refusal that then read as
+       * a missing algebra.
+       *
+       * `GdkRectangle` is the case that matters: four methods, four fields,
+       * no copy and no free. Its layout projects; its handle never could.
+       * Where a record CAN be a handle the methods are the larger surface, so
+       * that projection still wins. */
+      const attributes = recordAttributes ?? "";
+      /* A gtype-struct is a class vtable, not surface. GIR says so itself, and
+       * 207 of Gtk's 253 records are one; asking for their layout produced two
+       * hundred refusals about internal structs no project would select and
+       * buried every bucket that names a real gap. */
+      if (/\bglib:is-gtype-struct-for="/u.test(attributes)) continue;
+      /* `disguised` means the fields are not public, which IS the handle
+       * projection: such a record can only be held by pointer. */
+      if (/\bdisguised="1"/u.test(attributes)) {
+        records.push({ name: name!, methods: named("method") });
+        continue;
+      }
+      const declaresContract =
+        /\bcopy-function="/u.test(attributes) && /\bfree-function="/u.test(attributes);
+      const methods = named("method");
+      const hasCopyAndFree = methods.includes("copy") && methods.includes("free");
+      records.push(
+        declaresContract || hasCopyAndFree
+          ? { name: name!, methods }
+          : { name: name!, fields: named("field") },
+      );
     } else {
       enumerations.push({ name: name!, members: named("member") });
     }
@@ -282,10 +316,21 @@ function importedSnapshot(
         })),
       records: surface.records
         .filter((item) => !dropped.has(`${item.name}#!`))
-        .map((item) => ({
-          ...item,
-          methods: item.methods.filter((m) => !dropped.has(`${item.name}#${m}`)),
-        })),
+        .map((item) =>
+          item.methods === undefined
+            ? {
+                name: item.name,
+                fields: (item.fields ?? []).filter(
+                  (f) => !dropped.has(`${item.name}#${f}`),
+                ),
+              }
+            : {
+                name: item.name,
+                methods: item.methods.filter(
+                  (m) => !dropped.has(`${item.name}#${m}`),
+                ),
+              }
+        ),
       enumerations: surface.enumerations.filter(
         (item) => !dropped.has(`${item.name}#*`) && !dropped.has(`${item.name}#!`),
       ),
@@ -335,6 +380,25 @@ function importedSnapshot(
     } catch (error) {
       let shrank = false;
       for (const diagnostic of diagnosticsOf(error)) {
+        /* A field-projected record names its fields, so a refused one drops
+         * the FIELD, exactly as a refused method drops the method. A record
+         * whose layout omits a union or a function pointer still projects the
+         * scalars beside them, and the size and alignment under it are the
+         * whole struct's either way — proven by Clang from the real header
+         * rather than summed from what was selected. */
+        const fieldRefusal =
+          /^[A-Za-z0-9_]+\/([A-Za-z0-9_]+)\/fields?\/(\d+)$/u.exec(diagnostic.path);
+        if (fieldRefusal !== null) {
+          const owner = selection.records.find(
+            (record) => record.name === fieldRefusal[1],
+          );
+          const field = owner?.fields?.[Number(fieldRefusal[2])];
+          if (field !== undefined && !dropped.has(`${owner!.name}#${field}`)) {
+            dropped.add(`${owner!.name}#${field}`);
+            shrank = true;
+          }
+          continue;
+        }
         const indexed =
           /^(classes|interfaces|records|enumerations)\/(\d+)\/(methods|constructors|members)\/(\d+)/u
             .exec(diagnostic.path);
@@ -444,7 +508,7 @@ function sdkModules(): string[] {
 const declaredMethods =
   declared.classes.reduce((total, class_) => total + class_.methods.length, 0) +
   declared.interfaces.reduce((total, item) => total + item.methods.length, 0) +
-  declared.records.reduce((total, record) => total + record.methods.length, 0);
+  declared.records.reduce((total, record) => total + (record.methods?.length ?? 0), 0);
 console.log(
   `${namespace}-${version} declares ${declared.classes.length} classes, ` +
     `${declared.interfaces.length} interfaces, ${declared.records.length} records, ` +
@@ -499,7 +563,27 @@ function selection() {
     namespace: { name: namespace, version },
     classes: keep(declared.classes),
     interfaces: keep(declared.interfaces),
-    records: keep(declared.records),
+    /* A record carries EITHER methods or fields, never both, because the
+     * selection is what chooses its projection. Running it through `keep`
+     * would hand ingestion `methods: []`, which asks for the handle
+     * projection of a record that has no handle. */
+    records: declared.records
+      .filter((item) => !droppedOwners.has(item.name))
+      .map((item) =>
+        item.methods === undefined
+          ? {
+              name: item.name,
+              fields: (item.fields ?? []).filter(
+                (field) => !dropped.has(key(item.name, field)),
+              ),
+            }
+          : {
+              name: item.name,
+              methods: item.methods.filter(
+                (method) => !dropped.has(key(item.name, method)),
+              ),
+            }
+      ),
     enumerations: declared.enumerations.filter((item) => !droppedOwners.has(item.name)),
   };
 }
@@ -545,8 +629,9 @@ for (let round = 1; round <= 40; round++) {
     const snake = (value: string): string =>
       value.replace(/([a-z0-9])([A-Z])/gu, "$1_$2").toLowerCase();
     for (const group of [current.classes, current.interfaces, current.records]) {
-      for (const owner of group as { name: string; methods: string[]; constructors?: string[] }[]) {
-        for (const member of [...owner.methods, ...(owner.constructors ?? [])]) {
+      for (const owner of group as { name: string; methods?: string[]; constructors?: string[] }[]) {
+        /* A field-projected record has no methods to attribute bindings to. */
+        for (const member of [...(owner.methods ?? []), ...(owner.constructors ?? [])]) {
           bindingOwners.set(
             `${snake(namespace)}_${snake(owner.name)}_${member}`,
             { owner: owner.name, member },
@@ -558,6 +643,24 @@ for (let round = 1; round <= 40; round++) {
       /* Ingestion reports positions in the SELECTION it was handed, by index;
        * generation reports them by name. Both name one member, so both are
        * resolved to one before anything is dropped. */
+      const fieldRefusal =
+        /^[A-Za-z0-9_]+\/([A-Za-z0-9_]+)\/fields?\/(\d+)$/u.exec(diagnostic.path);
+      if (fieldRefusal !== null) {
+        const owner = current.records.find(
+          (record) => record.name === fieldRefusal[1],
+        );
+        const field = owner?.fields?.[Number(fieldRefusal[2])];
+        if (field !== undefined && !dropped.has(key(owner!.name, field))) {
+          dropped.add(key(owner!.name, field));
+          refused++;
+          refusals.push({
+            owner: owner!.name,
+            member: field,
+            reason: diagnostic.message,
+          });
+        }
+        continue;
+      }
       const indexed =
         /^(classes|interfaces|records|enumerations)\/(\d+)\/(methods|constructors|members)\/(\d+)/u
           .exec(diagnostic.path);

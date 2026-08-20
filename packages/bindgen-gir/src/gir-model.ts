@@ -75,7 +75,11 @@ export interface GirIngestionOptions {
     readonly name: string;
     readonly version: string;
   };
-  readonly classes: readonly GirClassSelection[];
+  /** GObject classes to project. Optional like every other selection kind: a
+   * package that projects only layout records — a Graphene binding, say — is
+   * an ordinary thing to want, and requiring an empty array to express it
+   * made the omission a crash rather than a selection. */
+  readonly classes?: readonly GirClassSelection[];
   /** GObject interfaces to project. Selected exactly as a class is: an
    * interface declares members the same way and differs only in having no
    * construction and no single parent. */
