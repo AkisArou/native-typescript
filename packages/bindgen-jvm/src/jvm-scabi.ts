@@ -659,6 +659,17 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
+    if (method.result.kind === "byte-span") {
+      /* The adapter emits this result and the compiler lowers it; the
+       * manifest arm is the scabi bytes RESULT contract, which is landing
+       * separately. Deferred, not unsupported — delete this refusal when
+       * that contract lands. */
+      diagnostics.push(diagnostic(
+        `class/${method.className}/method/${method.name}`,
+        "Result is byte[], which waits on the scabi bytes result contract",
+      ));
+      continue;
+    }
     const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
     const baseName = method.name;
     const memberKey = `${method.className}.${baseName}`;

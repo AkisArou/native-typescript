@@ -39,8 +39,15 @@ function positionCTypes(position: JvmAdapterPosition): readonly string[] {
 function resultCType(result: JvmAdapterResult): string {
   if (result.kind === "void") return "void";
   if (result.kind === "string") return "char*";
+  if (result.kind === "byte-span") return "uint8_t*";
   if (result.kind === "primitive") return jniCTypes[result.primitive];
   return "void*";
+}
+
+/** A byte-span result's length rides a compiler-owned out slot placed
+ * beside the error slot; the probe proves both trailing slots. */
+function trailingCTypes(result: JvmAdapterResult): readonly string[] {
+  return result.kind === "byte-span" ? ["size_t*", "char**"] : ["char**"];
 }
 
 function candidate(
@@ -106,7 +113,7 @@ export function generateJvmClangAbiProbe(
         [
           ...(method.kind === "instance" ? ["void*"] : []),
           ...method.parameters.flatMap(positionCTypes),
-          "char**",
+          ...trailingCTypes(method.result),
         ],
       )
     ),

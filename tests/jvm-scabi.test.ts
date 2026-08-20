@@ -11,6 +11,7 @@ import type {
   ClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import {
+  JvmGenerationError,
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
   generateJvmScabiPackage,
@@ -137,6 +138,43 @@ function options(): JvmScabiGenerationOptions {
 function generate(): JvmScabiPackage {
   return generateJvmScabiPackage(options());
 }
+
+test("a byte[] result refuses at the manifest until its contract lands", () => {
+  // The adapter emits the symbol and the compiler lowers the projection;
+  // what does not exist yet is the scabi bytes RESULT arm. Deferred, not
+  // unsupported — this test is deleted with the refusal when it lands.
+  const selected = ingestJvmClasses(
+    [
+      {
+        logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+        bytes: readFileSync(
+          resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
+        ),
+      },
+    ],
+    { classes: [{ binaryName: "fixture/Widget", methods: ["reverseBytes"] }] },
+  );
+  const adapter = generateJvmAdapterSource(selected, { packageSlug: "fixture" });
+  const base = options();
+  assert.throws(
+    () =>
+      generateJvmScabiPackage({
+        ...base,
+        snapshot: selected,
+        adapter,
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.deepEqual(error.diagnostics.map(({ code }) => code), ["NTS7001"]);
+      assert.match(
+        error.diagnostics[0]!.message,
+        /waits on the scabi bytes result contract/u,
+      );
+      return true;
+    },
+  );
+});
 
 test("the JVM manifest validates, is deterministic, and declares its surface", () => {
   const generated = generate();

@@ -36,6 +36,8 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "greet",
     "withNul",
     "sumBytes",
+    "reverseBytes",
+    "nullBytes",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -101,7 +103,7 @@ test("the adapter source is deterministic and carries its member table", () => {
 
   assert.deepEqual(
     first.staticMethods.map(({ name }) => name).sort(),
-    ["checkedAdd", "greet", "sumBytes", "withNul"],
+    ["checkedAdd", "greet", "nullBytes", "reverseBytes", "sumBytes", "withNul"],
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
@@ -179,26 +181,24 @@ test("positions outside the slice algebra are refused precisely", () => {
   }
 });
 
-test("a byte[] result refuses even though the argument crosses", () => {
-  // The motivating program for the byte-span result slice: reverseBytes
-  // takes byte[] (projects) and returns byte[] (no projection exists).
-  const withReverse = ingestSurface([
-    { binaryName: "fixture/Widget", methods: ["reverseBytes"] },
-  ]);
-  try {
-    generateJvmAdapterSource(withReverse, { packageSlug: "fixture" });
-    assert.fail("expected JvmGenerationError");
-  } catch (error) {
-    assert.ok(error instanceof JvmGenerationError);
-    assert.deepEqual(
-      error.diagnostics.map(({ code }) => code),
-      ["NTS7001"],
-    );
-    assert.match(
-      error.diagnostics[0]!.message,
-      /byte\[\], which crosses only as an argument/u,
-    );
-  }
+test("a byte[] result crosses as an owned copy with a length out slot", () => {
+  const withReverse = generateJvmAdapterSource(
+    ingestSurface([
+      { binaryName: "fixture/Widget", methods: ["reverseBytes"] },
+    ]),
+    { packageSlug: "fixture" },
+  );
+  const reverse = withReverse.staticMethods.find(
+    ({ name }) => name === "reverseBytes",
+  )!;
+  assert.deepEqual(reverse.result, { kind: "byte-span" });
+  assert.deepEqual(withReverse.byteSpanSupport, { region: "copy" });
+  // The length rides a compiler-owned out slot beside the error slot.
+  assert.ok(
+    withReverse.header.includes(
+      `uint8_t *${reverse.adapterSymbol}(const uint8_t *a0, size_t a0_length, size_t *out_length, char **error);`,
+    ),
+  );
 });
 
 test("the generated adapter compiles and calls a live JVM", { skip }, () => {
@@ -235,6 +235,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     )!.adapterSymbol;
     const sumBytesSymbol = adapter.staticMethods.find(
       ({ name }) => name === "sumBytes",
+    )!.adapterSymbol;
+    const reverseBytesSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "reverseBytes",
+    )!.adapterSymbol;
+    const nullBytesSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "nullBytes",
     )!.adapterSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
@@ -294,6 +300,23 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  if (${sumBytesSymbol}(bytes, sizeof bytes, &error) != 256 ||`,
       "      error != NULL) return 27;",
       `  if (${sumBytesSymbol}(bytes, 0, &error) != 0 || error != NULL) return 28;`,
+      /* Byte-span result: REVERSED, not echoed, so a copy that reads the
+       * right bytes into the wrong place fails differently from one that
+       * reads the wrong bytes. The empty result is a real allocation with
+       * length zero, and a null byte[] refuses through the error channel. */
+      "  size_t outLength = 0;",
+      `  uint8_t *reversed = ${reverseBytesSymbol}(bytes, sizeof bytes, &outLength, &error);`,
+      "  if (reversed == NULL || error != NULL || outLength != 4) return 29;",
+      "  if (reversed[0] != 250 || reversed[1] != 3 ||",
+      "      reversed[2] != 2 || reversed[3] != 1) return 30;",
+      "  free(reversed);",
+      `  reversed = ${reverseBytesSymbol}(bytes, 0, &outLength, &error);`,
+      "  if (reversed == NULL || error != NULL || outLength != 0) return 31;",
+      "  free(reversed);",
+      `  reversed = ${nullBytesSymbol}(&outLength, &error);`,
+      "  if (reversed != NULL || error == NULL ||",
+      `      strstr(${messageSymbol}(error), "null byte[]") == NULL) return 32;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
       `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",

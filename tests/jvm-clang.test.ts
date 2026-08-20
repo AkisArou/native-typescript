@@ -117,6 +117,7 @@ test(
               "checkedAdd",
               "nativeHandle",
               "sumBytes",
+              "reverseBytes",
               { name: "resize", descriptor: "(II)V" },
               { name: "resize", descriptor: "(D)V" },
             ],
@@ -266,6 +267,15 @@ test(
       assert.equal(
         sumBytes?.clangType,
         "jint (*)(const uint8_t *, size_t, char **)",
+      );
+      /* A byte-span result: owned pointer out, its length in a
+       * compiler-owned out slot beside the error slot. */
+      const reverseBytes = evidence.functions.find(({ symbol }) =>
+        symbol.endsWith("_reverseBytes")
+      );
+      assert.equal(
+        reverseBytes?.clangType,
+        "uint8_t *(*)(const uint8_t *, size_t, size_t *, char **)",
       );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });

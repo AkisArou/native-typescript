@@ -72,6 +72,10 @@ public class Widget {
     return out;
   }
 
+  public static byte[] nullBytes() {
+    return null;
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}
