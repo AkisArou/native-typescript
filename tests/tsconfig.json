@@ -13,6 +13,7 @@
     { "path": "../packages/scabi" },
     { "path": "../packages/scriptc" },
     { "path": "../packages/target-api" },
-    { "path": "../packages/target-gtk" }
+    { "path": "../packages/target-gtk" },
+    { "path": "../packages/target-jvm" }
   ]
 }

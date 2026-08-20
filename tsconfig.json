@@ -18,6 +18,9 @@
       "path": "./packages/target-gtk"
     },
     {
+      "path": "./packages/target-jvm"
+    },
+    {
       "path": "./packages/scabi"
     },
     {

@@ -1,0 +1,17 @@
+{
+  "name": "@native-typescript/target-jvm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@native-typescript/bindgen-c": "workspace:*",
+    "@native-typescript/bindgen-jvm": "workspace:*",
+    "@native-typescript/core": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/scriptc": "workspace:*",
+    "@native-typescript/target-api": "workspace:*"
+  }
+}

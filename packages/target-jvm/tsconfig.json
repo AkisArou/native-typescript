@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../bindgen-c" },
+    { "path": "../bindgen-jvm" },
+    { "path": "../core" },
+    { "path": "../scabi" },
+    { "path": "../scriptc" },
+    { "path": "../target-api" }
+  ]
+}

@@ -53,6 +53,9 @@ importers:
       '@native-typescript/target-gtk':
         specifier: workspace:*
         version: link:packages/target-gtk
+      '@native-typescript/target-jvm':
+        specifier: workspace:*
+        version: link:packages/target-jvm
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -90,6 +93,9 @@ importers:
       '@native-typescript/bindgen-c':
         specifier: workspace:*
         version: link:../bindgen-c
+      '@native-typescript/core':
+        specifier: workspace:*
+        version: link:../core
       '@native-typescript/scabi':
         specifier: workspace:*
         version: link:../scabi
@@ -131,6 +137,27 @@ importers:
       '@native-typescript/bindgen-gir':
         specifier: workspace:*
         version: link:../bindgen-gir
+      '@native-typescript/core':
+        specifier: workspace:*
+        version: link:../core
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
+      '@native-typescript/scriptc':
+        specifier: workspace:*
+        version: link:../scriptc
+      '@native-typescript/target-api':
+        specifier: workspace:*
+        version: link:../target-api
+
+  packages/target-jvm:
+    dependencies:
+      '@native-typescript/bindgen-c':
+        specifier: workspace:*
+        version: link:../bindgen-c
+      '@native-typescript/bindgen-jvm':
+        specifier: workspace:*
+        version: link:../bindgen-jvm
       '@native-typescript/core':
         specifier: workspace:*
         version: link:../core

@@ -1,0 +1,5 @@
+{
+  "name": "jvm-app-fixture",
+  "private": true,
+  "type": "module"
+}
