@@ -60,6 +60,18 @@ public class Widget {
     return name == null ? -1 : name.length();
   }
 
+  public static int sumBytes(byte[] data) {
+    int total = 0;
+    for (byte b : data) total += b & 0xFF;
+    return total;
+  }
+
+  public static byte[] reverseBytes(byte[] data) {
+    byte[] out = new byte[data.length];
+    for (int i = 0; i < data.length; i++) out[data.length - 1 - i] = data[i];
+    return out;
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

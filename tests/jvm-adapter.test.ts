@@ -35,6 +35,7 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "label",
     "greet",
     "withNul",
+    "sumBytes",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -100,13 +101,16 @@ test("the adapter source is deterministic and carries its member table", () => {
 
   assert.deepEqual(
     first.staticMethods.map(({ name }) => name).sort(),
-    ["checkedAdd", "greet", "withNul"],
+    ["checkedAdd", "greet", "sumBytes", "withNul"],
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
     ["compareDepth", "depth", "label", "resize", "resize", "resized"],
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
+  assert.deepEqual(first.byteSpanSupport, { region: "copy" });
+  const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
+  assert.deepEqual(sumBytes.parameters, [{ kind: "byte-span" }]);
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
     .map(({ adapterSymbol }) => adapterSymbol);
@@ -135,6 +139,7 @@ test("every generated-C family carries a classification", () => {
     Object.keys(JVM_ADAPTER_FAMILIES).sort(),
     [
       "bind",
+      "byteSpanSupport",
       "classReleases",
       "constructors",
       "envSupport",
@@ -162,13 +167,36 @@ test("positions outside the slice algebra are refused precisely", () => {
     assert.fail("expected JvmGenerationError");
   } catch (error) {
     assert.ok(error instanceof JvmGenerationError);
-    // The String parameter projects now; only the int[] result refuses.
+    // The String parameter projects now; only the int[] result refuses,
+    // named by its element family.
     assert.deepEqual(
       error.diagnostics.map(({ code }) => code),
       ["NTS7001"],
     );
     const messages = error.diagnostics.map(({ message }) => message).join("\n");
-    assert.match(messages, /counted-vector contract/u);
+    assert.match(messages, /array type 'int\[\]', whose element family/u);
+  }
+});
+
+test("a byte[] result refuses even though the argument crosses", () => {
+  // The motivating program for the byte-span result slice: reverseBytes
+  // takes byte[] (projects) and returns byte[] (no projection exists).
+  const withReverse = ingestSurface([
+    { binaryName: "fixture/Widget", methods: ["reverseBytes"] },
+  ]);
+  try {
+    generateJvmAdapterSource(withReverse, { packageSlug: "fixture" });
+    assert.fail("expected JvmGenerationError");
+  } catch (error) {
+    assert.ok(error instanceof JvmGenerationError);
+    assert.deepEqual(
+      error.diagnostics.map(({ code }) => code),
+      ["NTS7001"],
+    );
+    assert.match(
+      error.diagnostics[0]!.message,
+      /byte\[\], which crosses only as an argument/u,
+    );
   }
 });
 
@@ -203,6 +231,9 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     )!.adapterSymbol;
     const withNulSymbol = adapter.staticMethods.find(
       ({ name }) => name === "withNul",
+    )!.adapterSymbol;
+    const sumBytesSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "sumBytes",
     )!.adapterSymbol;
     const releaseWidget = adapter.classReleases.find(
       ({ className }) => className === "fixture/Widget",
@@ -258,6 +289,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (text != NULL || error == NULL ||",
       `      strstr(${messageSymbol}(error), "embedded NUL") == NULL) return 26;`,
       `  ${releaseSymbol}(error); error = NULL;`,
+      /* Byte span: 1+2+3+250 = 256 proves unsigned reassembly on the Java
+       * side; the zero-length span proves the empty array is still built. */
+      "  uint8_t bytes[4] = {1, 2, 3, 250};",
+      `  if (${sumBytesSymbol}(bytes, sizeof bytes, &error) != 256 ||`,
+      "      error != NULL) return 27;",
+      `  if (${sumBytesSymbol}(bytes, 0, &error) != 0 || error != NULL) return 28;`,
       `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",

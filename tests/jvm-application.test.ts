@@ -73,6 +73,7 @@ test(
             "compareDepth",
             "label",
             "greet",
+            "sumBytes",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],

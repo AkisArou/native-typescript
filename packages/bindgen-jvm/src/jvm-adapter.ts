@@ -13,10 +13,10 @@
  *
  * The algebra is deliberately bounded and refuses precisely: JNI primitive
  * scalars and void, selected-class handles, java/lang/String through an
- * exact UTF-16 bridge, constructors, and the checked failure channel
- * (pending exception captured to an error-out slot). Arrays are the named
- * next slice, waiting on the counted-vector contract SCABI reserved for
- * this platform.
+ * exact UTF-16 bridge, byte[] arguments as borrowed byte spans (one Region
+ * copy in), constructors, and the checked failure channel (pending
+ * exception captured to an error-out slot). Array results and the other
+ * array element families are named next slices.
  */
 
 import { createHash } from "node:crypto";
@@ -30,14 +30,23 @@ import type {
   JvmTypeReference,
 } from "./jvm-model.ts";
 
-/** One adapter position: a JNI primitive scalar, or a stable reference to
- * a class this selection projects. */
+/** One adapter position: a JNI primitive scalar, a stable reference to a
+ * class this selection projects, a string, or (arguments only) a borrowed
+ * byte span — two C slots carrying one Java byte[]. */
 export type JvmAdapterPosition =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
   | { readonly kind: "handle"; readonly binaryName: string }
-  | { readonly kind: "string" };
+  | { readonly kind: "string" }
+  | { readonly kind: "byte-span" };
 
-export type JvmAdapterResult = { readonly kind: "void" } | JvmAdapterPosition;
+/** A byte span cannot come back: no result projection carries a pointer
+ * beside its length yet, so a byte[] result is refused at resolution and
+ * the type keeps it unrepresentable here. */
+export type JvmAdapterResult =
+  | { readonly kind: "void" }
+  | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
+  | { readonly kind: "handle"; readonly binaryName: string }
+  | { readonly kind: "string" };
 
 export interface JvmConstructorAdapter {
   readonly className: string;
@@ -96,7 +105,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 7;
+  readonly schemaVersion: 8;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -110,6 +119,9 @@ export interface JvmAdapterSource {
   /** Present when any position is a java/lang/String: the generated UTF-16
    * bridge both directions cross through. Null when no string crosses. */
   readonly stringSupport: { readonly bridge: "utf-16" } | null;
+  /** Present when any argument is a byte[]: spans cross by one Region copy
+   * into a frame-scoped jbyteArray. Null when no span crosses. */
+  readonly byteSpanSupport: { readonly region: "copy" } | null;
   readonly constructors: readonly JvmConstructorAdapter[];
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
@@ -196,6 +208,15 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "contract rejects embedded NUL, and an unpaired surrogate refuses " +
       "because it has no UTF-8 at all",
   },
+  byteSpanSupport: {
+    kind: "translation",
+    custom:
+      "a borrowed byte span becomes a frame-scoped jbyteArray built with " +
+      "NewByteArray + SetByteArrayRegion and released after the call; the " +
+      "copy in is JNI's own Region convention, not a decision, and a span " +
+      "longer than the jsize array bound refuses through the error channel " +
+      "because no Java array can hold it",
+  },
   constructors: {
     kind: "translation",
     custom:
@@ -257,16 +278,28 @@ function descriptorSuffix(descriptor: string): string {
   return createHash("sha256").update(descriptor).digest("hex").slice(0, 8);
 }
 
+function renderArrayType(
+  type: Extract<JvmTypeReference, { kind: "array" }>,
+): string {
+  const element = type.element.kind === "primitive"
+    ? type.element.name
+    : type.element.binaryName;
+  return `${element}${"[]".repeat(type.dimensions)}`;
+}
+
 /** One position, or null with a precise refusal. A selected class is an
  * ordinary handle; an unselected one is a boundary the caller can move by
- * selecting the class. */
+ * selecting the class. Arrays admit exactly one shape — a byte[] argument,
+ * which crosses as a borrowed span — and refuse by element family
+ * otherwise, because each family is its own slice with its own demand. */
 function positionOf(
   type: JvmTypeReference,
   selectedNames: ReadonlySet<string>,
   path: string,
   what: string,
+  role: "parameter" | "result",
   diagnostics: JvmDiagnostic[],
-): JvmAdapterResult | null {
+): JvmAdapterPosition | { readonly kind: "void" } | null {
   if (type.kind === "void") return { kind: "void" };
   if (type.kind === "primitive") {
     return { kind: "primitive", primitive: type.name };
@@ -287,10 +320,20 @@ function positionOf(
     );
     return null;
   }
+  const isByteArray = type.dimensions === 1 &&
+    type.element.kind === "primitive" &&
+    type.element.name === "byte";
+  if (isByteArray && role === "parameter") {
+    return { kind: "byte-span" };
+  }
   diagnostics.push(
     diagnostic(
       path,
-      `${what} is an array, which waits on the counted-vector contract`,
+      isByteArray
+        ? `${what} is byte[], which crosses only as an argument today; ` +
+          "the byte-span result projection is the named next slice"
+        : `${what} is array type '${renderArrayType(type)}', whose element ` +
+          "family is not yet projected",
     ),
   );
   return null;
@@ -315,6 +358,7 @@ function resolveSignature(
       selectedNames,
       `${path}/parameters/${index}`,
       `Parameter ${index}`,
+      "parameter",
       diagnostics,
     );
     if (position === null || position.kind === "void") refused = true;
@@ -325,9 +369,13 @@ function resolveSignature(
     selectedNames,
     `${path}/result`,
     "Result",
+    "result",
     diagnostics,
   );
   if (result === null || refused) return null;
+  if (result.kind === "byte-span") {
+    throw new Error("unreachable: a byte-span result is refused at resolution");
+  }
   return { parameters, result };
 }
 
@@ -339,6 +387,11 @@ function positionDeclaration(
     return `${jniCTypes[position.primitive]} a${index}`;
   }
   if (position.kind === "string") return `const char *a${index}`;
+  if (position.kind === "byte-span") {
+    /* One source value, two C slots: the bytes marshalling contract pairs a
+     * borrowed const pointer with a usize length parameter it names. */
+    return `const uint8_t *a${index}, size_t a${index}_length`;
+  }
   return `void *a${index}`;
 }
 
@@ -381,50 +434,95 @@ export function generateJvmAdapterSource(
     snapshot.classes.map(({ binaryName }) => binaryName),
   );
   let usesStrings = false;
+  let usesByteSpans = false;
 
-  /* String arguments cross through local jstrings converted before the call
-   * and released after it, with every earlier conversion released on a
-   * failed later one. */
-  function stringPrologue(
+  /* Releases every bridged local built before `before`, for the path where
+   * a later bridge refuses; strings and byte spans clean each other up. */
+  function priorBridgeCleanup(
+    parameters: readonly JvmAdapterPosition[],
+    before: number,
+    indent: string,
+  ): string[] {
+    return parameters.slice(0, before).flatMap((prior, earlier) =>
+      prior.kind === "string"
+        ? [`${indent}if (js${earlier} != NULL) (*env)->DeleteLocalRef(env, js${earlier});`]
+        : prior.kind === "byte-span"
+          ? [`${indent}(*env)->DeleteLocalRef(env, ba${earlier});`]
+          : []
+    );
+  }
+
+  /* String and byte[] arguments cross through frame-scoped locals built
+   * before the call and released after it: strings through the UTF-16
+   * bridge, byte spans through one SetByteArrayRegion copy. */
+  function bridgedPrologue(
     parameters: readonly JvmAdapterPosition[],
     zeroReturn: string,
   ): string[] {
     const lines: string[] = [];
     parameters.forEach((parameter, index) => {
-      if (parameter.kind !== "string") return;
-      usesStrings = true;
-      const priorCleanup = parameters
-        .slice(0, index)
-        .flatMap((prior, earlier) =>
-          prior.kind === "string"
-            ? [`      if (js${earlier} != NULL) (*env)->DeleteLocalRef(env, js${earlier});`]
-            : []
+      if (parameter.kind === "string") {
+        usesStrings = true;
+        lines.push(
+          `  jstring js${index} = NULL;`,
+          `  if (a${index} != NULL) {`,
+          `    js${index} = ${prefix}_utf8_to_jstring(env, a${index}, error);`,
+          `    if (*error != NULL) {`,
+          ...priorBridgeCleanup(parameters, index, "      "),
+          `      ${zeroReturn}`,
+          `    }`,
+          `  }`,
         );
-      lines.push(
-        `  jstring js${index} = NULL;`,
-        `  if (a${index} != NULL) {`,
-        `    js${index} = ${prefix}_utf8_to_jstring(env, a${index}, error);`,
-        `    if (*error != NULL) {`,
-        ...priorCleanup,
-        `      ${zeroReturn}`,
-        `    }`,
-        `  }`,
-      );
+      }
+      if (parameter.kind === "byte-span") {
+        usesByteSpans = true;
+        lines.push(
+          /* jsize is jint, so a span longer than INT32_MAX has no Java
+           * array; the contract's span is non-null, so there is no null
+           * arm. The Region copy's bounds are valid by construction and
+           * cannot throw. */
+          `  if (a${index}_length > (size_t)INT32_MAX) {`,
+          `    *error = ${prefix}_message("byte span exceeds the JVM array bound");`,
+          ...priorBridgeCleanup(parameters, index, "    "),
+          `    ${zeroReturn}`,
+          `  }`,
+          `  jbyteArray ba${index} =`,
+          `      (*env)->NewByteArray(env, (jsize)a${index}_length);`,
+          `  if ((*env)->ExceptionCheck(env)) {`,
+          `    ${prefix}_capture(env, error);`,
+          ...priorBridgeCleanup(parameters, index, "    "),
+          `    ${zeroReturn}`,
+          `  }`,
+          `  if (ba${index} == NULL) {`,
+          `    *error = ${prefix}_message("NewByteArray failed");`,
+          ...priorBridgeCleanup(parameters, index, "    "),
+          `    ${zeroReturn}`,
+          `  }`,
+          `  if (a${index}_length > 0) {`,
+          `    (*env)->SetByteArrayRegion(env, ba${index}, 0,`,
+          `                               (jsize)a${index}_length,`,
+          `                               (const jbyte *)a${index});`,
+          `  }`,
+        );
+      }
     });
     return lines;
   }
 
-  function stringEpilogue(parameters: readonly JvmAdapterPosition[]): string[] {
+  function bridgedEpilogue(parameters: readonly JvmAdapterPosition[]): string[] {
     return parameters.flatMap((parameter, index) =>
       parameter.kind === "string"
         ? [`  if (js${index} != NULL) (*env)->DeleteLocalRef(env, js${index});`]
-        : []
+        : parameter.kind === "byte-span"
+          ? [`  (*env)->DeleteLocalRef(env, ba${index});`]
+          : []
     );
   }
 
   function argumentOf(parameter: JvmAdapterPosition, index: number): string {
     if (parameter.kind === "handle") return `(jobject)a${index}`;
     if (parameter.kind === "string") return `js${index}`;
+    if (parameter.kind === "byte-span") return `ba${index}`;
     return `a${index}`;
   }
 
@@ -470,14 +568,14 @@ export function generateJvmAdapterSource(
         ].join(", ")}) {`,
         `  JNIEnv *env = ${prefix}_env(error);`,
         `  if (env == NULL) return NULL;`,
-        ...stringPrologue(signature.parameters, "return NULL;"),
+        ...bridgedPrologue(signature.parameters, "return NULL;"),
         `  jobject local = (*env)->NewObject(${[
           "env",
           plan.classVar,
           midVar,
           ...argumentList,
         ].join(", ")});`,
-        ...stringEpilogue(signature.parameters),
+        ...bridgedEpilogue(signature.parameters),
         `  if ((*env)->ExceptionCheck(env)) {`,
         `    ${prefix}_capture(env, error);`,
         `    return NULL;`,
@@ -562,11 +660,11 @@ export function generateJvmAdapterSource(
         ].join(", ")}) {`,
         `  JNIEnv *env = ${prefix}_env(error);`,
         `  if (env == NULL) ${zeroReturn}`,
-        ...stringPrologue(signature.parameters, zeroReturn),
+        ...bridgedPrologue(signature.parameters, zeroReturn),
         ...(result.kind === "void"
           ? [
               `  ${call};`,
-              ...stringEpilogue(signature.parameters),
+              ...bridgedEpilogue(signature.parameters),
               `  if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, error);`,
             ]
           : result.kind === "handle"
@@ -575,7 +673,7 @@ export function generateJvmAdapterSource(
                  * acquisition is normalized exactly as a constructor's. A
                  * NULL local with no exception is a successful null. */
                 `  jobject local = ${call};`,
-                ...stringEpilogue(signature.parameters),
+                ...bridgedEpilogue(signature.parameters),
                 `  if ((*env)->ExceptionCheck(env)) {`,
                 `    ${prefix}_capture(env, error);`,
                 `    return NULL;`,
@@ -592,7 +690,7 @@ export function generateJvmAdapterSource(
                    * bridge; the Java string itself never survives the call.
                    * NULL with an empty error slot is a successful null. */
                   `  jstring resultString = (jstring)${call};`,
-                  ...stringEpilogue(signature.parameters),
+                  ...bridgedEpilogue(signature.parameters),
                   `  if ((*env)->ExceptionCheck(env)) {`,
                   `    ${prefix}_capture(env, error);`,
                   `    return NULL;`,
@@ -604,7 +702,7 @@ export function generateJvmAdapterSource(
                 ]
               : [
                   `  ${returnType} result = ${call};`,
-                  ...stringEpilogue(signature.parameters),
+                  ...bridgedEpilogue(signature.parameters),
                   `  if ((*env)->ExceptionCheck(env)) {`,
                   `    ${prefix}_capture(env, error);`,
                   `    return (${returnType})0;`,
@@ -954,6 +1052,11 @@ export function generateJvmAdapterSource(
     `#ifndef ${headerGuard}`,
     `#define ${headerGuard}`,
     "#include <jni.h>",
+    /* Byte-span declarations spell size_t and uint8_t; included always so
+     * the header's shape does not depend on which families the selection
+     * happened to use. */
+    "#include <stddef.h>",
+    "#include <stdint.h>",
     "",
     `jint ${bindSymbol}(JNIEnv *env, char **error);`,
     `jint ${bindVmSymbol}(JavaVM *vm, char **error);`,
@@ -967,7 +1070,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 7,
+    schemaVersion: 8,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -981,6 +1084,9 @@ export function generateJvmAdapterSource(
     }),
     stringSupport: usesStrings
       ? Object.freeze({ bridge: "utf-16" as const })
+      : null,
+    byteSpanSupport: usesByteSpans
+      ? Object.freeze({ region: "copy" as const })
       : null,
     constructors: Object.freeze(constructors),
     staticMethods: Object.freeze(staticMethods),

@@ -27,16 +27,20 @@ import type {
   JvmAdapterSource,
 } from "./jvm-adapter.ts";
 
-function positionCType(position: JvmAdapterPosition): string {
-  if (position.kind === "primitive") return jniCTypes[position.primitive];
-  if (position.kind === "string") return "const char*";
-  return "void*";
+function positionCTypes(position: JvmAdapterPosition): readonly string[] {
+  if (position.kind === "primitive") return [jniCTypes[position.primitive]];
+  if (position.kind === "string") return ["const char*"];
+  /* A byte span is one position across two physical slots; the probe
+   * proves both, in the order the adapter declares them. */
+  if (position.kind === "byte-span") return ["const uint8_t*", "size_t"];
+  return ["void*"];
 }
 
 function resultCType(result: JvmAdapterResult): string {
   if (result.kind === "void") return "void";
   if (result.kind === "string") return "char*";
-  return positionCType(result);
+  if (result.kind === "primitive") return jniCTypes[result.primitive];
+  return "void*";
 }
 
 function candidate(
@@ -91,7 +95,7 @@ export function generateJvmClangAbiProbe(
         constructor.adapterSymbol,
         "void*",
         [
-          ...constructor.parameters.map(positionCType),
+          ...constructor.parameters.flatMap(positionCTypes),
           "char**",
         ],
       )
@@ -103,7 +107,7 @@ export function generateJvmClangAbiProbe(
         resultCType(method.result),
         [
           ...(method.kind === "instance" ? ["void*"] : []),
-          ...method.parameters.map(positionCType),
+          ...method.parameters.flatMap(positionCTypes),
           "char**",
         ],
       )

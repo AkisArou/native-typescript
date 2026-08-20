@@ -48,6 +48,7 @@ function snapshot() {
             "nameLength",
             "label",
             "greet",
+            "sumBytes",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -161,6 +162,31 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   );
   assert.ok(stringParameter?.marshal !== undefined);
   assert.equal(stringParameter.marshal.kind, "string");
+
+  // A byte[] argument is one source value across the bytes contract's two
+  // slots: the borrowed const span and the usize length it names.
+  assert.match(
+    generated.declarations,
+    /static sumBytes\(a0: Uint8Array\): jint;/u,
+  );
+  const sumBinding = generated.manifest.bindings["fixture.fixture.widget.sumbytes"];
+  assert.ok(sumBinding !== undefined && sumBinding.kind !== "constant");
+  const [span, spanLength] = sumBinding.signature.parameters;
+  assert.equal(span!.name, "a0");
+  assert.equal(span!.type, "const_bytes");
+  assert.equal(span!.nullable, false);
+  assert.deepEqual(span!.marshal, {
+    kind: "bytes",
+    length: { kind: "parameter", parameter: "a0_length" },
+    mutability: "const",
+  });
+  assert.equal(spanLength!.name, "a0_length");
+  assert.equal(spanLength!.type, "usize");
+  assert.deepEqual(generated.manifest.types["usize"], {
+    kind: "integer",
+    signed: false,
+    bits: "pointer",
+  });
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
@@ -231,4 +257,23 @@ test("each ownership shape translates through the neutral compiler input", () =>
   const greet = binding("fixture.fixture.widget.greet");
   assert.equal(greet.error.detect.kind, "outParameterIsNotNull");
   assert.equal(greet.result.projection.kind, "utf8CString");
+
+  // A byte[] argument needs NOTHING new from the compiler: the pair
+  // lowers to the existing bytes projections, both slots fed by the one
+  // Uint8Array source argument.
+  const sum = binding("fixture.fixture.widget.sumbytes");
+  assert.equal(sum.error.detect.kind, "outParameterIsNotNull");
+  const spanProjections = sum.parameters
+    .map(({ projection }) => projection)
+    .filter(({ kind }) => kind === "bytesData" || kind === "bytesByteLength");
+  assert.deepEqual(
+    spanProjections.map(({ kind }) => kind).sort(),
+    ["bytesByteLength", "bytesData"],
+  );
+  const spanArguments = new Set(
+    spanProjections.map((projection) =>
+      "argument" in projection ? projection.argument : -1
+    ),
+  );
+  assert.equal(spanArguments.size, 1);
 });

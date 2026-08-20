@@ -116,6 +116,7 @@ test(
               "depth",
               "checkedAdd",
               "nativeHandle",
+              "sumBytes",
               { name: "resize", descriptor: "(II)V" },
               { name: "resize", descriptor: "(D)V" },
             ],
@@ -257,6 +258,15 @@ test(
         ({ symbol }) => symbol === adapter.bind.adapterSymbol,
       );
       assert.equal(bind?.clangType, "jint (*)(JNIEnv *, char **)");
+      /* The byte-span pair, byte-exact: one adapter position, two probed
+       * slots, spelled the way Clang spells them. */
+      const sumBytes = evidence.functions.find(({ symbol }) =>
+        symbol.endsWith("_sumBytes")
+      );
+      assert.equal(
+        sumBytes?.clangType,
+        "jint (*)(const uint8_t *, size_t, char **)",
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }

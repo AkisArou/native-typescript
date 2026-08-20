@@ -39,6 +39,7 @@ import type {
 import { generateJvmAdapterSource } from "./jvm-adapter.ts";
 import type {
   JvmAdapterPosition,
+  JvmAdapterResult,
   JvmAdapterSource,
   JvmConstructorAdapter,
   JvmMethodAdapter,
@@ -504,43 +505,93 @@ export function generateJvmScabiPackage(
     });
   }
 
-  function positionParameter(
+  function needByteSpanTypes(): void {
+    types["u8"] ??= Object.freeze({ kind: "integer", signed: false, bits: 8 });
+    types["const_bytes"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "u8",
+      mutability: "const",
+      nullable: false,
+      addressSpace: 0,
+    });
+    types["usize"] ??= Object.freeze({
+      kind: "integer",
+      signed: false,
+      bits: "pointer",
+    });
+  }
+
+  /** One adapter position's manifest parameters — one slot for every
+   * family except a byte span, whose single source value crosses as the
+   * bytes contract's pair: a borrowed const pointer plus the usize length
+   * parameter the marshal names. */
+  function positionParameters(
     position: JvmAdapterPosition,
     index: number,
-  ): AbiParameter {
+  ): readonly AbiParameter[] {
     if (position.kind === "string") {
       needStringTypes();
       /* The adapter copies during the call through the UTF-16 bridge, so
        * the caller's buffer is borrowed for exactly the call. */
-      return Object.freeze({
+      return [Object.freeze({
         name: `a${index}`,
         type: "nullable_const_utf8",
         passMode: "pointer",
         nullable: true,
         ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
         marshal: stringMarshal,
-      });
+      })];
+    }
+    if (position.kind === "byte-span") {
+      needByteSpanTypes();
+      /* The bytes contract admits only a non-null borrowed span, so a null
+       * Java byte[] argument is not offered; the adapter copies during the
+       * call, exactly as a string crosses. */
+      return [
+        Object.freeze({
+          name: `a${index}`,
+          type: "const_bytes",
+          passMode: "pointer" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+          marshal: Object.freeze({
+            kind: "bytes" as const,
+            length: Object.freeze({
+              kind: "parameter" as const,
+              parameter: `a${index}_length`,
+            }),
+            mutability: "const" as const,
+          }),
+        }),
+        Object.freeze({
+          name: `a${index}_length`,
+          type: "usize",
+          passMode: "value" as const,
+          nullable: false,
+          ownership: Object.freeze({ kind: "value" as const }),
+        }),
+      ];
     }
     if (position.kind === "handle") {
       /* Java's type system says any reference may be null, and the class
        * file carries no narrower fact, so the honest slot is nullable. */
-      return Object.freeze({
+      return [Object.freeze({
         name: `a${index}`,
         type: selectedTypeIds.get(position.binaryName)!,
         passMode: "pointer",
         nullable: true,
         ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-      });
+      })];
     }
     const projection = scalarProjections[position.primitive];
-    return Object.freeze({
+    return [Object.freeze({
       name: `a${index}`,
       type: needScalar(position.primitive),
       passMode: "value",
       nullable: false,
       ownership: Object.freeze({ kind: "value" }),
       ...(projection.conversion === null ? {} : { conversion: projection.conversion }),
-    });
+    })];
   }
 
   const declarationsByClass = new Map<string, string[]>();
@@ -550,11 +601,15 @@ export function generateJvmScabiPackage(
     declarationsByClass.set(binaryName, lines);
   }
 
-  function sourceTypeOf(position: JvmAdapterPosition): string {
+  function sourceTypeOf(
+    position: JvmAdapterPosition | Exclude<JvmAdapterResult, { kind: "void" }>,
+  ): string {
     if (position.kind === "handle") {
       return `${classNameOf.get(position.binaryName)!} | null`;
     }
     if (position.kind === "string") return "string | null";
+    /* Two physical slots, one source value: the view and its byteLength. */
+    if (position.kind === "byte-span") return "Uint8Array";
     return scalarProjections[position.primitive].sourceType;
   }
 
@@ -576,7 +631,7 @@ export function generateJvmScabiPackage(
         declaration: first ? className : `${className}.${member}`,
         kind: first ? "constructor" : "factory",
         symbol: constructor.adapterSymbol,
-        parameters: constructor.parameters.map(positionParameter),
+        parameters: constructor.parameters.flatMap(positionParameters),
         result: Object.freeze({
           type: typeId,
           passMode: "pointer",
@@ -642,7 +697,7 @@ export function generateJvmScabiPackage(
       symbol: method.adapterSymbol,
       parameters: [
         ...receiver,
-        ...method.parameters.map(positionParameter),
+        ...method.parameters.flatMap(positionParameters),
       ],
       result: method.result.kind === "string"
         ? (needStringTypes(),

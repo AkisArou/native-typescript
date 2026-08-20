@@ -27,6 +27,15 @@ const greeting = Widget.greet("native");
 if (greeting !== "hi native!") failed = true;
 if (Widget.greet(null) !== null) failed = true;
 
+/* A byte[] argument crosses as a borrowed span: 1+2+3+250 = 256 proves the
+ * bytes arrive unsigned and intact, the subarray proves the view's offset
+ * is honored rather than its buffer's start, and the empty span proves a
+ * zero-length array is still built. */
+if (Widget.sumBytes(new Uint8Array([1, 2, 3, 250])) !== 256) failed = true;
+const framed = new Uint8Array([9, 1, 2, 3, 250, 9]);
+if (Widget.sumBytes(framed.subarray(1, 5)) !== 256) failed = true;
+if (Widget.sumBytes(new Uint8Array(0)) !== 0) failed = true;
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a
