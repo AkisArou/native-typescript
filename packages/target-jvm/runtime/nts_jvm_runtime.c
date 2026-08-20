@@ -129,8 +129,126 @@ static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
   return SCR_ATTACHED_LOOP_POLL_COMPLETE;
 }
 
+/* ── hosted adoption ────────────────────────────────────────────────────
+ * `System.loadLibrary` runs JNI_OnLoad on a JVM thread this runtime did
+ * not create — on Android, one with a Looper. The library contract makes
+ * the boot order REQUIRED rather than prudent: "the calling thread IS the
+ * instance selector", so the thread that calls the library init owns the
+ * ScriptC instance. The loader therefore touches only this runtime's own
+ * statics — cache the VM, spawn the owner, wait for "bound" — and the
+ * owner thread does everything else: attach itself, run the binds, call
+ * the init the archive provides (weak, so the executable product links
+ * this same object without one), and park in the pump. */
+extern void nts_jvm_hosted_init(void) __attribute__((weak));
+
+static bool nts_jvm_adopted;
+
+static struct {
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  bool bound;
+  bool failed;
+} nts_jvm_boot = {
+    PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_COND_INITIALIZER,
+    false,
+    false,
+};
+
+static void nts_jvm_boot_signal(bool failed) {
+  pthread_mutex_lock(&nts_jvm_boot.mutex);
+  nts_jvm_boot.bound = true;
+  nts_jvm_boot.failed = failed;
+  pthread_cond_signal(&nts_jvm_boot.cond);
+  pthread_mutex_unlock(&nts_jvm_boot.mutex);
+}
+
+static void *nts_jvm_owner_main(void *opaque) {
+  (void)opaque;
+  JNIEnv *env = NULL;
+  if (
+      (*nts_jvm_vm)->AttachCurrentThread(nts_jvm_vm, (void **)&env, NULL) !=
+      JNI_OK) {
+    fprintf(stderr, "nts_jvm_runtime: the owner thread could not attach\n");
+    nts_jvm_boot_signal(true);
+    return NULL;
+  }
+  for (size_t index = 0; index < nts_jvm_bind_count; index++) {
+    char *error = NULL;
+    if (nts_jvm_binds[index](nts_jvm_vm, &error) != 0) {
+      fprintf(stderr, "nts_jvm_runtime: bind failed: %s\n",
+              error == NULL ? "(no message)" : error);
+      free(error);
+      nts_jvm_boot_signal(true);
+      return NULL;
+    }
+  }
+  /* Binds are pure JNI, so they precede the instance; the ScriptC service
+   * setup runs INSIDE the instance, from applicationStart on this same
+   * thread, exactly as the executable path orders it. */
+  nts_jvm_boot_signal(false);
+  if (nts_jvm_hosted_init != NULL) {
+    nts_jvm_hosted_init();
+  }
+  /* The program's top level ended without completing: park in the pump so
+   * queued deliveries keep draining — hosted service semantics. ScriptC
+   * timers do not fire in this park; the hosted scheduler integration is
+   * its own slice with its own contract reading. */
+  for (;;) {
+    nts_jvm_runtime_poll(NULL, -1.0);
+  }
+  return NULL;
+}
+
+jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+  (void)reserved;
+  if (nts_jvm_vm != NULL) return JNI_VERSION_10;
+  nts_jvm_vm = vm;
+  nts_jvm_adopted = true;
+  pthread_t owner;
+  if (pthread_create(&owner, NULL, nts_jvm_owner_main, NULL) != 0) {
+    fprintf(stderr, "nts_jvm_runtime: could not spawn the owner thread\n");
+    nts_jvm_vm = NULL;
+    return JNI_ERR;
+  }
+  pthread_detach(owner);
+  /* The wait closes the RegisterNatives race AND makes "the owner owns
+   * the instance" observable to the loader before loadLibrary returns.
+   * Do not delete it as a race that "cannot happen". Deadlock-free: the
+   * owner needs nothing back from this thread. */
+  pthread_mutex_lock(&nts_jvm_boot.mutex);
+  while (!nts_jvm_boot.bound) {
+    pthread_cond_wait(&nts_jvm_boot.cond, &nts_jvm_boot.mutex);
+  }
+  bool failed = nts_jvm_boot.failed;
+  pthread_mutex_unlock(&nts_jvm_boot.mutex);
+  if (failed) {
+    nts_jvm_vm = NULL;
+    nts_jvm_adopted = false;
+    return JNI_ERR;
+  }
+  return JNI_VERSION_10;
+}
+
 void nts_jvm_application_start(char **error) {
   *error = NULL;
+  if (nts_jvm_adopted) {
+    /* Hosted: the platform started the JVM and the owner boot ran the
+     * binds; what remains is the ScriptC half, on the instance's own
+     * thread — which this is, because the owner called the init that
+     * evaluated the module calling here. */
+    if (!scr_retained_callbacks_configure(nts_jvm_runtime_wake, NULL)) {
+      *error = nts_jvm_owned_message(
+          "retained-callback service configuration failed");
+      return;
+    }
+    if (!scr_loop_set_attached(nts_jvm_runtime_pending, nts_jvm_runtime_poll,
+                               &nts_jvm_loop)) {
+      (void)scr_retained_callbacks_destroy();
+      *error = nts_jvm_owned_message("attaching the pump to the loop failed");
+    }
+    return;
+  }
   if (nts_jvm_vm != NULL) {
     *error = nts_jvm_owned_message("the JVM is already started");
     return;
@@ -194,6 +312,14 @@ void nts_jvm_application_start(char **error) {
 
 void nts_jvm_application_stop(void) {
   if (nts_jvm_vm == NULL) return;
+  if (nts_jvm_adopted) {
+    /* The platform owns an adopted VM; stopping tears down only the
+     * ScriptC half and leaves the process to its host. */
+    scr_retained_callbacks_stop_accepting();
+    (void)scr_retained_callbacks_destroy();
+    (void)scr_loop_clear_attached(&nts_jvm_loop);
+    return;
+  }
   /* Mirrors the GTK shutdown sequence: every clause runs, because pending
    * work and a live registration are distinct faults and destroy must be
    * attempted either way. A program that stops while either holds has a

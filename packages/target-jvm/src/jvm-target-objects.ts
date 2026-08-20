@@ -28,9 +28,15 @@ function compilePrologue(
   );
 }
 
+/* -fPIC unconditionally, by the library profile's own argument: the
+ * objects exist to be linked into either product, an executable accepts
+ * PIC objects at negligible cost, and a non-PIC object discovered by a
+ * shared-object link is a broken build diagnosed three layers from its
+ * cause. */
 const jvmCompilePrologue = compilePrologue(
   "-std=gnu11",
   "-O2",
+  "-fPIC",
   "-Wall",
   "-Wextra",
   "-Werror",

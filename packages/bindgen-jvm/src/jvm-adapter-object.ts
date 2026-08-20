@@ -56,6 +56,10 @@ export function planJvmAdapterObject(input: {
        * registration reference is a GNU attribute, hence gnu11. */
       { kind: "literal", value: "-std=gnu11" },
       { kind: "literal", value: "-O2" },
+      /* PIC unconditionally: the object links into either product, and a
+       * shared-object link is where non-PIC is discovered three layers
+       * from its cause. */
+      { kind: "literal", value: "-fPIC" },
       { kind: "literal", value: "-Wall" },
       { kind: "literal", value: "-Wextra" },
       { kind: "literal", value: "-Werror" },

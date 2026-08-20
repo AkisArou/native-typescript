@@ -24,7 +24,9 @@ import { parseScabiManifest } from "@native-typescript/scabi";
 import {
   composeScriptCNativePrograms,
   loadScriptCExecutablePlanners,
+  loadScriptCLibraryPlanners,
   locateScriptCCheckout,
+  scriptCCompilerDistribution,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
 import type { ScriptCNativeTranslationSuccess } from "@native-typescript/scriptc";
@@ -98,6 +100,8 @@ export interface JvmApplicationToolPaths {
   readonly clang: string;
   readonly node: string;
   readonly sandbox: string;
+  /** The archiver, required for the hosted-library product. */
+  readonly ar?: string;
 }
 
 export interface JvmApplicationBuildResult {
@@ -156,6 +160,9 @@ export async function buildJvmApplication(input: {
   readonly project: JvmApplicationProject;
   readonly scratch: string;
   readonly backend: "c" | "llvm";
+  /** What to produce: a standalone executable that CREATES a JVM, or a
+   * hosted shared library a JVM loads and this runtime ADOPTS. */
+  readonly product?: "executable" | "hosted-library";
   readonly javaHome: string;
   readonly tools: JvmApplicationToolPaths;
   readonly cachePath?: string;
@@ -609,6 +616,290 @@ export async function buildJvmApplication(input: {
     ...targetObjects.adapters.map(({ plan }) => plan.object.id),
     sdk.libjvmArtifactId,
   ];
+
+  if (input.product === "hosted-library") {
+    /* ── the hosted product ──────────────────────────────────────────────
+     * The compiler's product is a PIC static archive (a stated property of
+     * the plan, not a flag checked here); packaging it for a host platform
+     * is target business. The profile is written by the target because the
+     * target names the boot contract: init_symbol is the weak entry the
+     * runtime's owner thread calls, per the library rule that the calling
+     * thread IS the instance selector. */
+    const profilePath = join(input.scratch, "hosted-profile.json");
+    writeFileSync(
+      profilePath,
+      JSON.stringify(
+        {
+          profile_format: 1,
+          name: project.name,
+          entry: join(input.projectRoot, project.entry),
+          emission: input.backend,
+          abi: {
+            prefix: "nts_jvm_hosted_",
+            init_symbol: "nts_jvm_hosted_init",
+            sink_register_symbol: "nts_jvm_hosted_set_panic_sink",
+            collect_symbol: null,
+            result_reset_symbol: null,
+          },
+          exports: [],
+        },
+        null,
+        2,
+      ),
+    );
+    const { planLibraryCompilation, planLibraryExternalCBuild } =
+      await loadScriptCLibraryPlanners();
+    const libraryPlanned = await planLibraryCompilation({
+      profilePath,
+      externalTypes,
+      native: composed.input,
+    });
+    if (!libraryPlanned.ok) {
+      throw new Error(
+        `Compiling ${project.entry} as a library failed:\n` +
+          libraryPlanned.diagnostics
+            .map(({ message }) => `  ${message}`)
+            .join("\n"),
+      );
+    }
+
+    /* STOPGAP, stated rather than smuggled: emission belongs in the graph
+     * as a sandboxed cached action, exactly as the executable path does it,
+     * but the dist ships no library-emitter-cli yet. Until it lands, the
+     * plan is emitted in-process through the sanctioned runtime-import
+     * discipline and the program enters the graph as a resolved source.
+     * Swapping to the action is a one-path change. */
+    const distribution = scriptCCompilerDistribution();
+    const compilerModule = (await import(
+      new URL(`file://${join(distribution, "index.js")}`).href
+    )) as {
+      emitLibraryCompilationPlan?: (plan: unknown) => string;
+    };
+    if (typeof compilerModule.emitLibraryCompilationPlan !== "function") {
+      throw new Error(
+        "The pinned ScriptC compiler exports no emitLibraryCompilationPlan",
+      );
+    }
+    const programText = compilerModule.emitLibraryCompilationPlan(
+      libraryPlanned.plan,
+    );
+    const programFileName = input.backend === "llvm"
+      ? "program.ll"
+      : "program.c";
+    const programPath = join(input.scratch, programFileName);
+    writeFileSync(programPath, programText);
+    const programId = `generated/scriptc/${input.backend}/library-program`;
+    const programResolution = await resolveSourceArtifact({
+      id: programId,
+      path: programPath,
+      kind: "generated-source",
+      entryType: "file",
+      mediaType: input.backend === "llvm" ? "text/x-llvm" : "text/x-c",
+      target,
+      domain: "target",
+      cache: "exportable",
+      fileName: programFileName,
+      logicalPath: `generated/scriptc/${input.backend}/${programFileName}`,
+    });
+
+    const archiveId = `generated/scriptc/${input.backend}/library-archive`;
+    const external = await planLibraryExternalCBuild(libraryPlanned.plan, {
+      program: programId,
+      runtime: scriptcRuntime.id,
+      output: archiveId,
+      objectIdPrefix: "object/scriptc-library/",
+    });
+    const archivePlan = external.plans.at(-1);
+    if (archivePlan === undefined) {
+      throw new Error("ScriptC produced no archive command for the library");
+    }
+    const objectPlans = external.plans.slice(0, -1).map((plan, index) =>
+      planScriptCRuntimeObject({
+        actionId: `compile/scriptc-library/${external.objects[index]!.fileName}`,
+        plan,
+        artifactFileName: external.objects[index]!.fileName,
+        tool: clangTool,
+        driverPlatform: "linux",
+        executionPlatform,
+        target,
+      })
+    );
+    const arTool = await toolIdentity(
+      "tool/ar",
+      input.tools.ar ?? "/usr/bin/ar",
+    );
+    if (arTool.id !== `tool/${archivePlan.driver.command}`) {
+      throw new Error(
+        `ScriptC archives with ${archivePlan.driver.command}, not ar`,
+      );
+    }
+    const archiveArguments = archivePlan.arguments.map((argument) => {
+      if (argument.kind === "literal") {
+        return { kind: "literal" as const, value: argument.value };
+      }
+      if (argument.kind === "output-path") {
+        return { kind: "output-path" as const, artifact: argument.output };
+      }
+      return argument.path === undefined
+        ? { kind: "input-path" as const, artifact: argument.input }
+        : {
+            kind: "input-path" as const,
+            artifact: argument.input,
+            path: argument.path,
+          };
+    });
+    const archiveArtifact: ArtifactDefinition = Object.freeze({
+      id: archiveId,
+      kind: "native-object",
+      entryType: "file",
+      mediaType: "application/x-archive",
+      target,
+      domain: "target",
+      cache: "exportable",
+      origin: Object.freeze({
+        kind: "action",
+        action: `archive/scriptc-library/${input.backend}`,
+        fileName: "program.lib.a",
+      }),
+    });
+    const archiveAction: ArtifactActionDefinition = Object.freeze({
+      id: `archive/scriptc-library/${input.backend}`,
+      implementation: Object.freeze({
+        id: "native-typescript/scriptc-library-archive",
+        version: "1",
+      }),
+      tool: Object.freeze({ ...arTool }),
+      arguments: Object.freeze(archiveArguments),
+      environment: Object.freeze([]),
+      inputs: Object.freeze([
+        ...new Set(
+          archivePlan.arguments.flatMap((argument) =>
+            argument.kind === "input-path" ? [argument.input] : []
+          ),
+        ),
+      ]),
+      outputs: Object.freeze([archiveId]),
+      standardOutput: Object.freeze({ kind: "report" as const }),
+      workingDirectory: "isolated" as const,
+      network: "denied" as const,
+      executionPlatform,
+      target,
+      deterministic: true,
+      cacheable: true,
+    });
+
+    /* The .so link is the target's, and the adapter and runtime objects
+     * stay DIRECT positional inputs rather than archive members: archive
+     * semantics drop unreferenced members, and the adapters' whole
+     * registration story rides constructors nothing references. libjvm is
+     * deliberately absent — the host process already holds it, and the
+     * loader resolves the undefined JNI symbols from it. */
+    const soId = `product/${project.name}-hosted/${input.backend}`;
+    const soFileName = `lib${project.output}.so`;
+    const soArtifact: ArtifactDefinition = Object.freeze({
+      id: soId,
+      kind: "native-object",
+      entryType: "file",
+      mediaType: "application/x-sharedlib",
+      target,
+      domain: "target",
+      cache: "none",
+      origin: Object.freeze({
+        kind: "action",
+        action: `link/jvm-hosted-library/${input.backend}`,
+        fileName: soFileName,
+      }),
+    });
+    const soAction: ArtifactActionDefinition = Object.freeze({
+      id: `link/jvm-hosted-library/${input.backend}`,
+      implementation: Object.freeze({
+        id: "native-typescript/jvm-hosted-library-link",
+        version: "1",
+      }),
+      tool: Object.freeze({ ...clangTool }),
+      arguments: Object.freeze([
+        Object.freeze({ kind: "literal" as const, value: "-shared" }),
+        Object.freeze({ kind: "literal" as const, value: "-o" }),
+        Object.freeze({ kind: "output-path" as const, artifact: soId }),
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: targetObjects.runtime.object.id,
+        }),
+        ...targetObjects.adapters.map(({ plan }) =>
+          Object.freeze({
+            kind: "input-path" as const,
+            artifact: plan.object.id,
+          })
+        ),
+        Object.freeze({ kind: "input-path" as const, artifact: archiveId }),
+      ]),
+      environment: Object.freeze([]),
+      inputs: Object.freeze([
+        targetObjects.runtime.object.id,
+        ...targetObjects.adapters.map(({ plan }) => plan.object.id),
+        archiveId,
+      ]),
+      outputs: Object.freeze([soId]),
+      standardOutput: Object.freeze({ kind: "report" as const }),
+      workingDirectory: "isolated" as const,
+      network: "denied" as const,
+      executionPlatform,
+      target,
+      deterministic: true,
+      /* A product is not cached, so its link may not claim to be — the
+       * same pairing the executable link states. */
+      cacheable: false,
+    });
+
+    const hostedGraph = defineArtifactGraph({
+      artifacts: [
+        ...sdk.artifacts,
+        /* Only what this graph uses: the emitter tool-input belongs to the
+         * executable path's emission action, which the stopgap replaces. */
+        scriptcRuntime,
+        scriptcHeaders,
+        programResolution.artifact,
+        ...targetObjects.artifacts,
+        ...objectPlans.map(({ artifact }) => artifact),
+        archiveArtifact,
+        soArtifact,
+      ],
+      actions: [
+        ...targetObjects.actions,
+        ...objectPlans.map(({ action }) => action),
+        archiveAction,
+        soAction,
+      ],
+    });
+    const hostedReport = await executeArtifactGraph(hostedGraph, {
+      buildRoot: join(input.scratch, `link-hosted-${input.backend}`),
+      sourcePaths: {
+        ...sdk.sourcePaths,
+        [targetRuntimeArtifactIds.sourceTree]: runtimePath,
+        [scriptcRuntime.id]: scriptcRuntimeRoot,
+        [scriptcHeaders.id]: scriptcRuntimeInclude,
+        [programId]: programPath,
+        ...Object.fromEntries(
+          targetObjects.adapters.map(({ plan }) => [plan.source.id, adapterPath]),
+        ),
+      },
+      tools: { ...tools, [arTool.id]: { path: input.tools.ar ?? "/usr/bin/ar" } },
+      sandbox,
+      ...(cache === undefined ? {} : { cache }),
+    });
+    const hostedProduct = hostedReport.artifacts.find(({ id }) => id === soId);
+    if (hostedProduct === undefined) {
+      throw new Error("the hosted library graph produced no shared object");
+    }
+    return Object.freeze({
+      productPath: hostedProduct.path,
+      generatedPackagePath: generatedRoot,
+      jvmLibraryPath: sdk.libraryPath,
+      ...(builtClassesPath === undefined ? {} : { builtClassesPath }),
+      ...(builtSubclassesPath === undefined ? {} : { builtSubclassesPath }),
+    });
+  }
+
   const planned = planExecutableCompilation(
     join(input.projectRoot, project.entry),
     {
