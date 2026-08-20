@@ -698,7 +698,40 @@ export interface ArtifactExecutionOptions {
   readonly sandbox: ArtifactSandboxBinding;
   readonly cache?: ArtifactCacheBinding;
   readonly maxConcurrency?: number;
+  /**
+   * How long one action may run before it is killed, in milliseconds.
+   *
+   * Execution policy rather than action definition, deliberately. A timeout
+   * does not change what an action PRODUCES, so putting it in the definition
+   * would make two builds of the same artifact disagree about its identity
+   * for a reason that has nothing to do with its content.
+   *
+   * Omitted means no deadline, which is what a build under a human's
+   * attention wants and what an unattended one must not have: a wedged
+   * compiler otherwise blocks its executor forever, and the graph reports
+   * nothing at all rather than one failed action.
+   */
+  readonly actionTimeoutMs?: number;
+  /**
+   * How many bytes of an action's captured stdout and stderr are kept, each.
+   *
+   * A build process holding a tool's whole output in a string is one noisy
+   * action away from exhausting its own heap, and the diagnostic value of a
+   * hundred megabytes of repeated warnings is nil. Beyond the bound the
+   * capture is truncated and SAYS it was, because output that silently stops
+   * is worse than output that stops and admits it.
+   *
+   * Defaults to 8 MiB per stream. Standard output redirected to an artifact
+   * is unaffected: it streams to disk and is bounded by the filesystem.
+   */
+  readonly maximumCapturedBytes?: number;
+  /** Cancels the whole execution. Actions already running are killed. */
+  readonly signal?: AbortSignal;
 }
+
+/** Kept per stream, per action. Generous enough that no honest tool reaches
+ * it, small enough that a runaway one cannot exhaust the build process. */
+const DEFAULT_MAXIMUM_CAPTURED_BYTES = 8 * 1024 * 1024;
 
 export interface ArtifactSandboxBinding {
   readonly kind: "bubblewrap";
@@ -782,6 +815,9 @@ async function runCommand(options: {
   readonly actionId: string;
   readonly sandbox: ArtifactSandboxBinding;
   readonly standardOutputPath: string | null;
+  readonly timeoutMs: number | undefined;
+  readonly maximumCapturedBytes: number;
+  readonly signal: AbortSignal | undefined;
 }): Promise<{ stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     const sandboxArguments = [
@@ -820,25 +856,85 @@ async function runCommand(options: {
     });
     let stdout = "";
     let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     let processComplete = false;
     let standardOutputComplete = options.standardOutputPath === null;
     let settled = false;
+    /* Killing bwrap ends the tree: --die-with-parent sets PR_SET_PDEATHSIG on
+     * the process it supervises, and --new-session keeps that tree out of
+     * this process's session. */
+    const stopWaiting = (): void => {
+      clearTimeout(deadline);
+      options.signal?.removeEventListener("abort", cancel);
+    };
     const succeedIfComplete = (): void => {
       if (!settled && processComplete && standardOutputComplete) {
         settled = true;
+        stopWaiting();
         resolve({ stdout, stderr });
       }
     };
     const fail = (error: ArtifactExecutionError): void => {
       if (settled) return;
       settled = true;
+      stopWaiting();
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
       reject(error);
+    };
+    const cancel = (): void => {
+      fail(
+        new ArtifactExecutionError(
+          `Action ${options.actionId} was cancelled`,
+          { actionId: options.actionId, stdout, stderr },
+        ),
+      );
+    };
+    const deadline = options.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          fail(
+            new ArtifactExecutionError(
+              `Action ${options.actionId} exceeded its ${options.timeoutMs}ms deadline`,
+              { actionId: options.actionId, stdout, stderr },
+            ),
+          );
+        }, options.timeoutMs);
+    if (options.signal !== undefined) {
+      if (options.signal.aborted) {
+        cancel();
+        return;
+      }
+      options.signal.addEventListener("abort", cancel, { once: true });
+    }
+    /* Truncation announces itself. Output that silently stops is worse than
+     * output that stops and says why, because the reader spends the
+     * difference looking for a cause that is not in the log. */
+    const capture = (
+      current: string,
+      chunk: string,
+      truncated: boolean,
+    ): { text: string; truncated: boolean } => {
+      if (truncated) return { text: current, truncated };
+      const room = options.maximumCapturedBytes - Buffer.byteLength(current, "utf8");
+      if (Buffer.byteLength(chunk, "utf8") <= room) {
+        return { text: current + chunk, truncated: false };
+      }
+      return {
+        text: `${current}${chunk.slice(0, Math.max(0, room))}\n` +
+          `[truncated at ${options.maximumCapturedBytes} bytes]\n`,
+        truncated: true,
+      };
     };
 
     if (options.standardOutputPath === null) {
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
-        stdout += chunk;
+        const next = capture(stdout, chunk, stdoutTruncated);
+        stdout = next.text;
+        stdoutTruncated = next.truncated;
       });
     } else {
       const standardOutput = createWriteStream(options.standardOutputPath, {
@@ -861,7 +957,9 @@ async function runCommand(options: {
     }
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
+      const next = capture(stderr, chunk, stderrTruncated);
+      stderr = next.text;
+      stderrTruncated = next.truncated;
     });
     child.on("error", (error) => {
       fail(
@@ -937,6 +1035,9 @@ async function executeAction(options: {
   readonly tool: ArtifactToolBinding;
   readonly sandbox: ArtifactSandboxBinding;
   readonly cacheKey: string | null;
+  readonly timeoutMs: number | undefined;
+  readonly maximumCapturedBytes: number;
+  readonly signal: AbortSignal | undefined;
 }): Promise<ArtifactActionReport> {
   const { action } = options;
   await mkdir(options.layout.inputRoot, { recursive: true });
@@ -1019,6 +1120,9 @@ async function executeAction(options: {
     actionId: action.id,
     sandbox: options.sandbox,
     standardOutputPath,
+    timeoutMs: options.timeoutMs,
+    maximumCapturedBytes: options.maximumCapturedBytes,
+    signal: options.signal,
   });
   const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
 
@@ -1141,6 +1245,9 @@ async function executeOrRestoreAction(options: {
   readonly cache: PreparedArtifactCache | null;
   readonly resolveTool: () => Promise<ArtifactToolBinding>;
   readonly sandbox: ArtifactSandboxBinding;
+  readonly timeoutMs: number | undefined;
+  readonly maximumCapturedBytes: number;
+  readonly signal: AbortSignal | undefined;
 }): Promise<ArtifactActionReport> {
   const context = {
     action: options.action,
@@ -1179,6 +1286,9 @@ async function executeOrRestoreAction(options: {
     layout,
     tool: await options.resolveTool(),
     sandbox: options.sandbox,
+    timeoutMs: options.timeoutMs,
+    maximumCapturedBytes: options.maximumCapturedBytes,
+    signal: options.signal,
     cacheKey,
   });
   if (options.cache !== null && cacheKey !== null) {
@@ -1214,6 +1324,26 @@ export async function executeArtifactGraph(
   if (options.sandbox.kind !== "bubblewrap" || !isAbsolute(options.sandbox.path)) {
     throw new ArtifactExecutionError(
       "The artifact executor requires an absolute Bubblewrap sandbox binding",
+    );
+  }
+  /* Refused rather than clamped. A caller asking for a zero or fractional
+   * deadline has a bug, and silently substituting a working value hides it
+   * until the build behaves in a way the caller cannot explain. */
+  if (
+    options.actionTimeoutMs !== undefined &&
+    (!Number.isSafeInteger(options.actionTimeoutMs) || options.actionTimeoutMs <= 0)
+  ) {
+    throw new ArtifactExecutionError(
+      "actionTimeoutMs must be a positive safe integer of milliseconds",
+    );
+  }
+  if (
+    options.maximumCapturedBytes !== undefined &&
+    (!Number.isSafeInteger(options.maximumCapturedBytes) ||
+      options.maximumCapturedBytes <= 0)
+  ) {
+    throw new ArtifactExecutionError(
+      "maximumCapturedBytes must be a positive safe integer",
     );
   }
   await mkdir(options.buildRoot, { recursive: false });
@@ -1293,6 +1423,10 @@ export async function executeArtifactGraph(
             cache,
             resolveTool: async () => await resolveTool(action),
             sandbox: options.sandbox,
+            timeoutMs: options.actionTimeoutMs,
+            maximumCapturedBytes:
+              options.maximumCapturedBytes ?? DEFAULT_MAXIMUM_CAPTURED_BYTES,
+            signal: options.signal,
           });
         }),
       );

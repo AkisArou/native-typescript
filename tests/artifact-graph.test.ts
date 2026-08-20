@@ -1271,3 +1271,138 @@ test("a directory artifact's digest notices a file becoming executable", async (
     rmSync(scratch, { force: true, recursive: true });
   }
 });
+
+/** A graph whose one action runs `sh -c <script>` under the sandbox and
+ * captures its standard output as the product. Enough to exercise execution
+ * POLICY — deadlines, output bounds, refusals — without a compiler in the
+ * way. */
+function shellGraph(shellPath: string, script: string): ArtifactGraph {
+  const outputId = "metadata/policy";
+  return defineArtifactGraph({
+    artifacts: [
+      {
+        id: outputId,
+        kind: "metadata",
+        entryType: "file",
+        mediaType: "application/json",
+        target,
+        domain: "host",
+        cache: "none",
+        origin: {
+          kind: "action",
+          action: "run/shell",
+          fileName: "metadata.json",
+        },
+      },
+    ],
+    actions: [
+      {
+        id: "run/shell",
+        implementation: { id: "test/policy", version: "1" },
+        tool: { id: "tool/sh", version: "system", digest: digest(shellPath) },
+        arguments: [
+          { kind: "literal", value: "-c" },
+          { kind: "literal", value: script },
+        ],
+        environment: [],
+        inputs: [],
+        outputs: [outputId],
+        standardOutput: { kind: "artifact", artifact: outputId },
+        workingDirectory: "isolated",
+        network: "denied",
+        executionPlatform,
+        target,
+        deterministic: false,
+        cacheable: false,
+      },
+    ],
+  });
+}
+
+test("an action that never finishes is ended by its deadline", async () => {
+  /* Without this a wedged tool blocks its executor forever and the graph
+   * reports nothing at all, rather than one failed action. */
+  const shellPath = executable("sh");
+  const sandboxPath = executable("bwrap");
+  const root = mkdtempSync(join(tmpdir(), "nts-timeout-"));
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      executeArtifactGraph(shellGraph(shellPath, "sleep 60"), {
+        buildRoot: join(root, "build"),
+        sourcePaths: {},
+        tools: { "tool/sh": { path: shellPath } },
+        sandbox: { kind: "bubblewrap", path: sandboxPath },
+        actionTimeoutMs: 1500,
+      }),
+      /exceeded its 1500ms deadline/u,
+    );
+    /* Ended by the deadline rather than by the sleep finishing. */
+    assert.ok(Date.now() - started < 30_000);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a noisy action cannot exhaust the build process, and says it was cut", async () => {
+  /* The capture was an unbounded string, so one runaway tool could take the
+   * whole build down with it. Truncation ANNOUNCES itself: output that
+   * silently stops sends the reader looking for a cause that is not there. */
+  const shellPath = executable("sh");
+  const sandboxPath = executable("bwrap");
+  const root = mkdtempSync(join(tmpdir(), "nts-noise-"));
+  try {
+    await assert.rejects(
+      executeArtifactGraph(
+        shellGraph(shellPath, "yes ' padding padding padding' | head -c 400000 1>&2; exit 3"),
+        {
+          buildRoot: join(root, "build"),
+          sourcePaths: {},
+          tools: { "tool/sh": { path: shellPath } },
+          sandbox: { kind: "bubblewrap", path: sandboxPath },
+          maximumCapturedBytes: 4096,
+        },
+      ),
+      (error: unknown) => {
+        const detail = error as { stderr?: string };
+        assert.ok(detail.stderr !== undefined);
+        assert.ok(
+          detail.stderr.length < 20_000,
+          `captured ${detail.stderr.length} bytes despite a 4096-byte bound`,
+        );
+        assert.match(detail.stderr, /\[truncated at 4096 bytes\]/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("execution options are refused rather than clamped", async () => {
+  /* A caller asking for a zero deadline has a bug. Substituting a working
+   * value hides it until the build behaves inexplicably. */
+  const shellPath = executable("sh");
+  const sandboxPath = executable("bwrap");
+  const root = mkdtempSync(join(tmpdir(), "nts-policy-"));
+  try {
+    for (const [options, pattern] of [
+      [{ actionTimeoutMs: 0 }, /actionTimeoutMs must be a positive safe integer/u],
+      [{ actionTimeoutMs: 1.5 }, /actionTimeoutMs must be a positive safe integer/u],
+      [{ maximumCapturedBytes: -1 }, /maximumCapturedBytes must be a positive safe integer/u],
+    ] as const) {
+      await assert.rejects(
+        executeArtifactGraph(shellGraph(shellPath, "true"), {
+          buildRoot: join(root, `build-${JSON.stringify(options)}`),
+          sourcePaths: {},
+          tools: { "tool/sh": { path: shellPath } },
+          sandbox: { kind: "bubblewrap", path: sandboxPath },
+          ...options,
+        }),
+        pattern,
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
