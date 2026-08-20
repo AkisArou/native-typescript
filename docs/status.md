@@ -713,6 +713,26 @@ is gdk4's binding — carried by the import, derived by the same function that
 produced it there, and proven present at composition. Nothing about the
 display is declared twice, and gtk4 depends on no local binding for it.
 
+A layout record crosses on the opposite principle, and the contrast is the
+point. A handle IS a pointer into memory the owner owns, so its identity has
+to cross and its destructor is named in the owner's terms. A record is a
+VALUE: it reaches TypeScript as a plain object and reaches C as bytes the
+consumer lays out itself, so nothing of the owner's crosses at runtime and
+there is no identity to import. `gtk_popover_get_pointing_to()` fills Gdk's
+rectangle, and gtk4 defines the type for its ABI while declaring it as gdk4's
+for its identity — `import type { Rectangle as GdkRectangle }` — with NO
+entry in the manifest's imports. That is what a foreign ENUMERATION already
+did; a record needed only its layout to travel the same way.
+
+Both packages prove that layout independently, against their own SDK headers,
+because `gtk/gtk.h` includes `gdk/gdk.h`. Two packages built from different
+headers therefore disagree at generation rather than at a call.
+
+A record this project SELECTED must project or say why. One merely REACHED
+through a foreign type reference need not: if a field of it has no C spelling
+here, the record is not projected and the member naming it is refused where
+the reference is, which names the member and the type as a field path cannot.
+
 Composition is the only stage that sees both packages, so it proves every
 handle upcast target is provided, is a handle, and shares its derived handle's
 thread-safety and identity contracts. Inside the artifact graph, each imported
