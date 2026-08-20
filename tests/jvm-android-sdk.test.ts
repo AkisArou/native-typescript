@@ -215,9 +215,13 @@ test(
   () => {
     // The acceptance application's binding, minus the runtime: construct an
     // activity, receive onCreate's bundle, set a real view, find one by id,
-    // read the intent and retarget it by name. Every shape is one the
-    // algebra landed: scalars, handles, statics, string parameters, and the
-    // checked failure channel. String RESULTS are the named pending flip.
+    // read the intent, retarget it by name, and move payload arrays both
+    // ways. Every shape is one the algebra landed: scalars, handles,
+    // statics, strings both directions, spans, string vectors, and the
+    // checked failure channel. Note getByteArrayExtra returns null at
+    // runtime when the extra is absent — that refuses through the error
+    // channel today, and it is the real-world demand evidence for a
+    // nullable-span-result arm whenever one is proposed.
     const snapshot = ingestJvmClasses(sdkSources(), {
       classes: [
         { binaryName: "java/lang/Object" },
@@ -233,6 +237,10 @@ test(
           methods: [
             { name: "setAction", descriptor: "(Ljava/lang/String;)Landroid/content/Intent;" },
             "getAction",
+            { name: "putExtra", descriptor: "(Ljava/lang/String;[B)Landroid/content/Intent;" },
+            "getByteArrayExtra",
+            "getStringArrayExtra",
+            "getIntArrayExtra",
           ],
         },
         {
@@ -294,6 +302,25 @@ test(
     assert.match(
       generated.declarations,
       /setAction\(a0: string \| null\): Intent \| null;/u,
+    );
+    // The arrays family against the real artifact: a byte[] payload in
+    // (span + units:"elements"), a byte[] result out, a String[] vector,
+    // and an int[] span, all on Intent as shipped.
+    assert.match(
+      generated.declarations,
+      /putExtra\(a0: string \| null, a1: Uint8Array\): Intent \| null;/u,
+    );
+    assert.match(
+      generated.declarations,
+      /getByteArrayExtra\(a0: string \| null\): Uint8Array;/u,
+    );
+    assert.match(
+      generated.declarations,
+      /getStringArrayExtra\(a0: string \| null\): string\[\];/u,
+    );
+    assert.match(
+      generated.declarations,
+      /getIntArrayExtra\(a0: string \| null\): Int32Array;/u,
     );
     assert.match(
       generated.declarations,
