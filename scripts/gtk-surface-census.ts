@@ -576,6 +576,12 @@ if (filter !== undefined) {
   for (const refusal of matched.sort((a, b) =>
     `${a.owner}.${a.member}`.localeCompare(`${b.owner}.${b.member}`)
   )) {
-    console.log(`  ${refusal.owner}.${refusal.member}`);
+    /* Tagged with the reason when the filter is broad, so a caller can group
+     * the whole refusal set in one run rather than one run per bucket. */
+    console.log(
+      filter.length === 0
+        ? `  ${refusal.owner}.${refusal.member}\t${refusal.reason.replace(/\s+/gu, " ")}`
+        : `  ${refusal.owner}.${refusal.member}`,
+    );
   }
 }
