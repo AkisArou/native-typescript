@@ -51,6 +51,7 @@ function snapshot() {
             "sumBytes",
             "reverseBytes",
             "splitWords",
+            "joinWords",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -239,6 +240,30 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     nullable: false,
     addressSpace: 0,
   });
+
+  // A String[] ARGUMENT: borrowed for the call, nullable (NULL is an
+  // omitted list, not an empty one), no release, and the source arm gains
+  // null only on this side — a null result refuses at the adapter.
+  assert.match(
+    generated.declarations,
+    /static joinWords\(a0: string\[\] \| null\): string \| null;/u,
+  );
+  const joinBinding =
+    generated.manifest.bindings["fixture.fixture.widget.joinwords"];
+  assert.ok(joinBinding !== undefined && joinBinding.kind !== "constant");
+  const vectorParameter = joinBinding.signature.parameters[0];
+  assert.equal(vectorParameter!.type, "nullable_const_utf8_vector");
+  assert.equal(vectorParameter!.nullable, true);
+  assert.deepEqual(vectorParameter!.ownership, {
+    kind: "borrowed",
+    scope: "call",
+  });
+  assert.deepEqual(vectorParameter!.marshal, {
+    kind: "string-vector",
+    encoding: "utf-8",
+    termination: "nul",
+    embeddedNul: "reject",
+  });
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
@@ -361,4 +386,12 @@ test("each ownership shape translates through the neutral compiler input", () =>
     nullable: false,
     release: { kind: "symbol", symbol: "nts_jvm_fixture_strv_free" },
   });
+
+  // A String[] ARGUMENT lowers through the existing borrowed vector arm:
+  // one nullable string-array source value behind one physical slot.
+  const join = binding("fixture.fixture.widget.joinwords");
+  const vectorSlot = join.parameters.find(
+    ({ projection }) => projection.kind === "utf8CStringArray",
+  );
+  assert.ok(vectorSlot !== undefined);
 });

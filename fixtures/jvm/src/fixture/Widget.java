@@ -92,6 +92,18 @@ public class Widget {
     return tags.length;
   }
 
+  public static String joinWords(String[] words) {
+    return String.join(",", words);
+  }
+
+  public static double[] samples() {
+    return new double[] {0.5};
+  }
+
+  public static long[] ids() {
+    return new long[] {1L};
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

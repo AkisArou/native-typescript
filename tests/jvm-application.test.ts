@@ -77,6 +77,8 @@ test(
             "reverseBytes",
             "splitWords",
             "emptyWords",
+            "countTags",
+            "joinWords",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],

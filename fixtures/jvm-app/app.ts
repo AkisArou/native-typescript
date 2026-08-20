@@ -60,6 +60,21 @@ if (
 ) failed = true;
 if (Widget.emptyWords().length !== 0) failed = true;
 
+/* A String[] argument: content arrives in order and intact (the join is
+ * the proof), NULL crosses as an omitted list and Java's own
+ * NullPointerException arrives through the checked channel as an ordinary
+ * catchable error — the first TS-level catch of a native failure in this
+ * app, deliberately. */
+if (Widget.joinWords(["alpha", "🎉"]) !== "alpha,🎉") failed = true;
+if (Widget.countTags(["a", "b", "c"]) !== 3) failed = true;
+let caught = false;
+try {
+  Widget.countTags(null);
+} catch {
+  caught = true;
+}
+if (!caught) failed = true;
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a

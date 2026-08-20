@@ -41,6 +41,8 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "splitWords",
     "emptyWords",
     "nullElement",
+    "countTags",
+    "joinWords",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -108,8 +110,10 @@ test("the adapter source is deterministic and carries its member table", () => {
     first.staticMethods.map(({ name }) => name).sort(),
     [
       "checkedAdd",
+      "countTags",
       "emptyWords",
       "greet",
+      "joinWords",
       "nullBytes",
       "nullElement",
       "reverseBytes",
@@ -203,29 +207,53 @@ test("positions outside the slice algebra are refused precisely", () => {
       ["NTS7001"],
     );
     const messages = error.diagnostics.map(({ message }) => message).join("\n");
-    assert.match(messages, /array type 'int\[\]', whose element family/u);
+    assert.match(
+      messages,
+      /array type 'int\[\]', which waits on the widened span boundary for its carrier Int32Array/u,
+    );
   }
 });
 
-test("a String[] argument refuses while the result crosses", () => {
-  // The failing program for the string-vector ARGUMENT slice: countTags
-  // takes String[] and today only the result direction is projected.
-  const withCount = ingestSurface([
-    { binaryName: "fixture/Widget", methods: ["countTags"] },
-  ]);
-  try {
-    generateJvmAdapterSource(withCount, { packageSlug: "fixture" });
-    assert.fail("expected JvmGenerationError");
-  } catch (error) {
-    assert.ok(error instanceof JvmGenerationError);
-    assert.deepEqual(
-      error.diagnostics.map(({ code }) => code),
-      ["NTS7001"],
-    );
-    assert.match(
-      error.diagnostics[0]!.message,
-      /String\[\], which crosses only as a result/u,
-    );
+test("a String[] argument crosses as a borrowed terminated vector", () => {
+  const withCount = generateJvmAdapterSource(
+    ingestSurface([
+      { binaryName: "fixture/Widget", methods: ["countTags"] },
+    ]),
+    { packageSlug: "fixture" },
+  );
+  const countTags = withCount.staticMethods.find(
+    ({ name }) => name === "countTags",
+  )!;
+  assert.deepEqual(countTags.parameters, [{ kind: "string-vector" }]);
+  assert.ok(
+    withCount.header.includes(
+      `jint ${countTags.adapterSymbol}(const char *const *a0, char **error);`,
+    ),
+  );
+});
+
+test("refused array elements name the carrier each is missing", () => {
+  // A reader meeting double[] learns Float64Array is the missing piece
+  // rather than concluding arrays are unsupported.
+  for (
+    const [method, pattern] of [
+      ["samples", /'double\[\]'; its carrier Float64Array has no compiler runtime representation/u],
+      [
+        "ids",
+        /'long\[\]'; its carrier BigInt64Array has no compiler runtime representation, and bigint itself is outside the compilable value set/u,
+      ],
+    ] as const
+  ) {
+    try {
+      generateJvmAdapterSource(
+        ingestSurface([{ binaryName: "fixture/Widget", methods: [method] }]),
+        { packageSlug: "fixture" },
+      );
+      assert.fail("expected JvmGenerationError");
+    } catch (error) {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(error.diagnostics[0]!.message, pattern);
+    }
   }
 });
 
@@ -298,6 +326,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     )!.adapterSymbol;
     const nullElementSymbol = adapter.staticMethods.find(
       ({ name }) => name === "nullElement",
+    )!.adapterSymbol;
+    const countTagsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "countTags",
+    )!.adapterSymbol;
+    const joinWordsSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "joinWords",
     )!.adapterSymbol;
     const strvFreeSymbol = adapter.stringVectorSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
@@ -390,6 +424,18 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  words = ${nullElementSymbol}(&error);`,
       "  if (words != NULL || error == NULL ||",
       `      strstr(${messageSymbol}(error), "null element") == NULL) return 36;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
+      /* String[] argument: content crosses (join proves elements arrive in
+       * order and intact, emoji included), NULL crosses as NULL and Java's
+       * own NullPointerException reports through the checked channel. */
+      "  const char *const tags[] = {\"alpha\", \"\\xf0\\x9f\\x8e\\x89\", NULL};",
+      `  if (${countTagsSymbol}(tags, &error) != 2 || error != NULL) return 37;`,
+      `  text = ${joinWordsSymbol}(tags, &error);`,
+      "  if (text == NULL || error != NULL) return 38;",
+      '  if (strcmp(text, "alpha,\\xf0\\x9f\\x8e\\x89") != 0) return 39;',
+      "  free(text);",
+      `  (void)${countTagsSymbol}(NULL, &error);`,
+      "  if (error == NULL) return 40;",
       `  ${releaseSymbol}(error); error = NULL;`,
       `  ${releaseWidget}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",

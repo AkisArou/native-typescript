@@ -525,6 +525,19 @@ export function generateJvmScabiPackage(
     });
   }
 
+  function needStringVectorArgumentTypes(): void {
+    /* Outer nullability mirrors the position: NULL is an omitted list, not
+     * an empty one. Elements are the existing borrowed const string type —
+     * non-null, because a NULL slot is the terminator. */
+    types["nullable_const_utf8_vector"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "const_utf8",
+      mutability: "const",
+      nullable: true,
+      addressSpace: 0,
+    });
+  }
+
   function needStringVectorResultTypes(): void {
     /* The element is an owned, NON-null mutable string: a NULL slot is the
      * terminator, so element absence is unrepresentable by construction. */
@@ -563,6 +576,24 @@ export function generateJvmScabiPackage(
         nullable: true,
         ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
         marshal: stringMarshal,
+      })];
+    }
+    if (position.kind === "string-vector") {
+      needStringVectorArgumentTypes();
+      /* Built for the call out of a managed array the program keeps: the
+       * callee may not take it and may not keep it, and frees nothing. */
+      return [Object.freeze({
+        name: `a${index}`,
+        type: "nullable_const_utf8_vector",
+        passMode: "pointer" as const,
+        nullable: true,
+        ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        marshal: Object.freeze({
+          kind: "string-vector" as const,
+          encoding: "utf-8" as const,
+          termination: "nul" as const,
+          embeddedNul: "reject" as const,
+        }),
       })];
     }
     if (position.kind === "byte-span") {
@@ -637,6 +668,15 @@ export function generateJvmScabiPackage(
     return scalarProjections[position.primitive].sourceType;
   }
 
+  /** A vector ARGUMENT may be omitted (NULL is not an empty list), so only
+   * the parameter side gains the null arm; the result side stays non-null
+   * because a null String[] result refuses at the adapter. */
+  function parameterSourceTypeOf(position: JvmAdapterPosition): string {
+    return position.kind === "string-vector"
+      ? "string[] | null"
+      : sourceTypeOf(position);
+  }
+
   /* Constructors: the first selected one is THE constructor; the rest are
    * factories named by their descriptor hash, because TypeScript declares
    * one constructor and Java identity for the others is the descriptor. */
@@ -666,7 +706,7 @@ export function generateJvmScabiPackage(
       }));
       adapterBindings.push(bindingId);
       const parameterList = constructor.parameters
-        .map((parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`)
+        .map((parameter, position) => `a${position}: ${parameterSourceTypeOf(parameter)}`)
         .join(", ");
       declareMember(
         class_.binaryName,
@@ -800,7 +840,7 @@ export function generateJvmScabiPackage(
     }));
     adapterBindings.push(bindingId);
     const parameterList = method.parameters
-      .map((parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`)
+      .map((parameter, position) => `a${position}: ${parameterSourceTypeOf(parameter)}`)
       .join(", ");
     const resultType = method.result.kind === "void"
       ? "void"

@@ -33,6 +33,7 @@ function positionCTypes(position: JvmAdapterPosition): readonly string[] {
   /* A byte span is one position across two physical slots; the probe
    * proves both, in the order the adapter declares them. */
   if (position.kind === "byte-span") return ["const uint8_t*", "size_t"];
+  if (position.kind === "string-vector") return ["const char* const*"];
   return ["void*"];
 }
 

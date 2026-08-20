@@ -15,10 +15,10 @@
  * scalars and void, selected-class handles, java/lang/String through an
  * exact UTF-16 bridge, byte[] both directions through JNI's Region copy
  * convention (borrowed span in, owned copy out beside a compiler-owned
- * length slot), String[] results as owned NUL-terminated vectors,
- * constructors, and the checked failure channel (pending exception
- * captured to an error-out slot). String[] arguments and the remaining
- * element families are named next slices.
+ * length slot), String[] both directions as NUL-terminated vectors
+ * (borrowed in, owned copy out), constructors, and the checked failure
+ * channel (pending exception captured to an error-out slot). The
+ * remaining element families refuse naming exactly what each is missing.
  */
 
 import { createHash } from "node:crypto";
@@ -33,13 +33,15 @@ import type {
 } from "./jvm-model.ts";
 
 /** One adapter position: a JNI primitive scalar, a stable reference to a
- * class this selection projects, a string, or (arguments only) a borrowed
- * byte span — two C slots carrying one Java byte[]. */
+ * class this selection projects, a string, a borrowed byte span (two C
+ * slots carrying one Java byte[]), or a borrowed NUL-terminated string
+ * vector carrying one Java String[]. */
 export type JvmAdapterPosition =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
   | { readonly kind: "handle"; readonly binaryName: string }
   | { readonly kind: "string" }
-  | { readonly kind: "byte-span" };
+  | { readonly kind: "byte-span" }
+  | { readonly kind: "string-vector" };
 
 /** A byte-span result crosses as an owned copy with a compiler-owned
  * length out slot beside the error slot:
@@ -112,7 +114,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 11;
+  readonly schemaVersion: 12;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -240,10 +242,13 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "object; the adapter normalizes it into the NUL terminator the " +
       "string-vector contract already speaks, copying each element out " +
       "through the UTF-16 bridge into an owned vector the named release " +
-      "frees elements-and-all. A null String[] and a null ELEMENT are both " +
-      "named absences that refuse through the error channel - a NULL slot " +
-      "is the terminator, so an element's absence has no spelling that " +
-      "does not end the vector early",
+      "frees elements-and-all. A null String[] result and a null ELEMENT " +
+      "are named absences that refuse through the error channel - a NULL " +
+      "slot is the terminator, so an element's absence has no spelling " +
+      "that does not end the vector early. An ARGUMENT runs the same " +
+      "normalization inward: a frame-scoped jobjectArray built element by " +
+      "element through the bridge, where NULL crosses as NULL because an " +
+      "omitted list is not an empty one",
   },
   constructors: {
     kind: "translation",
@@ -315,18 +320,29 @@ function renderArrayType(
   return `${element}${"[]".repeat(type.dimensions)}`;
 }
 
+/** The typed-array carrier each refused primitive element WOULD use, so a
+ * reader meeting double[] learns Float64Array is the missing piece rather
+ * than thinking arrays are unsupported. Only Uint8Array, Uint32Array,
+ * Int32Array, and Float32Array have a compiler runtime representation. */
+const missingElementCarriers: Readonly<Partial<Record<JvmPrimitive, string>>> =
+  Object.freeze({
+    char: "Uint16Array",
+    short: "Int16Array",
+    double: "Float64Array",
+    long: "BigInt64Array",
+  });
+
 /** One position, or null with a precise refusal. A selected class is an
  * ordinary handle; an unselected one is a boundary the caller can move by
- * selecting the class. Arrays admit by element family AND direction:
- * byte[] crosses both ways, String[] comes back as a NUL-terminated
- * vector but does not yet cross inward, and everything else refuses by
- * its family, because each family is its own slice with its own demand. */
+ * selecting the class. Arrays admit by element family: byte[] and
+ * String[] cross, int[]/float[] wait on the widened span boundary, and
+ * every other element names exactly what it is missing, because each
+ * family is its own slice with its own demand. */
 function positionOf(
   type: JvmTypeReference,
   selectedNames: ReadonlySet<string>,
   path: string,
   what: string,
-  role: "parameter" | "result",
   diagnostics: JvmDiagnostic[],
 ): JvmAdapterPosition | JvmAdapterResult | null {
   if (type.kind === "void") return { kind: "void" };
@@ -349,26 +365,40 @@ function positionOf(
     );
     return null;
   }
-  const isByteArray = type.dimensions === 1 &&
-    type.element.kind === "primitive" &&
-    type.element.name === "byte";
-  if (isByteArray) {
-    return { kind: "byte-span" };
+  if (type.dimensions === 1 && type.element.kind === "primitive") {
+    const element = type.element.name;
+    if (element === "byte") return { kind: "byte-span" };
+    const carrier = missingElementCarriers[element];
+    diagnostics.push(diagnostic(
+      path,
+      element === "int" || element === "float"
+        ? `${what} is array type '${renderArrayType(type)}', which waits ` +
+          "on the widened span boundary for its carrier " +
+          `${element === "int" ? "Int32Array" : "Float32Array"}`
+        : carrier !== undefined
+          ? `${what} is array type '${renderArrayType(type)}'; its carrier ` +
+            `${carrier} has no compiler runtime representation` +
+            (element === "long"
+              ? ", and bigint itself is outside the compilable value set"
+              : "") +
+            ", so this element family is its own admission"
+          : `${what} is boolean[]: jboolean's u8 storage makes its carrier ` +
+            "a decision rather than a translation, so it is its own admission",
+    ));
+    return null;
   }
-  const isStringArray = type.dimensions === 1 &&
+  if (
+    type.dimensions === 1 &&
     type.element.kind === "object" &&
-    type.element.binaryName === "java/lang/String";
-  if (isStringArray && role === "result") {
+    type.element.binaryName === "java/lang/String"
+  ) {
     return { kind: "string-vector" };
   }
   diagnostics.push(
     diagnostic(
       path,
-      isStringArray
-        ? `${what} is String[], which crosses only as a result today; ` +
-          "the string-vector argument projection is a named next slice"
-        : `${what} is array type '${renderArrayType(type)}', whose element ` +
-          "family is not yet projected",
+      `${what} is array type '${renderArrayType(type)}', whose element ` +
+        "family is not yet projected",
     ),
   );
   return null;
@@ -393,13 +423,9 @@ function resolveSignature(
       selectedNames,
       `${path}/parameters/${index}`,
       `Parameter ${index}`,
-      "parameter",
       diagnostics,
     );
-    if (
-      position === null || position.kind === "void" ||
-      position.kind === "string-vector"
-    ) refused = true;
+    if (position === null || position.kind === "void") refused = true;
     else parameters.push(position);
   });
   const result = positionOf(
@@ -407,7 +433,6 @@ function resolveSignature(
     selectedNames,
     `${path}/result`,
     "Result",
-    "result",
     diagnostics,
   );
   if (result === null || refused) return null;
@@ -426,6 +451,9 @@ function positionDeclaration(
     /* One source value, two C slots: the bytes marshalling contract pairs a
      * borrowed const pointer with a usize length parameter it names. */
     return `const uint8_t *a${index}, size_t a${index}_length`;
+  }
+  if (position.kind === "string-vector") {
+    return `const char *const *a${index}`;
   }
   return `void *a${index}`;
 }
@@ -471,6 +499,7 @@ export function generateJvmAdapterSource(
   let usesStrings = false;
   let usesByteSpans = false;
   let usesStringVectors = false;
+  let usesStringVectorArguments = false;
 
   /* Releases every bridged local built before `before`, for the path where
    * a later bridge refuses; strings and byte spans clean each other up. */
@@ -484,7 +513,9 @@ export function generateJvmAdapterSource(
         ? [`${indent}if (js${earlier} != NULL) (*env)->DeleteLocalRef(env, js${earlier});`]
         : prior.kind === "byte-span"
           ? [`${indent}(*env)->DeleteLocalRef(env, ba${earlier});`]
-          : []
+          : prior.kind === "string-vector"
+            ? [`${indent}if (jv${earlier} != NULL) (*env)->DeleteLocalRef(env, jv${earlier});`]
+            : []
     );
   }
 
@@ -506,6 +537,50 @@ export function generateJvmAdapterSource(
           `    if (*error != NULL) {`,
           ...priorBridgeCleanup(parameters, index, "      "),
           `      ${zeroReturn}`,
+          `    }`,
+          `  }`,
+        );
+      }
+      if (parameter.kind === "string-vector") {
+        usesStringVectorArguments = true;
+        usesStrings = true;
+        lines.push(
+          /* A nullable Java String[] argument: NULL crosses as NULL (an
+           * omitted list, not an empty one). Elements convert through the
+           * UTF-16 bridge into a frame-scoped jobjectArray; the store's
+           * bounds and type are valid by construction and cannot throw. */
+          `  jobjectArray jv${index} = NULL;`,
+          `  if (a${index} != NULL) {`,
+          `    size_t count${index} = 0;`,
+          `    while (a${index}[count${index}] != NULL) count${index}++;`,
+          `    if (count${index} > (size_t)INT32_MAX) {`,
+          `      *error = ${prefix}_message("string vector exceeds the JVM array bound");`,
+          ...priorBridgeCleanup(parameters, index, "      "),
+          `      ${zeroReturn}`,
+          `    }`,
+          `    jv${index} = (*env)->NewObjectArray(`,
+          `        env, (jsize)count${index}, ${prefix}_cls_string, NULL);`,
+          `    if ((*env)->ExceptionCheck(env)) {`,
+          `      ${prefix}_capture(env, error);`,
+          ...priorBridgeCleanup(parameters, index, "      "),
+          `      ${zeroReturn}`,
+          `    }`,
+          `    if (jv${index} == NULL) {`,
+          `      *error = ${prefix}_message("NewObjectArray failed");`,
+          ...priorBridgeCleanup(parameters, index, "      "),
+          `      ${zeroReturn}`,
+          `    }`,
+          `    for (size_t i${index} = 0; i${index} < count${index}; i${index}++) {`,
+          `      jstring element${index} =`,
+          `          ${prefix}_utf8_to_jstring(env, a${index}[i${index}], error);`,
+          `      if (*error != NULL) {`,
+          `        (*env)->DeleteLocalRef(env, jv${index});`,
+          ...priorBridgeCleanup(parameters, index, "        "),
+          `        ${zeroReturn}`,
+          `      }`,
+          `      (*env)->SetObjectArrayElement(`,
+          `          env, jv${index}, (jsize)i${index}, element${index});`,
+          `      (*env)->DeleteLocalRef(env, element${index});`,
           `    }`,
           `  }`,
         );
@@ -551,7 +626,9 @@ export function generateJvmAdapterSource(
         ? [`  if (js${index} != NULL) (*env)->DeleteLocalRef(env, js${index});`]
         : parameter.kind === "byte-span"
           ? [`  (*env)->DeleteLocalRef(env, ba${index});`]
-          : []
+          : parameter.kind === "string-vector"
+            ? [`  if (jv${index} != NULL) (*env)->DeleteLocalRef(env, jv${index});`]
+            : []
     );
   }
 
@@ -559,6 +636,7 @@ export function generateJvmAdapterSource(
     if (parameter.kind === "handle") return `(jobject)a${index}`;
     if (parameter.kind === "string") return `js${index}`;
     if (parameter.kind === "byte-span") return `ba${index}`;
+    if (parameter.kind === "string-vector") return `jv${index}`;
     return `a${index}`;
   }
 
@@ -881,6 +959,9 @@ export function generateJvmAdapterSource(
     "",
     `static jclass ${prefix}_cls_throwable;`,
     `static jmethodID ${prefix}_mid_get_message;`,
+    ...(usesStringVectorArguments
+      ? [`static jclass ${prefix}_cls_string; /* String[] arguments build with it */`]
+      : []),
     ...plans.flatMap((plan) => [
       `static jclass ${plan.classVar};`,
       ...plan.members.map((member) =>
@@ -1145,6 +1226,13 @@ export function generateJvmAdapterSource(
     `      env, ${prefix}_cls_throwable, "getMessage",`,
     `      "()Ljava/lang/String;");`,
     `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
+    ...(usesStringVectorArguments
+      ? [
+          `  ${prefix}_cls_string =`,
+          `      ${prefix}_resolve_class(env, "java/lang/String", error);`,
+          `  if (${prefix}_cls_string == NULL) return -1;`,
+        ]
+      : []),
     ...plans.flatMap((plan) => [
       `  ${plan.classVar} =`,
       `      ${prefix}_resolve_class(env, "${plan.class_.binaryName}", error);`,
@@ -1212,7 +1300,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 11,
+    schemaVersion: 12,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

@@ -119,6 +119,7 @@ test(
               "sumBytes",
               "reverseBytes",
               "splitWords",
+              "joinWords",
               { name: "resize", descriptor: "(II)V" },
               { name: "resize", descriptor: "(D)V" },
             ],
@@ -290,6 +291,14 @@ test(
         symbol.endsWith("_strv_free")
       );
       assert.equal(strvFree?.clangType, "void (*)(char **)");
+      /* A borrowed vector argument's double-const spelling, byte-exact. */
+      const joinWords = evidence.functions.find(({ symbol }) =>
+        symbol.endsWith("_joinWords")
+      );
+      assert.equal(
+        joinWords?.clangType,
+        "char *(*)(const char *const *, char **)",
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
