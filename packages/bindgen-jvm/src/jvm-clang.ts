@@ -28,13 +28,14 @@ import type {
 } from "./jvm-adapter.ts";
 
 function positionCType(position: JvmAdapterPosition): string {
-  return position.kind === "primitive"
-    ? jniCTypes[position.primitive]
-    : "void*";
+  if (position.kind === "primitive") return jniCTypes[position.primitive];
+  if (position.kind === "string") return "const char*";
+  return "void*";
 }
 
 function resultCType(result: JvmAdapterResult): string {
   if (result.kind === "void") return "void";
+  if (result.kind === "string") return "char*";
   return positionCType(result);
 }
 

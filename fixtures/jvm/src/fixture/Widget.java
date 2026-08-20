@@ -44,6 +44,22 @@ public class Widget {
     return other == null ? -1 : Integer.compare(depth, other.depth);
   }
 
+  public String label(int n) {
+    return "widget-" + n;
+  }
+
+  public static String greet(String name) {
+    return name == null ? null : "hi " + name + "!";
+  }
+
+  public static String withNul() {
+    return "a\u0000b";
+  }
+
+  public static int nameLength(String name) {
+    return name == null ? -1 : name.length();
+  }
+
   public void resize(int width, int height) {}
 
   public void resize(double scale) {}

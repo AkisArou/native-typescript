@@ -466,10 +466,48 @@ export function generateJvmScabiPackage(
     });
   }
 
+  const stringMarshal = Object.freeze({
+    kind: "string" as const,
+    encoding: "utf-8" as const,
+    length: Object.freeze({ kind: "nul" as const }),
+    termination: "nul" as const,
+    embeddedNul: "reject" as const,
+  });
+
+  function needStringTypes(): void {
+    types["nullable_const_utf8"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "const",
+      nullable: true,
+      addressSpace: 0,
+    });
+    types["nullable_utf8"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
+      nullable: true,
+      addressSpace: 0,
+    });
+  }
+
   function positionParameter(
     position: JvmAdapterPosition,
     index: number,
   ): AbiParameter {
+    if (position.kind === "string") {
+      needStringTypes();
+      /* The adapter copies during the call through the UTF-16 bridge, so
+       * the caller's buffer is borrowed for exactly the call. */
+      return Object.freeze({
+        name: `a${index}`,
+        type: "nullable_const_utf8",
+        passMode: "pointer",
+        nullable: true,
+        ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+        marshal: stringMarshal,
+      });
+    }
     if (position.kind === "handle") {
       /* Java's type system says any reference may be null, and the class
        * file carries no narrower fact, so the honest slot is nullable. */
@@ -503,6 +541,7 @@ export function generateJvmScabiPackage(
     if (position.kind === "handle") {
       return `${classNameOf.get(position.binaryName)!} | null`;
     }
+    if (position.kind === "string") return "string | null";
     return scalarProjections[position.primitive].sourceType;
   }
 
@@ -559,6 +598,23 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
+    /* The translator lowers a UTF-8 string result only under a no-fail
+     * contract (native.ts: "UTF-8 string results require a no-fail
+     * contract"), and every JNI call is failable. Deferred, not
+     * unsupported: the adapter already generates and live-proves these;
+     * delete this refusal when the failable arm lands and nothing else
+     * moves. */
+    if (method.result.kind === "string") {
+      diagnostics.push(
+        diagnostic(
+          `class/${method.className}/method/${method.name}/result`,
+          `String result of '${method.name}' waits on the translator ` +
+            "lowering utf-8 results under a failure contract; deferred, " +
+            "not unsupported",
+        ),
+      );
+      continue;
+    }
     const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
     const baseName = method.name;
     const memberKey = `${method.className}.${baseName}`;
@@ -592,6 +648,9 @@ export function generateJvmScabiPackage(
         ...receiver,
         ...method.parameters.map(positionParameter),
       ],
+      /* When the translator lowers utf-8 results under a failure contract,
+       * the string arm returns here: nullable_utf8, ownership value, marshal
+       * with release "free" - the refusal above is what gets deleted. */
       result: method.result.kind === "handle"
         ? Object.freeze({
             type: selectedTypeIds.get(method.result.binaryName)!,

@@ -32,6 +32,9 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     "checkedAdd",
     "resized",
     "compareDepth",
+    "label",
+    "greet",
+    "withNul",
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
@@ -96,13 +99,14 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.notEqual(a!.adapterSymbol, b!.adapterSymbol);
 
   assert.deepEqual(
-    first.staticMethods.map(({ name }) => name),
-    ["checkedAdd"],
+    first.staticMethods.map(({ name }) => name).sort(),
+    ["checkedAdd", "greet", "withNul"],
   );
   assert.deepEqual(
     first.instanceMethods.map(({ name }) => name).sort(),
-    ["compareDepth", "depth", "resize", "resize", "resized"],
+    ["compareDepth", "depth", "label", "resize", "resize", "resized"],
   );
+  assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
     .map(({ adapterSymbol }) => adapterSymbol);
@@ -133,6 +137,7 @@ test("every generated-C family carries a classification", () => {
       "errorSupport",
       "instanceMethods",
       "staticMethods",
+      "stringSupport",
     ],
   );
   // The env lookup is the package's one declared gap; everything else is a
@@ -153,12 +158,12 @@ test("positions outside the slice algebra are refused precisely", () => {
     assert.fail("expected JvmGenerationError");
   } catch (error) {
     assert.ok(error instanceof JvmGenerationError);
+    // The String parameter projects now; only the int[] result refuses.
     assert.deepEqual(
       error.diagnostics.map(({ code }) => code),
-      ["NTS7001", "NTS7001"],
+      ["NTS7001"],
     );
     const messages = error.diagnostics.map(({ message }) => message).join("\n");
-    assert.match(messages, /java\/lang\/String/u);
     assert.match(messages, /counted-vector contract/u);
   }
 });
@@ -186,6 +191,15 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const compareSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "compareDepth",
     )!.adapterSymbol;
+    const labelSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "label",
+    )!.adapterSymbol;
+    const greetSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "greet",
+    )!.adapterSymbol;
+    const withNulSymbol = adapter.staticMethods.find(
+      ({ name }) => name === "withNul",
+    )!.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
     const releaseSymbol = adapter.errorSupport.releaseSymbol;
@@ -193,6 +207,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "#include <jni.h>",
       "#include <limits.h>",
       "#include <stdio.h>",
+      "#include <stdlib.h>",
       "#include <string.h>",
       `#include "adapter.h"`,
       "int main(void) {",
@@ -220,6 +235,22 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  if (${compareSymbol}(w, w2, &error) <= 0 || error != NULL) return 19;`,
       `  if (${compareSymbol}(w, NULL, &error) != -1 || error != NULL) return 20;`,
       `  ${adapter.classRelease.adapterSymbol}(w2);`,
+      `  char *text = ${labelSymbol}(w, 5, &error);`,
+      "  if (text == NULL || error != NULL) return 21;",
+      '  if (strcmp(text, "widget-5") != 0) return 22;',
+      "  free(text);",
+      /* Non-BMP round trip: the party popper is 4 UTF-8 bytes and one
+       * UTF-16 surrogate pair; both bridges must agree exactly. */
+      `  text = ${greetSymbol}("\xf0\x9f\x8e\x89", &error);`,
+      "  if (text == NULL || error != NULL) return 23;",
+      '  if (strcmp(text, "hi \xf0\x9f\x8e\x89!") != 0) return 24;',
+      "  free(text);",
+      `  text = ${greetSymbol}(NULL, &error);`,
+      "  if (text != NULL || error != NULL) return 25;",
+      `  text = ${withNulSymbol}(&error);`,
+      "  if (text != NULL || error == NULL ||",
+      `      strstr(${messageSymbol}(error), "embedded NUL") == NULL) return 26;`,
+      `  ${releaseSymbol}(error); error = NULL;`,
       `  ${adapter.classRelease.adapterSymbol}(w);`,
       "  (*vm)->DestroyJavaVM(vm);",
       "  printf(\"OK\\n\");",

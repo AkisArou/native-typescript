@@ -241,24 +241,17 @@ test(
         },
       );
       /* The claim the manifest will make, proven against the platform's own
-       * header: every adapter symbol's real signature is the one the probe
-       * expected — jint's width included, which is the fact nothing else in
-       * the pipeline is allowed to assume. Clang spells nested pointers
-       * 'char **' where the renderer spells 'char * *'; the spelling is
-       * normalized, the type is not. */
-      function starSpacing(type: string): string {
-        return type.replace(/\*\s+(?=[*(])/gu, "*");
-      }
+       * header: every adapter symbol's real signature is exactly the one
+       * the probe expected — jint's width included, which is the fact
+       * nothing else in the pipeline is allowed to assume. The renderer
+       * spells pointers the way Clang does (079fa0b6, e0cd470d), so the
+       * comparison is exact. */
       assert.equal(evidence.functions.length, probe.functions.length);
       probe.functions.forEach((function_, index) => {
         const entry = evidence.functions[index]!;
         assert.equal(entry.symbol, function_.symbol);
         assert.equal(entry.expectedType, renderCFunctionPointerType(function_, ""));
-        assert.equal(
-          starSpacing(entry.clangType),
-          starSpacing(entry.expectedType),
-          function_.symbol,
-        );
+        assert.equal(entry.clangType, entry.expectedType, function_.symbol);
       });
       const bind = evidence.functions.find(
         ({ symbol }) => symbol === adapter.bind.adapterSymbol,

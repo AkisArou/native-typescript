@@ -11,12 +11,12 @@
  * it rather than acquiring it, because acquisition is a context decision an
  * adapter is not allowed to make.
  *
- * The first slice's algebra is deliberately narrow and refuses precisely:
- * methods over JNI primitive scalars and void, constructors, and the
- * checked failure channel (pending exception captured to a message beside
- * the result, release = free). Object-typed positions, strings, and arrays
- * are named next slices, not silent truncations — arrays in particular wait
- * on the counted-vector contract SCABI reserved for this platform.
+ * The algebra is deliberately bounded and refuses precisely: JNI primitive
+ * scalars and void, selected-class handles, java/lang/String through an
+ * exact UTF-16 bridge, constructors, and the checked failure channel
+ * (pending exception captured to an error-out slot). Arrays are the named
+ * next slice, waiting on the counted-vector contract SCABI reserved for
+ * this platform.
  */
 
 import { createHash } from "node:crypto";
@@ -34,7 +34,8 @@ import type {
  * a class this selection projects. */
 export type JvmAdapterPosition =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
-  | { readonly kind: "handle"; readonly binaryName: string };
+  | { readonly kind: "handle"; readonly binaryName: string }
+  | { readonly kind: "string" };
 
 export type JvmAdapterResult = { readonly kind: "void" } | JvmAdapterPosition;
 
@@ -89,7 +90,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -100,6 +101,9 @@ export interface JvmAdapterSource {
   readonly envSupport: JvmEnvSupportAdapter;
   readonly classRelease: JvmClassReleaseAdapter;
   readonly errorSupport: JvmErrorSupportAdapter;
+  /** Present when any position is a java/lang/String: the generated UTF-16
+   * bridge both directions cross through. Null when no string crosses. */
+  readonly stringSupport: { readonly bridge: "utf-16" } | null;
   readonly constructors: readonly JvmConstructorAdapter[];
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
@@ -171,6 +175,16 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "materializes the throwable's message into the error-out slot and " +
       "clears, off the hot path, and the message read and release the " +
       "contract names are ordinary C functions over that object",
+  },
+  stringSupport: {
+    kind: "translation",
+    custom:
+      "JNI's native string encodings are UTF-16 (NewString, " +
+      "GetStringRegion) and modified UTF-8, never the contract's UTF-8, so " +
+      "the adapter converts exactly in both directions; a Java string " +
+      "carrying U+0000 refuses through the error channel because the " +
+      "contract rejects embedded NUL, and an unpaired surrogate refuses " +
+      "because it has no UTF-8 at all",
   },
   constructors: {
     kind: "translation",
@@ -249,14 +263,7 @@ function positionOf(
   }
   if (type.kind === "object") {
     if (type.binaryName === "java/lang/String") {
-      diagnostics.push(
-        diagnostic(
-          path,
-          `${what} is java/lang/String, which waits on the string ` +
-            "projection slice",
-        ),
-      );
-      return null;
+      return { kind: "string" };
     }
     if (selectedNames.has(type.binaryName)) {
       return { kind: "handle", binaryName: type.binaryName };
@@ -318,9 +325,11 @@ function positionDeclaration(
   position: JvmAdapterPosition,
   index: number,
 ): string {
-  return position.kind === "primitive"
-    ? `${jniCTypes[position.primitive]} a${index}`
-    : `void *a${index}`;
+  if (position.kind === "primitive") {
+    return `${jniCTypes[position.primitive]} a${index}`;
+  }
+  if (position.kind === "string") return `const char *a${index}`;
+  return `void *a${index}`;
 }
 
 export interface JvmAdapterOptions {
@@ -361,6 +370,53 @@ export function generateJvmAdapterSource(
   const selectedNames: ReadonlySet<string> = new Set(
     snapshot.classes.map(({ binaryName }) => binaryName),
   );
+  let usesStrings = false;
+
+  /* String arguments cross through local jstrings converted before the call
+   * and released after it, with every earlier conversion released on a
+   * failed later one. */
+  function stringPrologue(
+    parameters: readonly JvmAdapterPosition[],
+    zeroReturn: string,
+  ): string[] {
+    const lines: string[] = [];
+    parameters.forEach((parameter, index) => {
+      if (parameter.kind !== "string") return;
+      usesStrings = true;
+      const priorCleanup = parameters
+        .slice(0, index)
+        .flatMap((prior, earlier) =>
+          prior.kind === "string"
+            ? [`      if (js${earlier} != NULL) (*env)->DeleteLocalRef(env, js${earlier});`]
+            : []
+        );
+      lines.push(
+        `  jstring js${index} = NULL;`,
+        `  if (a${index} != NULL) {`,
+        `    js${index} = ${prefix}_utf8_to_jstring(env, a${index}, error);`,
+        `    if (*error != NULL) {`,
+        ...priorCleanup,
+        `      ${zeroReturn}`,
+        `    }`,
+        `  }`,
+      );
+    });
+    return lines;
+  }
+
+  function stringEpilogue(parameters: readonly JvmAdapterPosition[]): string[] {
+    return parameters.flatMap((parameter, index) =>
+      parameter.kind === "string"
+        ? [`  if (js${index} != NULL) (*env)->DeleteLocalRef(env, js${index});`]
+        : []
+    );
+  }
+
+  function argumentOf(parameter: JvmAdapterPosition, index: number): string {
+    if (parameter.kind === "handle") return `(jobject)a${index}`;
+    if (parameter.kind === "string") return `js${index}`;
+    return `a${index}`;
+  }
 
   for (const class_ of snapshot.classes) {
     const classToken = cSafe(class_.binaryName);
@@ -392,9 +448,7 @@ export function generateJvmAdapterSource(
       });
       const adapterSymbol = `${prefix}_new_${classToken}${suffix}`;
       const parameterDeclarations = signature.parameters.map(positionDeclaration);
-      const argumentList = signature.parameters.map((parameter, index) =>
-        parameter.kind === "handle" ? `(jobject)a${index}` : `a${index}`
-      );
+      const argumentList = signature.parameters.map(argumentOf);
       headerDeclarations.push(
         `void *${adapterSymbol}(${[...parameterDeclarations, "char **error"].join(", ")});`,
       );
@@ -406,12 +460,14 @@ export function generateJvmAdapterSource(
         ].join(", ")}) {`,
         `  JNIEnv *env = ${prefix}_env(error);`,
         `  if (env == NULL) return NULL;`,
+        ...stringPrologue(signature.parameters, "return NULL;"),
         `  jobject local = (*env)->NewObject(${[
           "env",
           plan.classVar,
           midVar,
           ...argumentList,
         ].join(", ")});`,
+        ...stringEpilogue(signature.parameters),
         `  if ((*env)->ExceptionCheck(env)) {`,
         `    ${prefix}_capture(env, error);`,
         `    return NULL;`,
@@ -452,12 +508,19 @@ export function generateJvmAdapterSource(
         ? "void"
         : result.kind === "primitive"
           ? jniCTypes[result.primitive]
-          : "void *";
+          : result.kind === "string"
+            ? "char *"
+            : "void *";
       const callName = result.kind === "void"
         ? "Void"
         : result.kind === "primitive"
           ? jniCallNames[result.primitive]
           : "Object";
+      const zeroReturn = result.kind === "void"
+        ? "return;"
+        : result.kind === "primitive"
+          ? `return (${returnType})0;`
+          : "return NULL;";
       const receiver = method.access.static
         ? []
         : ["void *self"];
@@ -466,9 +529,7 @@ export function generateJvmAdapterSource(
         : "(jobject)self";
       const callFamily = method.access.static ? "CallStatic" : "Call";
       const parameterDeclarations = signature.parameters.map(positionDeclaration);
-      const argumentList = signature.parameters.map((parameter, index) =>
-        parameter.kind === "handle" ? `(jobject)a${index}` : `a${index}`
-      );
+      const argumentList = signature.parameters.map(argumentOf);
       const call = `(*env)->${callFamily}${callName}Method(${[
         "env",
         callTarget,
@@ -490,14 +551,12 @@ export function generateJvmAdapterSource(
           "char **error",
         ].join(", ")}) {`,
         `  JNIEnv *env = ${prefix}_env(error);`,
-        result.kind === "void"
-          ? `  if (env == NULL) return;`
-          : result.kind === "handle"
-            ? `  if (env == NULL) return NULL;`
-            : `  if (env == NULL) return (${returnType})0;`,
+        `  if (env == NULL) ${zeroReturn}`,
+        ...stringPrologue(signature.parameters, zeroReturn),
         ...(result.kind === "void"
           ? [
               `  ${call};`,
+              ...stringEpilogue(signature.parameters),
               `  if ((*env)->ExceptionCheck(env)) ${prefix}_capture(env, error);`,
             ]
           : result.kind === "handle"
@@ -506,6 +565,7 @@ export function generateJvmAdapterSource(
                  * acquisition is normalized exactly as a constructor's. A
                  * NULL local with no exception is a successful null. */
                 `  jobject local = ${call};`,
+                ...stringEpilogue(signature.parameters),
                 `  if ((*env)->ExceptionCheck(env)) {`,
                 `    ${prefix}_capture(env, error);`,
                 `    return NULL;`,
@@ -516,14 +576,31 @@ export function generateJvmAdapterSource(
                 `  if (stable == NULL) *error = ${prefix}_message("JNI global reference table exhausted");`,
                 `  return stable;`,
               ]
-            : [
-                `  ${returnType} result = ${call};`,
-                `  if ((*env)->ExceptionCheck(env)) {`,
-                `    ${prefix}_capture(env, error);`,
-                `    return (${returnType})0;`,
-                `  }`,
-                `  return result;`,
-              ]),
+            : result.kind === "string"
+              ? [
+                  /* A string result crosses by copy through the UTF-16
+                   * bridge; the Java string itself never survives the call.
+                   * NULL with an empty error slot is a successful null. */
+                  `  jstring resultString = (jstring)${call};`,
+                  ...stringEpilogue(signature.parameters),
+                  `  if ((*env)->ExceptionCheck(env)) {`,
+                  `    ${prefix}_capture(env, error);`,
+                  `    return NULL;`,
+                  `  }`,
+                  `  if (resultString == NULL) return NULL;`,
+                  `  char *owned = ${prefix}_jstring_to_utf8(env, resultString, error);`,
+                  `  (*env)->DeleteLocalRef(env, resultString);`,
+                  `  return owned;`,
+                ]
+              : [
+                  `  ${returnType} result = ${call};`,
+                  ...stringEpilogue(signature.parameters),
+                  `  if ((*env)->ExceptionCheck(env)) {`,
+                  `    ${prefix}_capture(env, error);`,
+                  `    return (${returnType})0;`,
+                  `  }`,
+                  `  return result;`,
+                ]),
         `}`,
         "",
       );
@@ -553,6 +630,7 @@ export function generateJvmAdapterSource(
   const lines = [
     "/* Generated by @native-typescript/bindgen-jvm. */",
     "#include <jni.h>",
+    "#include <stdint.h>",
     "#include <stdio.h>",
     "#include <stdlib.h>",
     "#include <string.h>",
@@ -638,6 +716,131 @@ export function generateJvmAdapterSource(
     "  }",
     "}",
     "",
+    ...(usesStrings
+      ? [
+          "/* The UTF-16 bridge. JNI's native encodings are UTF-16 and",
+          " * modified UTF-8, never the contract's UTF-8, so both crossings",
+          " * convert exactly. Refusals go through the error channel: input",
+          " * that is not well-formed UTF-8, a Java string carrying U+0000",
+          " * (the contract rejects embedded NUL), or ill-formed UTF-16. */",
+          `static jstring ${prefix}_utf8_to_jstring(JNIEnv *env,`,
+          "                                         const char *utf8,",
+          "                                         char **error) {",
+          "  size_t byteLength = strlen(utf8);",
+          "  jchar *units = (jchar *)malloc((byteLength + 1) * sizeof(jchar));",
+          "  if (units == NULL) {",
+          `    fprintf(stderr, "${prefix}: out of memory bridging a string\\n");`,
+          "    abort();",
+          "  }",
+          "  size_t unitCount = 0;",
+          "  size_t i = 0;",
+          "  while (i < byteLength) {",
+          "    unsigned char b0 = (unsigned char)utf8[i];",
+          "    uint32_t point;",
+          "    size_t width;",
+          "    if (b0 < 0x80) { point = b0; width = 1; }",
+          "    else if ((b0 & 0xE0) == 0xC0) { point = b0 & 0x1F; width = 2; }",
+          "    else if ((b0 & 0xF0) == 0xE0) { point = b0 & 0x0F; width = 3; }",
+          "    else if ((b0 & 0xF8) == 0xF0) { point = b0 & 0x07; width = 4; }",
+          "    else goto malformed;",
+          "    if (i + width > byteLength) goto malformed;",
+          "    for (size_t k = 1; k < width; k++) {",
+          "      unsigned char cont = (unsigned char)utf8[i + k];",
+          "      if ((cont & 0xC0) != 0x80) goto malformed;",
+          "      point = (point << 6) | (cont & 0x3F);",
+          "    }",
+          "    if (width == 2 && point < 0x80) goto malformed;",
+          "    if (width == 3 && point < 0x800) goto malformed;",
+          "    if (width == 4 && (point < 0x10000 || point > 0x10FFFF)) goto malformed;",
+          "    if (point >= 0xD800 && point <= 0xDFFF) goto malformed;",
+          "    if (point >= 0x10000) {",
+          "      point -= 0x10000;",
+          "      units[unitCount++] = (jchar)(0xD800 | (point >> 10));",
+          "      units[unitCount++] = (jchar)(0xDC00 | (point & 0x3FF));",
+          "    } else {",
+          "      units[unitCount++] = (jchar)point;",
+          "    }",
+          "    i += width;",
+          "  }",
+          "  {",
+          "    jstring made = (*env)->NewString(env, units, (jsize)unitCount);",
+          "    free(units);",
+          "    if ((*env)->ExceptionCheck(env)) {",
+          `      ${prefix}_capture(env, error);`,
+          "      return NULL;",
+          "    }",
+          `    if (made == NULL) *error = ${prefix}_message("NewString failed");`,
+          "    return made;",
+          "  }",
+          "malformed:",
+          "  free(units);",
+          `  *error = ${prefix}_message("argument is not well-formed UTF-8");`,
+          "  return NULL;",
+          "}",
+          "",
+          `static char *${prefix}_jstring_to_utf8(JNIEnv *env, jstring string,`,
+          "                                       char **error) {",
+          "  jsize unitCount = (*env)->GetStringLength(env, string);",
+          "  jchar *units = (jchar *)malloc(((size_t)unitCount + 1) * sizeof(jchar));",
+          "  char *bytes = (char *)malloc((size_t)unitCount * 4 + 1);",
+          "  size_t written = 0;",
+          "  jsize i = 0;",
+          "  if (units == NULL || bytes == NULL) {",
+          `    fprintf(stderr, "${prefix}: out of memory bridging a string\\n");`,
+          "    abort();",
+          "  }",
+          "  (*env)->GetStringRegion(env, string, 0, unitCount, units);",
+          "  if ((*env)->ExceptionCheck(env)) {",
+          "    free(units);",
+          "    free(bytes);",
+          `    ${prefix}_capture(env, error);`,
+          "    return NULL;",
+          "  }",
+          "  for (i = 0; i < unitCount; i++) {",
+          "    uint32_t point = units[i];",
+          "    if (point == 0) {",
+          "      free(units);",
+          "      free(bytes);",
+          `      *error = ${prefix}_message(`,
+          '          "Java string carries an embedded NUL, which the utf-8 "',
+          '          "contract rejects");',
+          "      return NULL;",
+          "    }",
+          "    if (point >= 0xD800 && point <= 0xDBFF && i + 1 < unitCount &&",
+          "        units[i + 1] >= 0xDC00 && units[i + 1] <= 0xDFFF) {",
+          "      point = 0x10000 + ((point - 0xD800) << 10) +",
+          "              ((uint32_t)units[i + 1] - 0xDC00);",
+          "      i++;",
+          "    } else if (point >= 0xD800 && point <= 0xDFFF) {",
+          "      free(units);",
+          "      free(bytes);",
+          `      *error = ${prefix}_message(`,
+          '          "Java string is ill-formed UTF-16 (unpaired surrogate)");',
+          "      return NULL;",
+          "    }",
+          "    if (point < 0x80) {",
+          "      bytes[written++] = (char)point;",
+          "    } else if (point < 0x800) {",
+          "      bytes[written++] = (char)(0xC0 | (point >> 6));",
+          "      bytes[written++] = (char)(0x80 | (point & 0x3F));",
+          "    } else if (point < 0x10000) {",
+          "      bytes[written++] = (char)(0xE0 | (point >> 12));",
+          "      bytes[written++] = (char)(0x80 | ((point >> 6) & 0x3F));",
+          "      bytes[written++] = (char)(0x80 | (point & 0x3F));",
+          "    } else {",
+          "      bytes[written++] = (char)(0xF0 | (point >> 18));",
+          "      bytes[written++] = (char)(0x80 | ((point >> 12) & 0x3F));",
+          "      bytes[written++] = (char)(0x80 | ((point >> 6) & 0x3F));",
+          "      bytes[written++] = (char)(0x80 | (point & 0x3F));",
+          "    }",
+          "  }",
+          "  bytes[written] = 0;",
+          "  free(units);",
+          "  return bytes;",
+          "}",
+          "",
+        ]
+      : []),
     `void ${releaseSymbol}(void *ref) {`,
     "  JNIEnv *env = NULL;",
     `  if (${prefix}_vm == NULL ||`,
@@ -716,7 +919,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 4,
+    schemaVersion: 5,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -728,6 +931,9 @@ export function generateJvmAdapterSource(
       messageSymbol: errorMessageSymbol,
       releaseSymbol: errorReleaseSymbol,
     }),
+    stringSupport: usesStrings
+      ? Object.freeze({ bridge: "utf-16" as const })
+      : null,
     constructors: Object.freeze(constructors),
     staticMethods: Object.freeze(staticMethods),
     instanceMethods: Object.freeze(instanceMethods),

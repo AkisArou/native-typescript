@@ -45,6 +45,7 @@ function snapshot() {
             "nativeHandle",
             "resized",
             "compareDepth",
+            "nameLength",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -147,6 +148,15 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.match(generated.declarations, /static checkedAdd\(a0: jint, a1: jint\): jint;/u);
   assert.match(generated.declarations, /resized\(a0: jint\): Widget \| null;/u);
   assert.match(generated.declarations, /compareDepth\(a0: Widget \| null\): jint;/u);
+  assert.match(generated.declarations, /static nameLength\(a0: string \| null\): jint;/u);
+  const lengthBinding =
+    generated.manifest.bindings["fixture.fixture.widget.namelength"];
+  assert.ok(lengthBinding !== undefined && lengthBinding.kind !== "constant");
+  const stringParameter = lengthBinding.signature.parameters.find(
+    ({ name }) => name === "a0",
+  );
+  assert.ok(stringParameter?.marshal !== undefined);
+  assert.equal(stringParameter.marshal.kind, "string");
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
@@ -205,4 +215,9 @@ test("each ownership shape translates through the neutral compiler input", () =>
   assert.equal(resized.result.projection.kind, "nullableHandle");
   const compare = binding("fixture.fixture.widget.comparedepth");
   assert.ok(compare !== undefined);
+
+  // A string parameter crosses through the adapter's UTF-16 bridge; the
+  // translated binding carries it as an ordinary marshalled slot.
+  const nameLength = binding("fixture.fixture.widget.namelength");
+  assert.ok(nameLength !== undefined);
 });
