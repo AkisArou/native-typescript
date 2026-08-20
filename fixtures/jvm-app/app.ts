@@ -45,8 +45,10 @@ if (
   reversed.length !== 4 || reversed[0] !== 250 || reversed[1] !== 3 ||
   reversed[2] !== 2 || reversed[3] !== 1
 ) failed = true;
-const emptyReversed = Widget.reverseBytes(new Uint8Array(0));
-if (emptyReversed.length !== 0) failed = true;
+/* Chained deliberately: a native call used directly as a member-access
+ * receiver is the shape fork 252ea14c admitted, and this is its live
+ * coverage. */
+if (Widget.reverseBytes(new Uint8Array(0)).length !== 0) failed = true;
 
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
