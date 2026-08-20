@@ -803,6 +803,93 @@ function handleParameter(
   });
 }
 
+/**
+ * Every input projection this package implements, in one ladder.
+ *
+ * The rungs are ordered by how specific the recognizer is: a string vector
+ * before a string, a boolean before the enumeration that shares its storage,
+ * and a handle last because it is the only rung that refuses by naming what
+ * the type was not. That order is a property of the projections rather than
+ * of any one call site, which is why it lives here.
+ *
+ * It exists as a function because it previously did not. Three call sites
+ * projected parameters, and only the ordinary method path had all six rungs —
+ * the borrowed-result and signal paths jumped straight to the handle rung, so
+ * a `gint` argument on a method returning a borrowed object was refused as
+ * "not a selected class". The type was always in the slice; the call site had
+ * simply never been taught to ask. Sharing the ladder makes that class of gap
+ * unrepresentable: a projection added here reaches every caller at once.
+ */
+function inputParameter(
+  parameter: GirParameter,
+  enumerations: ReadonlyMap<string, EnumerationProjection>,
+  resolveHandle: (girName: string, path: string) => HandleProjection | undefined,
+  path: string,
+  diagnostics: CBindgenDiagnostic[],
+): { readonly abi: AbiParameter; readonly sourceType: string } | null {
+  if (nulTerminatedUtf8Vector(parameter.type)) {
+    const abi = stringVectorParameter(parameter, path, diagnostics);
+    /* `readonly` because the callee reads the vector and nothing writes back
+     * through it. */
+    return abi === null ? null : Object.freeze({
+      abi,
+      sourceType: parameter.nullable
+        ? "readonly string[] | null"
+        : "readonly string[]",
+    });
+  }
+  if (
+    parameter.type.kind === "named" &&
+    borrowedStringGirTypes.has(parameter.type.name)
+  ) {
+    const abi = cStringParameter(
+      parameter,
+      parameter.nullable ? "nullable_const_utf8" : "const_utf8",
+      path,
+      diagnostics,
+    );
+    return abi === null ? null : Object.freeze({
+      abi,
+      sourceType: parameter.nullable ? "string | null" : "string",
+    });
+  }
+  if (parameter.type.kind === "named" && parameter.type.name === "gboolean") {
+    const abi = requiredValueParameter(
+      parameter,
+      { girName: "gboolean", cTypes: ["gboolean"], abiType: "gboolean" },
+      path,
+      diagnostics,
+    );
+    return abi === null ? null : Object.freeze({ abi, sourceType: "boolean" });
+  }
+  const enumeration = parameter.type.kind === "named"
+    ? enumerations.get(parameter.type.name)
+    : undefined;
+  if (enumeration !== undefined) {
+    const abi = requiredValueParameter(
+      parameter,
+      {
+        girName: enumeration.girName,
+        cTypes: [enumeration.cType],
+        abiType: enumeration.typeId,
+      },
+      path,
+      diagnostics,
+    );
+    return abi === null
+      ? null
+      : Object.freeze({ abi, sourceType: enumeration.sourceName });
+  }
+  const scalar = sourceScalarType(parameter.type);
+  if (scalar !== undefined) {
+    const abi = requiredValueParameter(parameter, scalar, path, diagnostics);
+    return abi === null
+      ? null
+      : Object.freeze({ abi, sourceType: scalar.girName });
+  }
+  return handleParameter(parameter, resolveHandle, path, diagnostics);
+}
+
 function methodResult(
   callable: GirCallable,
   receiverName: string,
@@ -2424,19 +2511,20 @@ export function generateGObjectScabiPackage(
         const retainedSourceParameters: string[] = [];
         let retainedValid = true;
         for (const [index, parameter] of callable.parameters.slice(1).entries()) {
-          const handle = handleParameter(
+          const input = inputParameter(
             parameter,
+            enumerations,
             resolveHandle,
             `${path}/parameters/${index}`,
             diagnostics,
           );
-          if (handle === null) {
+          if (input === null) {
             retainedValid = false;
             continue;
           }
-          retainedParameters.push(handle.abi);
+          retainedParameters.push(input.abi);
           retainedSourceParameters.push(
-            `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
+            `${lowerCamel(parameter.name)}: ${input.sourceType}`,
           );
         }
         if (!retainedValid) continue;
@@ -2639,112 +2727,21 @@ export function generateGObjectScabiPackage(
       let valid = true;
       for (const [index, parameter] of callable.parameters.slice(1).entries()) {
         const parameterPath = `${path}/parameters/${index + 1}`;
-        const scalar = sourceScalarType(parameter.type);
-        const enumeration = parameter.type.kind === "named"
-          ? enumerations.get(parameter.type.name)
-          : undefined;
-        if (nulTerminatedUtf8Vector(parameter.type)) {
-          const abi = stringVectorParameter(parameter, parameterPath, diagnostics);
-          if (abi === null) {
-            valid = false;
-          } else {
-            abiParameters.push(abi);
-            /* `readonly` because the callee reads the vector and nothing
-             * writes back through it. */
-            const sourceType = parameter.nullable
-              ? "readonly string[] | null"
-              : "readonly string[]";
-            sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
-            sourceParameterTypes.push(sourceType);
-          }
-        } else if (
-          parameter.type.kind === "named" &&
-          borrowedStringGirTypes.has(parameter.type.name)
-        ) {
-          const abi = cStringParameter(
-            parameter,
-            parameter.nullable ? "nullable_const_utf8" : "const_utf8",
-            parameterPath,
-            diagnostics,
-          );
-          if (abi === null) {
-            valid = false;
-          } else {
-            abiParameters.push(abi);
-            const sourceType = parameter.nullable ? "string | null" : "string";
-            sourceParameters.push(`${lowerCamel(parameter.name)}: ${sourceType}`);
-            sourceParameterTypes.push(sourceType);
-          }
-        } else if (
-          parameter.type.kind === "named" &&
-          parameter.type.name === "gboolean"
-        ) {
-          const abi = requiredValueParameter(
-            parameter,
-            { girName: "gboolean", cTypes: ["gboolean"], abiType: "gboolean" },
-            parameterPath,
-            diagnostics,
-          );
-          if (abi === null) {
-            valid = false;
-          } else {
-            abiParameters.push(abi);
-            sourceParameters.push(`${lowerCamel(parameter.name)}: boolean`);
-            sourceParameterTypes.push("boolean");
-          }
-        } else if (enumeration !== undefined) {
-          const enumerationTypeId = enumeration.typeId;
-          const abi = requiredValueParameter(
-            parameter,
-            {
-              girName: enumeration.girName,
-              cTypes: [enumeration.cType],
-              abiType: enumerationTypeId,
-            },
-            parameterPath,
-            diagnostics,
-          );
-          if (abi === null) {
-            valid = false;
-          } else {
-            abiParameters.push(abi);
-            sourceParameters.push(
-              `${lowerCamel(parameter.name)}: ${enumeration.sourceName}`,
-            );
-            sourceParameterTypes.push(enumeration.sourceName);
-          }
-        } else if (scalar !== undefined) {
-          const abi = requiredValueParameter(
-            parameter,
-            scalar,
-            parameterPath,
-            diagnostics,
-          );
-          if (abi === null) {
-            valid = false;
-          } else {
-            abiParameters.push(abi);
-            sourceParameters.push(
-              `${lowerCamel(parameter.name)}: ${scalar.girName}`,
-            );
-            sourceParameterTypes.push(scalar.girName);
-          }
+        const input = inputParameter(
+          parameter,
+          enumerations,
+          resolveHandle,
+          parameterPath,
+          diagnostics,
+        );
+        if (input === null) {
+          valid = false;
         } else {
-          const handle = handleParameter(
-            parameter,
-            resolveHandle,
-            parameterPath,
-            diagnostics,
+          abiParameters.push(input.abi);
+          sourceParameters.push(
+            `${lowerCamel(parameter.name)}: ${input.sourceType}`,
           );
-          if (handle === null) {
-            valid = false;
-          } else {
-            abiParameters.push(handle.abi);
-            sourceParameters.push(
-              `${lowerCamel(parameter.name)}: ${handle.sourceType}`,
-            );
-            sourceParameterTypes.push(handle.sourceType);
-          }
+          sourceParameterTypes.push(input.sourceType);
         }
       }
       const result = methodResult(
@@ -3260,61 +3257,15 @@ export function generateGObjectScabiPackage(
       let valid = true;
       for (const [index, parameter] of callable.parameters.entries()) {
         const parameterPath = `${path}/parameters/${index}`;
-        const scalar = sourceScalarType(parameter.type);
-        const enumeration = parameter.type.kind === "named"
-          ? enumerations.get(parameter.type.name)
-          : undefined;
-        let abi: AbiParameter | null;
-        let sourceType: string;
-        if (nulTerminatedUtf8Vector(parameter.type)) {
-          abi = stringVectorParameter(parameter, parameterPath, diagnostics);
-          sourceType = parameter.nullable
-            ? "readonly string[] | null"
-            : "readonly string[]";
-        } else if (
-          parameter.type.kind === "named" &&
-          borrowedStringGirTypes.has(parameter.type.name)
-        ) {
-          abi = cStringParameter(
-            parameter,
-            parameter.nullable ? "nullable_const_utf8" : "const_utf8",
-            parameterPath,
-            diagnostics,
-          );
-          sourceType = parameter.nullable ? "string | null" : "string";
-        } else if (parameter.type.kind === "named" && parameter.type.name === "gboolean") {
-          abi = requiredValueParameter(
-            parameter,
-            { girName: "gboolean", cTypes: ["gboolean"], abiType: "gboolean" },
-            parameterPath,
-            diagnostics,
-          );
-          sourceType = "boolean";
-        } else if (enumeration !== undefined) {
-          abi = requiredValueParameter(
-            parameter,
-            {
-              girName: enumeration.girName,
-              cTypes: [enumeration.cType],
-              abiType: enumeration.typeId,
-            },
-            parameterPath,
-            diagnostics,
-          );
-          sourceType = enumeration.sourceName;
-        } else if (scalar !== undefined) {
-          abi = requiredValueParameter(parameter, scalar, parameterPath, diagnostics);
-          sourceType = scalar.girName;
-        } else {
-          const handle = handleParameter(
-            parameter,
-            resolveHandle,
-            parameterPath,
-            diagnostics,
-          );
-          abi = handle?.abi ?? null;
-          sourceType = handle?.sourceType ?? "never";
-        }
+        const input = inputParameter(
+          parameter,
+          enumerations,
+          resolveHandle,
+          parameterPath,
+          diagnostics,
+        );
+        const abi = input?.abi ?? null;
+        const sourceType = input?.sourceType ?? "never";
         if (abi === null) {
           valid = false;
         } else {
