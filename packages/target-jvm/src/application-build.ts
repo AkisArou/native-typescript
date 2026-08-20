@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,7 @@ import {
 import type { JvmClassSelection } from "@native-typescript/bindgen-jvm";
 import { jvmRuntimeProvider } from "./provider.ts";
 import { resolveJdkSdk } from "./jdk-sdk.ts";
+import { planJavacClasses } from "./javac-classes.ts";
 import { planJvmTargetObjects } from "./jvm-target-objects.ts";
 import { targetRuntimeArtifactIds } from "./target-runtime-objects.ts";
 
@@ -58,10 +59,19 @@ export interface JvmApplicationProject {
   readonly entry: string;
   readonly output: string;
   readonly packageSlug: string;
-  readonly classSources: readonly {
+  /** Prebuilt class files to ingest, when the project ships them. */
+  readonly classSources?: readonly {
     readonly logicalPath: string;
     readonly path: string;
   }[];
+  /** Java sources the build compiles with the JDK's own javac, as a
+   * planned action; the produced classes are what ingestion reads and what
+   * the runner should put on NT_JVM_CLASSPATH. */
+  readonly javaSources?: {
+    readonly root: string;
+    readonly logicalPath: string;
+    readonly files: readonly string[];
+  };
   readonly classes: readonly JvmClassSelection[];
   readonly target: {
     readonly triple: string;
@@ -83,6 +93,9 @@ export interface JvmApplicationToolPaths {
 
 export interface JvmApplicationBuildResult {
   readonly productPath: string;
+  /** Where the planned javac action left the classes, when the project
+   * built from Java sources; the runner's NT_JVM_CLASSPATH. */
+  readonly builtClassesPath?: string;
   /** Directory holding the generated package: adapter C, header,
    * declarations, and manifest. */
   readonly generatedPackagePath: string;
@@ -153,9 +166,72 @@ export async function buildJvmApplication(input: {
       : { kind: "local" as const, path: input.cachePath };
   const sdk = await resolveJdkSdk({ javaHome: input.javaHome, target });
 
+  /* Phase zero, when the project ships Java sources rather than classes:
+   * javac runs as a planned action, and everything downstream reads what
+   * it produced. Generation is itself a build. */
+  let classSources = project.classSources ?? [];
+  let builtClassesPath: string | undefined;
+  if (project.javaSources !== undefined) {
+    const javacTool = await toolIdentity(
+      "tool/javac",
+      join(input.javaHome, "bin/javac"),
+    );
+    const sourcesDigest = await digestArtifactPath(
+      project.javaSources.root,
+      "directory",
+    );
+    const javac = planJavacClasses({
+      sourcesDigest: sourcesDigest.digest,
+      files: project.javaSources.files,
+      logicalPath: project.javaSources.logicalPath,
+      tool: javacTool,
+      executionPlatform,
+      target,
+    });
+    const javacReport = await executeArtifactGraph(
+      defineArtifactGraph({
+        artifacts: [javac.sources, javac.classes],
+        actions: [javac.action],
+      }),
+      {
+        buildRoot: join(input.scratch, "javac"),
+        sourcePaths: { [javac.sources.id]: project.javaSources.root },
+        tools: { ...tools, [javacTool.id]: { path: join(input.javaHome, "bin/javac") } },
+        sandbox,
+        ...(cache === undefined ? {} : { cache }),
+      },
+    );
+    const produced = javacReport.artifacts.find(
+      ({ id }) => id === javac.classes.id,
+    );
+    if (produced === undefined) {
+      throw new Error("javac produced no class directory");
+    }
+    builtClassesPath = produced.path;
+    function walkClasses(root: string, prefix: string): {
+      readonly logicalPath: string;
+      readonly path: string;
+    }[] {
+      return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap(
+        (entry) => {
+          const relative = prefix.length === 0
+            ? entry.name
+            : `${prefix}/${entry.name}`;
+          if (entry.isDirectory()) return walkClasses(root, relative);
+          if (!entry.name.endsWith(".class")) return [];
+          return [{
+            logicalPath: `generated/jvm-java-classes/${relative}`,
+            path: join(root, relative),
+          }];
+        },
+      );
+    }
+    classSources = walkClasses(produced.path, "");
+  }
+
   // Phase one: ingest, generate, and prove the adapter ABI against jni.h.
   const snapshot = ingestJvmClasses(
-    project.classSources.map(({ logicalPath, path }) => ({
+    classSources.map(({ logicalPath, path }) => ({
       logicalPath,
       bytes: readFileSync(path),
     })),
@@ -517,5 +593,6 @@ export async function buildJvmApplication(input: {
     productPath: product.path,
     generatedPackagePath: generatedRoot,
     jvmLibraryPath: sdk.libraryPath,
+    ...(builtClassesPath === undefined ? {} : { builtClassesPath }),
   });
 }

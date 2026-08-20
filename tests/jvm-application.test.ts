@@ -14,7 +14,6 @@ import { executable } from "./support/artifacts.ts";
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/jvm-app");
-const classesRoot = join(workspace, "fixtures/jvm/classes");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const javaHome = discoverJavaHome();
@@ -56,12 +55,13 @@ test(
       entry: "app.ts",
       output: "jvm-app",
       packageSlug: "fixture",
-      classSources: [
-        {
-          logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
-          path: join(classesRoot, "fixture/Widget.class"),
-        },
-      ],
+      /* Milestone 3: the classes are not committed inputs but the output of
+       * a planned javac action inside this very build. */
+      javaSources: {
+        root: join(workspace, "fixtures/jvm/src"),
+        logicalPath: "fixtures/jvm/src",
+        files: ["fixture/Widget.java"],
+      },
       classes: [
         {
           binaryName: "fixture/Widget",
@@ -114,11 +114,12 @@ test(
         assert.match(declarations, /export declare class Widget \{/u);
         assert.match(declarations, /static greet\(a0: string \| null\): string \| null;/u);
 
+        assert.ok(built.builtClassesPath !== undefined);
         const run = spawnSync(built.productPath, [], {
           encoding: "utf8",
           env: {
             ...process.env,
-            NT_JVM_CLASSPATH: classesRoot,
+            NT_JVM_CLASSPATH: built.builtClassesPath,
             LD_LIBRARY_PATH: built.jvmLibraryPath,
           },
           timeout: 120_000,
