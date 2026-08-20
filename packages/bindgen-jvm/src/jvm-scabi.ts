@@ -514,6 +514,17 @@ export function generateJvmScabiPackage(
     });
   }
 
+  function needByteSpanResultTypes(): void {
+    types["u8"] ??= Object.freeze({ kind: "integer", signed: false, bits: 8 });
+    types["bytes_result"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "u8",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    });
+  }
+
   /** One adapter position's manifest parameters — one slot for every
    * family except a byte span, whose single source value crosses as the
    * bytes contract's pair: a borrowed const pointer plus the usize length
@@ -659,17 +670,6 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
-    if (method.result.kind === "byte-span") {
-      /* The adapter emits this result and the compiler lowers it; the
-       * manifest arm is the scabi bytes RESULT contract, which is landing
-       * separately. Deferred, not unsupported — delete this refusal when
-       * that contract lands. */
-      diagnostics.push(diagnostic(
-        `class/${method.className}/method/${method.name}`,
-        "Result is byte[], which waits on the scabi bytes result contract",
-      ));
-      continue;
-    }
     const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
     const baseName = method.name;
     const memberKey = `${method.className}.${baseName}`;
@@ -716,6 +716,25 @@ export function generateJvmScabiPackage(
             nullable: true,
             ownership: Object.freeze({ kind: "value" as const }),
             marshal: Object.freeze({ ...stringMarshal, release: "free" }),
+          }))
+        : method.result.kind === "byte-span"
+        ? (needByteSpanResultTypes(),
+          Object.freeze({
+            /* An owned copy exactly like the string result, with the one
+             * new fact stated by absence: the marshal carries no length,
+             * because the extent returns in a compiler-owned slot beside
+             * the error slot. The slot is non-null — a null byte[] refuses
+             * at the adapter as a named absence — and free() ends the
+             * program's claim on the malloc'd copy. */
+            type: "bytes_result",
+            passMode: "pointer" as const,
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" as const }),
+            marshal: Object.freeze({
+              kind: "bytes" as const,
+              mutability: "mutable" as const,
+              release: "free",
+            }),
           }))
         : method.result.kind === "handle"
         ? Object.freeze({

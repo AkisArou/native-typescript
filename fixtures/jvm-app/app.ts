@@ -36,6 +36,18 @@ const framed = new Uint8Array([9, 1, 2, 3, 250, 9]);
 if (Widget.sumBytes(framed.subarray(1, 5)) !== 256) failed = true;
 if (Widget.sumBytes(new Uint8Array(0)) !== 0) failed = true;
 
+/* A byte[] result comes back REVERSED, not echoed, so a copy that read the
+ * right bytes into the wrong place fails differently from one that read
+ * the wrong bytes; the offset view proves the input half again under the
+ * result path, and the empty result is a real zero-length array. */
+const reversed = Widget.reverseBytes(framed.subarray(1, 5));
+if (
+  reversed.length !== 4 || reversed[0] !== 250 || reversed[1] !== 3 ||
+  reversed[2] !== 2 || reversed[3] !== 1
+) failed = true;
+const emptyReversed = Widget.reverseBytes(new Uint8Array(0));
+if (emptyReversed.length !== 0) failed = true;
+
 /* The VM is deliberately not destroyed: the runtime releases live handles
  * at shutdown, which needs the VM attached, and a JVM never fully unloads
  * anyway - process exit is its honest end. applicationStop exists for a

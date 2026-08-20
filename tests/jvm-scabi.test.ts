@@ -11,7 +11,6 @@ import type {
   ClangAbiProbe,
 } from "@native-typescript/bindgen-c";
 import {
-  JvmGenerationError,
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
   generateJvmScabiPackage,
@@ -50,6 +49,7 @@ function snapshot() {
             "label",
             "greet",
             "sumBytes",
+            "reverseBytes",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
@@ -139,42 +139,6 @@ function generate(): JvmScabiPackage {
   return generateJvmScabiPackage(options());
 }
 
-test("a byte[] result refuses at the manifest until its contract lands", () => {
-  // The adapter emits the symbol and the compiler lowers the projection;
-  // what does not exist yet is the scabi bytes RESULT arm. Deferred, not
-  // unsupported — this test is deleted with the refusal when it lands.
-  const selected = ingestJvmClasses(
-    [
-      {
-        logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
-        bytes: readFileSync(
-          resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
-        ),
-      },
-    ],
-    { classes: [{ binaryName: "fixture/Widget", methods: ["reverseBytes"] }] },
-  );
-  const adapter = generateJvmAdapterSource(selected, { packageSlug: "fixture" });
-  const base = options();
-  assert.throws(
-    () =>
-      generateJvmScabiPackage({
-        ...base,
-        snapshot: selected,
-        adapter,
-        evidence: evidence(generateJvmClangAbiProbe(adapter)),
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof JvmGenerationError);
-      assert.deepEqual(error.diagnostics.map(({ code }) => code), ["NTS7001"]);
-      assert.match(
-        error.diagnostics[0]!.message,
-        /waits on the scabi bytes result contract/u,
-      );
-      return true;
-    },
-  );
-});
 
 test("the JVM manifest validates, is deterministic, and declares its surface", () => {
   const generated = generate();
@@ -224,6 +188,27 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     kind: "integer",
     signed: false,
     bits: "pointer",
+  });
+
+  // A byte[] result: the marshal carries the element and the release and
+  // deliberately NO length — the extent returns in a compiler-owned slot
+  // the manifest never names. The visible signature is the argument pair
+  // alone; the declaration promises a Uint8Array back.
+  assert.match(
+    generated.declarations,
+    /static reverseBytes\(a0: Uint8Array\): Uint8Array;/u,
+  );
+  const reverseBinding =
+    generated.manifest.bindings["fixture.fixture.widget.reversebytes"];
+  assert.ok(reverseBinding !== undefined && reverseBinding.kind !== "constant");
+  assert.equal(reverseBinding.signature.parameters.length, 2);
+  assert.equal(reverseBinding.signature.result.type, "bytes_result");
+  assert.equal(reverseBinding.signature.result.nullable, false);
+  assert.deepEqual(reverseBinding.signature.result.ownership, { kind: "value" });
+  assert.deepEqual(reverseBinding.signature.result.marshal, {
+    kind: "bytes",
+    mutability: "mutable",
+    release: "free",
   });
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
@@ -318,4 +303,23 @@ test("each ownership shape translates through the neutral compiler input", () =>
     ),
   );
   assert.equal(spanArguments.size, 1);
+
+  // A byte[] RESULT: the projection copies the span into a fresh
+  // Uint8Array and disposes through the named release; its length arrives
+  // in the compiler-owned slot appended before the error slot.
+  const reverse = binding("fixture.fixture.widget.reversebytes");
+  assert.equal(reverse.error.detect.kind, "outParameterIsNotNull");
+  assert.deepEqual(reverse.result.projection, {
+    kind: "bytes",
+    elem: "u8",
+    release: { kind: "symbol", symbol: "free" },
+  });
+  const lengthOut = reverse.parameters.find(
+    ({ projection }) => projection.kind === "bytesLengthOut",
+  );
+  assert.ok(lengthOut !== undefined);
+  const errorSlotIndex = reverse.parameters.findIndex(
+    ({ projection }) => projection.kind === "errorOut",
+  );
+  assert.equal(reverse.parameters.indexOf(lengthOut!), errorSlotIndex - 1);
 });

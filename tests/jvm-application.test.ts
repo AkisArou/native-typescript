@@ -74,6 +74,7 @@ test(
             "label",
             "greet",
             "sumBytes",
+            "reverseBytes",
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
