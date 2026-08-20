@@ -180,6 +180,26 @@ function handleTypeId(namespace: string, class_: GirClass): string {
  * candidate either way — the Clang probe proves the real type against the
  * headers — so accepting both here narrows nothing.
  */
+/**
+ * The GIR types a borrowed C string input may name.
+ *
+ * `filename` is a path in "GLib file name encoding", which the platform
+ * defines: `G_FILENAME_ENCODING` names it, and it is UTF-8 unless that
+ * variable says otherwise. On this project's only target —
+ * `x86_64-unknown-linux-gnu` — it is UTF-8, so a path and a string are the
+ * same bytes and the same projection carries both.
+ *
+ * That is a TARGET assumption and it is stated here rather than assumed
+ * silently. A target whose filename encoding differs would need the
+ * conversion GLib supplies for exactly this, `g_filename_from_utf8` — and
+ * would pay for it: that function can fail, so every path-taking member
+ * would become failable, including the many that GTK declares as void and
+ * non-throwing. Converting unconditionally to buy portability this project
+ * does not yet target would make twenty members worse to use and none of
+ * them more correct.
+ */
+const borrowedStringGirTypes: ReadonlySet<string> = new Set(["utf8", "filename"]);
+
 const borrowedUtf8CTypes: ReadonlySet<string> = new Set([
   "const char*",
   "const gchar*",
@@ -601,7 +621,7 @@ function cStringParameter(
   if (
     parameter.kind !== "parameter" ||
     parameter.type.kind !== "named" ||
-    parameter.type.name !== "utf8" ||
+    !borrowedStringGirTypes.has(parameter.type.name) ||
     parameter.type.cType === null ||
     !spellings.has(parameter.type.cType) ||
     parameter.direction !== "in" ||
@@ -2639,7 +2659,7 @@ export function generateGObjectScabiPackage(
           }
         } else if (
           parameter.type.kind === "named" &&
-          parameter.type.name === "utf8"
+          borrowedStringGirTypes.has(parameter.type.name)
         ) {
           const abi = cStringParameter(
             parameter,
@@ -3251,7 +3271,10 @@ export function generateGObjectScabiPackage(
           sourceType = parameter.nullable
             ? "readonly string[] | null"
             : "readonly string[]";
-        } else if (parameter.type.kind === "named" && parameter.type.name === "utf8") {
+        } else if (
+          parameter.type.kind === "named" &&
+          borrowedStringGirTypes.has(parameter.type.name)
+        ) {
           abi = cStringParameter(
             parameter,
             parameter.nullable ? "nullable_const_utf8" : "const_utf8",

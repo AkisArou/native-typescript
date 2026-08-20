@@ -1594,6 +1594,55 @@ test(
 );
 
 test(
+  "a path parameter crosses as the string it is on this target",
+  { skip: !existsSync(systemGtkGir) },
+  () => {
+    /* GIR spells a path `filename` rather than `utf8`, and the difference is
+     * an ENCODING rather than a shape: both are `const char *`, and GLib's
+     * file name encoding is what `G_FILENAME_ENCODING` names — UTF-8 unless
+     * it says otherwise, which on `x86_64-unknown-linux-gnu` it does not.
+     *
+     * So a path and a string are the same bytes here and one projection
+     * carries both. The alternative is converting through
+     * `g_filename_from_utf8`, which can fail, and would make every
+     * path-taking member failable — including the many GTK declares as void
+     * and non-throwing. That buys portability this project does not target
+     * and costs twenty members their shape. */
+    const gtk = ingestGir(readFileSync(systemGtkGir, "utf8"), {
+      logicalPath: "system-sdk/gir/Gtk-4.0.gir",
+      namespace: { name: "Gtk", version: "4.0" },
+      classes: [{ name: "CssProvider", methods: ["load_from_path"] }],
+    });
+    const generated = generateGObjectScabiPackage(options(gtk));
+    const binding = generated.manifest.bindings.gtk_css_provider_load_from_path;
+    assert.ok(binding && binding.kind === "method");
+    if (!binding || binding.kind !== "method") return;
+
+    const path = binding.signature.parameters[1];
+    assert.equal(path?.type, "const_utf8");
+    assert.deepEqual(path?.marshal, {
+      kind: "string",
+      encoding: "utf-8",
+      length: { kind: "nul" },
+      termination: "nul",
+      embeddedNul: "reject",
+    });
+    assert.deepEqual(path?.ownership, { kind: "borrowed", scope: "call" });
+    assert.match(generated.declarations, /^ {2}loadFromPath\(path: string\): void;$/mu);
+
+    const program = translateScabiNativeProgram(generated.manifest, {
+      imports: ["gtk_css_provider_load_from_path"],
+      exports: [],
+    });
+    assert.equal(
+      program.ok,
+      true,
+      program.ok ? undefined : JSON.stringify(program.diagnostics),
+    );
+  },
+);
+
+test(
   "a property's accessors must agree about the type, not about the spelling",
   { skip: !existsSync(systemGtkGir) },
   () => {
