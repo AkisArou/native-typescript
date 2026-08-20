@@ -1412,6 +1412,14 @@ export function generateGObjectScabiPackage(
       release,
     ]),
   );
+  /* Where each class's release lives, taken from the adapter rather than
+   * recomputed: one decision, read twice. */
+  const releaseHostByClass = new Map(
+    options.gobjectAdapter.classReleases.map((release) => [
+      release.className,
+      release.hostClassName,
+    ]),
+  );
   const adapterByRetainedResult = new Map(
     options.gobjectAdapter.retainedResultMethods.map((method) => [
       method.id,
@@ -2006,19 +2014,35 @@ export function generateGObjectScabiPackage(
   for (const class_ of declaredClasses) {
     const classPath = `${options.snapshot.namespace.name}/${class_.name}`;
     const typeId = typeIdByClass.get(class_.name)!;
-    /* A GObject is released by dropping a reference, which is one generated
-     * adapter symbol per class; a boxed record is released by the free it
-     * declares, which is already a destructor and needs no wrapper. Both are
-     * what the handle type names, so both reserve the same declaration. */
+    /* A GObject is released by dropping a reference, which does not vary by
+     * class — one `g_object_unref` ends this program's claim on it, whatever
+     * produced the reference. So one release serves an upcast chain, named
+     * for the topmost class this package can REACH, and every class beneath
+     * it names that one. A boxed record is released by the free it declares,
+     * which is already a destructor and belongs to that record alone.
+     *
+     * Which class hosts the release is the adapter's decision, made once and
+     * read here, so the generated C and the manifest cannot disagree about
+     * where the symbol lives. */
     const boxed = class_.kind === "record";
+    const releaseHost = boxed
+      ? class_.name
+      : releaseHostByClass.get(class_.name) ?? class_.name;
+    const releaseHostPrefix = boxed
+      ? class_.cSymbolPrefix
+      : classByName.get(releaseHost)?.cSymbolPrefix ?? class_.cSymbolPrefix;
     const releaseId = boxed
-      ? `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_free`
-      : `${options.snapshot.namespace.name.toLowerCase()}_${class_.cSymbolPrefix}_release`;
-    const releaseDeclaration = `${class_.name}.dispose`;
+      ? `${options.snapshot.namespace.name.toLowerCase()}_${releaseHostPrefix}_free`
+      : `${options.snapshot.namespace.name.toLowerCase()}_${releaseHostPrefix}_release`;
+    const releaseDeclaration = `${releaseHost}.dispose`;
+    /* Only the host reserves the release's identity. Every class beneath it
+     * NAMES the same binding — that is the point — so a subclass finding it
+     * already there is the design working rather than a collision. */
+    const hostsRelease = releaseHost === class_.name;
     if (
       types[typeId] !== undefined ||
       declarationTypes[typeId] !== undefined ||
-      ((boxed || releaseByClass.has(class_.name)) &&
+      (hostsRelease && (boxed || releaseByClass.has(class_.name)) &&
         (bindings[releaseId] !== undefined || declarations.has(releaseDeclaration)))
     ) {
       diagnostics.push(diagnostic(classPath, "Generated GObject class identity collides"));
@@ -2159,7 +2183,7 @@ export function generateGObjectScabiPackage(
      * nothing names is refused as an ownership-consuming call outside the
      * destructor slice, so the adapter computes the set and this follows it. */
     const classRelease = releaseByClass.get(class_.name);
-    if (classRelease !== undefined) {
+    if (classRelease !== undefined && hostsRelease) {
       bindings[releaseId] = callableBase({
         declaration: releaseDeclaration,
         kind: "method",

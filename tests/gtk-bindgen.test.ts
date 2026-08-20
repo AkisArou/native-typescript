@@ -342,7 +342,6 @@ test(
         "gtk_button_connect_clicked",
         "gtk_button_get_label",
         "gtk_button_new_with_label",
-        "gtk_button_release",
         "gtk_button_set_label",
         "gtk_orientation_horizontal",
         "gtk_orientation_vertical",
@@ -358,7 +357,6 @@ test(
         "gtk_window_destroy",
         "gtk_window_new",
         "gtk_window_present",
-        "gtk_window_release",
         "gtk_window_set_child",
         "gtk_window_set_default_size",
         "nts_gobject_value_gtk_widget_get_preferred_size",
@@ -432,7 +430,9 @@ test(
         threadSafety: "confined",
         identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
-        destructor: "gtk_button_release",
+        /* One release per upcast chain: Button and Window both name
+         * Widget's, because dropping a reference does not vary by class. */
+        destructor: "gtk_widget_release",
       });
       assert.deepEqual(generated.manifest.types.gtk_orientation_storage, {
         kind: "integer",
@@ -450,7 +450,7 @@ test(
         threadSafety: "confined",
         identity: "pointer",
         upcasts: [{ kind: "identity", target: "gtk_widget" }],
-        destructor: "gtk_window_release",
+        destructor: "gtk_widget_release",
       });
       const constructor = generated.manifest.bindings.gtk_button_new_with_label;
       assert.ok(constructor && constructor.kind !== "constant");

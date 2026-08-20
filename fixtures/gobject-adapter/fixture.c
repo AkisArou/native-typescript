@@ -1,7 +1,10 @@
 #include <gtk/gtk.h>
 
 GtkButton *nts_gobject_adopt_gtk_button_new_with_label(const char *label);
-void nts_gobject_release_gtk_button(GtkButton *value);
+/* One release serves the whole upcast chain, so it is typed at the root
+ * the class reaches rather than at the class — which is why the call below
+ * casts. Generated code never needs to: a handle crosses as `void *`. */
+void nts_gobject_release_gtk_widget(GtkWidget *value);
 
 static int finalized = 0;
 
@@ -19,7 +22,7 @@ int main(void) {
   if (g_strcmp0(gtk_button_get_label(button), "native") != 0) return 12;
 
   g_object_weak_ref(G_OBJECT(button), on_finalized, NULL);
-  nts_gobject_release_gtk_button(button);
+  nts_gobject_release_gtk_widget((GtkWidget *)button);
   if (finalized != 1) return 13;
   return 0;
 }

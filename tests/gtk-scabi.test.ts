@@ -2110,7 +2110,6 @@ test("verified Gtk.Button metadata becomes canonical declarations and SCABI", ()
    * destructor, so the symbol exists for anything that comes to own one. */
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_new_with_label",
-    "gtk_button_release",
     "gtk_widget_release",
   ]);
   assert.match(generated.declarations, /export declare class Button/u);
@@ -2642,8 +2641,13 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   assert.ok(connected && connected.kind !== "constant");
   assert.equal(connected.kind, "getter");
   assert.equal(connected.signature.result.type, "gboolean");
-  const release = generated.manifest.bindings.gtk_button_release;
+  /* One release for the chain, hosted where it is emitted. Button names
+   * Widget's rather than declaring its own — how a GObject is released does
+   * not vary by class, and the compiler admits a destructor typed at any
+   * type the handle identity-upcasts to. */
+  const release = generated.manifest.bindings.gtk_widget_release;
   assert.ok(release && release.kind !== "constant");
+  assert.equal(generated.manifest.bindings.gtk_button_release, undefined);
   const constructor = generated.manifest.bindings.gtk_button_new_with_label;
   assert.ok(constructor && constructor.kind !== "constant");
   const constructorOwnership = constructor.signature.result.ownership;
@@ -2661,12 +2665,11 @@ test("GTK SCABI lowers a zero-payload signal to a receiver-owned connection", ()
   const buttonType = generated.manifest.types.gtk_button;
   assert.ok(buttonType && buttonType.kind === "handle");
   if (buttonType?.kind === "handle") {
-    assert.equal(buttonType.destructor, "gtk_button_release");
+    assert.equal(buttonType.destructor, "gtk_widget_release");
   }
   assert.deepEqual(generated.manifest.adapterInputs[0]?.bindings, [
     "gtk_button_connect_clicked",
     "gtk_button_new_with_label",
-    "gtk_button_release",
     "gtk_signal_connection_connected",
     "gtk_signal_connection_disconnect",
     "gtk_signal_connection_release",

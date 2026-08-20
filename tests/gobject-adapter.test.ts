@@ -269,7 +269,7 @@ test(
 test("GObject constructors normalize borrowed floating results to one strong reference", () => {
   const generated = adapter();
   assert.equal(generated.schema, "native-typescript.gobject-adapter-source");
-  assert.equal(generated.schemaVersion, 12);
+  assert.equal(generated.schemaVersion, 13);
   assert.match(generated.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
   assert.deepEqual(generated.constructors, [
     {
@@ -278,7 +278,9 @@ test("GObject constructors normalize borrowed floating results to one strong ref
       nativeType: "GtkButton",
       sourceSymbol: "gtk_button_new_with_label",
       adapterSymbol: "nts_gobject_adopt_gtk_button_new_with_label",
-      releaseSymbol: "nts_gobject_release_gtk_button",
+      /* The root's release, not Button's: one function serves the whole
+       * chain, so a constructor names where it is emitted. */
+      releaseSymbol: "nts_gobject_release_gtk_widget",
       sourceTransfer: "none",
       acquisition: "ref-sink",
       nullable: false,
@@ -294,7 +296,7 @@ test("GObject constructors normalize borrowed floating results to one strong ref
   assert.equal(generated.source.includes("g_object_is_floating"), false);
   assert.match(
     generated.source,
-    /void nts_gobject_release_gtk_button\(GtkButton \*value\)/u,
+    /void nts_gobject_release_gtk_widget\(GtkWidget \*value\)/u,
   );
   assertDeepFrozen(generated);
   assert.deepEqual(adapter(), generated);

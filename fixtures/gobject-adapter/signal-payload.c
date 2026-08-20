@@ -3,7 +3,10 @@
 typedef struct NtsGtkSignalConnection NtsGtkSignalConnection;
 
 GtkDrawingArea *nts_gobject_adopt_gtk_drawing_area_new(void);
-void nts_gobject_release_gtk_drawing_area(GtkDrawingArea *value);
+/* One release serves the whole upcast chain, so it is typed at the root
+ * the class reaches rather than at the class — which is why the call below
+ * casts. Generated code never needs to: a handle crosses as `void *`. */
+void nts_gobject_release_gtk_widget(GtkWidget *value);
 NtsGtkSignalConnection *nts_gobject_connect_gtk_drawing_area_resize(
     GtkDrawingArea *instance,
     void (*callback)(gint width, gint height, void *context),
@@ -43,6 +46,6 @@ int main(void) {
   g_signal_emit_by_name(area, "resize", 640, 360);
   if (observation.calls != 1) return 13;
 
-  nts_gobject_release_gtk_drawing_area(area);
+  nts_gobject_release_gtk_widget((GtkWidget *)area);
   return 0;
 }

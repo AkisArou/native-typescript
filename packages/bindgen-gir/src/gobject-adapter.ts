@@ -177,6 +177,11 @@ export interface GObjectErrorSupportAdapter {
 /** The function that drops the reference a handle holds. */
 export interface GObjectClassReleaseAdapter {
   readonly className: string;
+  /** The class the release is emitted FOR — this one, or the topmost it
+   * identity-upcasts to within this package. Named rather than derived from
+   * the symbol so the manifest and the generated C cannot disagree about
+   * where the release lives. */
+  readonly hostClassName: string;
   readonly releaseSymbol: string;
 }
 
@@ -199,7 +204,7 @@ export interface GObjectRetainedResultMethodAdapter {
 
 export interface GObjectAdapterSource {
   readonly schema: "native-typescript.gobject-adapter-source";
-  readonly schemaVersion: 12;
+  readonly schemaVersion: 13;
   readonly source: string;
   readonly sourceDigest: string;
   readonly constructors: readonly GObjectConstructorAdapter[];
@@ -503,9 +508,13 @@ function signalParameter(
 }
 
 function generateConstructor(
-  namespace: string,
   class_: GirClass,
   callable: GirCallable,
+  /* The symbol that releases what this constructor produces. Passed in rather
+   * than derived from the class, because a release is emitted once for an
+   * upcast root and named by every class beneath it — deriving it here would
+   * name a symbol nothing defines. */
+  classReleaseSymbol: string,
   diagnostics: CBindgenDiagnostic[],
 ): {
   readonly adapter: GObjectConstructorAdapter;
@@ -582,9 +591,7 @@ function generateConstructor(
   }
 
   const adapterSymbol = `nts_gobject_adopt_${callable.cIdentifier}`;
-  // Qualified by namespace: a class name is unique only within one namespace,
-  // and Gio.Application and Gtk.Application link into the same executable.
-  const releaseSymbol = `nts_gobject_release_${namespace}_${class_.cSymbolPrefix}`;
+  const releaseSymbol = classReleaseSymbol;
   const parameterDeclarations = validParameters.map(
     (parameter, index) => `${renderCType(parameter)} parameter_${index.toString().padStart(4, "0")}`,
   );
@@ -1501,13 +1508,46 @@ export function generateGObjectAdapterSource(
       .filter((class_) => class_.kind !== "record")
       .map((class_) => class_.name),
   );
+  /* Which class a release is emitted FOR.
+   *
+   * How a GObject is released does not vary by class — one `g_object_unref`
+   * ends this program's claim on it, whatever produced the reference — so a
+   * release per class was 269 copies of one function for a full Gtk-4.0
+   * selection. The compiler now admits a destructor typed at any type the
+   * handle identity-upcasts to, so a class names the release of the topmost
+   * ancestor this package can REACH: its own root when the chain leaves the
+   * namespace, and further up when the parent's package is imported.
+   *
+   * The chain is walked here rather than assumed to be one root, because GTK
+   * has 87 of them — the forest leaves the namespace at different points, and
+   * a design that assumed a single root would be right for a platform with
+   * one class hierarchy and wrong for this one. */
+  const declaredByName = new Map(declaredClasses.map((class_) => [class_.name, class_]));
+  const releaseRootOf = (class_: GirClass): GirClass => {
+    let current = class_;
+    const seen = new Set<string>([current.name]);
+    for (;;) {
+      const parent = current.parent;
+      if (parent === null || parent.kind !== "internal") return current;
+      const next = declaredByName.get(parent.name);
+      /* Only a class that gets a release of its own can host one. A chain
+       * that leaves the released set stops where it left. */
+      if (
+        next === undefined || seen.has(next.name) || !releasedClasses.has(next.name)
+      ) {
+        return current;
+      }
+      seen.add(next.name);
+      current = next;
+    }
+  };
   for (const class_ of declaredClasses) {
     const classConstructors: GObjectConstructorAdapter[] = [];
     for (const callable of class_.constructors) {
       const generated = generateConstructor(
-        namespacePart,
         class_,
         callable,
+        `nts_gobject_release_${namespacePart}_${releaseRootOf(class_).cSymbolPrefix}`,
         diagnostics,
       );
       if (generated === null) continue;
@@ -1518,18 +1558,23 @@ export function generateGObjectAdapterSource(
     if (releasedClasses.has(class_.name)) {
       /* Qualified by namespace: a class name is unique only within one, and
        * Gio.Application and Gtk.Application link into the same executable. */
+      const root = releaseRootOf(class_);
       const releaseSymbol =
-        `nts_gobject_release_${namespacePart}_${class_.cSymbolPrefix}`;
+        `nts_gobject_release_${namespacePart}_${root.cSymbolPrefix}`;
       classReleases.push(Object.freeze({
         className: class_.name,
+        hostClassName: root.name,
         releaseSymbol,
       }));
-      lines.push(
-        `void ${releaseSymbol}(${class_.cType} *value) {`,
-        "  if (value != NULL) g_object_unref(value);",
-        "}",
-        "",
-      );
+      /* Emitted once for the root, named by every class beneath it. */
+      if (root.name === class_.name) {
+        lines.push(
+          `void ${releaseSymbol}(${root.cType} *value) {`,
+          "  if (value != NULL) g_object_unref(value);",
+          "}",
+          "",
+        );
+      }
     }
     for (const callable of class_.signals) {
       const generated = generateSignal(
@@ -1612,7 +1657,7 @@ export function generateGObjectAdapterSource(
   const source = lines.join("\n");
   return Object.freeze({
     schema: "native-typescript.gobject-adapter-source",
-    schemaVersion: 12,
+    schemaVersion: 13,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     constructors: Object.freeze(constructors),
