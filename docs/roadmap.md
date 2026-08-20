@@ -1088,6 +1088,13 @@ the design was written in:
 The adapter-plus-LTO falsifier gates step 3: whatever generated adapters plus
 link-time optimization already achieve, the compiler need not absorb.
 
+## Open work
+
+Deferrals with reasons live in [open work](open-work.md), which indexes every
+item this project chose not to build yet and what would admit it. An entry
+that cannot name its admitting program is an entry that is not ready, which
+is the same rule the phases below follow.
+
 ## Continuous work
 
 Every phase maintains:
