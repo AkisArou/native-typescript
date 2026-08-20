@@ -9,7 +9,7 @@ export type {
   JvmAdapterOptions,
   JvmAdapterSource,
   JvmBindAdapter,
-  JvmClassReleaseAdapter,
+  JvmReleaseAdapter,
   JvmConstructorAdapter,
   JvmEnvSupportAdapter,
   JvmErrorSupportAdapter,

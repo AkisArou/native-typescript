@@ -190,7 +190,11 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   const widget = generated.manifest.types["jvm.fixture.widget"];
   assert.ok(widget !== undefined && widget.kind === "handle");
   if (widget.kind !== "handle") return;
-  assert.equal(widget.destructor, "fixture.fixture.widget.release");
+  // One shared release, typed at the root every class identity-upcasts to.
+  assert.equal(widget.destructor, "fixture.object.release");
+  const release = generated.manifest.bindings["fixture.object.release"];
+  assert.ok(release !== undefined && release.kind !== "constant");
+  assert.equal(release.signature.parameters[0]!.type, "jvm.object");
   assert.deepEqual(widget.upcasts, [{ kind: "identity", target: "jvm.object" }]);
 });
 

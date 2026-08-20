@@ -117,10 +117,11 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.equal(new Set(resizeSymbols).size, 2);
 
   assert.ok(first.source.includes(`jint ${first.bind.adapterSymbol}(`));
-  assert.ok(
-    first.classReleases.every(({ adapterSymbol }) =>
-      first.source.includes(`void ${adapterSymbol}(`)
-    ),
+  // One release for every class: DeleteGlobalRef is class-blind.
+  assert.ok(first.source.includes(`void ${first.release.adapterSymbol}(`));
+  assert.equal(
+    (first.source.match(/->DeleteGlobalRef/gu) ?? []).length,
+    1,
   );
   assert.ok(
     first.source.includes(`const char *${first.errorSupport.messageSymbol}(`),
@@ -140,11 +141,11 @@ test("every generated-C family carries a classification", () => {
     [
       "bind",
       "byteSpanSupport",
-      "classReleases",
       "constructors",
       "envSupport",
       "errorSupport",
       "instanceMethods",
+      "release",
       "staticMethods",
       "stringSupport",
     ],
@@ -235,9 +236,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const sumBytesSymbol = adapter.staticMethods.find(
       ({ name }) => name === "sumBytes",
     )!.adapterSymbol;
-    const releaseWidget = adapter.classReleases.find(
-      ({ className }) => className === "fixture/Widget",
-    )!.adapterSymbol;
+    const releaseWidget = adapter.release.adapterSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
     const releaseSymbol = adapter.errorSupport.releaseSymbol;

@@ -69,13 +69,11 @@ export function generateJvmClangAbiProbe(
       "jint",
       ["JNIEnv*", "char**"],
     ),
-    ...adapter.classReleases.map((release) =>
-      candidate(
-        `jvm.release.${release.adapterSymbol}`,
-        release.adapterSymbol,
-        "void",
-        ["void*"],
-      )
+    candidate(
+      `jvm.release.${adapter.release.adapterSymbol}`,
+      adapter.release.adapterSymbol,
+      "void",
+      ["void*"],
     ),
     candidate(
       `jvm.error.message.${adapter.errorSupport.messageSymbol}`,
