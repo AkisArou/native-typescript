@@ -232,9 +232,16 @@ What remains refused, measured rather than assumed:
 
 - **2 argument positions are COUNTED vectors**, carrying a length beside them
   instead of a terminator. That contract is deliberately absent so a generator
-  meeting one diagnoses rather than guessing where the vector ends. Two
-  members do not justify an arm; on the JVM every array is counted, which is
-  why the arm waits for the platform that needs it.
+  meeting one diagnoses rather than guessing where the vector ends.
+
+  Measured across every element type rather than only strings, 28 live
+  Gtk-4.0 members touch a counted array — and building the counting would
+  move 4 of them. The other 24 are blocked by their ELEMENT types
+  (`Gsk.ColorStop`, `GObject.Value`, `Expression`, `Gdk.RGBA`), not by the
+  counting. On the JVM the bottleneck is inverted: every array is counted,
+  no terminated variant exists, and the elements already project. The same
+  arm, wanted for opposite reasons, and admitted when the platform whose
+  elements already work asks for it.
 - **A property whose accessors disagree about the vector is refused.** That is
   `css-classes`: the getter hands over a vector the caller frees and the
   setter borrows one it does not, which is normal for a vector property and is

@@ -616,10 +616,23 @@ projection.
 Arrays were absent too, with the note that the selection could not reach them.
 That is no longer true in either half — the census reaches everything, and the
 string-vector family projects 21 argument positions and 12 results that were
-refused when this was written. What remains of arrays is the COUNTED vector,
-deliberately unbuilt: two Gtk-4.0 members carry a length beside the pointer
-instead of a terminator, and on the JVM every array does, so that arm belongs
-to the platform that needs it rather than to this one.
+refused when this was written.
+
+What remains of arrays is the COUNTED vector, which carries a length beside
+the pointer instead of a terminator. It stays unbuilt, and the measurement
+that keeps it unbuilt is worth stating because it is the opposite of the
+obvious one. **28 live Gtk-4.0 members touch a counted array — and building
+the counting would move 4 of them.** The other 24 are blocked by their ELEMENT
+types, not by the counting: `Gsk.ColorStop`, `GObject.Value`, `Expression`,
+`Gdk.RGBA`, `PageRange`. An arm that counts elements nothing can project is
+machinery with almost no program behind it.
+
+That also sharpens what the arm is for. On the JVM the bottleneck is exactly
+inverted: every array is counted, there is no terminated variant at all, and
+the elements are primitives and strings that already project. So counting is
+the only blocker there and the element families are the only blocker here —
+the same missing arm, wanted for opposite reasons, and admitted when the
+platform whose elements already work asks for it.
 
 **Proposed: a boxed record projects as an owned handle.** Counting only live
 members, records the projection refuses divide cleanly by what their fields
