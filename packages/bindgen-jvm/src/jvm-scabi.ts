@@ -803,9 +803,10 @@ export function generateJvmScabiPackage(
 
   const manifestValue: ScabiManifest = {
     schema: "native-typescript.scabi",
-    /* v6 is the version the scabi package in this tree validates; the bump
-     * landed while this generator was being written. */
-    schemaVersion: 6,
+    /* v7: the bytes marshalling contract gained an optional release and an
+     * optional length, for the span that comes back beside a compiler-owned
+     * length slot. */
+    schemaVersion: 7,
     package: options.package,
     target: {
       ...options.target,
