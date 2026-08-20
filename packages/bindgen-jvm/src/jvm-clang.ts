@@ -96,11 +96,14 @@ export function generateJvmClangAbiProbe(
             ["char**"],
           ),
         ]),
-    /* Connect symbols are NOT probed: a function-pointer parameter has no
-     * candidate spelling, and the registration machinery is generated C
-     * whose ABI is proven by the adapter compiling against its own header
-     * and by the live suite - the same boundary GTK's connect symbols sit
-     * behind. The unary connection operations are ordinary. */
+    /* Connect symbols are NOT probed, and the reason is a LIMITATION, not
+     * a decision: parseCTypeCandidate refuses function types by design
+     * (`parseCTypeCandidate("char (*)(int)")` throws), so a
+     * function-pointer parameter has no candidate spelling. Until the
+     * grammar grows one, the registration machinery's ABI is proven by the
+     * adapter compiling against its own header and by the live suite; if
+     * it ever does, these symbols become probeable and should be. The
+     * unary connection operations are ordinary and are probed. */
     ...(adapter.connectionSupport === null
       ? []
       : [
