@@ -1564,6 +1564,62 @@ test("SCABI lowers explicit identity handle upcasts into nominal Native IR", () 
   );
 });
 
+test("a byte span crosses out with its length in the compiler's own slot", () => {
+  /* An input span's extent comes from a sibling the caller fills; a returned
+   * span's is written by the callee into a slot no manifest names. Same word,
+   * two mechanisms — and the manifest spells them apart rather than reusing
+   * one field in two directions. */
+  const result = translateScabiNativeProgram(manifest, selectImports(["bytes_reverse"]));
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.diagnostics));
+  if (!result.ok) return;
+  const lowered = result.input.bindings.find(({ id }) => id.endsWith("#bytes_reverse"));
+
+  /* The visible argument is one Uint8Array occupying two physical slots, the
+   * caller-filled length among them. */
+  assert.deepEqual(lowered?.arguments, [{ name: "data", type: { kind: "bytes", elem: "u8" } }]);
+  assert.deepEqual(
+    lowered?.parameters.map((parameter) => parameter.projection.kind),
+    ["bytesData", "bytesByteLength", "bytesLengthOut"],
+  );
+
+  /* The third is the compiler's, appended rather than declared, and typed as
+   * the slot the callee writes through. */
+  assert.deepEqual(lowered?.parameters[2]?.type, {
+    kind: "nativeBytesLengthOut",
+    addressSpace: 0,
+  });
+  assert.deepEqual(lowered?.result.projection, {
+    kind: "bytes",
+    elem: "u8",
+    release: { kind: "symbol", symbol: "nts_cstring_free" },
+  });
+  assert.deepEqual(lowered?.result.ownership, { kind: "value" });
+
+  /* A returned span carrying an input's length field is refused: that field
+   * names a position the CALLER fills, which is not what happens here. */
+  const withLength = structuredClone(manifest);
+  const binding = withLength.bindings.bytes_reverse;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.signature.result, {
+    marshal: {
+      kind: "bytes",
+      mutability: "mutable",
+      release: "nts_cstring_free",
+      length: { kind: "parameter", parameter: "length" },
+    },
+  });
+  const rejected = translateScabiNativeProgram(withLength, selectImports(["bytes_reverse"]));
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/bytes_reverse/signature/result"
+    ),
+    true,
+  );
+});
+
 test("a string result pairs with a failure that arrives in a slot", () => {
   /* A failure that READS the result cannot coexist with a string result: the
    * pointer would have to mean the value and the failure at once. A failure

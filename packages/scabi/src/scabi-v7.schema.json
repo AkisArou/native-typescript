@@ -23,7 +23,7 @@
       "const": "native-typescript.scabi"
     },
     "schemaVersion": {
-      "const": 6
+      "const": 7
     },
     "package": {
       "$ref": "#/$defs/packageIdentity"
@@ -1237,7 +1237,6 @@
           "additionalProperties": false,
           "required": [
             "kind",
-            "length",
             "mutability"
           ],
           "properties": {
@@ -1252,6 +1251,9 @@
                 "const",
                 "mutable"
               ]
+            },
+            "release": {
+              "$ref": "#/$defs/nonEmptyString"
             }
           }
         },

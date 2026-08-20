@@ -1497,7 +1497,15 @@ function supportedBorrowedDataPair(
       return "only borrowed UTF-8 spans or NUL-terminated strings with embedded-NUL rejection are supported";
     }
   } else if (marshal?.kind === "bytes") {
-    if (marshal.mutability !== "const" || marshal.length.kind !== "parameter") {
+    /* An INPUT span's extent comes from a sibling the caller fills, so the
+     * length is required here — a result's comes from the compiler's own slot
+     * and is absent, which is why the field is optional on the contract and
+     * mandatory in this position. */
+    if (
+      marshal.mutability !== "const" ||
+      marshal.length?.kind !== "parameter" ||
+      marshal.release !== undefined
+    ) {
       return "only borrowed const byte spans with an explicit byte length are supported";
     }
   } else {
@@ -1519,7 +1527,7 @@ function supportedBorrowedDataPair(
       : "byte data must be a non-null borrowed const u8 pointer in address space zero";
   }
   const spanLength = marshal.length;
-  if (spanLength.kind !== "parameter") {
+  if (spanLength?.kind !== "parameter") {
     return "borrowed spans require an explicit length parameter";
   }
   const lengthIndex = binding.signature.parameters.findIndex(
@@ -2791,6 +2799,21 @@ export function translateScabiNativeProgram(
       }
     }
 
+    /* The length slot is the compiler's for the same reason the error slot is:
+     * the manifest declares that a span comes back, not where its extent is
+     * written. It is appended BEFORE the error slot because that is the order
+     * the two trailing slots take — `sym(args..., size_t *length, char **error)`
+     * — and a signature is not a set. */
+    if (binding.signature.result.marshal?.kind === "bytes") {
+      parameters.push(Object.freeze({
+        name: "out_length",
+        type: Object.freeze({ kind: "nativeBytesLengthOut", addressSpace: 0 } as const),
+        passMode: "pointer",
+        ownership: Object.freeze({ kind: "value" } as const),
+        projection: Object.freeze({ kind: "bytesLengthOut" } as const),
+      }));
+    }
+
     /* The error slot is the compiler's, so the manifest does not declare it as
      * a parameter — it declares that failure arrives in one. It is appended
      * last because that is where a `GError **` sits, and the contract above
@@ -2841,6 +2864,52 @@ export function translateScabiNativeProgram(
         });
         resultOwnership = Object.freeze({ kind: "value" });
         resultProjection = Object.freeze({ kind: "errorChannel" });
+      }
+    } else if (binding.signature.result.marshal?.kind === "bytes") {
+      const marshal = binding.signature.result.marshal;
+      const pointer = manifest.types[binding.signature.result.type];
+      const pointee = pointer?.kind === "pointer"
+        ? manifest.types[pointer.pointee]
+        : undefined;
+      /* A returned span's extent is written by the callee into a slot the
+       * compiler owns, so the contract carries no length here — and a length
+       * would be describing the input mechanism in the output position. */
+      if (
+        marshal.length !== undefined ||
+        binding.signature.result.passMode !== "pointer" ||
+        binding.signature.result.nullable ||
+        /* Consumed by the projection: the bytes are copied into managed
+         * storage and the pointer disposed inside the call, so nothing the
+         * program holds outlives it. */
+        binding.signature.result.ownership.kind !== "value" ||
+        pointer?.kind !== "pointer" ||
+        pointer.nullable ||
+        pointer.addressSpace !== 0 ||
+        pointee?.kind !== "integer" ||
+        pointee.bits !== 8 ||
+        pointee.signed
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          resultPath,
+          "a byte-span result must be a non-null u8 pointer consumed by the projection, with its length in the compiler's slot",
+        ));
+        valid = false;
+      } else {
+        resultType = Object.freeze({
+          kind: "nativePointer",
+          pointee: "u8",
+          const: marshal.mutability === "const",
+          addressSpace: 0,
+        });
+        resultOwnership = Object.freeze({ kind: "value" });
+        resultProjection = Object.freeze({
+          kind: "bytes",
+          elem: "u8",
+          release: marshal.release === undefined
+            ? Object.freeze({ kind: "none" } as const)
+            : Object.freeze({ kind: "symbol", symbol: marshal.release } as const),
+        });
       }
     } else if (binding.signature.result.marshal?.kind === "string-vector") {
       const vector = utf8CStringVector(manifest, binding.signature.result, false);

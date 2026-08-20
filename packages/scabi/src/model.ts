@@ -302,8 +302,28 @@ export type MarshallingContract =
     }
   | {
       readonly kind: "bytes";
-      readonly length: { readonly kind: "parameter"; readonly parameter: string };
+      /**
+       * Where the extent comes from, for an INPUT: a sibling position the
+       * caller fills.
+       *
+       * Absent on a RESULT, and deliberately not reused there. A returned
+       * span's length is written by the callee into a slot the compiler owns
+       * and no manifest names — the same footing as the trailing error slot.
+       * Spelling the two the same way would make one field mean "the caller
+       * filled this" in one position and "the callee wrote this" in another,
+       * distinguished only by where you found it.
+       */
+      readonly length?: { readonly kind: "parameter"; readonly parameter: string };
       readonly mutability: "const" | "mutable";
+      /**
+       * What frees the span once its bytes have been copied, for a RESULT the
+       * caller must dispose of. Absent for a span the callee keeps and for
+       * every input.
+       *
+       * The same field a string and a string vector carry, because it is the
+       * same question about the same kind of pointer.
+       */
+      readonly release?: string;
     }
   /**
    * A vector of C strings ending at a NULL slot — what a C API means by
@@ -574,7 +594,7 @@ export interface TypeImport {
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
-  readonly schemaVersion: 6;
+  readonly schemaVersion: 7;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
   readonly sdk: SdkIdentity;
