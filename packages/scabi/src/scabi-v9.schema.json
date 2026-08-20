@@ -23,7 +23,7 @@
       "const": "native-typescript.scabi"
     },
     "schemaVersion": {
-      "const": 8
+      "const": 9
     },
     "package": {
       "$ref": "#/$defs/packageIdentity"
@@ -1192,7 +1192,6 @@
           "required": [
             "kind",
             "encoding",
-            "length",
             "termination",
             "embeddedNul"
           ],

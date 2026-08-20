@@ -1654,6 +1654,73 @@ test("a byte span crosses out with its length in the compiler's own slot", () =>
   );
 });
 
+test("text that may contain NUL crosses out with a length, not a terminator", () => {
+  /* A NUL-terminated string makes the first NUL the end of the value, so a
+   * producer holding text that contains one can only refuse — which is what
+   * the JVM boundary does today, by name, for a Java string containing
+   * U+0000. That refusal is a committed failing program, and this is the
+   * projection that answers it.
+   *
+   * It is the byte-span result with a decode on the end: same pointer, same
+   * compiler-owned length slot, same disposal question, and the length is
+   * absent from the contract for the same reason — a returned extent is
+   * written by the callee into a slot no manifest names. */
+  const spanText = structuredClone(manifest);
+  const binding = spanText.bindings.bytes_reverse;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  Object.assign(binding.signature.result, {
+    marshal: {
+      kind: "string",
+      encoding: "utf-8",
+      termination: "none",
+      embeddedNul: "allow",
+      release: "nts_cstring_free",
+    },
+  });
+
+  const result = translateScabiNativeProgram(spanText, selectImports(["bytes_reverse"]));
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.diagnostics));
+  if (!result.ok) return;
+  const lowered = result.input.bindings.find(({ id }) => id.endsWith("#bytes_reverse"));
+
+  assert.deepEqual(lowered?.result.projection, {
+    kind: "utf8Span",
+    release: { kind: "symbol", symbol: "nts_cstring_free" },
+  });
+  /* Consumed by the projection: the text is copied into managed storage and
+   * the pointer disposed inside the call, so nothing the program holds
+   * outlives it. */
+  assert.deepEqual(lowered?.result.ownership, { kind: "value" });
+  /* The compiler's own slot is still what carries the extent. */
+  assert.equal(
+    lowered?.parameters.some(
+      (parameter) => parameter.projection.kind === "bytesLengthOut",
+    ),
+    true,
+  );
+
+  /* A terminator and an embedded NUL cannot both be admitted: the first NUL
+   * would end a value the contract says may contain one. */
+  const contradictory = structuredClone(spanText);
+  const wrong = contradictory.bindings.bytes_reverse;
+  assert.notEqual(wrong?.kind, "constant");
+  if (wrong === undefined || wrong.kind === "constant") return;
+  Object.assign(wrong.signature.result.marshal as object, { termination: "nul" });
+  const rejected = translateScabiNativeProgram(
+    contradictory,
+    selectImports(["bytes_reverse"]),
+  );
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(
+    rejected.diagnostics.some((diagnostic) =>
+      diagnostic.path === "/bindings/bytes_reverse/signature/result"
+    ),
+    true,
+  );
+});
+
 test("a string result pairs with a failure that arrives in a slot", () => {
   /* A failure that READS the result cannot coexist with a string result: the
    * pointer would have to mean the value and the failure at once. A failure

@@ -729,7 +729,7 @@ function supportedBorrowedStringResult(
   if (
     marshal?.kind !== "string" ||
     marshal.encoding !== "utf-8" ||
-    marshal.length.kind !== "nul" ||
+    marshal.length?.kind !== "nul" ||
     marshal.termination !== "nul" ||
     marshal.embeddedNul !== "reject"
   ) {
@@ -1355,7 +1355,7 @@ function borrowedUtf8CString(
     marshal.encoding !== "utf-8" ||
     marshal.termination !== "nul" ||
     marshal.embeddedNul !== "reject" ||
-    marshal.length.kind !== "nul"
+    marshal.length?.kind !== "nul"
   ) {
     return null;
   }
@@ -1477,7 +1477,7 @@ function supportedBorrowedDataPair(
       marshal.encoding === "utf-8" &&
       marshal.termination === "nul" &&
       marshal.embeddedNul === "reject" &&
-      marshal.length.kind === "nul"
+      marshal.length?.kind === "nul"
     ) {
       const classified = borrowedUtf8CString(manifest, data);
       if (typeof classified === "string") return classified;
@@ -1490,14 +1490,14 @@ function supportedBorrowedDataPair(
         nullable: classified.nullable,
       };
     }
-    if (marshal.length.kind === "nul") {
+    if (marshal.length?.kind === "nul") {
       return "NUL-length strings require UTF-8, NUL termination, and embedded-NUL rejection";
     }
     if (
       marshal.encoding !== "utf-8" ||
       marshal.termination !== "none" ||
       marshal.embeddedNul !== "allow" ||
-      marshal.length.kind !== "parameter"
+      marshal.length?.kind !== "parameter"
     ) {
       return "only borrowed UTF-8 spans or NUL-terminated strings with embedded-NUL rejection are supported";
     }
@@ -2826,7 +2826,14 @@ export function translateScabiNativeProgram(
      * written. It is appended BEFORE the error slot because that is the order
      * the two trailing slots take — `sym(args..., size_t *length, char **error)`
      * — and a signature is not a set. */
-    if (binding.signature.result.marshal?.kind === "bytes") {
+    if (
+      binding.signature.result.marshal?.kind === "bytes" ||
+      /* Text carried as a pointer and a length needs the same slot for the
+       * same reason. The two projections differ in what is decoded out of the
+       * bytes, never in how their extent arrives. */
+      (binding.signature.result.marshal?.kind === "string" &&
+        binding.signature.result.marshal.length === undefined)
+    ) {
       parameters.push(Object.freeze({
         name: "out_length",
         type: Object.freeze({ kind: "nativeBytesLengthOut", addressSpace: 0 } as const),
@@ -2928,6 +2935,62 @@ export function translateScabiNativeProgram(
         resultProjection = Object.freeze({
           kind: "bytes",
           elem: marshal.elem ?? "u8",
+          release: marshal.release === undefined
+            ? Object.freeze({ kind: "none" } as const)
+            : Object.freeze({ kind: "symbol", symbol: marshal.release } as const),
+        });
+      }
+    } else if (
+      binding.signature.result.marshal?.kind === "string" &&
+      binding.signature.result.marshal.length === undefined
+    ) {
+      /* Text whose extent arrives in the compiler's own slot rather than from
+       * a terminator. The byte-span result's sibling, and checked the same
+       * way, because it is the same pointer with a different decode.
+       *
+       * This is the one shape that can carry text containing U+0000. A
+       * NUL-terminated string makes the first NUL the end of the value, so a
+       * producer holding such a string can only refuse — which is exactly
+       * what a JVM boundary does today, by name, for a Java string that
+       * contains one. */
+      const marshal = binding.signature.result.marshal;
+      const pointer = manifest.types[binding.signature.result.type];
+      const pointee = pointer?.kind === "pointer"
+        ? manifest.types[pointer.pointee]
+        : undefined;
+      if (
+        marshal.encoding !== "utf-8" ||
+        marshal.termination !== "none" ||
+        marshal.embeddedNul !== "allow" ||
+        binding.signature.result.passMode !== "pointer" ||
+        binding.signature.result.nullable ||
+        /* Consumed by the projection: the text is copied into managed storage
+         * and the pointer disposed inside the call. */
+        binding.signature.result.ownership.kind !== "value" ||
+        pointer?.kind !== "pointer" ||
+        pointer.nullable ||
+        pointer.addressSpace !== 0 ||
+        pointee?.kind !== "integer" ||
+        pointee.bits !== 8
+      ) {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          resultPath,
+          "a UTF-8 span result must be a non-null 8-bit pointer consumed by the " +
+            "projection, admitting embedded NUL with no terminator, and its " +
+            "length in the compiler's slot",
+        ));
+        valid = false;
+      } else {
+        resultType = Object.freeze({
+          kind: "nativePointer",
+          pointee: pointee.signed ? "i8" : "u8",
+          const: false,
+          addressSpace: 0,
+        });
+        resultOwnership = Object.freeze({ kind: "value" });
+        resultProjection = Object.freeze({
+          kind: "utf8Span",
           release: marshal.release === undefined
             ? Object.freeze({ kind: "none" } as const)
             : Object.freeze({ kind: "symbol", symbol: marshal.release } as const),

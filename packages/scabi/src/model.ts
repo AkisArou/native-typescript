@@ -283,7 +283,20 @@ export type MarshallingContract =
   | {
       readonly kind: "string";
       readonly encoding: "utf-8";
-      readonly length:
+      /**
+       * Where the extent comes from.
+       *
+       * A sibling parameter for an input the caller sizes, the terminator
+       * itself for a NUL-terminated string, and ABSENT for a result whose
+       * length arrives in the compiler's own out slot — the same three-way
+       * shape a byte span has, and absent means the same thing in both.
+       *
+       * The absent case is what lets text containing U+0000 cross at all. A
+       * terminator makes the first NUL the end of the value, so a producer
+       * holding such a string can only refuse; a length beside the pointer
+       * carries it.
+       */
+      readonly length?:
         | { readonly kind: "parameter"; readonly parameter: string }
         | { readonly kind: "nul" };
       readonly termination: "none" | "nul";
@@ -623,7 +636,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 8;
+export const SCABI_SCHEMA_VERSION = 9;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
