@@ -653,17 +653,13 @@ export async function buildJvmApplication(input: {
       profilePath,
       externalTypes,
       native: composed.input,
-      /* The owner runtime calls the retained-callback service whether or
-       * not the program connects anything, so the archive carries it on
-       * the target's say-so — the executable path's rule, now stated on
-       * the library plan too. "attached-loop" is passed by hand until the
-       * capability mapping learns that runtime-owner-executor places a
-       * demand on a LIBRARY's compiled runtime (the embedder pumps); the
-       * provider already states the requirement. */
-      nativeRuntimeRequires: [
-        ...nativeRuntimeServices([jvmRuntimeProvider]),
-        "attached-loop",
-      ],
+      /* The owner runtime calls services the program never mentions, so
+       * the archive carries them on the target's say-so: the provider
+       * requires what it also provides, and the capability mapping turns
+       * that into ["attached-loop", "retained-callbacks"] here — free
+       * where the loop is already main, load-bearing where the embedder
+       * pumps. */
+      nativeRuntimeRequires: nativeRuntimeServices([jvmRuntimeProvider]),
     });
     if (!libraryPlanned.ok) {
       throw new Error(
