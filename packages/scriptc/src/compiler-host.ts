@@ -36,6 +36,85 @@ export interface ScriptCExecutablePlanners {
   ) => Promise<ScriptCExternalBuild>;
 }
 
+/**
+ * The compiler contract this workspace was written against.
+ *
+ * Checked at load rather than assumed, because the alternative already
+ * failed: the loaders verified only that the expected FUNCTIONS existed, so
+ * a distribution built from an incompatible revision passed and failed later
+ * with a structurally wrong plan — at a distance from the mismatch that
+ * caused it. A stale `dist` after a submodule repin is the ordinary way to
+ * reach that state, and it is easy to reach by accident.
+ *
+ * Exact equality, no range. Before 1.0 a version that moved changed
+ * something, and a workspace that guessed which changes it could survive
+ * would be deciding on the compiler's behalf.
+ */
+const expectedProtocol = Object.freeze({
+  protocol: "scriptc.embedder",
+  protocolVersion: 1,
+  irVersion: 42,
+  executablePlanVersion: 1,
+  libraryPlanVersion: 1,
+  externalCcPlanVersion: 1,
+} as const);
+
+export type ScriptCEmbedderProtocol = typeof expectedProtocol;
+
+/**
+ * Refuses a compiler whose embedder contract differs from this workspace's.
+ *
+ * Exported because it is the check itself rather than a step inside loading:
+ * a caller holding a distribution can ask whether it would be understood
+ * without importing planners it may not need, and the answer is the same one
+ * the loaders act on.
+ *
+ * The message names both sides and the remedy, because the overwhelmingly
+ * likely cause is a `dist` older than the checkout rather than a genuinely
+ * incompatible fork.
+ */
+export function verifyScriptCEmbedderProtocol(
+  protocol: unknown,
+  distribution: string,
+): void {
+  if (typeof protocol !== "object" || protocol === null) {
+    throw new Error(
+      `The ScriptC compiler at ${distribution} published a malformed embedder ` +
+        "protocol.\nRun: pnpm scriptc:build",
+    );
+  }
+  const actual = protocol as Record<string, unknown>;
+  const disagreements = Object.entries(expectedProtocol)
+    .filter(([key, value]) => actual[key] !== value)
+    .map(([key, value]) => `${key}: expected ${String(value)}, found ${String(actual[key])}`);
+  if (disagreements.length > 0) {
+    throw new Error(
+      `The ScriptC compiler at ${distribution} implements a different ` +
+        `embedder contract than this workspace expects:\n` +
+        disagreements.map((line) => `  ${line}`).join("\n") +
+        "\nIf the submodule was repinned, its build is stale.\n" +
+        "Run: pnpm scriptc:build",
+    );
+  }
+}
+
+function handshake(distribution: string, module_: Record<string, unknown>): void {
+  const read = module_["getEmbedderProtocol"];
+  if (typeof read !== "function") {
+    throw new Error(
+      `The ScriptC compiler at ${distribution} publishes no embedder ` +
+        "protocol, so this workspace cannot tell whether its plans would be " +
+        "understood. The submodule is likely off the native-typescript " +
+        "branch, or its build predates the protocol.\n" +
+        "Run: pnpm scriptc:build",
+    );
+  }
+  verifyScriptCEmbedderProtocol(
+    (read as () => unknown)(),
+    distribution,
+  );
+}
+
 export function scriptCCompilerDistribution(): string {
   return join(locateScriptCCheckout().path, "packages/compiler/dist");
 }
@@ -49,9 +128,9 @@ export async function loadScriptCExecutablePlanners(): Promise<ScriptCExecutable
         "Run: pnpm scriptc:build",
     );
   }
-  const module_ = (await import(
-    pathToFileURL(entry).href
-  )) as Partial<ScriptCExecutablePlanners>;
+  const module_ = (await import(pathToFileURL(entry).href)) as
+    Partial<ScriptCExecutablePlanners> & Record<string, unknown>;
+  handshake(distribution, module_);
   const { planExecutableCompilation, planExecutableExternalCBuild } = module_;
   if (
     typeof planExecutableCompilation !== "function" ||
@@ -112,9 +191,9 @@ export async function loadScriptCLibraryPlanners(): Promise<ScriptCLibraryPlanne
         "Run: pnpm scriptc:build",
     );
   }
-  const module_ = (await import(
-    pathToFileURL(entry).href
-  )) as Partial<ScriptCLibraryPlanners>;
+  const module_ = (await import(pathToFileURL(entry).href)) as
+    Partial<ScriptCLibraryPlanners> & Record<string, unknown>;
+  handshake(distribution, module_);
   const { planLibraryCompilation, planLibraryExternalCBuild } = module_;
   if (
     typeof planLibraryCompilation !== "function" ||

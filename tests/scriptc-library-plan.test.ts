@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   loadScriptCLibraryPlanners,
   scriptCCompilerDistribution,
+  verifyScriptCEmbedderProtocol,
 } from "@native-typescript/scriptc";
 
 const workspace = join(import.meta.dirname, "..");
@@ -92,3 +93,54 @@ test(
     }
   },
 );
+
+test("a compiler that implements a different contract is refused", () => {
+  /* The loaders used to check only that the expected FUNCTIONS existed, so a
+   * distribution built from an incompatible revision passed and failed later
+   * with a structurally wrong plan — at a distance from the mismatch that
+   * caused it. A stale `dist` after a submodule repin is the ordinary way to
+   * reach that state, and easy to reach by accident. */
+  const stale = {
+    protocol: "scriptc.embedder",
+    protocolVersion: 1,
+    /* One version behind and otherwise identical: the shape a stale build
+     * actually has, not a wholly foreign object. */
+    irVersion: 41,
+    executablePlanVersion: 1,
+    libraryPlanVersion: 1,
+    externalCcPlanVersion: 1,
+  };
+
+  assert.throws(
+    () => verifyScriptCEmbedderProtocol(stale, "/somewhere/dist"),
+    (error: Error) => {
+      /* Both sides named, and the remedy, because the likely cause is a
+       * build older than the checkout rather than a foreign fork. */
+      assert.match(error.message, /irVersion: expected 42, found 41/u);
+      assert.match(error.message, /its build is stale/u);
+      assert.match(error.message, /pnpm scriptc:build/u);
+      /* And only the version that moved is reported. */
+      assert.doesNotMatch(error.message, /libraryPlanVersion/u);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => verifyScriptCEmbedderProtocol(null, "/somewhere/dist"),
+    /malformed embedder protocol/u,
+  );
+
+  /* The other half of the claim: the real compiler agrees, so the check is
+   * not vacuously refusing everything. */
+  verifyScriptCEmbedderProtocol(
+    {
+      protocol: "scriptc.embedder",
+      protocolVersion: 1,
+      irVersion: 42,
+      executablePlanVersion: 1,
+      libraryPlanVersion: 1,
+      externalCcPlanVersion: 1,
+    },
+    "/somewhere/dist",
+  );
+});

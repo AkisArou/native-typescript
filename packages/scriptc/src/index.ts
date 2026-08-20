@@ -49,10 +49,12 @@ export {
   loadScriptCExecutablePlanners,
   loadScriptCLibraryPlanners,
   scriptCCompilerDistribution,
+  verifyScriptCEmbedderProtocol,
 } from "./compiler-host.ts";
 export type {
   ScriptCExecutableCompilationResult,
   ScriptCExecutablePlanners,
   ScriptCLibraryCompilationResult,
   ScriptCLibraryPlanners,
+  ScriptCEmbedderProtocol,
 } from "./compiler-host.ts";
