@@ -4,6 +4,19 @@ export type {
   JvmApplicationProject,
   JvmApplicationToolPaths,
 } from "./application-build.ts";
+export { buildAndroidApk } from "./android-application.ts";
+export type {
+  AndroidApplicationBuildResult,
+  AndroidApplicationProject,
+} from "./android-application.ts";
+export { generateAndroidManifest } from "./android-manifest.ts";
+export type { AndroidManifestSpecification } from "./android-manifest.ts";
+export {
+  androidApkArtifactIds,
+  manifestDigest,
+  planAndroidApk,
+} from "./android-apk.ts";
+export type { AndroidApkPlan } from "./android-apk.ts";
 export {
   discoverJavaHome,
   resolveAndroidNativeSdk,

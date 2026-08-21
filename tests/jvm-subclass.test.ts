@@ -56,9 +56,11 @@ test("the generated subclass is deterministic and spells the override native", (
   assert.equal(first.subclassBinaryName, "fixture/HostBridge");
   assert.equal(first.logicalPath, "fixture/HostBridge.java");
   assert.match(first.source, /package fixture;/u);
+  /* The base is named in full: the subclass may live in a package the
+   * base does not, and a qualified extends clause is right either way. */
   assert.match(
     first.source,
-    /public final class HostBridge extends Host \{/u,
+    /public final class HostBridge extends fixture\.Host \{/u,
   );
   assert.match(
     first.source,
@@ -120,6 +122,37 @@ test("a void override tells: native void, delivery decided by the generator", ()
   assert.deepEqual(generated.methods, [
     { name: "ntsSuperOnNotify", descriptor: "(I)V" },
   ]);
+});
+
+test("a platform-constructed subclass names its own package and loads its library", () => {
+  // Both facts come from the same place: a class the PLATFORM constructs.
+  // Nothing of ours runs before it, so its own initializer is the only
+  // place the native half can be loaded — and Android refuses to load
+  // application classes defined in the android.* namespace, so the
+  // default of "the base's package" is exactly wrong for a platform base.
+  const generated = generateJvmSubclassSource(hostSnapshot(), {
+    baseBinaryName: "fixture/Host",
+    overrides: ["onEvent"],
+    subclassBinaryName: "com/example/app/MainScreen",
+    loadLibrary: "ntsdemo",
+  });
+  assert.equal(generated.subclassBinaryName, "com/example/app/MainScreen");
+  assert.equal(generated.logicalPath, "com/example/app/MainScreen.java");
+  assert.match(generated.source, /^package com\.example\.app;$/mu);
+  assert.match(
+    generated.source,
+    /public final class MainScreen extends fixture\.Host \{/u,
+  );
+  assert.match(
+    generated.source,
+    /\{\n {2}static \{\n {4}System\.loadLibrary\("ntsdemo"\);\n {2}\}/u,
+  );
+  // The library load precedes every native override, which is the only
+  // ordering that makes a platform-dispatched override resolvable.
+  assert.ok(
+    generated.source.indexOf("System.loadLibrary") <
+      generated.source.indexOf("public native"),
+  );
 });
 
 test("an object payload crosses the generator as its Java source spelling", () => {
