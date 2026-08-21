@@ -36,6 +36,19 @@ typedef void (*NtsRetainedCallback)(int32_t value, void *context);
 typedef struct NtsSubscription NtsSubscription;
 typedef struct NtsCounter NtsCounter;
 
+/* Three synchronous registrations that hand the handler an OBJECT while it
+ * runs inside the caller's frame. Transfer is FULL in all three: the subject
+ * is created per invocation and the handler's cell owns it, which is the only
+ * spelling a managed platform has for an object reaching a callback — a local
+ * reference dies with the native frame, so the cell's destructor is what gives
+ * it back. */
+typedef void (*NtsTellCallback)(NtsCounter *subject, void *context);
+typedef int32_t (*NtsJudgeCallback)(int32_t code, NtsCounter *subject,
+                                    void *context);
+typedef void (*NtsNoticeCallback)(NtsCounter *subject, void *context);
+typedef struct NtsTeller NtsTeller;
+typedef struct NtsJudge NtsJudge;
+
 NTS_SCABI_EXPORT int8_t nts_i8_identity(int8_t value);
 NTS_SCABI_EXPORT uint8_t nts_u8_identity(uint8_t value);
 NTS_SCABI_EXPORT int16_t nts_i16_identity(int16_t value);
@@ -61,6 +74,17 @@ NTS_SCABI_EXPORT void nts_c_string_observe(const char *data);
 NTS_SCABI_EXPORT uint64_t nts_hash_bytes(const uint8_t *data, size_t length);
 NTS_SCABI_EXPORT uint8_t *nts_bytes_allocate(size_t length);
 NTS_SCABI_EXPORT void nts_bytes_free(uint8_t *data);
+NTS_SCABI_EXPORT void nts_cstring_free(char *data);
+
+/* UTF-8 whose length comes back beside the pointer rather than through a
+ * terminator, and whose text CONTAINS a NUL. A copy that scanned for the
+ * terminator stops after two bytes and answers a shorter string that looks
+ * perfectly correct, so only a caller reading past the embedded NUL can tell
+ * the two lowerings apart. The caller frees the result. */
+NTS_SCABI_EXPORT char *nts_span_label(size_t *out_length);
+/* The same span where absence is a VALUE rather than a failure: a negative
+ * request has no label, which differs from having an empty one. */
+NTS_SCABI_EXPORT char *nts_span_label_maybe(int32_t which, size_t *out_length);
 
 NTS_SCABI_EXPORT int32_t nts_call_scoped(
     NtsCallCallback callback,
@@ -105,6 +129,34 @@ NTS_SCABI_EXPORT int32_t nts_counter_verify(
 
 NTS_SCABI_EXPORT int32_t nts_fail_errno(int32_t error_number);
 
+/* Tells rather than asks, and is handed an object. Reads its mark AFTER
+ * invoking the handler, so a delivery that arrived on a later turn answers 0
+ * where the truth is 1 — which is what separates synchronous delivery from
+ * queued without needing a second turn to observe. */
+NTS_SCABI_EXPORT NtsTeller *nts_teller_create(NtsTellCallback callback,
+                                              void *context);
+NTS_SCABI_EXPORT int32_t nts_teller_tell(NtsTeller *teller, int32_t seed);
+NTS_SCABI_EXPORT void nts_teller_destroy(NtsTeller *teller);
+NTS_SCABI_EXPORT void nts_tell_mark(void);
+
+/* Answers a boolean while holding both a scalar and an object. The answer is
+ * the emitting call's result, so a delivery that arrived later would answer
+ * with this function's own zero rather than the handler's. */
+NTS_SCABI_EXPORT NtsJudge *nts_judge_create(NtsJudgeCallback callback,
+                                            void *context);
+NTS_SCABI_EXPORT int32_t nts_judge_ask(NtsJudge *judge, int32_t code,
+                                       int32_t seed);
+NTS_SCABI_EXPORT void nts_judge_destroy(NtsJudge *judge);
+
+/* A registration NOTHING owns: stored in a global, fired by a later call, and
+ * never cancelled — the shape a framework dispatch takes when the platform
+ * constructs the receiver, so there is no instance to anchor to at the moment
+ * one could register. The receiver arrives as an ordinary payload instead. */
+NTS_SCABI_EXPORT void nts_notice_register(NtsNoticeCallback callback,
+                                          void *context);
+NTS_SCABI_EXPORT void nts_notice_mark(void);
+NTS_SCABI_EXPORT int32_t nts_notice_fire(int32_t seed);
+
 /* Reports failure by returning an owned error object rather than a code, the
  * shape GLib's GError takes once a generated adapter has absorbed its
  * out-parameter. NULL is success. */
@@ -114,6 +166,13 @@ NTS_SCABI_EXPORT NtsFixtureError *nts_error_handle_fail(int32_t code);
 /* Reports failure through a trailing slot, so the quotient survives. */
 NTS_SCABI_EXPORT int32_t nts_error_out_divide(int32_t numerator, int32_t divisor,
                                               NtsFixtureError **error);
+/* The same slot under a SUB-WORD result, in both signednesses. The failure
+ * value has to survive the narrowing: a lowering that widened before checking
+ * the slot, or that reused the result register, answers with a byte that is a
+ * legitimate value at this width. */
+NTS_SCABI_EXPORT int8_t nts_error_out_i8(int32_t value, NtsFixtureError **error);
+NTS_SCABI_EXPORT uint8_t nts_error_out_u8(int32_t value,
+                                          NtsFixtureError **error);
 NTS_SCABI_EXPORT const char *nts_fixture_error_message(NtsFixtureError *error);
 NTS_SCABI_EXPORT void nts_fixture_error_free(NtsFixtureError *error);
 NTS_SCABI_EXPORT int32_t nts_fixture_errors_outstanding(void);

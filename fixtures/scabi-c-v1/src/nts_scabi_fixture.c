@@ -344,3 +344,110 @@ int32_t nts_counter_value_or(NtsCounter *counter, int32_t fallback) {
 int32_t nts_counter_base_value_or(NtsCounter *counter, int32_t fallback) {
   return counter == NULL ? fallback : nts_counter_value(counter);
 }
+
+void nts_cstring_free(char *data) { free(data); }
+
+char *nts_span_label(size_t *out_length) {
+  static const char text[] = "na\0me";
+  size_t length = sizeof text - 1;
+  char *copy = (char *)malloc(length);
+  if (copy == NULL) {
+    *out_length = 0;
+    return NULL;
+  }
+  memcpy(copy, text, length);
+  *out_length = length;
+  return copy;
+}
+
+char *nts_span_label_maybe(int32_t which, size_t *out_length) {
+  *out_length = 0;
+  if (which < 0) {
+    return NULL;
+  }
+  return nts_span_label(out_length);
+}
+
+uint8_t nts_error_out_u8(int32_t value, NtsFixtureError **error) {
+  if (value < 0) {
+    *error = nts_error_handle_fail(value);
+    return 0xFEu;
+  }
+  return (uint8_t)(value & 0xFF);
+}
+
+int8_t nts_error_out_i8(int32_t value, NtsFixtureError **error) {
+  if (value < 0) {
+    *error = nts_error_handle_fail(value);
+    return -128;
+  }
+  return (int8_t)(value & 0x7F);
+}
+
+struct NtsTeller {
+  NtsTellCallback callback;
+  void *context;
+};
+
+static int32_t nts_tell_marks = 0;
+
+NtsTeller *nts_teller_create(NtsTellCallback callback, void *context) {
+  NtsTeller *teller = (NtsTeller *)calloc(1, sizeof *teller);
+  if (teller == NULL) {
+    return NULL;
+  }
+  teller->callback = callback;
+  teller->context = context;
+  return teller;
+}
+
+void nts_tell_mark(void) { nts_tell_marks += 1; }
+
+int32_t nts_teller_tell(NtsTeller *teller, int32_t seed) {
+  nts_tell_marks = 0;
+  NtsCounter *subject = nts_counter_create(seed);
+  teller->callback(subject, teller->context);
+  return nts_tell_marks;
+}
+
+void nts_teller_destroy(NtsTeller *teller) { free(teller); }
+
+struct NtsJudge {
+  NtsJudgeCallback callback;
+  void *context;
+};
+
+NtsJudge *nts_judge_create(NtsJudgeCallback callback, void *context) {
+  NtsJudge *judge = (NtsJudge *)calloc(1, sizeof *judge);
+  if (judge == NULL) {
+    return NULL;
+  }
+  judge->callback = callback;
+  judge->context = context;
+  return judge;
+}
+
+int32_t nts_judge_ask(NtsJudge *judge, int32_t code, int32_t seed) {
+  NtsCounter *subject = nts_counter_create(seed);
+  return judge->callback(code, subject, judge->context);
+}
+
+void nts_judge_destroy(NtsJudge *judge) { free(judge); }
+
+static NtsNoticeCallback nts_notice_cb = NULL;
+static void *nts_notice_ctx = NULL;
+static int32_t nts_notice_marks = 0;
+
+void nts_notice_register(NtsNoticeCallback callback, void *context) {
+  nts_notice_cb = callback;
+  nts_notice_ctx = context;
+}
+
+void nts_notice_mark(void) { nts_notice_marks += 1; }
+
+int32_t nts_notice_fire(int32_t seed) {
+  nts_notice_marks = 0;
+  NtsCounter *subject = nts_counter_create(seed);
+  nts_notice_cb(subject, nts_notice_ctx);
+  return nts_notice_marks;
+}

@@ -98,6 +98,26 @@ export interface Subscription {
   dispose(): void;
 }
 
+/* Two synchronous registrations that hand the handler an OBJECT while it runs
+ * inside the caller's frame — the pair neither delivery shape could express
+ * before. The counter is the handler's: it arrives with a reference, and the
+ * cell that receives it is what gives that reference back. */
+export interface Teller {
+  readonly [nativeResource]: "Teller";
+  /* Invokes the handler and then reads its mark, so a delivery that arrived on
+   * a later turn answers 0 where the truth is 1. */
+  tell(seed: i32): i32;
+  dispose(): void;
+}
+
+/* The `onKeyDown` shape: answers a boolean while holding both a scalar and an
+ * object. */
+export interface Judge {
+  readonly [nativeResource]: "Judge";
+  ask(code: i32, seed: i32): i32;
+  dispose(): void;
+}
+
 export interface CounterBase {
   readonly [nativeCounterBaseResource]: true;
   value(): i32;
@@ -152,11 +172,28 @@ export declare function counterVerify(
   expectedValue: i32,
   expectedDestroyed: i32,
 ): i32;
+export declare function tellWith(callback: (subject: Counter) => void): Teller;
+export declare function tellMark(): void;
+export declare function judgeWith(
+  callback: (code: i32, subject: Counter) => boolean,
+): Judge;
+/* A registration nothing owns — no handle comes back, and nothing can cancel
+ * it, because there is no receiver whose lifetime bounds it. */
+export declare function noticeWith(callback: (subject: Counter) => void): void;
+export declare function noticeMark(): void;
+export declare function noticeFire(seed: i32): i32;
+/* UTF-8 text arriving as a pointer and a length rather than a terminator, so
+ * the bytes may contain NUL. The fixture's label does. */
+export declare function spanLabel(): string;
+export declare function spanLabelMaybe(which: i32): string | null;
 export declare function failErrno(errorNumber: i32): never;
 /* Reports failure by returning an owned error object rather than a code. */
 export declare function errorHandleFail(code: i32): void;
 /** Fails through a trailing slot, so the quotient survives the call. */
 export declare function errorOutDivide(numerator: i32, divisor: i32): i32;
+/** The same trailing slot under a sub-word result, in both signednesses. */
+export declare function errorOutU8(value: i32): u8;
+export declare function errorOutI8(value: i32): i8;
 export declare function fixtureErrorsOutstanding(): i32;
 
 export interface FixtureLibraryExports {
