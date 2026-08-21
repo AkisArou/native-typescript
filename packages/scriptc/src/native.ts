@@ -1207,14 +1207,23 @@ function supportedRetainedCallbackPair(
       (typeof borrowedUtf8CString(manifest, position) === "object" &&
         !position.nullable);
   }
-  /* A registration the native side ASKS: the handler runs during the
-   * emitting call and its answer is that call's result. Only values can
-   * cross, because nothing here outlives the call — a copied string or a
-   * referenced object payload would have no owner — and the answer is a
-   * boolean, which is the question a toolkit asks a handler. */
-  const answered = contract.synchronousReturn === true;
+  /* A registration delivered DURING the emitting call, in either of its two
+   * forms. The native side ASKS when the handler's answer is that call's
+   * result — a boolean, which is the question a toolkit asks a handler — and
+   * TELLS when nothing comes back, which is what a framework lifecycle method
+   * is. Only values cross in both, because nothing here outlives the call: a
+   * copied string or a referenced object payload would have no owner.
+   *
+   * Which form a contract means is `synchronousReturn` plus the result type,
+   * never inferred from one alone. This site read `synchronousReturn` and then
+   * required a boolean answer, which made the two forms one — the same
+   * restatement the compiler's own validator carried until a lifecycle method
+   * needed the telling form, and unreachable from that fixture because only a
+   * JVM manifest routes a synchronous void contract through here. */
+  const synchronous = contract.synchronousReturn === true;
   const answerType = manifest.types[callbackType.signature.result.type];
-  if (answered) {
+  if (synchronous) {
+    const tells = answerType?.kind === "void";
     const answerStorage = answerType?.kind === "boolean"
       ? manifest.types[answerType.storage]
       : undefined;
@@ -1223,24 +1232,32 @@ function supportedRetainedCallbackPair(
       callbackType.signature.parameters.some(
         (position) => !supportedScalarPosition(position),
       ) ||
-      answerStorage?.kind !== "integer" ||
+      /* The telling form has no answer to constrain; every other property of
+       * the result position still is one, because a void result that arrived
+       * nullable or marshalled would describe something this does not emit. */
+      (!tells && answerStorage?.kind !== "integer") ||
       answerPosition.passMode !== "value" ||
       answerPosition.nullable ||
       answerPosition.ownership.kind !== "value" ||
       answerPosition.marshal !== undefined
     ) {
-      return "a synchronously answered callback takes exact scalar values and answers with an ABI boolean";
+      return "a synchronous callback takes exact scalar values and either answers with an ABI boolean or answers nothing";
     }
+    /* Both forms share what follows, and neither relaxes it. Synchronous
+     * delivery is admissible for one reason — the invocation is same-as-caller
+     * on the owner's thread, because reaching a handler means reading a
+     * closure and a foreign producer may never read one — and that reason does
+     * not weaken when nothing is answered. */
     if (
       contract.arguments.some((argument, index) =>
         argument.parameter !== callbackType.signature.parameters[index]?.name ||
         argument.transport !== "borrow"
       )
     ) {
-      return "a synchronously answered callback borrows every parameter in ABI order";
+      return "a synchronous callback borrows every parameter in ABI order";
     }
     if (allowedInvocationExecutors.some((executor) => executor !== "same-as-caller")) {
-      return "a synchronously answered callback is invoked on the caller's thread";
+      return "a synchronous callback is invoked on the caller's thread";
     }
   } else if (
     callbackType.signature.parameters.some(
@@ -1252,7 +1269,7 @@ function supportedRetainedCallbackPair(
   }
   if (
     contract.arguments.length !== callbackType.signature.parameters.length ||
-    (!answered && contract.arguments.some((argument, index) =>
+    (!synchronous && contract.arguments.some((argument, index) =>
       argument.parameter !== callbackType.signature.parameters[index]?.name ||
       argument.transport !== "copy"
     ))
@@ -1296,7 +1313,13 @@ function supportedRetainedCallbackPair(
         })
       : Object.freeze({ kind: "registration-owner" as const })
   ));
-  if (answered) {
+  /* Two returns rather than one with two conditional fields, and the type
+   * system is what insists. `synchronousReturn` and the executor set are
+   * CORRELATED in the published contract — true admits exactly
+   * ["same-as-caller"] — so building one object with a `boolean` and a widened
+   * list satisfies neither arm. The apparent duplication is the correlation
+   * being enforced, which is worth more than the five shared lines it costs. */
+  if (synchronous) {
     return {
       functionIndex: callbackIndex,
       contextIndex,
