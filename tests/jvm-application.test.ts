@@ -158,13 +158,18 @@ test(
         assert.match(declarations, /onCreate\(callback: \(\) => void\): JvmConnection;/u);
         assert.match(declarations, /ntsSuperOnCreate\(\): void;/u);
         assert.match(declarations, /markCreated\(\): void;/u);
-        // The payload arm's surface: the handler's object is non-null
-        // (the trampoline refuses NULL by name before promoting), while
-        // the super binding is an ordinary method whose object argument
-        // keeps Java's honest null arm.
+        // The payload arm's surface: a SYNCHRONOUS payload may be
+        // withheld, so the handler is handed the union the platform can
+        // actually deliver — the same union the super binding's ordinary
+        // object argument has always carried. A queued payload keeps the
+        // non-null spelling, which onTick below is.
         assert.match(
           declarations,
-          /onMeasure\(callback: \(a0: jint, a1: Widget\) => boolean\): JvmConnection;/u,
+          /onMeasure\(callback: \(a0: jint, a1: Widget \| null\) => boolean\): JvmConnection;/u,
+        );
+        assert.match(
+          declarations,
+          /onTick\(callback: \(sender: Widget, a0: jint\) => void\): JvmConnection;/u,
         );
         assert.match(
           declarations,

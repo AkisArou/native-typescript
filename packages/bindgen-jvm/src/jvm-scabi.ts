@@ -829,22 +829,19 @@ export function generateJvmScabiPackage(
    * does, while the reference's fate rides on this ownership and the
    * handle type's destructor.
    *
-   * Whether it may be WITHHELD is the registration's business. A
-   * PROCESS-OWNED synchronous payload may be absent, because a platform
-   * reports absence that way — Android hands onCreate a null
+   * Whether it may be WITHHELD is the DELIVERY's business, and only
+   * that: who owns the registration never bore on whether the emitter
+   * may hand over nothing. A synchronous payload may be absent, because
+   * a platform reports absence that way — Android hands onCreate a null
    * savedInstanceState on first launch. A method argument's null and a
-   * payload's null are the same union with different speakers: there, the
-   * caller declines to pass something; here, the platform reports there
-   * is nothing.
+   * payload's null are the same union with different speakers: there,
+   * the caller declines to pass something; here, the platform reports
+   * there is nothing.
    *
-   * Two arms deliberately keep the non-null spelling. A QUEUED delivery
-   * has no withheld contract at all: its invocation record's cleanup
-   * reads the same slot, so an absent payload would release a pointer the
-   * library never gave. And an OWNER-SCOPED synchronous payload is
-   * admitted by the compiler only as a present handle today — the
-   * process-owned branch takes both arms, its sibling takes one — so this
-   * emits what is admitted and the trampoline refuses NULL by name on
-   * both, each with its own reason. */
+   * A QUEUED delivery keeps the non-null spelling, and for a reason of
+   * its own rather than a missing arm: its invocation record's cleanup
+   * reads the same slot, so an absent payload would release a pointer
+   * the library never gave. The trampoline refuses NULL by name there. */
   function callbackPositionParameters(
     position: JvmAdapterPosition,
     index: number,
@@ -883,8 +880,7 @@ export function generateJvmScabiPackage(
      * handler test a union nothing inhabits. */
     const withheld = (index: number): boolean =>
       callback.delivery !== "queued" &&
-      callback.anchor === "class" &&
-      index !== 0;
+      !(callback.anchor === "class" && index === 0);
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
     if (className === undefined || typeId === undefined) continue;

@@ -1303,22 +1303,18 @@ export function generateJvmAdapterSource(
          * pass NULL, so that arm refuses BY NAME before any promotion —
          * nothing to give back on this bail. A synchronous delivery has
          * the null arm and passes absence through. */
-        /* Only a PROCESS-OWNED synchronous payload may be withheld. The
-         * other two arms refuse NULL by name before any promotion —
-         * nothing to give back on that bail — each for its own reason:
-         * a queued delivery would have its record's cleanup release a
-         * pointer that was never given, and an owner-scoped synchronous
-         * payload is admitted by the contract only as a present handle. */
-        ...(classAnchored && delivery !== "queued"
+        /* A SYNCHRONOUS payload may be withheld, whoever owns the
+         * registration; a queued one may not, because its invocation
+         * record's cleanup reads the same slot and would release a
+         * pointer that was never given. That arm refuses NULL by name
+         * before any promotion — nothing to give back on the bail. */
+        ...(delivery !== "queued"
           ? []
           : handleIndices.flatMap((index) => [
               `  if (a${index} == NULL) {`,
               `    (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
               `        "a NULL payload reached ${class_.binaryName}.${callback.name}; ` +
-                (delivery === "queued"
-                  ? "a queued delivery copies its payload into a record whose cleanup would release what was never given"
-                  : "a withheld payload is admitted where the registration is owned by the process, and this one is anchored to its receiver") +
-                '");',
+                'a queued delivery copies its payload into a record whose cleanup would release what was never given");',
               ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
               "  }",
             ])),

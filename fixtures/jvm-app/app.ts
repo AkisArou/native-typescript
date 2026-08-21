@@ -210,7 +210,17 @@ if (!lifecycleThrew) failed = true;
  * proves ran. */
 let measureSuperFalse = 0;
 let depthSum = 0;
+let measureAbsent = 0;
 const measureConnection = bridge.onMeasure((bias, subject) => {
+  /* A synchronous payload may be withheld, so the handler is handed a
+   * union and narrows it. Host.survey always passes an object, so this
+   * arm never runs HERE — it is Android's first-launch onCreate that
+   * inhabits it — and the count proves this program took the present arm
+   * every time rather than silently taking the other. */
+  if (subject === null) {
+    measureAbsent += 1;
+    return false;
+  }
   depthSum += subject.depth();
   if (!bridge.ntsSuperOnMeasure(bias, subject)) measureSuperFalse += 1;
   return (bias + subject.depth()) % 2 === 0;
@@ -219,6 +229,7 @@ const measureConnection = bridge.onMeasure((bias, subject) => {
 if (bridge.survey(widget, 4) !== 2) failed = true;
 if (depthSum !== 28) failed = true;
 if (measureSuperFalse !== 4) failed = true;
+if (measureAbsent !== 0) failed = true;
 measureConnection.disconnect();
 
 let ticks = 0;
