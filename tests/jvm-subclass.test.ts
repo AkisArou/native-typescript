@@ -342,15 +342,20 @@ test(
         { kind: "handle", binaryName: "fixture/Widget" },
       ]);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
-      /* The payload trampoline: NULL refused by name BEFORE any
-       * promotion, promotion only AFTER the registration match — so the
-       * no-match and null paths never take a reference there is nothing
-       * to give back on. */
+      /* The payload trampoline: promotion happens only AFTER the
+       * registration match, so the no-match path never takes a reference
+       * there is nothing to give back on — and only when there IS an
+       * object, because a synchronous payload may be withheld and absence
+       * is not a failure to promote. */
+      assert.ok(adapter.source.includes("jobject payload1 = a1 == NULL"));
       assert.ok(adapter.source.includes(
-        "jobject payload1 = (*env)->NewGlobalRef(env, a1);",
+        "          : (*env)->NewGlobalRef(env, a1);",
       ));
+      /* A dispatch on a thread that does not own the instance throws by
+       * name rather than reading a closure it must not: the obligation
+       * the runtime does not police, made observable where it is broken. */
       assert.ok(adapter.source.includes(
-        "a NULL payload reached fixture/HostBridge.onMeasure",
+        "was dispatched on a thread that does not own the TypeScript instance",
       ));
       /* The super bindings ingested as ordinary instance methods — the
        * dual-method-and-callback refusal does not fire because the super

@@ -1243,6 +1243,7 @@ export function generateJvmAdapterSource(
        * the SCABI manifest — the trampoline only reaches the registered
        * pointer. */
       const answerType = answers ? "jboolean" : "void";
+      const ownerCheckSymbol = "nts_jvm_runtime_owner_thread_is_current";
       const callbackPointer = `${answerType} (*)(${[
         ...payloadPositions.map((parameter) =>
           parameter.kind === "primitive" ? jniCTypes[parameter.primitive] : "void *"
@@ -1283,17 +1284,44 @@ export function generateJvmAdapterSource(
           "jobject self",
           ...jniParameters,
         ].join(", ")}) {`,
-        /* The contract's handle payloads are non-null; Java can still pass
-         * NULL, so the refusal happens here BY NAME, before any promotion
-         * — nothing to give back on this bail. */
-        ...handleIndices.flatMap((index) => [
-          `  if (a${index} == NULL) {`,
-          `    (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
-          `        "a NULL payload reached ${class_.binaryName}.${callback.name}; ` +
-            'the handle payload arm is non-null, and a nullable payload waits on its own admission");',
-          ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
-          "  }",
-        ]),
+        /* Reaching a handler means reading a closure, and an instance is
+         * never entered from two threads — an obligation the runtime does
+         * not police, so a delivery on the wrong thread would corrupt
+         * rather than fail. The target cannot make the rule unnecessary;
+         * it can make it observable. Weak, because an adapter linked
+         * without this target's runtime has no owner to ask about. */
+        `  if (${ownerCheckSymbol} != NULL && !${ownerCheckSymbol}()) {`,
+        `    (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+        `        "${class_.binaryName}.${callback.name} was dispatched on a ` +
+          'thread that does not own the TypeScript instance; a handler runs ' +
+          'on the owning thread or not at all");',
+        ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
+        "  }",
+        /* A QUEUED delivery's payload may not be withheld: its invocation
+         * record's cleanup reads the same slot, so an absent payload
+         * would release a pointer the library never gave. Java can still
+         * pass NULL, so that arm refuses BY NAME before any promotion —
+         * nothing to give back on this bail. A synchronous delivery has
+         * the null arm and passes absence through. */
+        /* Only a PROCESS-OWNED synchronous payload may be withheld. The
+         * other two arms refuse NULL by name before any promotion —
+         * nothing to give back on that bail — each for its own reason:
+         * a queued delivery would have its record's cleanup release a
+         * pointer that was never given, and an owner-scoped synchronous
+         * payload is admitted by the contract only as a present handle. */
+        ...(classAnchored && delivery !== "queued"
+          ? []
+          : handleIndices.flatMap((index) => [
+              `  if (a${index} == NULL) {`,
+              `    (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+              `        "a NULL payload reached ${class_.binaryName}.${callback.name}; ` +
+                (delivery === "queued"
+                  ? "a queued delivery copies its payload into a record whose cleanup would release what was never given"
+                  : "a withheld payload is admitted where the registration is owned by the process, and this one is anchored to its receiver") +
+                '");',
+              ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
+              "  }",
+            ])),
         /* Instance-anchored: find the registration that named THIS
          * receiver. Class-anchored: there is at most one and it answers
          * for every instance, so identity is not the question. */
@@ -1315,11 +1343,20 @@ export function generateJvmAdapterSource(
          * releases the earlier ones, because a reference handed over on a
          * bail path is exactly where a leak hides. */
         ...handleIndices.flatMap((index, order) => [
-          `      jobject payload${index} = (*env)->NewGlobalRef(env, a${index});`,
-          `      if (payload${index} == NULL) {`,
+          /* Absence is not a failure to promote: there is no object, so
+           * there is no reference to take and none to give back. The cell
+           * is built only when there IS one. */
+          `      jobject payload${index} = a${index} == NULL`,
+          "          ? NULL",
+          `          : (*env)->NewGlobalRef(env, a${index});`,
+          `      if (payload${index} == NULL && a${index} != NULL) {`,
           ...handleIndices.slice(0, order).map((prior) =>
-            `        (*env)->DeleteGlobalRef(env, payload${prior});`
+            `        if (payload${prior} != NULL) {`
           ),
+          ...handleIndices.slice(0, order).map((prior) =>
+            `          (*env)->DeleteGlobalRef(env, payload${prior});`
+          ),
+          ...handleIndices.slice(0, order).map(() => "        }"),
           `        (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
           `            "promoting a payload for ${class_.binaryName}.${callback.name} failed");`,
           ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
@@ -1487,6 +1524,13 @@ export function generateJvmAdapterSource(
           `  struct ${prefix}_connection *next;`,
           `  struct ${prefix}_connection **slot;`,
           `} ${prefix}_connection;`,
+          "",
+          /* The target runtime answers whether this thread owns the
+           * TypeScript instance. Weak: an adapter linked without that
+           * runtime has no owner to ask about, and answers yes by
+           * absence rather than refusing every delivery. */
+          "extern int nts_jvm_runtime_owner_thread_is_current(void)",
+          "    __attribute__((weak));",
           "",
           ...callbackForwardDeclarations,
         ]

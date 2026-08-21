@@ -821,24 +821,41 @@ export function generateJvmScabiPackage(
     }));
     adapterBindings.push(connectionDisconnectId, connectionReleaseId);
   }
-  /* A callback payload handle is spelled OPPOSITE to a method argument
-   * handle: non-null (the trampoline refuses NULL by name before
-   * promoting) and owned with transfer to-runtime, because the adapter
-   * promoted the frame-scoped local reference and the managed cell's
-   * destructor — derived from the handle type's declared release — gives
-   * the promotion back. The queued payload's spelling, and synchronous
-   * delivery shares it (fork 0309d850): there is no borrowed handle form
-   * in the runtime to want. */
+  /* A callback payload handle is OWNED with transfer to-runtime: the
+   * adapter promoted the frame-scoped local reference, and the managed
+   * cell's destructor — derived from the handle type's declared release —
+   * gives the promotion back. `transport: "borrow"` sits beside that and
+   * is not a contradiction: transport describes what the DELIVERY FRAME
+   * does, while the reference's fate rides on this ownership and the
+   * handle type's destructor.
+   *
+   * Whether it may be WITHHELD is the registration's business. A
+   * PROCESS-OWNED synchronous payload may be absent, because a platform
+   * reports absence that way — Android hands onCreate a null
+   * savedInstanceState on first launch. A method argument's null and a
+   * payload's null are the same union with different speakers: there, the
+   * caller declines to pass something; here, the platform reports there
+   * is nothing.
+   *
+   * Two arms deliberately keep the non-null spelling. A QUEUED delivery
+   * has no withheld contract at all: its invocation record's cleanup
+   * reads the same slot, so an absent payload would release a pointer the
+   * library never gave. And an OWNER-SCOPED synchronous payload is
+   * admitted by the compiler only as a present handle today — the
+   * process-owned branch takes both arms, its sibling takes one — so this
+   * emits what is admitted and the trampoline refuses NULL by name on
+   * both, each with its own reason. */
   function callbackPositionParameters(
     position: JvmAdapterPosition,
     index: number,
+    withheldPayloads: boolean,
   ): readonly AbiParameter[] {
     if (position.kind === "handle") {
       return [Object.freeze({
         name: `a${index}`,
         type: selectedTypeIds.get(position.binaryName)!,
         passMode: "pointer" as const,
-        nullable: false,
+        nullable: withheldPayloads,
         ownership: Object.freeze({
           kind: "owned" as const,
           transfer: "to-runtime" as const,
@@ -847,13 +864,27 @@ export function generateJvmScabiPackage(
     }
     return positionParameters(position, index);
   }
-  /* The handler's payload type has no null arm, unlike a method argument's. */
-  function payloadSourceTypeOf(position: JvmAdapterPosition): string {
+  /** A payload the platform may withhold reads as the union it is. */
+  function payloadSourceTypeOf(
+    position: JvmAdapterPosition,
+    withheldPayloads: boolean,
+  ): string {
     return position.kind === "handle"
-      ? classNameOf.get(position.binaryName)!
+      ? `${classNameOf.get(position.binaryName)!}${
+        withheldPayloads ? " | null" : ""
+      }`
       : sourceTypeOf(position);
   }
   for (const callback of options.adapter.callbacks) {
+    /* Only a synchronous delivery may be handed nothing; see
+     * callbackPositionParameters. And a class-anchored registration's
+     * RECEIVER is never absent — there is always an instance that called
+     * — so it keeps the non-null spelling rather than making every
+     * handler test a union nothing inhabits. */
+    const withheld = (index: number): boolean =>
+      callback.delivery !== "queued" &&
+      callback.anchor === "class" &&
+      index !== 0;
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
     if (className === undefined || typeId === undefined) continue;
@@ -863,7 +894,7 @@ export function generateJvmScabiPackage(
     const bindingId =
       `${slug}.${idToken(callback.className)}.${callback.name.toLowerCase()}`;
     const callbackParameters = callback.parameters.flatMap((position, index) =>
-      callbackPositionParameters(position, index)
+      callbackPositionParameters(position, index, withheld(index))
     );
     types[callbackTypeId] = Object.freeze({
       kind: "callback",
@@ -1006,7 +1037,7 @@ export function generateJvmScabiPackage(
       ...(callback.delivery === "queued" ? [`sender: ${className}`] : []),
       ...callback.parameters.map(
         (parameter, position) =>
-          `a${position}: ${payloadSourceTypeOf(parameter)}`,
+          `a${position}: ${payloadSourceTypeOf(parameter, withheld(position))}`,
       ),
     ].join(", ");
     declareMember(

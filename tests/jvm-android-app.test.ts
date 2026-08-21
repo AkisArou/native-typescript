@@ -127,6 +127,12 @@ const androidProject = {
   packageSlug: "android",
   classes: [
     ...activityChain,
+    /* Bundle is the payload onCreate is handed, so the selection must
+     * project it — and BaseBundle with it, because ingestion refuses a
+     * class whose superclass is present among the sources but absent
+     * from the selection rather than inventing an ancestry. */
+    { binaryName: "android/os/BaseBundle" },
+    { binaryName: "android/os/Bundle" },
     {
       binaryName: "android/util/Log",
       methods: [{ name: "i", descriptor: "(Ljava/lang/String;Ljava/lang/String;)I" }],
@@ -135,7 +141,7 @@ const androidProject = {
       binaryName: "android/app/Activity",
       constructors: ["()V"],
       methods: [
-        { name: "onStart", descriptor: "()V" },
+        { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
         { name: "getLocalClassName", descriptor: "()Ljava/lang/String;" },
       ],
     },
@@ -143,7 +149,7 @@ const androidProject = {
   subclasses: [
     {
       baseBinaryName: "android/app/Activity",
-      overrides: [{ name: "onStart", descriptor: "()V" }],
+      overrides: [{ name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" }],
       /* NOT the base's package: Android refuses to load application
        * classes defined in android.*, so the Activity is generated into
        * a package the application owns. */

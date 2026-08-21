@@ -152,6 +152,31 @@ typedef void **NtsJvmEnvOut;
 
 static bool nts_jvm_adopted;
 
+/* Which thread owns the ScriptC instance. An instance is never entered
+ * from two threads, and the runtime does not police that — reaching a
+ * handler means reading a closure, and a closure read from a foreign
+ * thread corrupts rather than fails. A target cannot make the obligation
+ * unnecessary, but it can make it OBSERVABLE: every generated trampoline
+ * asks this before it delivers, so a dispatch on the wrong thread throws
+ * into Java by name instead of proceeding. */
+static pthread_t nts_jvm_owner_thread;
+static bool nts_jvm_owner_known;
+
+int nts_jvm_runtime_owner_thread_is_current(void) {
+  if (!nts_jvm_owner_known) return 1;
+  return pthread_equal(nts_jvm_owner_thread, pthread_self()) != 0 ? 1 : 0;
+}
+
+static void nts_jvm_claim_owner_thread(void) {
+  nts_jvm_owner_thread = pthread_self();
+  nts_jvm_owner_known = true;
+}
+
+#ifndef NTS_JVM_ADOPT_IN_PLACE
+/* The spawned-owner boot, for an embedder that hands control back to the
+ * program rather than calling into it: the loader waits until the owner
+ * has bound, and the owner parks in the pump. A platform-driven build
+ * adopts the loading thread instead and reaches none of this. */
 static struct {
   pthread_mutex_t mutex;
   pthread_cond_t cond;
@@ -174,6 +199,7 @@ static void nts_jvm_boot_signal(bool failed) {
 
 static void *nts_jvm_owner_main(void *opaque) {
   (void)opaque;
+  nts_jvm_claim_owner_thread();
   JNIEnv *env = NULL;
   if (
       (*nts_jvm_vm)->AttachCurrentThread(
@@ -215,6 +241,7 @@ static void *nts_jvm_owner_main(void *opaque) {
   }
   return NULL;
 }
+#endif
 
 /* JNI_VERSION_1_6 everywhere a version is spoken: nothing this runtime
  * touches is newer than JNI 1.2 (RegisterNatives, GetEnv,
@@ -227,6 +254,46 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
   if (nts_jvm_vm != NULL) return JNI_VERSION_1_6;
   nts_jvm_vm = vm;
   nts_jvm_adopted = true;
+#ifdef NTS_JVM_ADOPT_IN_PLACE
+  /* PLATFORM-DRIVEN adoption: the thread that loads the library becomes
+   * the instance's owner, and nothing is spawned or parked.
+   *
+   * This is the library contract read literally — the calling thread IS
+   * the instance selector — and on a platform it is the only correct
+   * reading. Android dispatches every Activity lifecycle callback on the
+   * process's main looper, and this runs inside the generated Activity's
+   * static initializer, so the loading thread and the dispatching thread
+   * are the same one. Spawning an owner here would put the instance on a
+   * thread the platform will never call, and the first lifecycle callback
+   * would read a closure from a foreign thread — corruption rather than a
+   * diagnostic, because nothing polices it.
+   *
+   * There is no park because there is nothing to park for: control
+   * returns to the platform, which calls back in. A queued delivery would
+   * need the platform's own loop to pump it, which is its own slice with
+   * its own program. */
+  nts_jvm_claim_owner_thread();
+  JNIEnv *env = NULL;
+  if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+    fprintf(stderr, "nts_jvm_runtime: the loading thread is not attached\n");
+    nts_jvm_vm = NULL;
+    return JNI_ERR;
+  }
+  for (size_t index = 0; index < nts_jvm_bind_count; index++) {
+    char *error = NULL;
+    if (nts_jvm_binds[index](nts_jvm_vm, &error) != 0) {
+      fprintf(stderr, "nts_jvm_runtime: bind failed: %s\n",
+              error == NULL ? "(no message)" : error);
+      free(error);
+      nts_jvm_vm = NULL;
+      return JNI_ERR;
+    }
+  }
+  if (nts_jvm_hosted_init != NULL) {
+    nts_jvm_hosted_init();
+  }
+  return JNI_VERSION_1_6;
+#else
   pthread_t owner;
   if (pthread_create(&owner, NULL, nts_jvm_owner_main, NULL) != 0) {
     fprintf(stderr, "nts_jvm_runtime: could not spawn the owner thread\n");
@@ -250,6 +317,7 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     return JNI_ERR;
   }
   return JNI_VERSION_1_6;
+#endif
 }
 
 void nts_jvm_application_start(char **error) {
@@ -307,6 +375,7 @@ void nts_jvm_application_start(char **error) {
     arguments.nOptions = 1;
   }
   JNIEnv *env = NULL;
+  nts_jvm_claim_owner_thread();
   jint created = JNI_CreateJavaVM(&nts_jvm_vm, (void **)&env, &arguments);
   free(classpath_option);
   if (created != JNI_OK) {

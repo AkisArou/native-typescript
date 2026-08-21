@@ -599,7 +599,22 @@ export async function buildJvmApplication(input: {
     adapters: [{ slug, adapter }],
     targetRuntimeSourceTreeDigest: runtimeContent.digest,
     scriptcRuntimeHeaders: { artifact: "headers/scriptc/runtime" },
-    sdkArguments: sdk.compileArguments,
+    /* On a platform that DRIVES the owner thread, JNI_OnLoad adopts the
+     * thread that loaded the library instead of spawning one and parking
+     * it: ART dispatches every lifecycle callback on the main looper, and
+     * this library is loaded from the generated Activity's own static
+     * initializer, so the loading thread and the dispatching thread are
+     * the same one. Spawning here would put the instance on a thread the
+     * platform never calls. */
+    sdkArguments: androidTarget
+      ? [
+          ...sdk.compileArguments,
+          Object.freeze({
+            kind: "literal" as const,
+            value: "-DNTS_JVM_ADOPT_IN_PLACE=1",
+          }),
+        ]
+      : sdk.compileArguments,
     tool: clangTool,
     executionPlatform,
     target,
