@@ -893,6 +893,28 @@ export async function buildJvmApplication(input: {
           kind: "literal" as const,
           value: "-Wl,-z,max-page-size=16384",
         }),
+        /* The math symbols the compiled program reaches — fmod, exp2 —
+         * live in libm, and a shared link does not pull it in on its own.
+         * On glibc libm is folded into libc and this resolves to nothing;
+         * on bionic it is a separate library the loader must be told
+         * about, and without it dlopen fails on the DEVICE naming a
+         * symbol rather than the library it is missing. */
+        Object.freeze({ kind: "literal" as const, value: "-lm" }),
+        /* A `-shared` link accepts undefined symbols by default, which is
+         * how an unresolvable library gets built and only fails when
+         * something tries to load it. An Android library must resolve
+         * everything at load anyway — bionic binds eagerly — so the check
+         * costs nothing there and moves the failure to the link that
+         * caused it. The desktop hosted library genuinely has undefined
+         * JNI symbols the HOST supplies at runtime, so it keeps the
+         * permissive link; that difference is the platform's, not a
+         * preference. */
+        ...(androidTarget
+          ? [Object.freeze({
+              kind: "literal" as const,
+              value: "-Wl,--no-undefined",
+            })]
+          : []),
         Object.freeze({ kind: "literal" as const, value: "-o" }),
         Object.freeze({ kind: "output-path" as const, artifact: soId }),
         Object.freeze({

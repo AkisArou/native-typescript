@@ -4,10 +4,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import {
-  buildJvmApplication,
-  discoverJavaHome,
-} from "@native-typescript/target-jvm";
+import { buildJvmApplication, discoverJavaHome } from "@native-typescript/target-jvm";
 import { scriptCCompilerDistribution } from "@native-typescript/scriptc";
 import { executable } from "./support/artifacts.ts";
 
@@ -119,9 +116,7 @@ const androidProject = {
       methods: ["run"],
     },
   ],
-  subclasses: [
-    { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
-  ],
+  subclasses: [{ baseBinaryName: "fixture/Host", overrides: ["onEvent"] }],
   target: {
     triple: `x86_64-linux-android${NDK_API}`,
     executionPlatform: "x86_64-linux",
@@ -142,13 +137,7 @@ test(
   "the hosted product cross-compiles for Android through its own pipeline",
   { skip, timeout: 600_000 },
   async (t) => {
-    execFileSync(pnpm, [
-      "--dir",
-      scriptcRoot,
-      "--filter",
-      "@scriptc/compiler",
-      "build",
-    ]);
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
     assert.equal(existsSync(scriptCCompilerDistribution()), true);
 
     const { mkdtempSync, rmSync } = await import("node:fs");
@@ -185,12 +174,7 @@ test(
          * load on the platform it was built for. The first three observe
          * the fiberless library runtime; the last observes the runtime's
          * adoption-only refusal replacing the create path. */
-        for (const forbidden of [
-          "getcontext",
-          "makecontext",
-          "swapcontext",
-          "JNI_CreateJavaVM",
-        ]) {
+        for (const forbidden of ["getcontext", "makecontext", "swapcontext", "JNI_CreateJavaVM"]) {
           assert.ok(
             !new RegExp(`UND ${forbidden}\\b`, "u").test(dynamicSymbols),
             `backend ${backend}: the Android .so imports ${forbidden}`,
@@ -212,9 +196,15 @@ test(
           );
         }
 
+        /* Math lives in libm on bionic, and a shared link does not pull
+         * it in on its own. Every artifact assertion here passed on a
+         * build whose .so could not load for want of it — the device is
+         * what noticed, and this is the observer that would have. */
+        const needed = readelf(["-d"], built.productPath);
+        assert.match(needed, /NEEDED.*\[libm\.so\]/u);
+
         /* No libjvm exists on Android to be NEEDED. */
-        const dynamic = readelf(["-d"], built.productPath);
-        assert.ok(!/NEEDED.*libjvm/u.test(dynamic));
+        assert.ok(!/NEEDED.*libjvm/u.test(needed));
         t.diagnostic(`backend ${backend}: ${built.productPath}`);
       }
     } finally {
