@@ -934,8 +934,13 @@ function supportedCallbackSourceArguments(
     if (
       ownerProjected ||
       contract.registrationOwner === "native-call" ||
-      contract.registrationOwner === "result"
+      contract.registrationOwner === "result" ||
+      contract.registrationOwner === "process"
     ) {
+      /* A process-owned registration has no receiver to inject, which is the
+       * whole reason it is process-owned: the platform constructs the
+       * receiver, so there is no instance at registration time to anchor to.
+       * Such a contract delivers its receiver as an ordinary payload. */
       return "a callback can inject only one receiver registration owner";
     }
     const owner = binding.signature.parameters.find(
@@ -1084,7 +1089,15 @@ function supportedRetainedCallbackPair(
   const parameter = binding.signature.parameters[callbackIndex]!;
   const contract = parameter.callback;
   const callbackType = manifest.types[parameter.type];
-  const registrationOwnerIndex = contract?.registrationOwner === "result"
+  /* Both owner spellings that name no parameter resolve to "no owner
+   * parameter" rather than to a failed search: `result` because the returned
+   * value owns it, `process` because nothing does. A findIndex over
+   * parameters would answer -1 for either, but only by accident of the name
+   * not matching — and would answer wrongly for a binding that happened to
+   * take a parameter called `process`. */
+  const registrationOwnerIndex =
+      contract?.registrationOwner === "result" ||
+      contract?.registrationOwner === "process"
     ? -1
     : binding.signature.parameters.findIndex(
       ({ name }) => name === contract?.registrationOwner,
@@ -1303,23 +1316,46 @@ function supportedRetainedCallbackPair(
     return "managed registration-owner injection requires same-caller native invocation";
   }
   const result = binding.signature.result;
-  if (
+  /* A registration nothing owns returns nothing and cancels through no owner.
+   * Both follow from the same fact rather than being two allowances: there is
+   * no receiver whose lifetime bounds the registration, so there is no handle
+   * to hand back and no disposal to cancel through. The contract's own arm
+   * carries no cancellation binding for exactly this reason.
+   *
+   * Ending such a registration is a separate spelling — a release that names
+   * the function VALUE back, which the IR expresses as a `callbackRelease`
+   * projection and SCABI cannot yet say. It waits for a program: an Activity
+   * lifecycle registration is the program, and never ends. */
+  const processOwned = contract.registrationOwner === "process";
+  if (processOwned) {
+    if (manifest.types[result.type]?.kind !== "void") {
+      return "a process-owned callback registration returns nothing, because no receiver's lifetime bounds it";
+    }
+    if (contract.cancellationBinding !== undefined) {
+      return "a process-owned callback registration has no owner to cancel through; releasing one names the function value back and has no SCABI spelling yet";
+    }
+  } else if (
     manifest.types[result.type]?.kind !== "handle" ||
     result.passMode !== "pointer" ||
     !result.nullable ||
     result.ownership.kind !== "owned" ||
     result.ownership.transfer !== "to-runtime" ||
+    contract.cancellationBinding === undefined ||
     !binding.dependencies.bindings.includes(contract.cancellationBinding)
   ) {
     return `retained callback registration must return a nullable owned handle with declared cancellation dependency '${contract.cancellationBinding}'`;
   }
+  /* Only the two owned spellings, because the process arm returns before this
+   * — it names its own owner inline, having no cancellation binding to pair
+   * with. Keeping it out of this expression is what lets the two branches
+   * below narrow to the arms that DO carry one. */
   const loweredRegistrationOwner = contract.registrationOwner === "result"
     ? Object.freeze({ kind: "result" } as const)
     : Object.freeze({
       kind: "argument" as const,
       argument: registrationOwnerIndex,
     });
-  const cancellation = `${manifest.package.instance}#${contract.cancellationBinding}`;
+  const cancellation = `${manifest.package.instance}#${contract.cancellationBinding!}`;
   const loweredSourceArguments = Object.freeze(sourceArguments.map((argument) =>
     argument.kind === "callback-parameter"
       ? Object.freeze({
@@ -1331,12 +1367,31 @@ function supportedRetainedCallbackPair(
         })
       : Object.freeze({ kind: "registration-owner" as const })
   ));
-  /* Two returns rather than one with two conditional fields, and the type
-   * system is what insists. `synchronousReturn` and the executor set are
-   * CORRELATED in the published contract — true admits exactly
-   * ["same-as-caller"] — so building one object with a `boolean` and a widened
-   * list satisfies neither arm. The apparent duplication is the correlation
-   * being enforced, which is worth more than the five shared lines it costs. */
+  if (processOwned) {
+    return {
+      functionIndex: callbackIndex,
+      contextIndex,
+      parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
+      sourceArguments,
+      resultTypeId: callbackType.signature.result.type,
+      contract: Object.freeze({
+        owner: Object.freeze({ kind: "process" as const }),
+        allowedInvocationExecutors: Object.freeze(["same-as-caller"] as const),
+        synchronousReturn: true,
+        sourceArguments: loweredSourceArguments,
+      }),
+    };
+  }
+  /* Three returns rather than one with conditional fields, and the type system
+   * is what insists — twice now, in the same function. `synchronousReturn` and
+   * the executor set are CORRELATED in the published contract, true admitting
+   * exactly ["same-as-caller"]; and a process-owned arm carries no
+   * cancellation binding at all rather than an optional one. Building one
+   * object with a `boolean`, a widened list and a `string | undefined`
+   * satisfies none of the three arms. The apparent duplication is those
+   * correlations being enforced, which is worth more than the shared lines it
+   * costs — and is why the second one was found by the compiler rather than by
+   * a program. */
   if (synchronous) {
     return {
       functionIndex: callbackIndex,

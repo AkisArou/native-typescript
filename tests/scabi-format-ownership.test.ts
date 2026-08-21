@@ -188,6 +188,29 @@ const FORMAT: readonly Case[] = [
         if (p.callback?.registrationOwner === "native-call") {
           p.callback.registrationOwner = "result-handle"; return;
         } } },
+  /* A registration nothing owns returns nothing and cancels through no owner,
+   * and both follow from the same fact rather than being two rules: there is
+   * no receiver whose lifetime bounds it. Keeping either the handle result or
+   * the cancellation binding while claiming process ownership is a contract
+   * that says two incompatible things about who ends the registration. */
+  { name: "process-owned callback still returning a registration handle", apply: (m) => {
+      for (const p of everyParameter(m))
+        if (p.callback?.registrationOwner) {
+          p.callback.registrationOwner = "process";
+          delete p.callback.cancellationBinding;
+          return;
+        } } },
+  { name: "process-owned callback keeping a cancellation binding", apply: (m) => {
+      for (const [, b] of selected(m))
+        for (const p of b.signature?.parameters ?? [])
+          if (p.callback?.cancellationBinding) {
+            p.callback.registrationOwner = "process";
+            b.signature.result = {
+              type: "void", passMode: "value", nullable: false,
+              ownership: { kind: "value" },
+            };
+            return;
+          } } },
   { name: "borrowed result anchored to a parameter that does not exist", apply: (m) => {
       for (const [, b] of selected(m))
         if (b.signature?.result?.ownership?.kind === "borrowed") {

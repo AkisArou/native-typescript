@@ -447,12 +447,32 @@ export type CallbackSourceArgumentContract =
     }
   | { readonly kind: "registration-owner" };
 
+/** Owner spellings that name something other than a parameter.
+ *
+ * A parameter may not carry one of these names, and `validateScabiManifest`
+ * refuses a binding whose parameter does. The field is one string with two
+ * kinds of meaning in it, so without that rule a C function taking a
+ * parameter called `result` would have its owner silently read as the return
+ * value — a misreading with no diagnostic. The rule is what makes the
+ * compact spelling safe rather than merely conventional. */
+export const RESERVED_REGISTRATION_OWNERS = Object.freeze(
+  ["native-call", "result", "process"] as const,
+);
+
 export interface CallbackContract {
   /** What owns the registration, and therefore how long it lives:
    * `"native-call"` for a call-scoped callback, `"result"` for one the
-   * returned value owns, or the name of the parameter that owns it. A
-   * separate lifetime would say the same thing a second time and could
-   * disagree with this one.
+   * returned value owns, `"process"` for one nothing in the program owns, or
+   * the name of the parameter that owns it. A separate lifetime would say the
+   * same thing a second time and could disagree with this one.
+   *
+   * `"process"` is what a framework dispatch needs when the PLATFORM
+   * constructs the receiver. There is no ordering in which a per-instance
+   * registration works there: at the moment the program could register, no
+   * instance exists, and by the moment one does the callback has already
+   * fired. The registration outlives every instance because the class does,
+   * so the honest owner is the process — and the receiver arrives as an
+   * ordinary payload rather than as an injected registration owner.
    *
    * The delivery executor is likewise absent: it follows from the owner and
    * from `synchronousReturn`, and the compiler derives it. */
@@ -636,7 +656,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 9;
+export const SCABI_SCHEMA_VERSION = 10;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
