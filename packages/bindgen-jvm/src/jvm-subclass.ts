@@ -14,9 +14,11 @@
  * code that dispatched it, so the queued arm is never an override's
  * delivery, and the generator states `delivery: "synchronous"` on every
  * void override it emits. (The void-synchronous arm arrived with fork
- * 3c33818a, with fixture/Lifecycle as its committed evidence.) Payloads
- * stay exact scalars: a handle payload waits on its own arm, and Android's
- * onCreate(Bundle) is that arm's failing program.
+ * 3c33818a, with fixture/Lifecycle as its committed evidence; the handle
+ * payload arm with fork 0309d850.) Payloads are exact scalars and
+ * objects: an object crosses as an owned handle the adapter promotes,
+ * and whether its class projects is the adapter's refusal, made where
+ * the selection is known — generation admits any object javac can spell.
  *
  * Each override also carries its native super binding: an ordinary
  * generated method whose body is `super.name(...)`, the only spelling of
@@ -238,14 +240,26 @@ export function generateJvmSubclassSource(
         parameters.push(`${javaScalarNames[parameter.name]} a${index}`);
         return;
       }
+      /* An object payload crosses as an owned handle (fork 0309d850): the
+       * adapter promotes the frame-scoped reference and the cell's
+       * destructor gives it back. Generation admits any object javac can
+       * spell — whether the payload's class projects is the adapter's
+       * fact, refused there where the selection is known. The source
+       * spelling is the binary name with dots, `$` included: a member
+       * class is `Outer.Inner` in Java source. */
+      if (parameter.kind === "object") {
+        parameters.push(
+          `${parameter.binaryName.replace(/[/$]/gu, ".")} a${index}`,
+        );
+        return;
+      }
       diagnostics.push(diagnostic(
         `${overridePath}/parameters/${index}`,
         parameter.kind === "primitive"
           ? `Payload ${parameter.name} is outside the retained contract's ` +
             "exact-scalar set"
-          : "An object payload waits on the retained contract admitting " +
-            "handles; its failing program is any lifecycle method that " +
-            "receives one",
+          : "An array payload is outside the retained contract; spans do " +
+            "not cross callbacks",
       ));
       refused = true;
     });

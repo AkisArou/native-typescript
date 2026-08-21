@@ -149,7 +149,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 17;
+  readonly schemaVersion: 18;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -1093,17 +1093,47 @@ export function generateJvmAdapterSource(
           parameters.push({ kind: "primitive", primitive: scalar });
           return;
         }
+        /* An object payload crosses as an OWNED handle: the jobject the
+         * trampoline receives is a local reference that dies with the
+         * native frame — JNI's only lending form — so the adapter
+         * promotes it (NewGlobalRef) after the registration match and the
+         * managed cell's destructor gives the promotion back through the
+         * class-blind release. Same admission rule as every other object
+         * position: the class must be selected to project. */
+        if (
+          parameter.kind === "object" &&
+          parameter.binaryName !== "java/lang/String"
+        ) {
+          if (selectedNames.has(parameter.binaryName)) {
+            parameters.push({
+              kind: "handle",
+              binaryName: parameter.binaryName,
+            });
+            return;
+          }
+          diagnostics.push(diagnostic(
+            `${path}/parameters/${index}`,
+            `Callback payload is object type '${parameter.binaryName}', ` +
+              "which this selection does not project; select the class " +
+              "to move the boundary",
+          ));
+          refused = true;
+          return;
+        }
         diagnostics.push(diagnostic(
           `${path}/parameters/${index}`,
           scalar === "float"
-            ? "Callback payload float is f32, outside the answered " +
+            ? "Callback payload float is f32, outside the retained " +
               "contract's exact-scalar set (integers and double)"
             : scalar === "boolean"
               ? "Callback payload boolean has no exact scalar position; " +
                 "carry it as an integer"
-              : "Callback payloads must be exact scalar values; nothing " +
-                "here outlives the emitting call, so a string or object " +
-                "payload would have no owner",
+              : parameter.kind === "object"
+                ? "A String payload has no arm: a callback string would " +
+                  "need a length-and-copy contract of its own, and the " +
+                  "handle arm deliberately excludes the string bridge"
+                : "An array payload is outside the retained contract; " +
+                  "spans do not cross callbacks",
         ));
         refused = true;
       });
@@ -1159,7 +1189,10 @@ export function generateJvmAdapterSource(
       const jniParameters = parameters.map((parameter, index) =>
         parameter.kind === "primitive"
           ? `${jniCTypes[parameter.primitive]} a${index}`
-          : `void *a${index}`
+          : `jobject a${index}`
+      );
+      const handleIndices = parameters.flatMap((parameter, index) =>
+        parameter.kind === "handle" ? [index] : []
       );
       /* An answered trampoline returns the handler's boolean; a void one
        * returns nothing. Told and queued share this C shape deliberately:
@@ -1201,12 +1234,41 @@ export function generateJvmAdapterSource(
           "jobject self",
           ...jniParameters,
         ].join(", ")}) {`,
+        /* The contract's handle payloads are non-null; Java can still pass
+         * NULL, so the refusal happens here BY NAME, before any promotion
+         * — nothing to give back on this bail. */
+        ...handleIndices.flatMap((index) => [
+          `  if (a${index} == NULL) {`,
+          `    (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+          `        "a NULL payload reached ${class_.binaryName}.${callback.name}; ` +
+            'the handle payload arm is non-null, and a nullable payload waits on its own admission");',
+          ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
+          "  }",
+        ]),
         `  for (${prefix}_connection *connection = ${headVariable};`,
         "       connection != NULL; connection = connection->next) {",
         "    if (connection->live &&",
         "        (*env)->IsSameObject(env, connection->instance, self)) {",
+        /* Promotion happens AFTER the registration match: a jobject is a
+         * local reference that dies with this frame, so the thunk must be
+         * handed something it may intern — and a failed later promotion
+         * releases the earlier ones, because a reference handed over on a
+         * bail path is exactly where a leak hides. */
+        ...handleIndices.flatMap((index, order) => [
+          `      jobject payload${index} = (*env)->NewGlobalRef(env, a${index});`,
+          `      if (payload${index} == NULL) {`,
+          ...handleIndices.slice(0, order).map((prior) =>
+            `        (*env)->DeleteGlobalRef(env, payload${prior});`
+          ),
+          `        (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+          `            "promoting a payload for ${class_.binaryName}.${callback.name} failed");`,
+          ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
+          "      }",
+        ]),
         `      ${answers ? "return " : ""}((${callbackPointer})connection->callback)(${[
-          ...parameters.map((_, index) => `a${index}`),
+          ...parameters.map((parameter, index) =>
+            parameter.kind === "handle" ? `payload${index}` : `a${index}`
+          ),
           "connection->context",
         ].join(", ")});`,
         ...(answers ? [] : ["      return;"]),
@@ -1733,7 +1795,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 17,
+    schemaVersion: 18,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

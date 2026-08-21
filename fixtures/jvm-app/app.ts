@@ -198,6 +198,29 @@ try {
 }
 if (!lifecycleThrew) failed = true;
 
+/* The handle payload arm, live — the intersection fork 0309d850 built
+ * its fixture to inhabit: an ANSWERED handler holding a scalar and an
+ * object. Host.survey dispatches onMeasure with its own payload; the
+ * handler calls INTO the promoted handle (subject.depth() is a reentrant
+ * native call on the payload itself) and answers from what it read, so
+ * the accepted count proves the object arrived live, in-frame, and
+ * usable — a stale or wrongly-promoted reference fails here, not in a
+ * leak report. The super binding rides the same signature: the base
+ * ignores its payload and answers false, which the control counter
+ * proves ran. */
+let measureSuperFalse = 0;
+let depthSum = 0;
+const measureConnection = bridge.onMeasure((bias, subject) => {
+  depthSum += subject.depth();
+  if (!bridge.ntsSuperOnMeasure(bias, subject)) measureSuperFalse += 1;
+  return (bias + subject.depth()) % 2 === 0;
+});
+/* widget.depth() is 7, so (bias + 7) is even for bias 1 and 3: two of four. */
+if (bridge.survey(widget, 4) !== 2) failed = true;
+if (depthSum !== 28) failed = true;
+if (measureSuperFalse !== 4) failed = true;
+measureConnection.disconnect();
+
 let ticks = 0;
 let deliveries = 0;
 let ticksDone = false;

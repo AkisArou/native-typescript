@@ -816,6 +816,38 @@ export function generateJvmScabiPackage(
     }));
     adapterBindings.push(connectionDisconnectId, connectionReleaseId);
   }
+  /* A callback payload handle is spelled OPPOSITE to a method argument
+   * handle: non-null (the trampoline refuses NULL by name before
+   * promoting) and owned with transfer to-runtime, because the adapter
+   * promoted the frame-scoped local reference and the managed cell's
+   * destructor — derived from the handle type's declared release — gives
+   * the promotion back. The queued payload's spelling, and synchronous
+   * delivery shares it (fork 0309d850): there is no borrowed handle form
+   * in the runtime to want. */
+  function callbackPositionParameters(
+    position: JvmAdapterPosition,
+    index: number,
+  ): readonly AbiParameter[] {
+    if (position.kind === "handle") {
+      return [Object.freeze({
+        name: `a${index}`,
+        type: selectedTypeIds.get(position.binaryName)!,
+        passMode: "pointer" as const,
+        nullable: false,
+        ownership: Object.freeze({
+          kind: "owned" as const,
+          transfer: "to-runtime" as const,
+        }),
+      })];
+    }
+    return positionParameters(position, index);
+  }
+  /* The handler's payload type has no null arm, unlike a method argument's. */
+  function payloadSourceTypeOf(position: JvmAdapterPosition): string {
+    return position.kind === "handle"
+      ? classNameOf.get(position.binaryName)!
+      : sourceTypeOf(position);
+  }
   for (const callback of options.adapter.callbacks) {
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
@@ -825,7 +857,7 @@ export function generateJvmScabiPackage(
     const bindingId =
       `${slug}.${idToken(callback.className)}.${callback.name.toLowerCase()}`;
     const callbackParameters = callback.parameters.flatMap((position, index) =>
-      positionParameters(position, index)
+      callbackPositionParameters(position, index)
     );
     types[callbackTypeId] = Object.freeze({
       kind: "callback",
@@ -937,7 +969,8 @@ export function generateJvmScabiPackage(
       /* The queued handler's first argument is its sender. */
       ...(callback.delivery === "queued" ? [`sender: ${className}`] : []),
       ...callback.parameters.map(
-        (parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`,
+        (parameter, position) =>
+          `a${position}: ${payloadSourceTypeOf(parameter)}`,
       ),
     ].join(", ");
     declareMember(

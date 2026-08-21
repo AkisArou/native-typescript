@@ -21,6 +21,7 @@ function hostSnapshot(
     "run",
     "sealed",
     "onNotify",
+    "onMeasure",
   ],
 ): JvmSnapshot {
   return ingestJvmClasses(
@@ -121,6 +122,29 @@ test("a void override tells: native void, delivery decided by the generator", ()
   ]);
 });
 
+test("an object payload crosses the generator as its Java source spelling", () => {
+  // Generation admits any object javac can spell — whether the payload's
+  // class projects is the adapter's refusal, made where the selection is
+  // known. The spelling is the binary name with dots: fixture/Widget is
+  // `fixture.Widget` in Java source.
+  const generated = generateJvmSubclassSource(hostSnapshot(), {
+    baseBinaryName: "fixture/Host",
+    overrides: ["onMeasure"],
+  });
+  assert.match(
+    generated.source,
+    /@Override\n {2}public native boolean onMeasure\(int a0, fixture\.Widget a1\);/u,
+  );
+  assert.match(
+    generated.source,
+    /public boolean ntsSuperOnMeasure\(int a0, fixture\.Widget a1\) \{\n {4}return super\.onMeasure\(a0, a1\);\n {2}\}/u,
+  );
+  assert.deepEqual(generated.callbacks, ["onMeasure"]);
+  assert.deepEqual(generated.methods, [
+    { name: "ntsSuperOnMeasure", descriptor: "(ILfixture/Widget;)Z" },
+  ]);
+});
+
 test("the void-synchronous arm's committed evidence now generates", () => {
   // Lifecycle.start() calls onCreate and then OBSERVES it, so queued
   // delivery is distinguishable from synchronous by construction: a
@@ -194,7 +218,7 @@ test(
   () => {
     const generated = generateJvmSubclassSource(hostSnapshot(), {
       baseBinaryName: "fixture/Host",
-      overrides: ["onEvent", "onNotify"],
+      overrides: ["onEvent", "onMeasure", "onNotify"],
     });
     const workDir = mkdtempSync(join(tmpdir(), "nt-jvm-subclass-"));
     try {
@@ -210,49 +234,91 @@ test(
       ]);
       const compiled = join(workDir, "classes/fixture/HostBridge.class");
       assert.ok(existsSync(compiled));
-      const snapshot = ingestJvmClasses(
-        [
-          {
-            logicalPath: "fixtures/jvm/classes/fixture/Host.class",
-            bytes: readFileSync(
-              resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Host.class"),
-            ),
-          },
-          { logicalPath: "generated/fixture/HostBridge.class", bytes: readFileSync(compiled) },
-        ],
+      const sources = [
         {
-          classes: [
-            {
-              binaryName: "fixture/Host",
-              constructors: ["()V"],
-              methods: ["run"],
-            },
-            {
-              binaryName: generated.subclassBinaryName,
-              constructors: ["()V"],
-              methods: generated.methods,
-              callbacks: generated.callbacks,
-            },
-          ],
+          logicalPath: "fixtures/jvm/classes/fixture/Host.class",
+          bytes: readFileSync(
+            resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Host.class"),
+          ),
         },
-      );
+        {
+          logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+          bytes: readFileSync(
+            resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
+          ),
+        },
+        { logicalPath: "generated/fixture/HostBridge.class", bytes: readFileSync(compiled) },
+      ];
+      const bridgeSelection = {
+        binaryName: generated.subclassBinaryName,
+        constructors: ["()V"],
+        methods: generated.methods,
+        callbacks: generated.callbacks,
+      };
+      const hostSelection = {
+        binaryName: "fixture/Host",
+        constructors: ["()V"] as const,
+        methods: ["run"],
+      };
+      /* The payload's class must be selected to project — the refusal the
+       * generator deliberately leaves to the stage that knows the
+       * selection. */
+      try {
+        generateJvmAdapterSource(
+          ingestJvmClasses(sources.slice(0, 1).concat(sources.slice(2)), {
+            classes: [hostSelection, bridgeSelection],
+          }),
+          { packageSlug: "bridge" },
+        );
+        assert.fail("expected the unselected-payload refusal");
+      } catch (error) {
+        assert.ok(error instanceof JvmGenerationError);
+        assert.ok(error.diagnostics.some(({ message }) =>
+          message.includes(
+            "which this selection does not project; select the class to move the boundary",
+          )
+        ));
+      }
+      const snapshot = ingestJvmClasses(sources, {
+        classes: [
+          hostSelection,
+          { binaryName: "fixture/Widget", constructors: ["()V"] },
+          bridgeSelection,
+        ],
+      });
       const adapter = generateJvmAdapterSource(snapshot, {
         packageSlug: "bridge",
       });
-      /* Both arms of the override contract cross the same machinery: the
-       * answered override and the telling one, whose stated synchronous
-       * delivery survives the compiled class file it cannot be read from. */
+      /* All three arms of the override contract cross the same machinery:
+       * the answered override, the answered one holding an object, and
+       * the telling one, whose stated synchronous delivery survives the
+       * compiled class file it cannot be read from. */
       assert.deepEqual(
         adapter.callbacks.map(({ name, delivery }) => ({ name, delivery })),
         [
           { name: "onEvent", delivery: "answered" },
+          { name: "onMeasure", delivery: "answered" },
           { name: "onNotify", delivery: "told" },
         ],
       );
       assert.deepEqual(adapter.callbacks[0]!.parameters, [
         { kind: "primitive", primitive: "int" },
       ]);
+      assert.deepEqual(adapter.callbacks[1]!.parameters, [
+        { kind: "primitive", primitive: "int" },
+        { kind: "handle", binaryName: "fixture/Widget" },
+      ]);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
+      /* The payload trampoline: NULL refused by name BEFORE any
+       * promotion, promotion only AFTER the registration match — so the
+       * no-match and null paths never take a reference there is nothing
+       * to give back on. */
+      assert.ok(adapter.source.includes(
+        "jobject payload1 = (*env)->NewGlobalRef(env, a1);",
+      ));
+      assert.ok(adapter.source.includes(
+        "a NULL payload reached fixture/HostBridge.onMeasure",
+      ));
       /* The super bindings ingested as ordinary instance methods — the
        * dual-method-and-callback refusal does not fire because the super
        * spelling and the override are different members. */

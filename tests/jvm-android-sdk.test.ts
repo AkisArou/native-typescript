@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-  JvmGenerationError,
   JvmIngestionError,
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
@@ -127,18 +126,19 @@ test("the real Activity surface ingests with its contract intact", { skip }, () 
 });
 
 test(
-  "the real Activity's lifecycle tells; its payloads name the last arm",
+  "the real MainActivity's overrides generate; no arm remains",
   { skip },
   () => {
     /* Phase 4's acceptance app is a MainActivity whose onCreate calls
      * super and whose input methods receive platform objects. This pin
-     * held BOTH missing arms until fork 3c33818a admitted the
-     * void-synchronous one — now a bare lifecycle method (onStart)
-     * generates against the real artifact, and what remains refused is
-     * exactly the handle payload: onCreate not for its void result but
-     * for its Bundle, and onKeyDown for its KeyEvent. When that arm
-     * lands, this test fails and the acceptance program advances — the
-     * same flip withNul and onStart itself took. */
+     * held BOTH missing arms as refusals, flipped to onStart alone when
+     * fork 3c33818a admitted the void result, and completes with fork
+     * 0309d850's handle payloads: onCreate(Bundle), onKeyDown(int,
+     * KeyEvent), and onStart() all generate against the real artifact —
+     * the exact surface the eventual Android acceptance app overrides.
+     * What remains beyond generation (Bundle's real null at runtime, the
+     * classes actually selected for projection) is the crossing's
+     * business, not this pin's. */
     const snapshot = ingestJvmClasses(sdkSources(), {
       classes: [
         ...activityChain,
@@ -155,8 +155,24 @@ test(
     });
     const admitted = generateJvmSubclassSource(snapshot, {
       baseBinaryName: "android/app/Activity",
-      overrides: [{ name: "onStart", descriptor: "()V" }],
+      overrides: [
+        { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+        { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
+        { name: "onStart", descriptor: "()V" },
+      ],
     });
+    assert.match(
+      admitted.source,
+      /@Override\n {2}public native void onCreate\(android\.os\.Bundle a0\);/u,
+    );
+    assert.match(
+      admitted.source,
+      /public void ntsSuperOnCreate\(android\.os\.Bundle a0\) \{\n {4}super\.onCreate\(a0\);\n {2}\}/u,
+    );
+    assert.match(
+      admitted.source,
+      /@Override\n {2}public native boolean onKeyDown\(int a0, android\.view\.KeyEvent a1\);/u,
+    );
     assert.match(
       admitted.source,
       /@Override\n {2}public native void onStart\(\);/u,
@@ -166,28 +182,14 @@ test(
       /public void ntsSuperOnStart\(\) \{\n {4}super\.onStart\(\);\n {2}\}/u,
     );
     assert.deepEqual(admitted.callbacks, [
+      {
+        name: "onCreate",
+        descriptor: "(Landroid/os/Bundle;)V",
+        delivery: "synchronous",
+      },
+      { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
       { name: "onStart", descriptor: "()V", delivery: "synchronous" },
     ]);
-    try {
-      generateJvmSubclassSource(snapshot, {
-        baseBinaryName: "android/app/Activity",
-        overrides: [
-          { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
-          { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
-        ],
-      });
-      assert.fail("expected JvmGenerationError");
-    } catch (error) {
-      assert.ok(error instanceof JvmGenerationError);
-      const messages = error.diagnostics.map(({ message }) => message);
-      assert.equal(messages.length, 2);
-      for (const message of messages) {
-        assert.match(
-          message,
-          /An object payload waits on the retained contract admitting handles/u,
-        );
-      }
-    }
   },
 );
 

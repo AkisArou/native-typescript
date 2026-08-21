@@ -101,7 +101,7 @@ test(
         {
           binaryName: "fixture/Host",
           constructors: ["()V"],
-          methods: ["run"],
+          methods: ["run", "survey"],
         },
         {
           binaryName: "fixture/Lifecycle",
@@ -110,7 +110,10 @@ test(
         },
       ],
       subclasses: [
-        { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
+        {
+          baseBinaryName: "fixture/Host",
+          overrides: ["onEvent", "onMeasure"],
+        },
         { baseBinaryName: "fixture/Lifecycle", overrides: ["onCreate"] },
       ],
       target: {
@@ -155,6 +158,19 @@ test(
         assert.match(declarations, /onCreate\(callback: \(\) => void\): JvmConnection;/u);
         assert.match(declarations, /ntsSuperOnCreate\(\): void;/u);
         assert.match(declarations, /markCreated\(\): void;/u);
+        // The payload arm's surface: the handler's object is non-null
+        // (the trampoline refuses NULL by name before promoting), while
+        // the super binding is an ordinary method whose object argument
+        // keeps Java's honest null arm.
+        assert.match(
+          declarations,
+          /onMeasure\(callback: \(a0: jint, a1: Widget\) => boolean\): JvmConnection;/u,
+        );
+        assert.match(
+          declarations,
+          /ntsSuperOnMeasure\(a0: jint, a1: Widget \| null\): boolean;/u,
+        );
+        assert.match(declarations, /survey\(a0: Widget \| null, a1: jint\): jint;/u);
 
         assert.ok(built.builtClassesPath !== undefined);
         const run = spawnSync(built.productPath, [], {
