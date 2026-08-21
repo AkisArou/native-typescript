@@ -313,6 +313,15 @@ it. The invocation's slot is cleared once the reference moves into the cell, so
 a delivery dropped at shutdown releases exactly the references that never
 reached one.
 
+**Synchronous** delivery — the handler runs inside the emitting call's frame —
+is implemented for exact scalars, owned handles, and an owned handle the
+emitter MAY WITHHOLD. A withheld payload reaches the handler as `T | null`: the
+physical slot is the same pointer either way, the cell is built only on the
+present arm, and the null arm is the interned immortal instance for that union,
+so absence allocates nothing and no destructor sees a pointer the library never
+gave. It is refused by name on the QUEUED path, where absence would be a state
+of the stored invocation rather than a branch in one trampoline.
+
 Broader payload families and ownership modes remain future slices.
 
 ### Foreign-thread ingress and scheduling

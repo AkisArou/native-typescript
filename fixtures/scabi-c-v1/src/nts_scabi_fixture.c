@@ -451,3 +451,21 @@ int32_t nts_notice_fire(int32_t seed) {
   nts_notice_cb(subject, nts_notice_ctx);
   return nts_notice_marks;
 }
+
+static NtsMaybeCallback nts_maybe_cb = NULL;
+static void *nts_maybe_ctx = NULL;
+static int32_t nts_maybe_marks = 0;
+
+void nts_maybe_register(NtsMaybeCallback callback, void *context) {
+  nts_maybe_cb = callback;
+  nts_maybe_ctx = context;
+}
+
+void nts_maybe_mark(void) { nts_maybe_marks += 1; }
+
+int32_t nts_maybe_fire(int32_t seed) {
+  nts_maybe_marks = 0;
+  NtsCounter *subject = seed < 0 ? NULL : nts_counter_create(seed);
+  nts_maybe_cb(subject, nts_maybe_ctx);
+  return nts_maybe_marks;
+}

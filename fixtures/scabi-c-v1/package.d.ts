@@ -182,6 +182,15 @@ export declare function judgeWith(
 export declare function noticeWith(callback: (subject: Counter) => void): void;
 export declare function noticeMark(): void;
 export declare function noticeFire(seed: i32): i32;
+/* The same registration where the payload may be absent: the handler receives
+ * `Counter | null` and tests it, because a platform that hands a lifecycle an
+ * object on one call and nothing on another is describing a value rather than
+ * a failure. */
+export declare function maybeWith(
+  callback: (subject: Counter | null) => void,
+): void;
+export declare function maybeMark(): void;
+export declare function maybeFire(seed: i32): i32;
 /* UTF-8 text arriving as a pointer and a length rather than a terminator, so
  * the bytes may contain NUL. The fixture's label does. */
 export declare function spanLabel(): string;

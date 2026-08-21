@@ -157,6 +157,19 @@ NTS_SCABI_EXPORT void nts_notice_register(NtsNoticeCallback callback,
 NTS_SCABI_EXPORT void nts_notice_mark(void);
 NTS_SCABI_EXPORT int32_t nts_notice_fire(int32_t seed);
 
+/* The same registration where the payload may be ABSENT. A framework hands a
+ * lifecycle handler an object on one call and nothing on another — Android's
+ * `onCreate(Bundle)` is called with null on first launch and with saved state
+ * afterwards — so a contract declaring the payload non-null would be a claim
+ * the platform disproves on the first run. A negative seed withholds the
+ * subject, which is a VALUE the handler tests rather than a failure. */
+typedef void (*NtsMaybeCallback)(NtsCounter *subject, void *context);
+
+NTS_SCABI_EXPORT void nts_maybe_register(NtsMaybeCallback callback,
+                                         void *context);
+NTS_SCABI_EXPORT void nts_maybe_mark(void);
+NTS_SCABI_EXPORT int32_t nts_maybe_fire(int32_t seed);
+
 /* Reports failure by returning an owned error object rather than a code, the
  * shape GLib's GError takes once a generated adapter has absorbed its
  * out-parameter. NULL is success. */

@@ -266,12 +266,26 @@ found three defects no unit assertion would have — an unreached payload
 destructor, a C bail that was a dangling statement, and a bail that needed a
 release at all. See [0012](records/0012-checks-that-cannot-fail.md).
 
-**What remains, with its evidence already standing.** A NULL payload is refused
-by name at the JVM trampoline, because the contract is non-null. A null
-`Bundle` is real on Android, so the nullable-payload arm has its program
-waiting the moment one is needed. Its compiler side is a nullable POSITION on
-the payload rather than a new delivery — the union arm already exists for
-results — so it is a smaller change than either arm landed here.
+**The withheld payload landed on 2026-08-21**, and the prediction above held:
+it was a nullable POSITION rather than a new delivery. The handler receives
+`T | null`, the physical slot is the same pointer either way, and the union it
+arrives as is resolved from the module's own table by its arms — the division a
+nullable handle RESULT already lives under, since neither an embedder's input
+nor a published declaration can name a union id. `tests/native-ir/
+payload-absent.ts` takes both arms through one registration, because a handler
+that only ever receives an object proves nothing about absence and one that
+only ever receives null proves nothing about the reference.
+
+**What remains of it is the QUEUED arm, refused by name in both layers.** A
+queued delivery stores the payload's pointer in an invocation record whose
+shutdown cleanup reads the same slot, so absence there is a state of the record
+rather than a branch in one trampoline — and the cleanup would call a
+destructor on a pointer the library never gave. The compiler refuses a nullable
+payload that is not synchronously delivered, and `withheldHandlePosition` in
+the SCABI translator admits it only in the synchronous branch. Two layers
+refusing the same shape for the same reason is what keeps them from drifting;
+neither is waiting on the other. A program is what would earn it, and a
+framework lifecycle is not one — that dispatch runs in the caller's frame.
 
 ### Vendored objects are not PIC
 

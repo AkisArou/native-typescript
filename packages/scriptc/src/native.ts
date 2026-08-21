@@ -873,7 +873,16 @@ type SupportedCallbackPair = {
          * outlives the pointer the emitter handed over; a converted integer
          * widens to a plain number when the delivery reads it.
          */
-        readonly projection: "direct" | "utf8CString" | "ownedHandle" | "number";
+        readonly projection:
+          | "direct"
+          | "utf8CString"
+          | "ownedHandle"
+          /* The same owned payload where the emitter may withhold it. A
+           * distinct value rather than a flag beside the old one, so every
+           * reader of this field has to decide what absence means to it
+           * instead of inheriting the present case. */
+          | "nullableOwnedHandle"
+          | "number";
         /** The binding that gives the reference back, for an owned handle. */
         readonly destructor?: string;
       }
@@ -921,7 +930,7 @@ function supportedCallbackSourceArguments(
         parameter,
         typeId: physical.type,
         projection: owned !== undefined
-          ? "ownedHandle"
+          ? physical.nullable ? "nullableOwnedHandle" : "ownedHandle"
           : physical.conversion === "number"
             ? "number"
             : string === null
@@ -1217,14 +1226,26 @@ function supportedRetainedCallbackPair(
   /* The emitter took a reference before queueing, so the invocation owns one
    * and the destructor gives it back whether the delivery runs or is
    * dropped. */
-  function ownedHandlePosition(position: AbiParameter): boolean {
+  function handlePayloadPosition(position: AbiParameter, nullable: boolean): boolean {
     return manifest.types[position.type]?.kind === "handle" &&
       position.passMode === "pointer" &&
-      !position.nullable &&
+      position.nullable === nullable &&
       position.marshal === undefined &&
       position.callback === undefined &&
       position.ownership.kind === "owned" &&
       position.ownership.transfer === "to-runtime";
+  }
+  function ownedHandlePosition(position: AbiParameter): boolean {
+    return handlePayloadPosition(position, false);
+  }
+  /* The same payload where the slot admits NULL. Admitted for SYNCHRONOUS
+   * delivery only, and the restriction is the compiler's rather than a
+   * caution here: a queued delivery stores the payload's pointer in an
+   * invocation record whose shutdown cleanup reads the same slot, so absence
+   * there is a state of the record rather than a branch in one trampoline.
+   * Both layers refuse it, which is what keeps them from disagreeing. */
+  function withheldHandlePosition(position: AbiParameter): boolean {
+    return handlePayloadPosition(position, true);
   }
   /* A retained payload may also be a borrowed UTF-8 C string. Delivery is
    * queued, so the runtime copies it when the signal fires rather than holding
@@ -1269,7 +1290,8 @@ function supportedRetainedCallbackPair(
        * the payload crosses and the cell's destructor releases the promotion. */
       callbackType.signature.parameters.some(
         (position) =>
-          !supportedScalarPosition(position) && !ownedHandlePosition(position),
+          !supportedScalarPosition(position) && !ownedHandlePosition(position) &&
+          !withheldHandlePosition(position),
       ) ||
       /* The telling form has no answer to constrain; every other property of
        * the result position still is one, because a void result that arrived
@@ -2542,7 +2564,8 @@ export function translateScabiNativeProgram(
           const copiesString = physical?.kind === "callback-parameter" &&
             physical.projection === "utf8CString";
           const ownsHandle = physical?.kind === "callback-parameter" &&
-            physical.projection === "ownedHandle";
+            (physical.projection === "ownedHandle" ||
+              physical.projection === "nullableOwnedHandle");
           /* A converted payload's physical slot is exact and its source view
            * is a plain number, so the GLib spelling names no source type: the
            * transparent alias must not enter the source-type table, where it
@@ -2615,7 +2638,8 @@ export function translateScabiNativeProgram(
           }
           if (
             sourceArgument.kind === "callback-parameter" &&
-            sourceArgument.projection === "ownedHandle"
+            (sourceArgument.projection === "ownedHandle" ||
+              sourceArgument.projection === "nullableOwnedHandle")
           ) {
             const handle = lowerType(
               sourceArgument.typeId,
@@ -2625,7 +2649,18 @@ export function translateScabiNativeProgram(
               callbackValid = false;
               continue;
             }
-            callbackParameters.push(handle);
+            /* A withheld payload reaches the handler as `T | null`. The
+             * PHYSICAL slot is unchanged — it is the same pointer either way —
+             * so only the source view differs, which is what makes this a
+             * different arm rather than a different signature. */
+            callbackParameters.push(
+              sourceArgument.projection === "nullableOwnedHandle"
+                ? Object.freeze({
+                    kind: "nullableNativeHandle" as const,
+                    typeId: handle.typeId,
+                  })
+                : handle,
+            );
             continue;
           }
           const type = lowerType(
