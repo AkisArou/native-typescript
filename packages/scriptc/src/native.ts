@@ -1120,9 +1120,23 @@ function supportedRetainedCallbackPair(
   const allowedInvocationExecutors = contract.allowedInvocationExecutors.map(
     (executor) => executor.kind,
   );
+  /* The owner-parameter requirements apply to the spellings that NAME a
+   * parameter, which is neither `result` nor `process`. `result` was already
+   * exempt; `process` has to be too, and for a stronger reason — a
+   * process-owned registration has no receiver at all, which is the fact that
+   * makes it process-owned. Requiring it to carry one ahead of the branch
+   * written for it made that branch unreachable: the gate demanded exactly
+   * what the branch forbids, so no manifest could satisfy both.
+   *
+   * The cancellation requirement moves for the same reason. Every other owner
+   * ends through a receiver's disposal and must name the binding that does
+   * it; a process-owned registration has no receiver to end through, so
+   * demanding one here contradicts the arm. */
+  const ownerNamesParameter = contract.registrationOwner !== "result" &&
+    contract.registrationOwner !== "process";
   if (
     contract.registrationOwner === "native-call" ||
-    (contract.registrationOwner !== "result" &&
+    (ownerNamesParameter &&
       (binding.kind !== "method" ||
         registrationOwnerIndex !== 0 ||
         registrationOwner === undefined ||
@@ -1131,7 +1145,8 @@ function supportedRetainedCallbackPair(
         registrationOwner.nullable ||
         registrationOwner.ownership.kind !== "borrowed" ||
         registrationOwner.ownership.scope !== "call")) ||
-    contract.cancellationBinding === undefined ||
+    (contract.registrationOwner !== "process" &&
+      contract.cancellationBinding === undefined) ||
     contract.contextParameter === undefined ||
     allowedInvocationExecutors.length === 0 ||
     allowedInvocationExecutors.some(

@@ -255,6 +255,47 @@ test("the subset this measures against is itself well formed", () => {
   assert.equal(format, false);
 });
 
+/* A registration nothing owns must TRANSLATE, not merely be refused for some
+ * reason or other.
+ *
+ * The two mutations above assert refusals and both passed while the branch
+ * written for this arm was unreachable — a gate ahead of it demanded exactly
+ * what the branch forbids, so every process-owned manifest was refused before
+ * reaching it. Two correct refusals arriving from the wrong place proved
+ * nothing about the arm, which is a check that cannot fail because everything
+ * reaching it has already been refused. Only a positive case distinguishes
+ * "refused for the right reason" from "unreachable". */
+test("a registration nothing owns translates", () => {
+  const manifest = mutated((m) => {
+    for (const [, b] of selected(m as Json)) {
+      for (const p of b.signature?.parameters ?? []) {
+        if (p.callback?.cancellationBinding === undefined) continue;
+        p.callback.registrationOwner = "process";
+        delete p.callback.cancellationBinding;
+        p.callback.synchronousReturn = true;
+        p.callback.allowedInvocationExecutors = [{ kind: "same-as-caller" }];
+        for (const a of p.callback.arguments ?? []) a.transport = "borrow";
+        delete p.callback.sourceArguments;
+        p.ownership = { kind: "borrowed", scope: "registration", anchor: "process" };
+        /* No receiver to hand back and no disposal to cancel through, which
+         * is the same fact twice rather than two allowances. */
+        b.signature.result = {
+          type: "void", passMode: "value", nullable: false,
+          ownership: { kind: "value" },
+        };
+        /* The base binding reports failure by answering null, which needs a
+         * handle result to answer with. A registration that returns nothing
+         * has to say how it fails some other way; this one cannot. */
+        b.error = { kind: "no-fail" };
+        return;
+      }
+    }
+  });
+  const { semantics, format } = refusals(manifest);
+  assert.equal(semantics, false, "the envelope refused a shape it should admit");
+  assert.equal(format, false, "the translation refused a registration nothing owns");
+});
+
 for (const rule of FORMAT) {
   test(`one layer refuses it, and it is not the envelope: ${rule.name}`, () => {
     const { semantics, format } = refusals(mutated(rule.apply));
