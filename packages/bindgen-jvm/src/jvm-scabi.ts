@@ -852,25 +852,7 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
     if (className === undefined || typeId === undefined) continue;
-    /* The generated C for a class-anchored registration exists and is
-     * exercised at the C level; what it has no manifest spelling for yet
-     * is its OWNER. Every retained contract here is owner-scoped —
-     * anchored to the receiver, cancelled through it — and a registration
-     * that answers for instances a framework constructs is anchored to
-     * nothing the program holds. Refused by name rather than emitted as
-     * an owner-scoped contract that would be a lie about lifetime. */
-    if (callback.anchor === "class") {
-      throw new JvmGenerationError([{
-        code: "NTS7001",
-        severity: "error",
-        path: `class/${callback.className}/callback/${callback.name}`,
-        message:
-          "A class-anchored registration has no owner-scoped contract: it " +
-          "answers for instances a framework constructs, so it is anchored " +
-          "to nothing the program holds, and its manifest spelling waits " +
-          "on the process-owned arm",
-      }]);
-    }
+    const classAnchored = callback.anchor === "class";
     const callbackTypeId =
       `jvm.${idToken(callback.className)}.${callback.name.toLowerCase()}.callback`;
     const bindingId =
@@ -902,18 +884,27 @@ export function generateJvmScabiPackage(
       }),
       context: Object.freeze({ placement: "last" as const, type: "void_ptr" }),
     });
+    /* A class-anchored registration is owned by the PROCESS: there is no
+     * receiver whose lifetime bounds it, which is the same fact as having
+     * no handle to hand back and no disposal to cancel through. So the
+     * binding takes no receiver, returns nothing, and names no
+     * cancellation — and a refused second registration travels the error
+     * channel, because a call that hands nothing back cannot say
+     * "refused" with a value. */
     defineBinding(bindingId, callable({
       declaration: `${className}.${callback.name}`,
-      kind: "method",
+      kind: classAnchored ? "static-method" : "method",
       symbol: callback.connectSymbol,
       parameters: [
-        Object.freeze({
-          name: "self",
-          type: typeId,
-          passMode: "pointer" as const,
-          nullable: false,
-          ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
-        }),
+        ...(classAnchored
+          ? []
+          : [Object.freeze({
+              name: "self",
+              type: typeId,
+              passMode: "pointer" as const,
+              nullable: false,
+              ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
+            })]),
         Object.freeze({
           name: "callback",
           type: callbackTypeId,
@@ -922,11 +913,15 @@ export function generateJvmScabiPackage(
           ownership: Object.freeze({
             kind: "borrowed" as const,
             scope: "registration" as const,
-            anchor: "self",
+            /* The anchor names what owns the registration, so it says
+             * "process" exactly when nothing does. */
+            anchor: classAnchored ? "process" : "self",
           }),
           callback: Object.freeze({
-            registrationOwner: "self",
-            cancellationBinding: connectionDisconnectId,
+            registrationOwner: classAnchored ? "process" : "self",
+            ...(classAnchored
+              ? {}
+              : { cancellationBinding: connectionDisconnectId }),
             contextParameter: "context",
             allowedInvocationExecutors: Object.freeze([
               Object.freeze({ kind: "same-as-caller" as const }),
@@ -974,14 +969,31 @@ export function generateJvmScabiPackage(
           }),
         }),
       ],
-      result: Object.freeze({
-        type: connectionTypeId,
-        passMode: "pointer" as const,
-        nullable: true,
-        ownership: Object.freeze({ kind: "owned" as const, transfer: "to-runtime" as const }),
-      }),
-      error: Object.freeze({ kind: "nullable" as const }),
-      bindingDependencies: [connectionDisconnectId, connectionReleaseId],
+      result: classAnchored
+        ? Object.freeze({
+            type: "void",
+            passMode: "value" as const,
+            nullable: false,
+            ownership: Object.freeze({ kind: "value" as const }),
+          })
+        : Object.freeze({
+            type: connectionTypeId,
+            passMode: "pointer" as const,
+            nullable: true,
+            ownership: Object.freeze({
+              kind: "owned" as const,
+              transfer: "to-runtime" as const,
+            }),
+          }),
+      error: classAnchored
+        ? errorContract
+        : Object.freeze({ kind: "nullable" as const }),
+      /* The error contract's own edges are derived by `callable`; a
+       * process-owned registration reaches nothing else, because it has
+       * no cancellation to reach. */
+      bindingDependencies: classAnchored
+        ? []
+        : [connectionDisconnectId, connectionReleaseId],
     }));
     adapterBindings.push(bindingId);
     const handlerParameters = [
@@ -994,9 +1006,11 @@ export function generateJvmScabiPackage(
     ].join(", ");
     declareMember(
       callback.className,
-      `  ${callback.name}(callback: (${handlerParameters}) => ${
-        callback.delivery === "answered" ? "boolean" : "void"
-      }): JvmConnection;`,
+      `  ${classAnchored ? "static " : ""}${callback.name}(callback: (${
+        handlerParameters
+      }) => ${callback.delivery === "answered" ? "boolean" : "void"}): ${
+        classAnchored ? "void" : "JvmConnection"
+      };`,
     );
   }
 

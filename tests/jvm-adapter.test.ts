@@ -334,9 +334,14 @@ test("a class-anchored registration answers for instances it never named", () =>
       {
         binaryName: "fixture/Widget",
         constructors: ["(I)V"],
-        methods: ["ping"],
+        methods: ["tick"],
         callbacks: [
-          { name: "onPing", descriptor: "(I)Z", anchor: "class" as const },
+          {
+            name: "onTick",
+            descriptor: "(I)V",
+            delivery: "synchronous" as const,
+            anchor: "class" as const,
+          },
         ],
       },
     ]),
@@ -349,13 +354,15 @@ test("a class-anchored registration answers for instances it never named", () =>
     { kind: "handle", binaryName: "fixture/Widget" },
     { kind: "primitive", primitive: "int" },
   ]);
-  // Connect takes no receiver: there is none to take.
-  assert.match(
-    generated.header,
-    new RegExp(
-      `void \\*${callback.connectSymbol}\\(jboolean \\(\\*callback\\)\\(void \\*, jint, void \\*\\), void \\*context\\);`,
-      "u",
+  // Connect takes no receiver because there is none to take, and hands
+  // nothing back because nothing owns the registration — so a refusal
+  // travels the error channel instead of a return value.
+  assert.ok(
+    generated.header.includes(
+      `void ${callback.connectSymbol}(void (*callback)(void *, jint, void *), ` +
+        "void *context, char **error);",
     ),
+    generated.header,
   );
   // The receiver is promoted like any other object payload: the local
   // reference dies with the trampoline's frame.
@@ -366,7 +373,7 @@ test("a class-anchored registration answers for instances it never named", () =>
   );
   // Any live registration is the second one — a class-anchored
   // registration cannot accumulate any more than a per-instance one can.
-  assert.ok(generated.source.includes("if (existing->live) return NULL;"));
+  assert.ok(generated.source.includes("already has a handler"));
   // Nothing is anchored, so nothing is held.
   assert.ok(generated.source.includes("jobject stable = NULL;"));
 });
@@ -465,11 +472,14 @@ test(
       )!.adapterSymbol;
       const connect = adapter.callbacks[0]!.connectSymbol;
       const release = adapter.release.adapterSymbol;
+      const message = adapter.errorSupport.messageSymbol;
+      const releaseError = adapter.errorSupport.releaseSymbol;
       const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
       const main = [
         "#include <jni.h>",
         "#include <stdio.h>",
         "#include <stdlib.h>",
+        "#include <string.h>",
         `#include "adapter.h"`,
         "static int nts_seen_depth;",
         "static int nts_seen_calls;",
@@ -495,11 +505,17 @@ test(
         "  char *error = NULL;",
         `  if (${adapter.bind.adapterSymbol}(env, &error) != 0) return 11;`,
         "  /* One registration, made before either object exists — which is",
-        "   * the whole point: on a platform, the instances are not ours. */",
-        `  void *registration = ${connect}(nts_on_tick, NULL);`,
-        "  if (registration == NULL) return 12;",
-        "  /* A second registration is refused: one anchor, one handler. */",
-        `  if (${connect}(nts_on_tick, NULL) != NULL) return 13;`,
+        "   * the whole point: on a platform, the instances are not ours.",
+        "   * It hands nothing back, because nothing owns it. */",
+        `  ${connect}(nts_on_tick, NULL, &error);`,
+        "  if (error != NULL) return 12;",
+        "  /* A second registration is refused, and says so through the",
+        "   * error channel: a call that returns nothing cannot refuse",
+        "   * with a value. */",
+        `  ${connect}(nts_on_tick, NULL, &error);`,
+        "  if (error == NULL) return 13;",
+        `  if (strstr(${message}(error), "already has a handler") == NULL) return 20;`,
+        `  ${releaseError}(error); error = NULL;`,
         `  void *first = ${construct}(7, &error);`,
         "  if (first == NULL || error != NULL) return 14;",
         `  void *second = ${construct}(9, &error);`,

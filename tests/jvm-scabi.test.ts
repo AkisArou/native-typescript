@@ -420,14 +420,12 @@ test("the telling arm: synchronous void, borrowed payloads, no sender", () => {
   }
 });
 
-test("a class-anchored registration refuses: it is anchored to nothing", () => {
-  // The generated C exists and is exercised at the C level. What has no
-  // manifest spelling yet is its OWNER: every retained contract here is
-  // owner-scoped — anchored to the receiver and cancelled through it —
-  // and a registration answering for instances a framework constructs is
-  // anchored to nothing the program holds. Emitting it as owner-scoped
-  // would be a lie about lifetime, so it refuses by name until the
-  // process-owned arm exists.
+test("a class-anchored registration is owned by the process", () => {
+  // The Android crux, in manifest form: ART constructs the Activity, so
+  // there is no receiver whose lifetime bounds the registration — which
+  // is the same fact as having no handle to hand back and no disposal to
+  // cancel through. The honest owner is the process, because the
+  // registration outlives every instance the way the class does.
   const selected = ingestJvmClasses(
     [
       {
@@ -442,18 +440,90 @@ test("a class-anchored registration refuses: it is anchored to nothing", () => {
         {
           binaryName: "fixture/Widget",
           constructors: ["()V"],
-          methods: ["ping"],
+          methods: ["depth", "tick"],
           callbacks: [
-            { name: "onPing", descriptor: "(I)Z", anchor: "class" },
+            {
+              name: "onTick",
+              descriptor: "(I)V",
+              delivery: "synchronous",
+              anchor: "class",
+            },
           ],
         },
       ],
     },
   );
-  assert.throws(
-    () => generateJvmScabiPackage(options(selected)),
-    /anchored to nothing the program holds.*process-owned arm/su,
+  const generated = generateJvmScabiPackage(options(selected));
+  // The receiver is the handler's first argument, because one
+  // registration answers for every instance and nothing else could say
+  // which one called.
+  assert.match(
+    generated.declarations,
+    /static onTick\(callback: \(a0: Widget, a1: jint\) => void\): void;/u,
   );
+  const binding = generated.manifest.bindings["fixture.fixture.widget.ontick"];
+  assert.ok(binding !== undefined && binding.kind !== "constant");
+  // Nothing to hold: no connection comes back, and the refusal of a
+  // second registration travels the error channel instead of a value.
+  assert.equal(binding.signature.result.type, "void");
+  assert.deepEqual(binding.error?.kind, "error-out");
+  assert.equal(
+    binding.signature.parameters.some(({ name }) => name === "self"),
+    false,
+  );
+  const contract = binding.signature.parameters.find(
+    ({ name }) => name === "callback",
+  )?.callback;
+  assert.ok(contract !== undefined);
+  assert.equal(contract.registrationOwner, "process");
+  assert.equal(contract.cancellationBinding, undefined);
+  assert.equal(contract.synchronousReturn, true);
+  assert.deepEqual(
+    contract.allowedInvocationExecutors.map(({ kind }) => kind),
+    ["same-as-caller"],
+  );
+  // No registration-owner injection: there is no owner to inject.
+  assert.ok(
+    (contract.sourceArguments ?? []).every(
+      ({ kind }) => kind === "callback-parameter",
+    ),
+  );
+  /* The manifest is not the claim — reaching the arm is, and it does not
+   * reach yet. The translator's process-owned branch requires a void
+   * result and NO cancellation binding, which is exactly this shape; the
+   * owner gate ahead of it requires a cancellation binding and an owner
+   * in parameter zero, which no process-owned contract can have. The two
+   * cannot both be satisfied, so the positive branch is unreachable and
+   * this pin records the refusal by its own words. When the gate learns
+   * "process", this assertion FAILS and the Android program advances —
+   * the same flip withNul and the void-synchronous arm took. */
+  const program = translateScabiNativeProgram(generated.manifest, {
+    imports: Object.keys(generated.manifest.bindings),
+    exports: [],
+  });
+  assert.equal(program.ok, false);
+  if (!program.ok) {
+    assert.ok(
+      program.diagnostics.some(({ message }) =>
+        message.includes("only until-cancelled callbacks delivered onto the runtime owner")
+      ),
+      JSON.stringify(program.diagnostics).slice(0, 800),
+    );
+  }
+
+  // The receiver crosses as the payload arm's owned handle.
+  const callbackType =
+    generated.manifest.types["jvm.fixture.widget.ontick.callback"];
+  assert.ok(callbackType !== undefined && callbackType.kind === "callback");
+  if (callbackType.kind === "callback") {
+    assert.equal(callbackType.signature.result.type, "void");
+    const receiver = callbackType.signature.parameters[0]!;
+    assert.equal(receiver.nullable, false);
+    assert.deepEqual(receiver.ownership, {
+      kind: "owned",
+      transfer: "to-runtime",
+    });
+  }
 });
 
 test("each ownership shape translates through the neutral compiler input", () => {

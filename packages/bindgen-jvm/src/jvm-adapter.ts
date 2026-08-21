@@ -1193,6 +1193,16 @@ export function generateJvmAdapterSource(
        * emitting call, has no lifecycle method to serve. It waits for a
        * program rather than being emitted untested. */
       const classAnchored = callback.anchor === "class";
+      if (classAnchored && delivery === "answered") {
+        diagnostics.push(diagnostic(
+          `${path}/anchor`,
+          "A class-anchored registration is owned by the process, and a " +
+            "process-owned contract carries no answer: nothing owns the " +
+            "registration, so there is no call whose result the handler's " +
+            "boolean could be; an answering override waits on its own arm",
+        ));
+        continue;
+      }
       if (classAnchored && delivery === "queued") {
         diagnostics.push(diagnostic(
           `${path}/anchor`,
@@ -1251,10 +1261,19 @@ export function generateJvmAdapterSource(
           ...jniParameters,
         ].join(", ")});`,
       );
+      /* A process-owned registration has no receiver to hand back, so
+       * connect RETURNS NOTHING and a refusal travels the error channel
+       * every other adapter already speaks — a NULL return cannot mean
+       * "refused" when the success value is nothing at all. */
       const connectParameters = `${
         classAnchored ? "" : "void *self, "
-      }${callbackPointer.replace("(*)", "(*callback)")}, void *context`;
-      headerDeclarations.push(`void *${connectSymbol}(${connectParameters});`);
+      }${callbackPointer.replace("(*)", "(*callback)")}, void *context${
+        classAnchored ? ", char **error" : ""
+      }`;
+      const connectReturn = classAnchored ? "void" : "void *";
+      headerDeclarations.push(
+        `${connectReturn} ${connectSymbol}(${connectParameters});`,
+      );
       bodies.push(
         `/* ${class_.binaryName}.${callback.name}${callback.descriptor} - Java calls in */`,
         `static ${prefix}_connection *${headVariable};`,
@@ -1337,24 +1356,42 @@ export function generateJvmAdapterSource(
         ...(answers ? ["  return JNI_FALSE;"] : []),
         "}",
         "",
-        `void *${connectSymbol}(${connectParameters}) {`,
-        "  char *error = NULL;",
-        `  JNIEnv *env = ${prefix}_env(&error);`,
+        `${connectReturn} ${connectSymbol}(${connectParameters}) {`,
+        ...(classAnchored ? ["  *error = NULL;"] : []),
+        ...(classAnchored ? [] : ["  char *error = NULL;"]),
+        /* Class-anchored: `error` IS the caller's slot, so it is passed
+         * on rather than addressed again. */
+        `  JNIEnv *env = ${prefix}_env(${classAnchored ? "error" : "&error"});`,
         "  if (env == NULL) {",
-        "    free(error);",
-        "    return NULL;",
+        ...(classAnchored
+          ? ["    return;"]
+          : ["    free(error);", "    return NULL;"]),
         "  }",
-        classAnchored
-          ? "  if (callback == NULL) return NULL;"
-          : "  if (self == NULL || callback == NULL) return NULL;",
+        ...(classAnchored
+          ? [
+              "  if (callback == NULL) {",
+              `    *error = ${prefix}_message("a registration needs a handler");`,
+              "    return;",
+              "  }",
+            ]
+          : ["  if (self == NULL || callback == NULL) return NULL;"]),
         /* One live registration per anchor: JNI's single dispatch slot
-         * cannot accumulate, so a second connect is refused as NULL rather
-         * than silently shadowing the first. A class-anchored one answers
-         * for every instance, so ANY live registration is that second. */
+         * cannot accumulate, so a second connect is refused rather than
+         * silently shadowing the first. A class-anchored one answers for
+         * every instance, so ANY live registration is that second — and
+         * it refuses through the error channel, because a registration
+         * that hands nothing back cannot say "refused" with a value. */
         `  for (${prefix}_connection *existing = ${headVariable};`,
         "       existing != NULL; existing = existing->next) {",
         ...(classAnchored
-          ? ["    if (existing->live) return NULL;"]
+          ? [
+              "    if (existing->live) {",
+              `      *error = ${prefix}_message(`,
+              `          "${class_.binaryName}.${callback.name} already has a handler; ` +
+                'a class-anchored registration answers for every instance, so there is one");',
+              "      return;",
+              "    }",
+            ]
           : [
               "    if (existing->live &&",
               "        (*env)->IsSameObject(env, existing->instance, self)) {",
@@ -1363,14 +1400,18 @@ export function generateJvmAdapterSource(
             ]),
         "  }",
         `  ${prefix}_connection *connection = calloc(1, sizeof *connection);`,
-        "  if (connection == NULL) return NULL;",
         ...(classAnchored
           ? [
+              "  if (connection == NULL) {",
+              `    *error = ${prefix}_message("out of memory registering a handler");`,
+              "    return;",
+              "  }",
               /* Nothing to hold: the registration outlives no instance
                * because it is not attached to one. */
               "  jobject stable = NULL;",
             ]
           : [
+              "  if (connection == NULL) return NULL;",
               "  jobject stable = (*env)->NewGlobalRef(env, (jobject)self);",
               "  if (stable == NULL) {",
               "    free(connection);",
@@ -1384,7 +1425,7 @@ export function generateJvmAdapterSource(
         `  connection->slot = &${headVariable};`,
         `  connection->next = ${headVariable};`,
         `  ${headVariable} = connection;`,
-        "  return connection;",
+        ...(classAnchored ? ["  return;"] : ["  return connection;"]),
         "}",
         "",
       );
