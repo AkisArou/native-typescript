@@ -428,6 +428,119 @@ test("a byte[] result crosses as an owned copy with a length out slot", () => {
 });
 
 test(
+  "a delivery on a thread that does not own the instance is refused",
+  { skip },
+  () => {
+    /* An instance is never entered from two threads, and the runtime does
+     * not police that: reaching a handler means reading a closure, and a
+     * closure read from a foreign thread corrupts rather than fails. The
+     * generated trampoline's job is to ASK before it delivers, and this
+     * proves it does — the owner predicate is stubbed here so the test
+     * controls the answer, which is exactly the adapter's side of the
+     * contract. The runtime's own implementation of "which thread owns
+     * the instance" is proven where it lives.
+     *
+     * Both answers are taken. A refusal that also refused the ordinary
+     * case would pass a one-sided test while breaking every delivery. */
+    const adapter = generateJvmAdapterSource(
+      ingestSurface([
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["(I)V"],
+          methods: ["ping"],
+          callbacks: ["onPing"],
+        },
+      ]),
+      { packageSlug: "fixture" },
+    );
+    const home = jdk!;
+    const workDir = mkdtempSync(join(tmpdir(), "nt-jvm-owner-thread-"));
+    try {
+      const construct = adapter.constructors[0]!.adapterSymbol;
+      const ping = adapter.instanceMethods.find(
+        ({ name }) => name === "ping",
+      )!.adapterSymbol;
+      const connect = adapter.callbacks[0]!.connectSymbol;
+      const message = adapter.errorSupport.messageSymbol;
+      const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
+      const main = [
+        "#include <jni.h>",
+        "#include <stdio.h>",
+        "#include <string.h>",
+        `#include "adapter.h"`,
+        "/* The predicate the generated trampoline asks. Weak in the",
+        " * adapter, defined here so the test decides the answer. */",
+        "static int nts_owner_answer = 1;",
+        "int nts_jvm_runtime_owner_thread_is_current(void) {",
+        "  return nts_owner_answer;",
+        "}",
+        "static int nts_delivered;",
+        "static jboolean nts_handler(jint value, void *context) {",
+        "  (void)value; (void)context;",
+        "  nts_delivered += 1;",
+        "  return JNI_TRUE;",
+        "}",
+        "",
+        "int main(void) {",
+        `  char cp[] = "-Djava.class.path=${classpath}";`,
+        "  JavaVMOption options[1] = { { .optionString = cp } };",
+        "  JavaVMInitArgs args = { .version = JNI_VERSION_1_6, .nOptions = 1,",
+        "                          .options = options, .ignoreUnrecognized = JNI_FALSE };",
+        "  JavaVM *vm; JNIEnv *env;",
+        "  if (JNI_CreateJavaVM(&vm, (void **)&env, &args) != JNI_OK) return 10;",
+        "  char *error = NULL;",
+        `  if (${adapter.bind.adapterSymbol}(env, &error) != 0) return 11;`,
+        `  void *w = ${construct}(7, &error);`,
+        "  if (w == NULL || error != NULL) return 12;",
+        `  if (${connect}(w, nts_handler, NULL) == NULL) return 13;`,
+        "  /* The owning thread: delivery happens. */",
+        `  if (${ping}(w, 2, &error) != 2 || error != NULL) return 14;`,
+        "  if (nts_delivered != 2) return 15;",
+        "  /* A thread that does not own the instance: the trampoline",
+        "   * refuses before reading the closure, and Java sees the",
+        "   * exception through the checked channel. */",
+        "  nts_owner_answer = 0;",
+        `  (void)${ping}(w, 2, &error);`,
+        "  if (error == NULL) return 16;",
+        `  if (strstr(${message}(error), "does not own the TypeScript instance") == NULL) {`,
+        "    return 17;",
+        "  }",
+        "  if (nts_delivered != 2) return 18;",
+        '  printf("OK\\n");',
+        "  return 0;",
+        "}",
+        "",
+      ].join("\n");
+      writeFileSync(join(workDir, "adapter.c"), adapter.source);
+      writeFileSync(join(workDir, "adapter.h"), adapter.header);
+      writeFileSync(join(workDir, "main.c"), main);
+      const executable = join(workDir, "probe");
+      execFileSync("clang", [
+        "-O1",
+        "-Wall",
+        "-Werror",
+        `-I${join(home, "include")}`,
+        `-I${join(home, "include/linux")}`,
+        join(workDir, "adapter.c"),
+        join(workDir, "main.c"),
+        "-o",
+        executable,
+        `-L${join(home, "lib/server")}`,
+        "-ljvm",
+        `-Wl,-rpath,${join(home, "lib/server")}`,
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+      const output = execFileSync(executable, [], {
+        encoding: "utf8",
+        timeout: 60000,
+      });
+      assert.equal(output.trim(), "OK");
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "one class-anchored registration serves instances it never named",
   { skip },
   () => {
