@@ -270,6 +270,8 @@ correctness one.
 
 ## Addendum, 2026-08-21: four slices, and what each one found
 
+*(Two more landed the same day; see the addendum below.)*
+
 The extraction resumed, past the decision layer this record describes and into
 legalization proper — collapsing arms that were only ever one shape rather than
 merely sharing the answers they computed.
@@ -318,3 +320,48 @@ The removal condition still stands unmet: trampoline emission is duplicated in
 SHAPE, and the `emitPendingCheck`/`emitUnwind` interface — where placement is
 the decision and the mechanism is backend-owned scope bookkeeping — has no
 design yet. That interface is the pass/fail question for the whole extraction.
+
+## Addendum, 2026-08-21: two more, and a finding of a different kind
+
+Two slices landed after the four above, both in the trampolines rather than in
+the call sites, and the second one is not a family collapse at all.
+
+**A dropped delivery's debts** (`nativeQueuedPayloadCleanup`). A queued
+invocation materializes its payloads before the delivery runs, and two payload
+kinds are owned — a copied string and a retained handle reference — so a
+delivery that is dropped rather than run still has to give them back. Both
+backends worked out which slots those are, by different routes: C filtered the
+payloads, LLVM walked the contract's source arguments and re-derived the same
+conditions from the adapter's parameter kinds. They agreed, and the reason is
+worth more than the fact: `nativeCallbackPayloads` produces an `ownedHandle`
+under exactly the condition LLVM re-tested for. So it was never a defect. It
+was two computations of one answer, agreeing by construction — the state every
+divergence found this week began in.
+
+**The queued invocation's base field count**
+(`NATIVE_CALLBACK_INVOCATION_BASE_FIELDS`). This one is worth recording because
+it does not fit the pattern the other five share, and the difference points at
+something the pattern would otherwise hide.
+
+The other five are symmetric: two backends, two ladders, one answer. Here the
+backends are NOT symmetrically exposed. The C backend names the runtime struct
+and lets the C compiler place what follows, so it cannot be wrong about the
+header's size. LLVM builds a flat literal type and counts the header out in
+pointer-sized fields — the bare number 7, written twice, tied to
+`ScrCallbackInvocation` by nothing.
+
+Read as a comfort, that asymmetry says the C side is fine. Read correctly, it
+is the hazard: adding a field to that struct is an ordinary runtime change that
+would leave C correct and move every LLVM payload index by one, reading a
+string out of what is now the token slot. A type-confused load, no diagnostic.
+The half of the fix that matters is not naming the constant but
+`native-callbacks.test.ts`, which reads `scr_runtime.h` and fails when the
+header stops agreeing — verified by adding a field and watching it fail.
+
+**The generalization.** "Two hand-written ladders that agree" is the shape this
+record was written about, and it admits a case where only one side can be
+wrong. Those are harder to see precisely because the correct side is correct
+for a structural reason, so an audit that samples both finds nothing. Where one
+backend derives a fact from the source of truth and the other restates it, the
+restatement needs a test against that source — not a comparison against the
+backend that cannot be wrong.

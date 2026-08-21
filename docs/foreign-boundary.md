@@ -162,7 +162,7 @@ five defects in this repository's own history, every one of them a decision
 made in the C backend and not the LLVM one. Every dimension above is
 cross-cutting, so each one added ahead of the legalizer is added twice.
 
-**Current state.** Four legalization slices have landed on top of the decision
+**Current state.** Six legalization slices have landed on top of the decision
 layer, and the distinction between the two is worth keeping sharp. The decision
 layer answers questions both backends were answering separately. A legalization
 slice goes further: it collapses arms that were only ever one shape, so a new
@@ -180,12 +180,19 @@ What is described rather than laddered, as of 2026-08-21:
 - **Borrowed arguments** (`nativeArgumentBorrow`) and **handle arguments**
   (`nativeArgumentHandle`), over a shared `NativeArgumentSource` — the three
   nullabilities every value family crosses, said once.
+- **A dropped delivery's debts** (`nativeQueuedPayloadCleanup`). Which stored
+  payloads a delivery that never runs must still give back — the first step
+  into the trampolines, and the smallest one that pays.
+- **The queued invocation's base field count**
+  (`NATIVE_CALLBACK_INVOCATION_BASE_FIELDS`). Not a family collapse but the
+  same failure mode: a bare 7, written twice, with nothing tying it to the
+  runtime header it counts.
 
 Each slice was verified by emitting the whole `native-ir` suite before and
 after and comparing byte for byte, in both backends. Every one is inert except
 a single redundant local in one family, noted where it happens.
 
-**What the slices found is the part worth recording.** Four facts were
+**What the slices found is the part worth recording.** Six facts were
 load-bearing, unwritten, and correct only because two independently written
 ladders happened to agree:
 
@@ -202,6 +209,17 @@ ladders happened to agree:
 4. A surrendered handle has no nullable arm, because a call that may be handed
    nothing cannot also be the call that takes ownership of it. As four
    independent cases that read as a gap.
+5. Which slots a DROPPED delivery owes was computed twice by different routes —
+   C filtered the payloads, LLVM re-derived the same conditions from the
+   contract's source arguments. They agreed by construction rather than by
+   check, which is the state every divergence found this week began in.
+6. The two backends were not symmetrically exposed, and that is the finding.
+   C names the runtime struct and lets the C compiler place what follows, so it
+   cannot be wrong about the header's size; LLVM counts it out by hand. An
+   ordinary field added to `ScrCallbackInvocation` would leave one backend
+   correct and move every payload index in the other — a type-confused load
+   with no diagnostic. An asymmetry where one side is structurally immune is
+   what makes the other side's fragility invisible.
 
 **What is not a slice.** The seven number-conversion arms stay as they are:
 they are seven different conversions whose decisions already live in the form,
