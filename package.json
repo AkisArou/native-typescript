@@ -17,6 +17,7 @@
     "test": "pnpm build && node --test tests/*.test.ts",
     "scriptc:install": "pnpm --dir third_party/scriptc install --frozen-lockfile",
     "scriptc:build": "pnpm --dir third_party/scriptc build",
+    "scriptc:test:owned": "node scripts/test-scriptc-owned.mjs",
     "scriptc:test:manifest": "pnpm --dir=third_party/scriptc exec vitest run packages/compiler/test/native-manifest.test.ts",
     "scriptc:test:export": "node scripts/test-scriptc-export.mjs",
     "scriptc:test:native-ir": "node scripts/test-scriptc-native-ir.mjs",
