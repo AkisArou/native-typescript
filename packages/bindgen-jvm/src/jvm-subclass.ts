@@ -29,6 +29,7 @@
 import { createHash } from "node:crypto";
 import { JvmGenerationError } from "./jvm-model.ts";
 import type {
+  JvmCallbackAnchor,
   JvmCallbackSelection,
   JvmClass,
   JvmDiagnostic,
@@ -58,6 +59,12 @@ export interface JvmSubclassSelection {
    * classes defined in the `android.*` namespace, so an Activity
    * subclass must name a package the application owns. */
   readonly subclassBinaryName?: string;
+  /** What the overrides' registrations attach to. `class` is for a
+   * subclass the PLATFORM constructs — the instances are never handed to
+   * the program, so there is nothing to register against — and it is the
+   * same fact that makes `loadLibrary` necessary, stated separately
+   * because inferring one decision from another hides both. */
+  readonly anchor?: JvmCallbackAnchor;
 }
 
 export interface JvmSubclassSource {
@@ -307,12 +314,14 @@ export function generateJvmSubclassSource(
     );
     /* A void override's delivery is decided here, not left to the
      * selection downstream: the framework observes what it dispatched. */
+    const anchored = selection.anchor === "class";
     callbacks.push(
-      tells
+      tells || anchored
         ? Object.freeze({
             name: method.name,
             descriptor: method.descriptor,
-            delivery: "synchronous" as const,
+            ...(tells ? { delivery: "synchronous" as const } : {}),
+            ...(anchored ? { anchor: "class" as const } : {}),
           })
         : typeof overrideSelection === "string"
           ? overrideSelection

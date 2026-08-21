@@ -488,27 +488,27 @@ test("a class-anchored registration is owned by the process", () => {
       ({ kind }) => kind === "callback-parameter",
     ),
   );
-  /* The manifest is not the claim — reaching the arm is, and it does not
-   * reach yet. The translator's process-owned branch requires a void
-   * result and NO cancellation binding, which is exactly this shape; the
-   * owner gate ahead of it requires a cancellation binding and an owner
-   * in parameter zero, which no process-owned contract can have. The two
-   * cannot both be satisfied, so the positive branch is unreachable and
-   * this pin records the refusal by its own words. When the gate learns
-   * "process", this assertion FAILS and the Android program advances —
-   * the same flip withNul and the void-synchronous arm took. */
+  /* The manifest is not the claim — reaching the arm is. This shape was
+   * unreachable in two directions at once: SCABI had no word for a
+   * registration nothing owns, and once it had one, the owner gate ahead
+   * of the process branch demanded exactly what that branch forbids. Both
+   * are closed, so a JVM manifest now translates into the process-owned
+   * arm end to end. */
   const program = translateScabiNativeProgram(generated.manifest, {
     imports: Object.keys(generated.manifest.bindings),
     exports: [],
   });
-  assert.equal(program.ok, false);
-  if (!program.ok) {
-    assert.ok(
-      program.diagnostics.some(({ message }) =>
-        message.includes("only until-cancelled callbacks delivered onto the runtime owner")
-      ),
-      JSON.stringify(program.diagnostics).slice(0, 800),
+  assert.equal(
+    program.ok,
+    true,
+    program.ok ? "" : JSON.stringify(program.diagnostics).slice(0, 2000),
+  );
+  if (program.ok) {
+    const instance = "native-typescript.jvm-fixture@0.0.0";
+    const lowered = program.input.bindings.find(({ id }) =>
+      id === `${instance}#fixture.fixture.widget.ontick`
     );
+    assert.ok(lowered !== undefined);
   }
 
   // The receiver crosses as the payload arm's owned handle.

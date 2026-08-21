@@ -342,7 +342,10 @@ export async function buildJvmApplication(input: {
       id: classpathIsJar
         ? "sdk/jvm-java-classpath-jar"
         : "generated/jvm-java-classes",
-      kind: classpathIsJar ? "sdk" : "source-tree",
+      /* A jar is one prebuilt FILE the toolchain consumes, which is what
+       * `native-object` names here — `sdk` is reserved for directory
+       * trees, the same split libjvm already sits on. */
+      kind: classpathIsJar ? "native-object" : "source-tree",
       entryType: classpathIsJar ? "file" : "directory",
       mediaType: classpathIsJar
         ? "application/java-archive"
