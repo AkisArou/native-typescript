@@ -115,6 +115,8 @@ export interface Teller {
 export interface Judge {
   readonly [nativeResource]: "Judge";
   ask(code: i32, seed: i32): i32;
+  /* The same question where the subject may be absent. */
+  askMaybe(code: i32, seed: i32): i32;
   dispose(): void;
 }
 
@@ -191,6 +193,11 @@ export declare function maybeWith(
 ): void;
 export declare function maybeMark(): void;
 export declare function maybeFire(seed: i32): i32;
+/* The owner-scoped withheld payload: answers while holding a subject that may
+ * not be there, and the receiver's disposal is what cancels it. */
+export declare function maybeJudgeWith(
+  callback: (code: i32, subject: Counter | null) => boolean,
+): Judge;
 /* UTF-8 text arriving as a pointer and a length rather than a terminator, so
  * the bytes may contain NUL. The fixture's label does. */
 export declare function spanLabel(): string;

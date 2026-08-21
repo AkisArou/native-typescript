@@ -147,6 +147,13 @@ NTS_SCABI_EXPORT NtsJudge *nts_judge_create(NtsJudgeCallback callback,
 NTS_SCABI_EXPORT int32_t nts_judge_ask(NtsJudge *judge, int32_t code,
                                        int32_t seed);
 NTS_SCABI_EXPORT void nts_judge_destroy(NtsJudge *judge);
+/* The owner-scoped mirror of the withheld payload: answers while holding a
+ * subject the emitter may withhold, anchored to a receiver whose disposal
+ * cancels the registration. Same callback as `nts_judge_ask` — nullability is
+ * a fact about the value, not the slot — so a negative seed hands over
+ * nothing. */
+NTS_SCABI_EXPORT int32_t nts_judge_ask_maybe(NtsJudge *judge, int32_t code,
+                                             int32_t seed);
 
 /* A registration NOTHING owns: stored in a global, fired by a later call, and
  * never cancelled — the shape a framework dispatch takes when the platform

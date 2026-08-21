@@ -276,6 +276,19 @@ payload-absent.ts` takes both arms through one registration, because a handler
 that only ever receives an object proves nothing about absence and one that
 only ever receives null proves nothing about the reference.
 
+**It shipped admitted in one of the two synchronous branches**, and the JVM
+session found the other within hours. Three rules each asked "is this payload
+an object" in their own words — what a callback type may DECLARE, which arm
+carries a DESTRUCTOR, and what a synchronous delivery ADMITS — and the new arm
+reached the first two. So a process-owned withheld payload was accepted while
+the identical receiver-anchored one was refused as an invalid contract, on a
+distinction that does not exist: the owner never bore on whether a payload may
+be absent, and the branch is already gated on `synchronousReturn` for the
+reason that does. One predicate, `handlePayloadArm`, now answers for all
+three, and `payload-absent-answered.ts` covers the arm beside the arm — an
+answering receiver-anchored handler, which is the shape a toolkit's
+`onMeasure` takes.
+
 **What remains of it is the QUEUED arm, refused by name in both layers.** A
 queued delivery stores the payload's pointer in an invocation record whose
 shutdown cleanup reads the same slot, so absence there is a state of the record

@@ -469,3 +469,8 @@ int32_t nts_maybe_fire(int32_t seed) {
   nts_maybe_cb(subject, nts_maybe_ctx);
   return nts_maybe_marks;
 }
+
+int32_t nts_judge_ask_maybe(NtsJudge *judge, int32_t code, int32_t seed) {
+  NtsCounter *subject = seed < 0 ? NULL : nts_counter_create(seed);
+  return judge->callback(code, subject, judge->context);
+}

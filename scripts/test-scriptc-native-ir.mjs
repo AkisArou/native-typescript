@@ -84,6 +84,8 @@ const translated = translateScabiNativeProgram(manifest, {
     "maybe_register",
     "maybe_mark",
     "maybe_fire",
+    "maybe_judge_create",
+    "judge_ask_maybe",
     "span_label",
     "span_label_maybe",
     "error_out_i8",
