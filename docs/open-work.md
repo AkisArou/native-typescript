@@ -300,6 +300,63 @@ refusing the same shape for the same reason is what keeps them from drifting;
 neither is waiting on the other. A program is what would earn it, and a
 framework lifecycle is not one — that dispatch runs in the caller's frame.
 
+### A TypeScript class extending a NATIVE class — named, not queued
+
+The README sketch for an Android application is `class MainActivity extends
+Activity` with `override onCreate` and `this` as the receiver. What ships
+instead is `MainActivity.onCreate(callback)`, where the receiver arrives as the
+handler's first argument. The lowerer knows `extends` for mixin functions only,
+so the sketch needs a real compiler capability: a managed class whose base is a
+native declared class.
+
+**The capability is bounded work. The design question is not, and it comes
+first.** The current spelling is not a workaround for missing sugar — it is an
+accurate statement of what happens: the platform constructs the Activity, at
+the moment a program could register no instance exists, and the registration
+outlives every instance because the class does.
+
+The `extends` spelling is not less accurate about the CLASS, which was this
+note's first objection and does not survive contact with the JVM side: the
+subclass generator emits a real Java class extending Activity, so a program
+declaring one genuinely does define it. What the two spellings differ about is
+narrower, and it is below.
+
+**The lifetime worry this note first recorded was wrong**, and the correction
+is worth keeping because it changes what the capability has to solve. A `this`
+stored past its dispatch is NOT a use-after-free: the receiver crosses as
+`owned` / `transfer: to-runtime`, so the thunk interns it into a managed cell
+whose destructor is the class-blind global-reference release. A program that
+keeps it keeps the cell, the cell keeps the reference, the reference keeps the
+object. Storing it is memory-safe by construction — the same construction that
+made the payload arm small.
+
+What remains is the ANDROID leak: an Activity held past `onDestroy` pins its
+view hierarchy. That is real, but it is a hazard every Android program has in
+Java with a static field, it is not a boundary defect, and no type system can
+fix it — whether a program may keep a receiver depends on what it means to do,
+not on the reference's shape.
+
+**The sharper question is whether `this` is the SAME cell the payload arm
+already hands over.** If it is, the sugar is honest about lifetime and the
+capability is a spelling rather than a mechanism. If `extends` introduces a
+SECOND receiver spelling with its own lifetime story, that is one fact
+described twice — the shape that produced most of this file — and the hazard
+would enter by construction rather than by misuse. So the design constraint is
+`this` IS the payload cell, and an override IS the class-anchored registration
+with the receiver bound.
+
+**And that is where the two spellings actually differ: instance FIELDS.**
+`this` is a handle to a JAVA object, not a TypeScript one. If such a class may
+declare TypeScript fields,
+they need somewhere to live across dispatches — the Java object, or a side
+table keyed by the handle — and that is the part with a real cost. If it may
+not, the capability is a class-shaped way to write registrations and should say
+so, because a `class` that cannot hold state is a surprise worth naming.
+
+Recorded rather than started: it is a product-shape decision, and it should
+land with an answer to the fields question rather than ahead of one. The JVM
+session owns the platform half of this write-up.
+
 ### Vendored objects are not PIC
 
 The archive's program and runtime objects are position-independent. Vendored
