@@ -26,14 +26,27 @@
 #   * runs the full gate with TMPDIR on a real filesystem.
 #
 # NT_GATE_KEEP=1 keeps the worktree on failure for inspection.
+# NT_GATE_TMPDIR overrides where intermediate products are written.
 
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 worktree="$HOME/.cache/nt-gate-wt-$$"
-tmpdir="${TMPDIR:-$HOME/.cache/nt-tmpdir}"
+# The suite's concurrent lanes write several gigabytes of intermediate
+# products, so a tmpfs exhausts and fails with a bare `errno -122` that
+# names nothing. This used to inherit TMPDIR, which made the script's own
+# promise conditional on the caller's environment: a shell exporting
+# TMPDIR=/tmp silently handed the gate a tmpfs, and the default that was
+# supposed to prevent exactly that never ran. The check is what makes the
+# promise hold rather than merely being written down.
+tmpdir="${NT_GATE_TMPDIR:-$HOME/.cache/nt-gate-tmp}"
 mkdir -p "$tmpdir"
+if [ "$(stat -f -c %T "$tmpdir")" = "tmpfs" ]; then
+  echo "gate-isolated: $tmpdir is a tmpfs and the full gate will exhaust it;" \
+    "point NT_GATE_TMPDIR at a real filesystem" >&2
+  exit 2
+fi
 
 echo "gate-isolated: HEAD $(git rev-parse --short HEAD), worktree $worktree"
 git worktree add "$worktree" HEAD >/dev/null
