@@ -420,6 +420,134 @@ test("a byte[] result crosses as an owned copy with a length out slot", () => {
   );
 });
 
+test(
+  "one class-anchored registration serves instances it never named",
+  { skip },
+  () => {
+    /* The property class anchoring exists FOR, and the one a per-instance
+     * registration cannot have: a single handler answers for two objects
+     * the registration never mentioned, and tells them apart only by the
+     * receiver it is handed. Two instances is the smallest number that
+     * can distinguish "answers for the class" from "answers for the one
+     * you registered", so the test uses exactly two.
+     *
+     * The handler also calls BACK into the receiver it was given, which
+     * is what proves the promotion produced a usable reference rather
+     * than a pointer that merely survived the frame — and it releases
+     * that reference, which is the ownership half of the same story. */
+    const adapter = generateJvmAdapterSource(
+      ingestSurface([
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["(I)V"],
+          methods: ["depth", "tick"],
+          callbacks: [
+            {
+              name: "onTick",
+              descriptor: "(I)V",
+              delivery: "synchronous" as const,
+              anchor: "class" as const,
+            },
+          ],
+        },
+      ]),
+      { packageSlug: "fixture" },
+    );
+    const home = jdk!;
+    const workDir = mkdtempSync(join(tmpdir(), "nt-jvm-class-anchor-"));
+    try {
+      const construct = adapter.constructors[0]!.adapterSymbol;
+      const depth = adapter.instanceMethods.find(
+        ({ name }) => name === "depth",
+      )!.adapterSymbol;
+      const tick = adapter.instanceMethods.find(
+        ({ name }) => name === "tick",
+      )!.adapterSymbol;
+      const connect = adapter.callbacks[0]!.connectSymbol;
+      const release = adapter.release.adapterSymbol;
+      const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
+      const main = [
+        "#include <jni.h>",
+        "#include <stdio.h>",
+        "#include <stdlib.h>",
+        `#include "adapter.h"`,
+        "static int nts_seen_depth;",
+        "static int nts_seen_calls;",
+        "/* The receiver arrives promoted and owned: usable for a call",
+        " * back into Java, and released by whoever was handed it. */",
+        "static void nts_on_tick(void *receiver, jint value, void *context) {",
+        "  char *error = NULL;",
+        `  nts_seen_depth += ${depth}(receiver, &error);`,
+        "  if (error != NULL) { nts_seen_depth = -1000; }",
+        "  nts_seen_calls += 1;",
+        "  (void)value;",
+        "  (void)context;",
+        `  ${release}(receiver);`,
+        "}",
+        "",
+        "int main(void) {",
+        `  char cp[] = "-Djava.class.path=${classpath}";`,
+        "  JavaVMOption options[1] = { { .optionString = cp } };",
+        "  JavaVMInitArgs args = { .version = JNI_VERSION_1_6, .nOptions = 1,",
+        "                          .options = options, .ignoreUnrecognized = JNI_FALSE };",
+        "  JavaVM *vm; JNIEnv *env;",
+        "  if (JNI_CreateJavaVM(&vm, (void **)&env, &args) != JNI_OK) return 10;",
+        "  char *error = NULL;",
+        `  if (${adapter.bind.adapterSymbol}(env, &error) != 0) return 11;`,
+        "  /* One registration, made before either object exists — which is",
+        "   * the whole point: on a platform, the instances are not ours. */",
+        `  void *registration = ${connect}(nts_on_tick, NULL);`,
+        "  if (registration == NULL) return 12;",
+        "  /* A second registration is refused: one anchor, one handler. */",
+        `  if (${connect}(nts_on_tick, NULL) != NULL) return 13;`,
+        `  void *first = ${construct}(7, &error);`,
+        "  if (first == NULL || error != NULL) return 14;",
+        `  void *second = ${construct}(9, &error);`,
+        "  if (second == NULL || error != NULL) return 15;",
+        `  ${tick}(first, 2, &error);`,
+        "  if (error != NULL) return 16;",
+        `  ${tick}(second, 1, &error);`,
+        "  if (error != NULL) return 17;",
+        "  /* Two calls on the first (depth 7) and one on the second",
+        "   * (depth 9): 7 + 7 + 9. A registration that answered for only",
+        "   * one instance could not reach 23, and one that lost the",
+        "   * receiver could not tell 7 from 9 at all. */",
+        "  if (nts_seen_calls != 3) return 18;",
+        "  if (nts_seen_depth != 23) return 19;",
+        '  printf("OK\\n");',
+        "  return 0;",
+        "}",
+        "",
+      ].join("\n");
+      writeFileSync(join(workDir, "adapter.c"), adapter.source);
+      writeFileSync(join(workDir, "adapter.h"), adapter.header);
+      writeFileSync(join(workDir, "main.c"), main);
+      const executable = join(workDir, "probe");
+      execFileSync("clang", [
+        "-O1",
+        "-Wall",
+        "-Werror",
+        `-I${join(home, "include")}`,
+        `-I${join(home, "include/linux")}`,
+        join(workDir, "adapter.c"),
+        join(workDir, "main.c"),
+        "-o",
+        executable,
+        `-L${join(home, "lib/server")}`,
+        "-ljvm",
+        `-Wl,-rpath,${join(home, "lib/server")}`,
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+      const output = execFileSync(executable, [], {
+        encoding: "utf8",
+        timeout: 60000,
+      });
+      assert.equal(output.trim(), "OK");
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+);
+
 test("the generated adapter compiles and calls a live JVM", { skip }, () => {
   const adapter = generate();
   const home = jdk!;
