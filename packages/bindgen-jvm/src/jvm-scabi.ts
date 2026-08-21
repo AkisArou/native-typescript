@@ -713,6 +713,161 @@ export function generateJvmScabiPackage(
   /* Constructors: the first selected one is THE constructor; the rest are
    * factories named by their descriptor hash, because TypeScript declares
    * one constructor and Java identity for the others is the descriptor. */
+  /** Scalar types a CONSTANT names, which therefore need a declaration
+   * identity — a signature position does not. */
+  const constantScalarIds = new Set<string>();
+  /** Ambient const lines per class, emitted as a merged namespace. */
+  const constantsByClass = new Map<string, string[]>();
+
+  /** A constant's manifest type, its literal value, and how the surface
+   * spells it. The descriptor decides — a class file records a boolean,
+   * a byte and a char all as ints, so the VALUE alone cannot say what
+   * was written. */
+  function constantOf(
+    field: JvmSnapshot["classes"][number]["fields"][number],
+    path: string,
+    into: JvmDiagnostic[],
+  ): {
+    readonly type: string;
+    readonly value: string | number | boolean;
+    readonly sourceType: string;
+  } | null {
+    const value = field.constantValue!;
+    const primitive = field.type.kind === "primitive" ? field.type.name : null;
+    if (primitive === "boolean" && value.kind === "int") {
+      needScalar("boolean");
+      constantScalarIds.add(scalarTypeId("boolean"));
+      return {
+        type: scalarTypeId("boolean"),
+        value: value.value !== "0",
+        sourceType: "boolean",
+      };
+    }
+    if (
+      value.kind === "int" && primitive !== null &&
+      (primitive === "byte" || primitive === "short" ||
+        primitive === "char" || primitive === "int")
+    ) {
+      needScalar(primitive);
+      constantScalarIds.add(scalarTypeId(primitive));
+      return {
+        type: scalarTypeId(primitive),
+        value: Number(value.value),
+        sourceType: scalarProjections[primitive].sourceType,
+      };
+    }
+    if (primitive === "float") {
+      into.push(diagnostic(
+        path,
+        `'${field.name}' is a float constant: its VALUE is exact, but its ` +
+          "type is f32 and ScriptC's value set has only f64 — widening it " +
+          "would give the constant a type the class file did not state",
+      ));
+      return null;
+    }
+    if (value.kind === "double" && primitive === "double") {
+      /* The class file records the BITS, which is the only lossless way
+       * to write a float down; the number is read back out of them. */
+      const view = new DataView(new ArrayBuffer(8));
+      view.setBigUint64(0, BigInt(value.bits));
+      const numeric = view.getFloat64(0);
+      if (!Number.isFinite(numeric)) {
+        into.push(diagnostic(
+          path,
+          `'${field.name}' is a non-finite constant, which a manifest ` +
+            "cannot carry: JSON has no spelling for NaN or an infinity, " +
+            "and inventing one would make the value depend on the reader",
+        ));
+        return null;
+      }
+      needScalar(primitive);
+      constantScalarIds.add(scalarTypeId(primitive));
+      return {
+        type: scalarTypeId(primitive),
+        value: numeric,
+        sourceType: scalarProjections[primitive].sourceType,
+      };
+    }
+    into.push(diagnostic(
+      path,
+      value.kind === "long"
+        ? `'${field.name}' is a long constant, whose carrier is a branded ` +
+          "bigint; a manifest value is a string, a number or a boolean, " +
+          "so carrying it exactly waits on a decision about which"
+        : value.kind === "string"
+          ? `'${field.name}' is a String constant: its value is bytes the ` +
+            "class file holds rather than a scalar, and where a string " +
+            "constant lives in the generated surface is its own slice"
+          : `'${field.name}' has constant kind '${value.kind}' with type ` +
+            `'${field.descriptor}', which do not agree`,
+    ));
+    return null;
+  }
+
+  /* Compile-time constants need no adapter and no call: a static final
+   * field with a ConstantValue attribute IS its value, recorded in the
+   * class file, and the manifest carries it as a constant binding. That
+   * is why this reads the SNAPSHOT rather than the generated C — there
+   * is no C, because there is nothing to invoke.
+   *
+   * A selected field WITHOUT a constant value is refused by name. Reading
+   * one means a JNI field access against a live class, which is state
+   * crossing rather than a value the metadata already states, and that is
+   * its own slice with its own demand. */
+  for (const class_ of options.snapshot.classes) {
+    for (const field of class_.fields) {
+      const path = `class/${class_.binaryName}/field/${field.name}`;
+      if (
+        !field.access.static || !field.access.final ||
+        field.constantValue === null
+      ) {
+        diagnostics.push(diagnostic(
+          path,
+          `'${field.name}' is not a compile-time constant: only a static ` +
+            "final field carrying a ConstantValue is a value the class " +
+            "file states, and reading anything else means a field access " +
+            "against a live class — state crossing, which is its own slice",
+        ));
+        continue;
+      }
+      const constant = constantOf(field, path, diagnostics);
+      if (constant === null) continue;
+      const bindingId = `${slug}.${idToken(class_.binaryName)}.${
+        field.name.toLowerCase()
+      }`;
+      const className = classNameOf.get(class_.binaryName)!;
+      defineBinding(bindingId, Object.freeze({
+        kind: "constant" as const,
+        declaration: Object.freeze({
+          module: ".",
+          name: `${className}.${field.name}`,
+        }),
+        type: constant.type,
+        value: constant.value,
+        /* Empty, and SCABI enforces it: a compile-time constant cannot
+         * have runtime dependencies, because nothing is called to obtain
+         * it. Claiming this package's adapter object or its link inputs
+         * would assert a runtime the value does not have — which is the
+         * same fact that made the adapter generate no C for it. */
+        dependencies: Object.freeze({
+          bindings: Object.freeze([]),
+          linkInputs: Object.freeze([]),
+          adapterInputs: Object.freeze([]),
+          permissions: Object.freeze([]),
+        }),
+      }));
+      /* A constant is an ambient VALUE, not a class member: the compiler
+       * resolves one only through a value declaration, and a `static
+       * readonly` on a declared class is a type-level member of a class
+       * nothing constructs here. TypeScript merges a namespace with a
+       * class of the same name, so `Gravity.CENTER` still reads as the
+       * platform writes it while being a const the compiler can see. */
+      const constants = constantsByClass.get(class_.binaryName) ?? [];
+      constants.push(`  const ${field.name}: ${constant.sourceType};`);
+      constantsByClass.set(class_.binaryName, constants);
+    }
+  }
+
   for (const class_ of options.snapshot.classes) {
     const className = classNameOf.get(class_.binaryName)!;
     const typeId = selectedTypeIds.get(class_.binaryName)!;
@@ -1201,6 +1356,14 @@ export function generateJvmScabiPackage(
   const convertedScalarIds = usedScalarIds.filter(
     (id) => id !== "jlong" && id !== "jboolean",
   );
+  /* A constant is reached as a TYPE rather than through a signature, so
+   * the type it names must have a TypeScript identity: a converted scalar
+   * position needs none, because its source value is an ordinary number,
+   * but `MAX_DEPTH: jint` names jint and the compiler asks what that is.
+   * The alias already exists in the declarations; this says where. */
+  for (const id of constantScalarIds) {
+    declarationTypes[id] = Object.freeze({ module: ".", name: id });
+  }
   const usesJlong = usedScalarIds.includes("jlong");
   if (usesJlong) {
     declarationTypes["jlong"] = Object.freeze({ module: ".", name: "jlong" });
@@ -1237,11 +1400,20 @@ export function generateJvmScabiPackage(
         class_.superclass.kind === "internal"
       ? classNameOf.get(class_.superclass.binaryName)
       : undefined;
+    const constants = constantsByClass.get(class_.binaryName) ?? [];
     declarationLines.push(
       `export declare class ${className}${parent === undefined ? "" : ` extends ${parent}`} {`,
       ...(declarationsByClass.get(class_.binaryName) ?? []),
       "}",
       "",
+      ...(constants.length === 0
+        ? []
+        : [
+            `export declare namespace ${className} {`,
+            ...constants,
+            "}",
+            "",
+          ]),
     );
   }
   const declarationSource = `${declarationLines.join("\n").trimEnd()}\n`;

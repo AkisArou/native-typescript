@@ -50,9 +50,9 @@ MainActivity.onCreate((activity, savedState: Bundle | null) => {
   label.setTextSize(28);
   /* A modern Android window is edge to edge, so a full-screen view draws
    * its first line under the status bar. These insets are the
-   * application's own choice, which is why they can be written here at
-   * all: a class file's static finals are ingested but not yet projected,
-   * so this program could not name Gravity.CENTER if it wanted to. */
+   * application's own numbers — `Gravity.CENTER` is projected now, but
+   * referencing an INTEGER constant stops in the compiler while a
+   * TypeScript `number` maps to f64 and the manifest correctly says i32. */
   label.setPadding(64, 420, 64, 64);
   activity.setContentView(label);
 

@@ -420,6 +420,102 @@ test("the telling arm: synchronous void, borrowed payloads, no sender", () => {
   }
 });
 
+test("a compile-time constant crosses as its value, and the rest refuse", () => {
+  /* A static final with a ConstantValue attribute IS its value: the class
+   * file states it, so nothing is called and no adapter is generated for
+   * it. The Widget fixture carries every ConstantValue kind, which is why
+   * it can show both what crosses and what does not.
+   *
+   * A class file records a boolean, a byte and a char all as ints, so the
+   * DESCRIPTOR decides the type — the value alone could not say what was
+   * written. */
+  const withConstants = ingestJvmClasses(
+    [
+      {
+        logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+        bytes: readFileSync(
+          resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
+        ),
+      },
+    ],
+    {
+      classes: [
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["()V"],
+          fields: ["MAX_DEPTH", "RATIO"],
+        },
+      ],
+    },
+  );
+  const generated = generateJvmScabiPackage(options(withConstants));
+  /* Ambient values merged into a namespace beside the class: the
+   * compiler resolves a constant only through a value declaration, and
+   * `Widget.MAX_DEPTH` still reads as the class file writes it. */
+  assert.match(
+    generated.declarations,
+    /export declare namespace Widget \{\n {2}const MAX_DEPTH: jint;\n {2}const RATIO: jdouble;\n\}/u,
+  );
+
+  const depth = generated.manifest.bindings["fixture.fixture.widget.max_depth"];
+  assert.ok(depth !== undefined && depth.kind === "constant");
+  assert.equal(depth.value, 32);
+  /* The double is read back out of the BITS the class file records,
+   * which is the only lossless way a floating value is written down. */
+  const ratio = generated.manifest.bindings["fixture.fixture.widget.ratio"];
+  assert.ok(ratio !== undefined && ratio.kind === "constant");
+  assert.equal(ratio.value, 0.25);
+
+  /* The claim is not the manifest, it is reaching the compiler. */
+  const program = translateScabiNativeProgram(generated.manifest, {
+    imports: Object.keys(generated.manifest.bindings),
+    exports: [],
+  });
+  assert.equal(
+    program.ok,
+    true,
+    program.ok ? "" : JSON.stringify(program.diagnostics).slice(0, 1500),
+  );
+
+  /* What refuses, each naming its own reason rather than sharing one. */
+  for (
+    const [field, pattern] of [
+      ["SEED", /carrier is a branded bigint/u],
+      ["SCALE", /its type is f32 and ScriptC's value set has only f64/u],
+      ["NAME", /String constant: its value is bytes/u],
+      ["depth", /not a compile-time constant/u],
+    ] as const
+  ) {
+    assert.throws(
+      () =>
+        generateJvmScabiPackage(options(ingestJvmClasses(
+          [
+            {
+              logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+              bytes: readFileSync(
+                resolve(
+                  repositoryRoot,
+                  "fixtures/jvm/classes/fixture/Widget.class",
+                ),
+              ),
+            },
+          ],
+          {
+            classes: [
+              {
+                binaryName: "fixture/Widget",
+                constructors: ["()V"],
+                fields: [field],
+              },
+            ],
+          },
+        ))),
+      pattern,
+      `field ${field}`,
+    );
+  }
+});
+
 test("a class-anchored registration is owned by the process", () => {
   // The Android crux, in manifest form: ART constructs the Activity, so
   // there is no receiver whose lifetime bounds the registration — which

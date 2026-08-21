@@ -52,13 +52,14 @@ export const androidProject = {
         { name: "setTextColor", descriptor: "(I)V" },
         { name: "setTextSize", descriptor: "(F)V" },
         /* A modern Android window is edge to edge, so a full-screen view
-         * draws its first line UNDER the status bar. Insetting it is what
-         * puts the text where a person can read it — and the amount is
-         * the application's own choice rather than a platform constant,
-         * which matters because this build cannot yet name one: a class
-         * file's static finals are INGESTED and carried in the snapshot,
-         * and nothing projects them onto the generated surface. That is a
-         * named gap, and Gravity.CENTER is what wanted it. */
+         * draws its first line UNDER the status bar. Insetting it is the
+         * application's own choice of numbers, which is why it can be
+         * written here while `Gravity.CENTER` cannot: an INTEGER constant
+         * is projected and translates, but a program that references one
+         * stops in the compiler, because a TypeScript `number` maps to
+         * f64 and the manifest correctly says i32. Reported; a double
+         * constant works today, and this flips when the integer rule
+         * lands. */
         { name: "setPadding", descriptor: "(IIII)V" },
       ],
     },
