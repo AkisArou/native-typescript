@@ -127,9 +127,13 @@ export interface JvmCallbackAdapter {
   readonly name: string;
   readonly descriptor: string;
   readonly connectSymbol: string;
-  /** Exact scalars only — the retained contract's payload set. */
+  /** The handler's arguments in order. A class-anchored registration
+   * leads with the RECEIVER, because one registration answers for every
+   * instance and nothing else would say which one called. */
   readonly parameters: readonly JvmAdapterPosition[];
   readonly delivery: "answered" | "told" | "queued";
+  /** What the registration attaches to; see JvmCallbackAnchor. */
+  readonly anchor: "instance" | "class";
 }
 
 /** The shared connection machinery, present when any callback is selected:
@@ -1183,6 +1187,21 @@ export function generateJvmAdapterSource(
         : callback.delivery === "synchronous"
           ? ("told" as const)
           : ("queued" as const);
+      /* A class-anchored registration exists because the FRAMEWORK owns
+       * the instance, and a framework observes what it dispatched — so
+       * the queued arm, whose whole premise is that delivery outlives the
+       * emitting call, has no lifecycle method to serve. It waits for a
+       * program rather than being emitted untested. */
+      const classAnchored = callback.anchor === "class";
+      if (classAnchored && delivery === "queued") {
+        diagnostics.push(diagnostic(
+          `${path}/anchor`,
+          "A class-anchored registration answers for instances a framework " +
+            "constructs and observes, so its delivery is synchronous; the " +
+            "queued arm waits on a program that needs it",
+        ));
+        continue;
+      }
       if (refused) continue;
       usesCallbacks = true;
       const suffix = overloadedCallbackNames.has(callback.name)
@@ -1199,6 +1218,14 @@ export function generateJvmAdapterSource(
       const handleIndices = parameters.flatMap((parameter, index) =>
         parameter.kind === "handle" ? [index] : []
       );
+      /* The receiver is the handler's FIRST argument on a class-anchored
+       * registration: one registration answers for every instance, so
+       * which instance called is information only the payload carries. It
+       * crosses exactly as any other object payload does — promoted from
+       * the frame-scoped local reference into a managed cell. */
+      const payloadPositions: JvmAdapterPosition[] = classAnchored
+        ? [{ kind: "handle", binaryName: class_.binaryName }, ...parameters]
+        : [...parameters];
       /* An answered trampoline returns the handler's boolean; a void one
        * returns nothing. Told and queued share this C shape deliberately:
        * whether the handler runs during this frame or the payload is
@@ -1207,7 +1234,7 @@ export function generateJvmAdapterSource(
        * pointer. */
       const answerType = answers ? "jboolean" : "void";
       const callbackPointer = `${answerType} (*)(${[
-        ...parameters.map((parameter) =>
+        ...payloadPositions.map((parameter) =>
           parameter.kind === "primitive" ? jniCTypes[parameter.primitive] : "void *"
         ),
         "void *",
@@ -1224,12 +1251,10 @@ export function generateJvmAdapterSource(
           ...jniParameters,
         ].join(", ")});`,
       );
-      headerDeclarations.push(
-        `void *${connectSymbol}(void *self, ${callbackPointer.replace(
-          "(*)",
-          "(*callback)",
-        )}, void *context);`,
-      );
+      const connectParameters = `${
+        classAnchored ? "" : "void *self, "
+      }${callbackPointer.replace("(*)", "(*callback)")}, void *context`;
+      headerDeclarations.push(`void *${connectSymbol}(${connectParameters});`);
       bodies.push(
         `/* ${class_.binaryName}.${callback.name}${callback.descriptor} - Java calls in */`,
         `static ${prefix}_connection *${headVariable};`,
@@ -1250,10 +1275,21 @@ export function generateJvmAdapterSource(
           ...(answers ? ["    return JNI_FALSE;"] : ["    return;"]),
           "  }",
         ]),
-        `  for (${prefix}_connection *connection = ${headVariable};`,
-        "       connection != NULL; connection = connection->next) {",
-        "    if (connection->live &&",
-        "        (*env)->IsSameObject(env, connection->instance, self)) {",
+        /* Instance-anchored: find the registration that named THIS
+         * receiver. Class-anchored: there is at most one and it answers
+         * for every instance, so identity is not the question. */
+        ...(classAnchored
+          ? [
+              `  ${prefix}_connection *connection = ${headVariable};`,
+              "  {",
+              "    if (connection != NULL && connection->live) {",
+            ]
+          : [
+              `  for (${prefix}_connection *connection = ${headVariable};`,
+              "       connection != NULL; connection = connection->next) {",
+              "    if (connection->live &&",
+              "        (*env)->IsSameObject(env, connection->instance, self)) {",
+            ]),
         /* Promotion happens AFTER the registration match: a jobject is a
          * local reference that dies with this frame, so the thunk must be
          * handed something it may intern — and a failed later promotion
@@ -1270,7 +1306,24 @@ export function generateJvmAdapterSource(
           ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
           "      }",
         ]),
+        /* The receiver crosses as payload zero, promoted like any other
+         * object: the local reference the trampoline holds dies with this
+         * frame, and the handler is handed a cell that owns its object. */
+        ...(classAnchored
+          ? [
+              "      jobject receiver = (*env)->NewGlobalRef(env, self);",
+              "      if (receiver == NULL) {",
+              ...handleIndices.map((prior) =>
+                `        (*env)->DeleteGlobalRef(env, payload${prior});`
+              ),
+              `        (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
+              `            "promoting the receiver for ${class_.binaryName}.${callback.name} failed");`,
+              ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
+              "      }",
+            ]
+          : []),
         `      ${answers ? "return " : ""}((${callbackPointer})connection->callback)(${[
+          ...(classAnchored ? ["receiver"] : []),
           ...parameters.map((parameter, index) =>
             parameter.kind === "handle" ? `payload${index}` : `a${index}`
           ),
@@ -1284,34 +1337,46 @@ export function generateJvmAdapterSource(
         ...(answers ? ["  return JNI_FALSE;"] : []),
         "}",
         "",
-        `void *${connectSymbol}(void *self, ${callbackPointer.replace(
-          "(*)",
-          "(*callback)",
-        )}, void *context) {`,
+        `void *${connectSymbol}(${connectParameters}) {`,
         "  char *error = NULL;",
         `  JNIEnv *env = ${prefix}_env(&error);`,
         "  if (env == NULL) {",
         "    free(error);",
         "    return NULL;",
         "  }",
-        "  if (self == NULL || callback == NULL) return NULL;",
-        /* One live registration per instance: JNI's single dispatch slot
+        classAnchored
+          ? "  if (callback == NULL) return NULL;"
+          : "  if (self == NULL || callback == NULL) return NULL;",
+        /* One live registration per anchor: JNI's single dispatch slot
          * cannot accumulate, so a second connect is refused as NULL rather
-         * than silently shadowing the first. */
+         * than silently shadowing the first. A class-anchored one answers
+         * for every instance, so ANY live registration is that second. */
         `  for (${prefix}_connection *existing = ${headVariable};`,
         "       existing != NULL; existing = existing->next) {",
-        "    if (existing->live &&",
-        "        (*env)->IsSameObject(env, existing->instance, self)) {",
-        "      return NULL;",
-        "    }",
+        ...(classAnchored
+          ? ["    if (existing->live) return NULL;"]
+          : [
+              "    if (existing->live &&",
+              "        (*env)->IsSameObject(env, existing->instance, self)) {",
+              "      return NULL;",
+              "    }",
+            ]),
         "  }",
         `  ${prefix}_connection *connection = calloc(1, sizeof *connection);`,
         "  if (connection == NULL) return NULL;",
-        "  jobject stable = (*env)->NewGlobalRef(env, (jobject)self);",
-        "  if (stable == NULL) {",
-        "    free(connection);",
-        "    return NULL;",
-        "  }",
+        ...(classAnchored
+          ? [
+              /* Nothing to hold: the registration outlives no instance
+               * because it is not attached to one. */
+              "  jobject stable = NULL;",
+            ]
+          : [
+              "  jobject stable = (*env)->NewGlobalRef(env, (jobject)self);",
+              "  if (stable == NULL) {",
+              "    free(connection);",
+              "    return NULL;",
+              "  }",
+            ]),
         "  connection->instance = stable;",
         "  connection->callback = (void *)callback;",
         "  connection->context = context;",
@@ -1328,8 +1393,9 @@ export function generateJvmAdapterSource(
         name: callback.name,
         descriptor: callback.descriptor,
         connectSymbol,
-        parameters: Object.freeze([...parameters]),
+        parameters: Object.freeze(payloadPositions),
         delivery,
+        anchor: classAnchored ? ("class" as const) : ("instance" as const),
       }));
     }
     if (
@@ -1635,7 +1701,12 @@ export function generateJvmAdapterSource(
           "      break;",
           "    }",
           "  }",
-          "  (*env)->DeleteGlobalRef(env, connection->instance);",
+          /* A class-anchored registration holds no instance, so there is
+           * no reference to give back — the null is the anchor's shape
+           * rather than a missing one. */
+          "  if (connection->instance != NULL) {",
+          "    (*env)->DeleteGlobalRef(env, connection->instance);",
+          "  }",
           "  connection->live = 0;",
           "}",
           "",

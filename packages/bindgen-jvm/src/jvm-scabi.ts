@@ -852,6 +852,25 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
     if (className === undefined || typeId === undefined) continue;
+    /* The generated C for a class-anchored registration exists and is
+     * exercised at the C level; what it has no manifest spelling for yet
+     * is its OWNER. Every retained contract here is owner-scoped —
+     * anchored to the receiver, cancelled through it — and a registration
+     * that answers for instances a framework constructs is anchored to
+     * nothing the program holds. Refused by name rather than emitted as
+     * an owner-scoped contract that would be a lie about lifetime. */
+    if (callback.anchor === "class") {
+      throw new JvmGenerationError([{
+        code: "NTS7001",
+        severity: "error",
+        path: `class/${callback.className}/callback/${callback.name}`,
+        message:
+          "A class-anchored registration has no owner-scoped contract: it " +
+          "answers for instances a framework constructs, so it is anchored " +
+          "to nothing the program holds, and its manifest spelling waits " +
+          "on the process-owned arm",
+      }]);
+    }
     const callbackTypeId =
       `jvm.${idToken(callback.className)}.${callback.name.toLowerCase()}.callback`;
     const bindingId =

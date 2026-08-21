@@ -358,6 +358,22 @@ function normalizeCallbackSelections(
         ),
       );
     }
+    if (
+      typeof selection !== "string" &&
+      selection.anchor !== undefined &&
+      selection.anchor !== "instance" &&
+      selection.anchor !== "class"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS6001",
+          `${path}/${selection.name}`,
+          `Invalid callback anchor '${String(selection.anchor)}'; a ` +
+            "registration attaches to an 'instance' the program holds or " +
+            "to the 'class' whose instances a framework constructs",
+        ),
+      );
+    }
   }
   return normalizeMemberSelections(selections, path, diagnostics);
 }
@@ -835,7 +851,11 @@ export function ingestJvmClasses(
         const stated = selection.callbacks.exact.get(
           `${method.name} ${method.descriptor}`,
         );
-        return Object.freeze({ ...method, delivery: stated?.delivery ?? null });
+        return Object.freeze({
+          ...method,
+          delivery: stated?.delivery ?? null,
+          anchor: stated?.anchor ?? "instance",
+        });
       });
     const fields = resolveMembers(
       parsed.fields,

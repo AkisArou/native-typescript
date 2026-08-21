@@ -70,6 +70,11 @@ export interface JvmApplicationProject {
     readonly logicalPath: string;
     readonly path: string;
   }[];
+  /** A jar the generated subclasses compile against instead of a built
+   * class directory: the platform's own classes, which an application
+   * extends rather than compiles. The device already has them, so the
+   * package never carries them. */
+  readonly javaClasspathJar?: string;
   /** Java sources the build compiles with the JDK's own javac, as a
    * planned action; the produced classes are what ingestion reads and what
    * the runner should put on NT_JVM_CLASSPATH. */
@@ -273,10 +278,11 @@ export async function buildJvmApplication(input: {
   let builtSubclassesPath: string | undefined;
   const subclassSelections: JvmClassSelection[] = [];
   if (project.subclasses !== undefined && project.subclasses.length > 0) {
-    if (builtClassesPath === undefined) {
+    if (builtClassesPath === undefined && project.javaClasspathJar === undefined) {
       throw new Error(
-        "Generated subclasses need javaSources: the base compiles first " +
-          "and the subclass compiles against it",
+        "Generated subclasses compile against something: either javaSources, " +
+          "whose classes are built first, or javaClasspathJar, when the base " +
+          "is a platform class the application only extends",
       );
     }
     const javacTool = await toolIdentity(
@@ -320,23 +326,37 @@ export async function buildJvmApplication(input: {
         callbacks: generated.callbacks,
       });
     }
+    /* What the generated subclass resolves its base against. An
+     * application that ships Java compiles its own classes first and the
+     * subclass extends one of those; an application that extends a
+     * PLATFORM class has no such directory — the base lives in a jar the
+     * device already has, which the compilation reads and the package
+     * never carries. */
+    const classpathSource = builtClassesPath ?? project.javaClasspathJar!;
+    const classpathIsJar = builtClassesPath === undefined;
     const classpathDigest = await digestArtifactPath(
-      builtClassesPath,
-      "directory",
+      classpathSource,
+      classpathIsJar ? "file" : "directory",
     );
     const classpathArtifact: ArtifactDefinition = Object.freeze({
-      id: "generated/jvm-java-classes",
-      kind: "source-tree",
-      entryType: "directory",
-      mediaType: "inode/directory",
+      id: classpathIsJar
+        ? "sdk/jvm-java-classpath-jar"
+        : "generated/jvm-java-classes",
+      kind: classpathIsJar ? "sdk" : "source-tree",
+      entryType: classpathIsJar ? "file" : "directory",
+      mediaType: classpathIsJar
+        ? "application/java-archive"
+        : "inode/directory",
       target,
       domain: "target",
-      cache: "exportable",
+      cache: classpathIsJar ? "none" : "exportable",
       origin: Object.freeze({
         kind: "source",
         digest: classpathDigest.digest,
-        fileName: "jvm-java-classes",
-        logicalPath: "generated/jvm-java-classes",
+        fileName: classpathIsJar ? "classpath.jar" : "jvm-java-classes",
+        logicalPath: classpathIsJar
+          ? "sdk/classpath.jar"
+          : "generated/jvm-java-classes",
       }),
     });
     const generatedDigest = await digestArtifactPath(
@@ -366,7 +386,7 @@ export async function buildJvmApplication(input: {
         buildRoot: join(input.scratch, "javac-subclasses"),
         sourcePaths: {
           [subclassJavac.sources.id]: generatedSourcesRoot,
-          [classpathArtifact.id]: builtClassesPath,
+          [classpathArtifact.id]: classpathSource,
         },
         tools: {
           ...tools,

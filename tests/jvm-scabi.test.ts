@@ -420,6 +420,42 @@ test("the telling arm: synchronous void, borrowed payloads, no sender", () => {
   }
 });
 
+test("a class-anchored registration refuses: it is anchored to nothing", () => {
+  // The generated C exists and is exercised at the C level. What has no
+  // manifest spelling yet is its OWNER: every retained contract here is
+  // owner-scoped — anchored to the receiver and cancelled through it —
+  // and a registration answering for instances a framework constructs is
+  // anchored to nothing the program holds. Emitting it as owner-scoped
+  // would be a lie about lifetime, so it refuses by name until the
+  // process-owned arm exists.
+  const selected = ingestJvmClasses(
+    [
+      {
+        logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+        bytes: readFileSync(
+          resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
+        ),
+      },
+    ],
+    {
+      classes: [
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["()V"],
+          methods: ["ping"],
+          callbacks: [
+            { name: "onPing", descriptor: "(I)Z", anchor: "class" },
+          ],
+        },
+      ],
+    },
+  );
+  assert.throws(
+    () => generateJvmScabiPackage(options(selected)),
+    /anchored to nothing the program holds.*process-owned arm/su,
+  );
+});
+
 test("each ownership shape translates through the neutral compiler input", () => {
   const generated = generate();
   const program = translateScabiNativeProgram(generated.manifest, {

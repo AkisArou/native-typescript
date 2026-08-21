@@ -11,9 +11,15 @@
  * JDK's libjvm enters the desktop link.
  */
 
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { copyFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
+import { readJarClassSources } from "@native-typescript/bindgen-jvm";
 import {
   defineArtifactGraph,
   digestArtifactPath,
@@ -94,9 +100,48 @@ export async function buildAndroidApk(input: {
 }): Promise<AndroidApplicationBuildResult> {
   const { project } = input;
   mkdirSync(input.scratch, { recursive: true });
+  /* The platform classes the selection names are read out of android.jar
+   * and written where ingestion can see them. They are INPUTS to the
+   * build and not part of the package: the device has them already, and
+   * an APK carrying android/app/Activity.class would be refused. */
+  const platformClassesRoot = join(input.scratch, "platform-classes");
+  const jarEntries = readJarClassSources(
+    readFileSync(input.androidJarPath),
+    "android-sdk/android.jar",
+  );
+  const wanted = new Set(project.classes.map(({ binaryName }) => binaryName));
+  const platformSources: { logicalPath: string; path: string }[] = [];
+  for (const entry of jarEntries) {
+    const binaryName = entry.logicalPath
+      .slice(entry.logicalPath.indexOf("!/") + 2)
+      .replace(/\.class$/u, "");
+    if (!wanted.has(binaryName)) continue;
+    const path = join(platformClassesRoot, `${binaryName}.class`);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, entry.bytes);
+    platformSources.push({
+      logicalPath: `android-sdk/${binaryName}.class`,
+      path,
+    });
+  }
+  const missing = [...wanted].filter((binaryName) =>
+    !platformSources.some(({ logicalPath }) =>
+      logicalPath === `android-sdk/${binaryName}.class`
+    )
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `The platform jar does not carry ${missing.join(", ")}; an Android ` +
+        "selection names classes android.jar defines",
+    );
+  }
   const built = await buildJvmApplication({
     projectRoot: input.projectRoot,
-    project,
+    project: {
+      ...project,
+      classSources: [...(project.classSources ?? []), ...platformSources],
+      javaClasspathJar: input.androidJarPath,
+    },
     scratch: join(input.scratch, "library"),
     backend: input.backend,
     product: "hosted-library",
@@ -109,13 +154,11 @@ export async function buildAndroidApk(input: {
     },
     ...(input.cachePath === undefined ? {} : { cachePath: input.cachePath }),
   });
-  if (
-    built.builtClassesPath === undefined ||
-    built.builtSubclassesPath === undefined
-  ) {
+  if (built.builtSubclassesPath === undefined) {
     throw new Error(
-      "An Android package needs compiled classes: the project must ship " +
-        "Java sources and a generated Activity subclass",
+      "An Android package needs a generated Activity: the launcher " +
+        "constructs a class, and that class is the subclass this build " +
+        "generates",
     );
   }
 
@@ -189,7 +232,11 @@ export async function buildAndroidApk(input: {
   const primaryClassesId = "source/android/classes-primary";
   const subclassClassesId = "source/android/classes-subclass";
   const androidJarId = "sdk/android-platform-jar";
-  const [manifest, library, keystore, primaryClasses, subclassClasses, androidJar] =
+  /* An Android application need not ship Java of its own: its only
+   * classes may be the generated Activity, with everything else coming
+   * from the platform. */
+  const primaryClassesPath = built.builtClassesPath;
+  const [manifest, library, keystore, subclassClasses, androidJar] =
     await Promise.all([
       sourceFile(
         ids.manifest,
@@ -207,12 +254,6 @@ export async function buildAndroidApk(input: {
         "android/signing.jks",
       ),
       sourceTree(
-        primaryClassesId,
-        built.builtClassesPath,
-        "android-classes-primary",
-        "generated/android/classes-primary",
-      ),
-      sourceTree(
         subclassClassesId,
         built.builtSubclassesPath,
         "android-classes-subclass",
@@ -227,15 +268,25 @@ export async function buildAndroidApk(input: {
       ),
     ]);
 
+  const primaryClasses = primaryClassesPath === undefined
+    ? undefined
+    : await sourceTree(
+        primaryClassesId,
+        primaryClassesPath,
+        "android-classes-primary",
+        "generated/android/classes-primary",
+      );
   const plan = planAndroidApk({
     target,
     executionPlatform,
     libraryEntry,
     classes: [
-      ...classFiles(built.builtClassesPath).map((path) => ({
-        artifact: primaryClassesId,
-        path,
-      })),
+      ...(primaryClassesPath === undefined
+        ? []
+        : classFiles(primaryClassesPath).map((path) => ({
+            artifact: primaryClassesId,
+            path,
+          }))),
       ...classFiles(built.builtSubclassesPath).map((path) => ({
         artifact: subclassClassesId,
         path,
@@ -260,7 +311,7 @@ export async function buildAndroidApk(input: {
         manifest,
         library,
         keystore,
-        primaryClasses,
+        ...(primaryClasses === undefined ? [] : [primaryClasses]),
         subclassClasses,
         androidJar,
         ...plan.artifacts,
@@ -273,7 +324,9 @@ export async function buildAndroidApk(input: {
         [ids.manifest]: manifestPath,
         [ids.library]: libraryRoot,
         [ids.keystore]: input.keystore.path,
-        [primaryClassesId]: built.builtClassesPath,
+        ...(primaryClassesPath === undefined
+          ? {}
+          : { [primaryClassesId]: primaryClassesPath }),
         [subclassClassesId]: built.builtSubclassesPath,
         [androidJarId]: input.androidJarPath,
       },

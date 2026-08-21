@@ -127,7 +127,25 @@ export type JvmCallbackSelection =
       readonly name: string;
       readonly descriptor: string;
       readonly delivery?: JvmCallbackDelivery;
+      readonly anchor?: JvmCallbackAnchor;
     };
+
+/**
+ * What a registration is attached to.
+ *
+ * `instance` is the default and the ordinary case: a program that holds
+ * an object registers a handler on THAT object, and the trampoline finds
+ * it by identity.
+ *
+ * `class` is for the objects a FRAMEWORK constructs. An Android Activity
+ * is the case: the platform creates it, calls its lifecycle methods, and
+ * never hands it over first — so there is no instant at which a program
+ * could name the instance, and a per-instance registration is not late,
+ * it is impossible. A class-anchored registration answers for every
+ * instance of its class, and the receiver arrives as the handler's first
+ * argument, which is the only way the handler can know which one called.
+ */
+export type JvmCallbackAnchor = "instance" | "class";
 
 /**
  * A class to project, spelled as the class file spells it: the slashed
@@ -302,6 +320,8 @@ export interface JvmClass {
  * adapter, beside the rest of the callback contract. */
 export interface JvmCallback extends JvmMethod {
   readonly delivery: JvmCallbackDelivery | null;
+  /** What the registration attaches to; `instance` unless stated. */
+  readonly anchor: JvmCallbackAnchor;
 }
 
 export interface JvmSnapshot {

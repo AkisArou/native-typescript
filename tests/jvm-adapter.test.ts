@@ -322,6 +322,84 @@ test("delivery is stated exactly once: required on void, refused on answered", (
   }
 });
 
+test("a class-anchored registration answers for instances it never named", () => {
+  // The registration a FRAMEWORK forces: the platform constructs the
+  // object, calls it, and never hands it over first, so there is no
+  // instant at which a program could name the instance. One registration
+  // answers for every instance of the class, and the receiver is the
+  // handler's first argument because nothing else could say which one
+  // called.
+  const generated = generateJvmAdapterSource(
+    ingestSurface([
+      {
+        binaryName: "fixture/Widget",
+        constructors: ["(I)V"],
+        methods: ["ping"],
+        callbacks: [
+          { name: "onPing", descriptor: "(I)Z", anchor: "class" as const },
+        ],
+      },
+    ]),
+    { packageSlug: "fixture" },
+  );
+  const callback = generated.callbacks[0]!;
+  assert.equal(callback.anchor, "class");
+  // The receiver leads the payloads, typed as the class it answers for.
+  assert.deepEqual(callback.parameters, [
+    { kind: "handle", binaryName: "fixture/Widget" },
+    { kind: "primitive", primitive: "int" },
+  ]);
+  // Connect takes no receiver: there is none to take.
+  assert.match(
+    generated.header,
+    new RegExp(
+      `void \\*${callback.connectSymbol}\\(jboolean \\(\\*callback\\)\\(void \\*, jint, void \\*\\), void \\*context\\);`,
+      "u",
+    ),
+  );
+  // The receiver is promoted like any other object payload: the local
+  // reference dies with the trampoline's frame.
+  assert.ok(
+    generated.source.includes(
+      "jobject receiver = (*env)->NewGlobalRef(env, self);",
+    ),
+  );
+  // Any live registration is the second one — a class-anchored
+  // registration cannot accumulate any more than a per-instance one can.
+  assert.ok(generated.source.includes("if (existing->live) return NULL;"));
+  // Nothing is anchored, so nothing is held.
+  assert.ok(generated.source.includes("jobject stable = NULL;"));
+});
+
+test("class anchoring refuses the delivery it has no program for", () => {
+  try {
+    generateJvmAdapterSource(
+      ingestSurface([
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["(I)V"],
+          callbacks: [
+            {
+              name: "onTick",
+              descriptor: "(I)V",
+              delivery: "queued" as const,
+              anchor: "class" as const,
+            },
+          ],
+        },
+      ]),
+      { packageSlug: "fixture" },
+    );
+    assert.fail("expected JvmGenerationError");
+  } catch (error) {
+    assert.ok(error instanceof JvmGenerationError);
+    assert.match(
+      error.diagnostics[0]!.message,
+      /class-anchored registration answers for instances a framework constructs and observes/u,
+    );
+  }
+});
+
 test("a byte[] result crosses as an owned copy with a length out slot", () => {
   const withReverse = generateJvmAdapterSource(
     ingestSurface([
