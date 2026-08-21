@@ -33,6 +33,35 @@ export const androidProject = {
      * from the selection rather than inventing an ancestry. */
     { binaryName: "android/os/BaseBundle" },
     { binaryName: "android/os/Bundle" },
+    /* The view surface a visible application needs: a View to hand to
+     * setContentView, and a TextView to put a word in. TextView extends
+     * View, and ingestion requires a class's superclass to be selected
+     * rather than inferred, so both are named. */
+    { binaryName: "android/view/View" },
+    {
+      binaryName: "android/widget/TextView",
+      constructors: ["(Landroid/content/Context;)V"],
+      methods: [
+        { name: "setText", descriptor: "(Ljava/lang/CharSequence;)V" },
+        /* An application with no resource table declares no theme, so the
+         * platform's default text colour need not contrast with the
+         * default window background — the first run put the right words
+         * on the screen in a colour that could not be read. Setting them
+         * explicitly is the application's business, and both are ordinary
+         * scalar arguments. */
+        { name: "setTextColor", descriptor: "(I)V" },
+        { name: "setTextSize", descriptor: "(F)V" },
+        /* A modern Android window is edge to edge, so a full-screen view
+         * draws its first line UNDER the status bar. Insetting it is what
+         * puts the text where a person can read it — and the amount is
+         * the application's own choice rather than a platform constant,
+         * which matters because this build cannot yet name one: a class
+         * file's static finals are INGESTED and carried in the snapshot,
+         * and nothing projects them onto the generated surface. That is a
+         * named gap, and Gravity.CENTER is what wanted it. */
+        { name: "setPadding", descriptor: "(IIII)V" },
+      ],
+    },
     {
       binaryName: "android/util/Log",
       methods: [{ name: "i", descriptor: "(Ljava/lang/String;Ljava/lang/String;)I" }],
@@ -43,6 +72,7 @@ export const androidProject = {
       methods: [
         { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
         { name: "getLocalClassName", descriptor: "()Ljava/lang/String;" },
+        { name: "setContentView", descriptor: "(Landroid/view/View;)V" },
       ],
     },
   ],

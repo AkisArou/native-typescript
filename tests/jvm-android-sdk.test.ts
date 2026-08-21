@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  JvmGenerationError,
   JvmIngestionError,
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
@@ -190,6 +191,66 @@ test(
       { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
       { name: "onStart", descriptor: "()V", delivery: "synchronous" },
     ]);
+  },
+);
+
+test(
+  "a CharSequence crosses in as a string and refuses to come back as one",
+  { skip },
+  () => {
+    /* The platform writes its text surface in CharSequence — TextView's
+     * only usable setText takes one, since the int overload names a
+     * resource an application without a resource table has not got. Every
+     * String IS a CharSequence, so the way IN is a widening the call
+     * performs. The way OUT is not: what comes back may be a
+     * SpannableString, and handing it over as a string would decide the
+     * program did not mean the spans. */
+    const snapshot = ingestJvmClasses(sdkSources(), {
+      classes: [
+        ...activityChain,
+        { binaryName: "android/util/AttributeSet" },
+        { binaryName: "android/view/View" },
+        {
+          binaryName: "android/widget/TextView",
+          methods: [
+            { name: "setText", descriptor: "(Ljava/lang/CharSequence;)V" },
+          ],
+        },
+      ],
+    });
+    const generated = generateJvmAdapterSource(snapshot, {
+      packageSlug: "android",
+    });
+    const setText = generated.instanceMethods.find(
+      ({ name }) => name === "setText",
+    )!;
+    assert.deepEqual(setText.parameters, [{ kind: "string" }]);
+
+    /* The same type in the other direction, refused by name. */
+    try {
+      generateJvmAdapterSource(
+        ingestJvmClasses(sdkSources(), {
+          classes: [
+            ...activityChain,
+            { binaryName: "android/view/View" },
+            {
+              binaryName: "android/widget/TextView",
+              methods: [
+                { name: "getText", descriptor: "()Ljava/lang/CharSequence;" },
+              ],
+            },
+          ],
+        }),
+        { packageSlug: "android" },
+      );
+      assert.fail("expected the CharSequence result refusal");
+    } catch (error) {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(
+        error.diagnostics[0]!.message,
+        /may be a SpannableString.*waits on a program that needs it/su,
+      );
+    }
   },
 );
 

@@ -1,11 +1,10 @@
 import { applicationStart } from "@native-typescript/jvm-application";
-import { Log, MainActivity } from "@native-typescript/jvm-android";
+import { Log, MainActivity, TextView } from "@native-typescript/jvm-android";
 /* Type-only: a Bundle is never constructed or called here, it is only
  * received — the platform makes them. */
 import type { Bundle } from "@native-typescript/jvm-android";
 
-/* A TypeScript Android application: the whole program is a lifecycle
- * handler, because on a platform that is all a program is.
+/* A TypeScript Android application that puts something on the screen.
  *
  * Nothing here constructs the Activity. ART does, after reading the
  * generated manifest, and it calls onCreate on the main looper — which is
@@ -16,17 +15,19 @@ import type { Bundle } from "@native-typescript/jvm-android";
  * than this program's choice.
  *
  * The saved state is `Bundle | null` because a first launch has nothing
- * to restore. That is the platform reporting absence, not a caller
- * declining to pass something, and it is the first thing this program
- * observes — on the very first dispatch, not in some contrived path.
+ * to restore: the platform reporting absence, not a caller declining to
+ * pass something.
  *
- * The verdict travels through android.util.Log because Android discards a
- * process's stdout and stderr, and because a signal that crosses the
- * boundary under test is worth more than one that does not: if the line
- * appears, the manifest was read, the library loaded, JNI_OnLoad adopted
- * the thread ART dispatches on, the class-anchored registration answered
- * for an instance TypeScript never named, and the receiver it was handed
- * was a live object it could call back into.
+ * The view is built from the receiver, which is what makes the receiver
+ * worth handing over: an Activity IS a Context, so it is what a View is
+ * constructed with, and the identity upcast that makes that legal is the
+ * same one the handle's type already declares. The text crosses as a
+ * string into a CharSequence position, which is a widening the call
+ * performs rather than a conversion this boundary invents.
+ *
+ * The log line stays as the verdict. A screen is for a person; the device
+ * lane needs something it can assert, and android.util.Log is the channel
+ * an Android process actually has.
  */
 applicationStart();
 
@@ -34,9 +35,26 @@ MainActivity.onCreate((activity, savedState: Bundle | null) => {
   /* The base implementation runs first, as every Android lifecycle
    * override must: an Activity that skips super throws before it draws. */
   activity.ntsSuperOnCreate(savedState);
+
   const restored = savedState === null ? "fresh" : "restored";
-  Log.i(
-    "native-typescript",
-    `onCreate ran ${restored} in ${activity.getLocalClassName()}`,
-  );
+  const label = new TextView(activity);
+  label.setText(`Compiled TypeScript, ${restored} on Android`);
+  /* Opaque black, written the way a 32-bit ARGB colour has to be written
+   * in a language whose numbers are doubles: `| 0` is what makes
+   * 0xFF000000 the negative jint the platform's int actually is. Without
+   * it the value is 4278190080, which is not an int32 at all. Explicit,
+   * because an application with no resource table declares no theme and
+   * inherits no promise that the default text contrasts with the default
+   * background. */
+  label.setTextColor(0xFF000000 | 0);
+  label.setTextSize(28);
+  /* A modern Android window is edge to edge, so a full-screen view draws
+   * its first line under the status bar. These insets are the
+   * application's own choice, which is why they can be written here at
+   * all: a class file's static finals are ingested but not yet projected,
+   * so this program could not name Gravity.CENTER if it wanted to. */
+  label.setPadding(64, 420, 64, 64);
+  activity.setContentView(label);
+
+  Log.i("native-typescript", `onCreate ran ${restored} in ${activity.getLocalClassName()}`);
 });

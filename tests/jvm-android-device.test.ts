@@ -222,6 +222,24 @@ test(
         "a cold start delivers no saved state",
       );
 
+      /* What the platform BUILT, not what the program said it built. The
+       * log line proves the handler ran; the view hierarchy proves the
+       * handler's work reached the screen — a TextView the program
+       * constructed with the receiver as its Context, carrying text that
+       * crossed as a string into a CharSequence position. */
+      run("shell", "uiautomator", "dump", "/sdcard/nts-ui.xml");
+      const hierarchy = run("shell", "cat", "/sdcard/nts-ui.xml");
+      assert.match(
+        hierarchy,
+        /class="android\.widget\.TextView"[^>]*package="com\.example\.ntsdemo"/u,
+        "the application's own TextView is in the hierarchy",
+      );
+      assert.match(
+        hierarchy,
+        /text="Compiled TypeScript, fresh on Android"/u,
+        "the text the program set is the text the platform holds",
+      );
+
       /* RESTORE: a configuration change recreates the Activity, and the
        * framework hands back the state it saved — the present arm, which
        * a cold start alone would never take. */
@@ -236,6 +254,7 @@ test(
       );
     } finally {
       try {
+        run("shell", "rm", "-f", "/sdcard/nts-ui.xml");
         run("shell", "settings", "put", "system", "user_rotation", "0");
         run("uninstall", androidProject.android.applicationId);
       } catch {

@@ -460,6 +460,9 @@ function positionOf(
   path: string,
   what: string,
   diagnostics: JvmDiagnostic[],
+  /** Whether this position is one the CALLER fills. A widening that is
+   * sound on the way in is not sound on the way out. */
+  accepts: boolean,
 ): JvmAdapterPosition | JvmAdapterResult | null {
   if (type.kind === "void") return { kind: "void" };
   if (type.kind === "primitive") {
@@ -468,6 +471,31 @@ function positionOf(
   if (type.kind === "object") {
     if (type.binaryName === "java/lang/String") {
       return { kind: "string" };
+    }
+    /* The platform writes its text surface in CharSequence — TextView's
+     * only usable setText takes one — and every String IS a CharSequence,
+     * so a string ARGUMENT crosses by the widening the call itself
+     * performs rather than a conversion this boundary invents.
+     *
+     * A CharSequence RESULT refuses, and the asymmetry is the point: what
+     * comes back may be a SpannableString, and handing it over as a
+     * string would silently drop what makes it one. Reading it is a
+     * decision a program should make, so it waits for a program.
+     *
+     * Only CharSequence. Generalising to "any interface String
+     * implements" would sweep in Comparable and Serializable, where a
+     * string argument says nothing about what the method wants. */
+    if (type.binaryName === "java/lang/CharSequence") {
+      if (accepts) return { kind: "string" };
+      diagnostics.push(diagnostic(
+        path,
+        `${what} is java/lang/CharSequence, which crosses INTO the ` +
+          "platform as a string because every String is one; coming back " +
+          "it may be a SpannableString, and reading that as a string " +
+          "would drop what makes it one — a CharSequence result waits on " +
+          "a program that needs it",
+      ));
+      return null;
     }
     if (selectedNames.has(type.binaryName)) {
       return { kind: "handle", binaryName: type.binaryName };
@@ -538,6 +566,7 @@ function resolveSignature(
       `${path}/parameters/${index}`,
       `Parameter ${index}`,
       diagnostics,
+      true,
     );
     if (position === null || position.kind === "void") refused = true;
     else parameters.push(position);
@@ -548,6 +577,7 @@ function resolveSignature(
     `${path}/result`,
     "Result",
     diagnostics,
+    false,
   );
   if (result === null || refused) return null;
   return { parameters, result };
