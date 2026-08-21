@@ -239,16 +239,53 @@ absent extra, recorded in the JVM capstone — but nothing is blocked on it.
 Admitted when a byte-span null blocks a lane, on exactly the terms the string
 arm was.
 
-### Void-synchronous callback delivery
+### Void-synchronous callback delivery — DONE (fork 3c33818a)
 
-The retained contract has answered-boolean-synchronous and void-QUEUED. A
-void handler that must complete inside the caller's frame — an Android
-lifecycle method — has no arm.
+Owner-scoped synchronous delivery may now answer nothing. The compiler needed
+one validator condition removed: its synchronous trampoline had always branched
+on a void result, and the contract had already settled where a synchronous
+throw goes. The JVM suite's committed `Lifecycle` fixture is what made it
+admissible — the refusal's reasoning was sound and its premise, that
+void-synchronous and void-queued are two spellings of one delivery, is false
+for a lifecycle method that is invoked and then observed.
 
-The JVM track holds a committed fixture that distinguishes synchronous from
-queued by construction. Three design questions must be answered together:
-void results, handle payloads, and WHERE A SYNCHRONOUS VOID HANDLER'S THROW
-GOES, since there is no answer to carry it and no queue to drain it into.
+### Handle payloads on synchronous delivery — NEXT, and the design is settled
+
+The second arm Android forces, for `onKeyDown(int, KeyEvent)`. Synchronous
+delivery admits only borrowed values today: `f64` and exact scalars. A handle
+parameter is refused, on the ground that a copied string or an interned handle
+belongs to the queued delivery that has to outlive the emission, and that
+handing one over here would give a handler a pointer the toolkit still owns.
+
+**The obvious reading of that refusal is wrong, and it matters.** It sounds
+like the arm needs a BORROWED handle — a cell valid for the frame and
+invalidated after — which would be new runtime surface, a new contract
+dimension, and a new use-after-frame failure mode to detect. It does not.
+
+Reading how the queued path actually works settles it. A queued handle payload
+arrives ALREADY OWNED: the contract names a destructor, the invocation holds
+the reference, and the invoke thunk interns the pointer into a managed cell or
+prepares one. The whole handle machinery is built on owned cells with
+destructors, and there is no borrowed form anywhere in the runtime.
+
+So the answer is PROMOTION rather than a new concept. Where the toolkit lends
+an object for one frame — a JNI local reference is exactly this — the adapter
+promotes it to something owned before it crosses, and the existing owned-handle
+payload contract applies unchanged. For JNI that is `NewGlobalRef` with
+`DeleteGlobalRef` as the destructor.
+
+**What the compiler has to change is therefore small**, and none of it is new
+vocabulary: admit handle parameters for synchronous delivery on the same terms
+the queued path uses (the contract names a destructor, so the payload arrives
+owned), and give the direct trampoline the intern-or-prepare cell construction
+the queued invoke thunk already performs. Two backends, one existing pattern.
+
+**The cost is known and already measured.** Promotion is what the LTO
+falsifier measured at 2.4x, which is the whole motivation for
+[JNI resource domains](#jni-resource-domains-local-stable-weak). That
+sequencing is now the right way round rather than a guess: correctness first
+through promotion, and resource domains later as the measured optimisation of
+a working crossing rather than a prerequisite for one.
 
 ### Vendored objects are not PIC
 
