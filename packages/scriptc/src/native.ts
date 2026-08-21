@@ -1229,8 +1229,19 @@ function supportedRetainedCallbackPair(
       : undefined;
     const answerPosition = callbackType.signature.result;
     if (
+      /* Values, and an owned handle beside them. The payload's spelling is the
+       * queued one verbatim — `ownedHandlePosition` — because the reference
+       * arrives the same way in both deliveries: the emitter took it, and the
+       * destructor the handle type names gives it back. What differs is only
+       * WHEN the handler runs.
+       *
+       * Where a toolkit merely lends an object for the frame, promotion is
+       * the adapter's job rather than a second contract. A JNI local
+       * reference dies with the native frame, so the adapter promotes before
+       * the payload crosses and the cell's destructor releases the promotion. */
       callbackType.signature.parameters.some(
-        (position) => !supportedScalarPosition(position),
+        (position) =>
+          !supportedScalarPosition(position) && !ownedHandlePosition(position),
       ) ||
       /* The telling form has no answer to constrain; every other property of
        * the result position still is one, because a void result that arrived
@@ -1241,13 +1252,20 @@ function supportedRetainedCallbackPair(
       answerPosition.ownership.kind !== "value" ||
       answerPosition.marshal !== undefined
     ) {
-      return "a synchronous callback takes exact scalar values and either answers with an ABI boolean or answers nothing";
+      return "a synchronous callback takes exact scalar values or owned handles, and either answers with an ABI boolean or answers nothing";
     }
     /* Both forms share what follows, and neither relaxes it. Synchronous
      * delivery is admissible for one reason — the invocation is same-as-caller
      * on the owner's thread, because reaching a handler means reading a
      * closure and a foreign producer may never read one — and that reason does
-     * not weaken when nothing is answered. */
+     * not weaken when nothing is answered.
+     *
+     * `borrow` covers the handle payload too, and the two are not in tension:
+     * transport names what the DELIVERY FRAME does with the argument, while
+     * the reference's fate is carried by the position's ownership and the
+     * destructor derived from its handle type. A payload that is borrowed for
+     * the frame and owned as a reference is exactly what an object handed to a
+     * synchronous handler is. */
     if (
       contract.arguments.some((argument, index) =>
         argument.parameter !== callbackType.signature.parameters[index]?.name ||
