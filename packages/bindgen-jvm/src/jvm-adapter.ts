@@ -97,6 +97,11 @@ export interface JvmBindAdapter {
  * The generated env acquisition every other family calls through: the
  * JavaVM cached at bind time answers GetEnv for the current thread. This is
  * the package's one declared GAP — see its classification.
+ *
+ * Every generated GetEnv speaks JNI_VERSION_1_6: nothing the adapter emits
+ * is newer than JNI 1.2, 1_6 is the floor both HotSpot and ART accept, and
+ * Android's jni.h defines nothing later — a JNI_VERSION_10 that compiles
+ * against a desktop JDK fails against the NDK sysroot's header.
  */
 export interface JvmEnvSupportAdapter {
   readonly helperSymbol: string;
@@ -1419,7 +1424,7 @@ export function generateJvmAdapterSource(
     "  JNIEnv *env = NULL;",
     `  if (${prefix}_vm == NULL ||`,
     `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-    "                              JNI_VERSION_10) != JNI_OK) {",
+    "                              JNI_VERSION_1_6) != JNI_OK) {",
     `    *error = ${prefix}_message(`,
     `        "calling thread is not attached to the JVM, or bind has not run");`,
     "    return NULL;",
@@ -1619,7 +1624,7 @@ export function generateJvmAdapterSource(
           "  JNIEnv *env = NULL;",
           `  if (${prefix}_vm == NULL ||`,
           `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-          "                              JNI_VERSION_10) != JNI_OK) {",
+          "                              JNI_VERSION_1_6) != JNI_OK) {",
           `    fprintf(stderr, "${prefix}: disconnect on an unattached thread\\n");`,
           "    abort();",
           "  }",
@@ -1651,7 +1656,7 @@ export function generateJvmAdapterSource(
     "  JNIEnv *env = NULL;",
     `  if (${prefix}_vm == NULL ||`,
     `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-    "                              JNI_VERSION_10) != JNI_OK) {",
+    "                              JNI_VERSION_1_6) != JNI_OK) {",
     "    /* Owner-confined destruction guarantees an attached thread; an",
     "     * unattached one here is a runtime bug, not a recoverable state. */",
     `    fprintf(stderr, "${prefix}: release on an unattached thread\\n");`,
@@ -1742,7 +1747,7 @@ export function generateJvmAdapterSource(
     `jint ${bindVmSymbol}(JavaVM *vm, char **error) {`,
     "  JNIEnv *env = NULL;",
     `  ${prefix}_vm = vm;`,
-    "  if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_10) != JNI_OK) {",
+    "  if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {",
     `    *error = ${prefix}_message(`,
     '        "binding thread is not attached to the JVM");',
     "    return -1;",

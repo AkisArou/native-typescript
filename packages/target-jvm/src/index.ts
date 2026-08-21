@@ -4,8 +4,12 @@ export type {
   JvmApplicationProject,
   JvmApplicationToolPaths,
 } from "./application-build.ts";
-export { discoverJavaHome, resolveJdkSdk } from "./jdk-sdk.ts";
-export type { JdkSdk } from "./jdk-sdk.ts";
+export {
+  discoverJavaHome,
+  resolveAndroidNativeSdk,
+  resolveJdkSdk,
+} from "./jdk-sdk.ts";
+export type { JvmNativeSdk } from "./jdk-sdk.ts";
 export { planJvmTargetObjects } from "./jvm-target-objects.ts";
 export type {
   JvmAdapterObject,

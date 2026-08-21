@@ -141,6 +141,15 @@ static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
  * this same object without one), and park in the pump. */
 extern void nts_jvm_hosted_init(void) __attribute__((weak));
 
+/* Android's jni.h types AttachCurrentThread's out-parameter JNIEnv**
+ * where the desktop JDK's says void** — one slot, two header spellings.
+ * The cast target names the divergence once instead of per call site. */
+#ifdef __ANDROID__
+typedef JNIEnv **NtsJvmEnvOut;
+#else
+typedef void **NtsJvmEnvOut;
+#endif
+
 static bool nts_jvm_adopted;
 
 static struct {
@@ -167,8 +176,8 @@ static void *nts_jvm_owner_main(void *opaque) {
   (void)opaque;
   JNIEnv *env = NULL;
   if (
-      (*nts_jvm_vm)->AttachCurrentThread(nts_jvm_vm, (void **)&env, NULL) !=
-      JNI_OK) {
+      (*nts_jvm_vm)->AttachCurrentThread(
+          nts_jvm_vm, (NtsJvmEnvOut)&env, NULL) != JNI_OK) {
     fprintf(stderr, "nts_jvm_runtime: the owner thread could not attach\n");
     nts_jvm_boot_signal(true);
     return NULL;
@@ -207,9 +216,15 @@ static void *nts_jvm_owner_main(void *opaque) {
   return NULL;
 }
 
+/* JNI_VERSION_1_6 everywhere a version is spoken: nothing this runtime
+ * touches is newer than JNI 1.2 (RegisterNatives, GetEnv,
+ * AttachCurrentThread), 1_6 is the floor both HotSpot and ART accept,
+ * and Android's jni.h defines nothing later — a JNI_VERSION_10 that
+ * works on the desktop fails to compile against the platform that made
+ * hosting matter. */
 jint JNI_OnLoad(JavaVM *vm, void *reserved) {
   (void)reserved;
-  if (nts_jvm_vm != NULL) return JNI_VERSION_10;
+  if (nts_jvm_vm != NULL) return JNI_VERSION_1_6;
   nts_jvm_vm = vm;
   nts_jvm_adopted = true;
   pthread_t owner;
@@ -234,7 +249,7 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     nts_jvm_adopted = false;
     return JNI_ERR;
   }
-  return JNI_VERSION_10;
+  return JNI_VERSION_1_6;
 }
 
 void nts_jvm_application_start(char **error) {
@@ -260,11 +275,21 @@ void nts_jvm_application_start(char **error) {
     *error = nts_jvm_owned_message("the JVM is already started");
     return;
   }
+#ifdef __ANDROID__
+  /* Android has no libjvm to create — a library here is ADOPTED by the
+   * process that loads it, and the adopted arm above is the only
+   * reachable one. Refusing by name also keeps JNI_CreateJavaVM out of
+   * the object: bionic resolves symbols eagerly at load, so a reference
+   * glibc would leave forever-lazy fails the whole dlopen there. */
+  *error = nts_jvm_owned_message(
+      "this platform cannot create a JVM; an Android library is adopted "
+      "by the process that loads it");
+#else
   const char *classpath = getenv("NT_JVM_CLASSPATH");
   char *classpath_option = NULL;
   JavaVMOption options[1];
   JavaVMInitArgs arguments = {
-      .version = JNI_VERSION_10,
+      .version = JNI_VERSION_1_6,
       .nOptions = 0,
       .options = options,
       .ignoreUnrecognized = JNI_FALSE,
@@ -315,6 +340,7 @@ void nts_jvm_application_start(char **error) {
     *error = nts_jvm_owned_message("attaching the pump to the loop failed");
     return;
   }
+#endif
 }
 
 void nts_jvm_application_stop(void) {

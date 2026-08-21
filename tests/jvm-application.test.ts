@@ -178,7 +178,7 @@ test(
           env: {
             ...process.env,
             NT_JVM_CLASSPATH: `${built.builtClassesPath}:${built.builtSubclassesPath}`,
-            LD_LIBRARY_PATH: built.jvmLibraryPath,
+            LD_LIBRARY_PATH: built.jvmLibraryPath!,
           },
           timeout: 120_000,
         });
@@ -210,7 +210,7 @@ test(
         env: {
           ...process.env,
           NT_JVM_CLASSPATH: `${failing.builtClassesPath}:${failing.builtSubclassesPath}`,
-          LD_LIBRARY_PATH: failing.jvmLibraryPath,
+          LD_LIBRARY_PATH: failing.jvmLibraryPath!,
         },
         timeout: 120_000,
       });

@@ -42,7 +42,7 @@ import type {
   JvmSubclassSelection,
 } from "@native-typescript/bindgen-jvm";
 import { jvmRuntimeProvider } from "./provider.ts";
-import { resolveJdkSdk } from "./jdk-sdk.ts";
+import { resolveAndroidNativeSdk, resolveJdkSdk } from "./jdk-sdk.ts";
 import { planJavacClasses } from "./javac-classes.ts";
 import { planJvmTargetObjects } from "./jvm-target-objects.ts";
 import { targetRuntimeArtifactIds } from "./target-runtime-objects.ts";
@@ -116,8 +116,9 @@ export interface JvmApplicationBuildResult {
    * declarations, and manifest. */
   readonly generatedPackagePath: string;
   /** What the runner must put on LD_LIBRARY_PATH so the linked soname
-   * resolves — a runtime input, like the classpath. */
-  readonly jvmLibraryPath: string;
+   * resolves — a runtime input, like the classpath. Null on adoption-only
+   * platforms: Android's loader takes the .so out of the APK. */
+  readonly jvmLibraryPath: string | null;
 }
 
 async function toolIdentity(
@@ -183,7 +184,23 @@ export async function buildJvmApplication(input: {
     input.cachePath === undefined
       ? undefined
       : { kind: "local" as const, path: input.cachePath };
-  const sdk = await resolveJdkSdk({ javaHome: input.javaHome, target });
+  /* The triple is the platform fact: an Android target's jni.h lives in
+   * the NDK toolchain's own sysroot (the clang tool the caller passes IS
+   * the NDK wrapper), and no libjvm exists there to create — so the only
+   * product is the adopted library, refused here by name rather than at
+   * a link three stages later. javaHome stays the HOST JDK: javac is
+   * execution-platform tooling either way. */
+  const androidTarget = /-linux-android\d+$/u.test(target);
+  if (androidTarget && input.product !== "hosted-library") {
+    throw new Error(
+      `Target '${target}' has no executable product: Android has no libjvm ` +
+        "to create, and a library there is adopted by the process that " +
+        "loads it — build with product: 'hosted-library'",
+    );
+  }
+  const sdk = androidTarget
+    ? resolveAndroidNativeSdk()
+    : await resolveJdkSdk({ javaHome: input.javaHome, target });
 
   /* Phase zero, when the project ships Java sources rather than classes:
    * javac runs as a planned action, and everything downstream reads what
@@ -611,11 +628,12 @@ export async function buildJvmApplication(input: {
     [generated.manifest.package.name]: join(generatedRoot, "package.d.ts"),
   };
   /* libjvm is a positional link input: the linker takes the resolved .so
-   * path directly, and the runner supplies the soname's directory. */
+   * path directly, and the runner supplies the soname's directory. Absent
+   * on adoption-only platforms, whose only product never links it. */
   const linkInputs = [
     targetObjects.runtime.object.id,
     ...targetObjects.adapters.map(({ plan }) => plan.object.id),
-    sdk.libjvmArtifactId,
+    ...(sdk.libjvmArtifactId === null ? [] : [sdk.libjvmArtifactId]),
   ];
 
   if (input.product === "hosted-library") {
@@ -828,6 +846,15 @@ export async function buildJvmApplication(input: {
       tool: Object.freeze({ ...clangTool }),
       arguments: Object.freeze([
         Object.freeze({ kind: "literal" as const, value: "-shared" }),
+        /* 16KB max-page-size UNCONDITIONALLY: Android 15+ devices ship
+         * 16K pages and their loader refuses a 4K-aligned .so; on 4K
+         * platforms the wider alignment costs bytes, not correctness —
+         * one link spelling, the same reasoning that made PIC
+         * unconditional. */
+        Object.freeze({
+          kind: "literal" as const,
+          value: "-Wl,-z,max-page-size=16384",
+        }),
         Object.freeze({ kind: "literal" as const, value: "-o" }),
         Object.freeze({ kind: "output-path" as const, artifact: soId }),
         Object.freeze({

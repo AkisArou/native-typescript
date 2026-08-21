@@ -8,22 +8,31 @@ import type {
 } from "@native-typescript/core";
 
 /**
- * The resolved JDK an application build compiles and links against.
+ * The resolved NATIVE half of the JVM platform a build compiles and links
+ * against — where jni.h comes from and whether a libjvm exists to create.
  *
- * jni.h and jni_md.h enter compilation as directory artifacts; libjvm
- * enters the LINK as a file artifact passed positionally, because it lives
- * outside the default linker search path and a `-L` path may not enter a
- * plan. At run time the dynamic loader resolves the recorded soname, so the
- * runner supplies `libraryPath` (lib/server) via LD_LIBRARY_PATH — a
- * runtime input, exactly like the classpath.
+ * A desktop JDK: jni.h and jni_md.h enter compilation as directory
+ * artifacts; libjvm enters the LINK as a file artifact passed
+ * positionally, because it lives outside the default linker search path
+ * and a `-L` path may not enter a plan. At run time the dynamic loader
+ * resolves the recorded soname, so the runner supplies `libraryPath`
+ * (lib/server) via LD_LIBRARY_PATH — a runtime input, exactly like the
+ * classpath.
+ *
+ * Android: the NDK toolchain's own sysroot carries jni.h, so compilation
+ * needs no include artifacts, and no libjvm exists anywhere on the
+ * platform — ART adopts the library, so `libjvmArtifactId` is null and
+ * the create path refuses by name instead of linking.
  */
-export interface JdkSdk {
-  readonly javaHome: string;
-  readonly libraryPath: string;
+export interface JvmNativeSdk {
+  /** Null where no runner loads the product by soname directory —
+   * Android's loader takes the .so out of the APK. */
+  readonly libraryPath: string | null;
   readonly artifacts: readonly ArtifactDefinition[];
   readonly sourcePaths: Readonly<Record<string, string>>;
   readonly compileArguments: readonly ArtifactActionInputArgument[];
-  readonly libjvmArtifactId: string;
+  /** Null where nothing can create a VM: adoption-only platforms. */
+  readonly libjvmArtifactId: string | null;
 }
 
 export const jdkArtifactIds = Object.freeze({
@@ -52,10 +61,21 @@ export function discoverJavaHome(): string | null {
   return existsSync(join(home, "include/jni.h")) ? home : null;
 }
 
+/** An Android target's native SDK carries nothing: see JvmNativeSdk. */
+export function resolveAndroidNativeSdk(): JvmNativeSdk {
+  return Object.freeze({
+    libraryPath: null,
+    artifacts: Object.freeze([]),
+    sourcePaths: Object.freeze({}),
+    compileArguments: Object.freeze([]),
+    libjvmArtifactId: null,
+  });
+}
+
 export async function resolveJdkSdk(input: {
   readonly javaHome: string;
   readonly target: string;
-}): Promise<JdkSdk> {
+}): Promise<JvmNativeSdk> {
   const includeRoot = join(input.javaHome, "include");
   const includePlatform = join(includeRoot, "linux");
   const libraryPath = join(input.javaHome, "lib/server");
@@ -117,7 +137,6 @@ export async function resolveJdkSdk(input: {
     }),
   });
   return Object.freeze({
-    javaHome: input.javaHome,
     libraryPath,
     artifacts: Object.freeze([include, platform, libjvm]),
     sourcePaths: Object.freeze({
