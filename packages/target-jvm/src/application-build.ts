@@ -301,15 +301,22 @@ export async function buildJvmApplication(input: {
             "the compiled classes",
         );
       }
+      /* Read the base twice, cheaply, because what to SELECT depends on
+       * what it IS: a class is extended and needs its no-arg constructor
+       * selected for the generator to check, while an interface has no
+       * constructor at all and asking for one is refused by name. The
+       * first pass answers the question the second acts on. */
+      const baseBytes = readFileSync(baseSource.path);
+      const baseKind = ingestJvmClasses(
+        [{ logicalPath: baseSource.logicalPath, bytes: baseBytes }],
+        { classes: [{ binaryName: specification.baseBinaryName }] },
+      ).classes[0]!.kind;
       const baseSnapshot = ingestJvmClasses(
-        [{
-          logicalPath: baseSource.logicalPath,
-          bytes: readFileSync(baseSource.path),
-        }],
+        [{ logicalPath: baseSource.logicalPath, bytes: baseBytes }],
         {
           classes: [{
             binaryName: specification.baseBinaryName,
-            constructors: ["()V"],
+            ...(baseKind === "interface" ? {} : { constructors: ["()V"] }),
             methods: specification.overrides,
           }],
         },

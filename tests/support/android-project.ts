@@ -37,7 +37,37 @@ export const androidProject = {
      * setContentView, and a TextView to put a word in. TextView extends
      * View, and ingestion requires a class's superclass to be selected
      * rather than inferred, so both are named. */
-    { binaryName: "android/view/View" },
+    {
+      binaryName: "android/view/View",
+      methods: [
+        {
+          name: "setOnClickListener",
+          descriptor: "(Landroid/view/View$OnClickListener;)V",
+        },
+      ],
+    },
+    /* The listener INTERFACE, selected so a generated implementation can
+     * be passed where it is expected: at the ABI a jobject is a jobject,
+     * and the identity upcast is what says so in the manifest. */
+    { binaryName: "android/view/View$OnClickListener" },
+    /* Only its constructor: setText and setTextSize are declared on
+     * TextView, and inherited surface comes from selecting the ancestor
+     * rather than restating it on every descendant. */
+    {
+      binaryName: "android/widget/Button",
+      constructors: ["(Landroid/content/Context;)V"],
+    },
+    /* LinearLayout holds the label and the button; ViewGroup is its
+     * superclass and addView is where a child goes. */
+    {
+      binaryName: "android/view/ViewGroup",
+      methods: [{ name: "addView", descriptor: "(Landroid/view/View;)V" }],
+    },
+    {
+      binaryName: "android/widget/LinearLayout",
+      constructors: ["(Landroid/content/Context;)V"],
+      methods: [{ name: "setOrientation", descriptor: "(I)V" }],
+    },
     {
       binaryName: "android/widget/TextView",
       constructors: ["(Landroid/content/Context;)V"],
@@ -78,6 +108,14 @@ export const androidProject = {
     },
   ],
   subclasses: [
+    /* A generated implementation of the platform's listener interface.
+     * The program CONSTRUCTS this one, so its registration anchors to the
+     * instance it holds — unlike the Activity, which ART constructs. */
+    {
+      baseBinaryName: "android/view/View$OnClickListener",
+      overrides: [{ name: "onClick", descriptor: "(Landroid/view/View;)V" }],
+      subclassBinaryName: "com/example/ntsdemo/ClickBridge",
+    },
     {
       baseBinaryName: "android/app/Activity",
       overrides: [{ name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" }],

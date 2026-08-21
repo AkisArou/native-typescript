@@ -462,6 +462,30 @@ export function generateJvmScabiPackage(
         ({ binaryName }) => binaryName === ancestor!.binaryName,
       )?.superclass ?? null;
     }
+    /* Interfaces are identity targets too: at the ABI a jobject is a
+     * jobject, and a generated listener is only useful if it can be
+     * passed where the interface it implements is expected. Walked
+     * transitively, because an interface extending another is reachable
+     * the same way a superclass's superclass is. */
+    const seenInterfaces = new Set<string>();
+    const pending = [...class_.interfaces];
+    while (pending.length > 0) {
+      const reference = pending.shift()!;
+      if (reference.kind !== "internal") continue;
+      if (seenInterfaces.has(reference.binaryName)) continue;
+      seenInterfaces.add(reference.binaryName);
+      const interfaceId = selectedTypeIds.get(reference.binaryName);
+      if (interfaceId !== undefined) {
+        upcasts.push(Object.freeze({
+          kind: "identity" as const,
+          target: interfaceId,
+        }));
+      }
+      const declared = options.snapshot.classes.find(
+        ({ binaryName }) => binaryName === reference.binaryName,
+      );
+      if (declared !== undefined) pending.push(...declared.interfaces);
+    }
     upcasts.push(Object.freeze({ kind: "identity" as const, target: "jvm.object" }));
     /* Ascending by target, not inheritance order: the contract reads this
      * as a SET of valid identity targets, and the ordering is what makes a

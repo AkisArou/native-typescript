@@ -240,6 +240,38 @@ test(
         "the text the program set is the text the platform holds",
       );
 
+      /* INTERACTION: the platform calls a TypeScript handler through a
+       * generated class implementing its listener INTERFACE, and the
+       * handler's effect comes back through the platform. The tap count
+       * lives in an ordinary closure, so a label reading "Tapped 1 time"
+       * is TypeScript state surviving a platform callback — which no
+       * amount of inspecting the package could have shown.
+       *
+       * The button is located from the hierarchy rather than by a
+       * remembered coordinate, because its position moves when the label
+       * above it changes size — which is how the first run of this lane
+       * lost three taps out of four. */
+      const button = /class="android\.widget\.Button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/u
+        .exec(hierarchy);
+      assert.ok(button !== null, "the application's Button is in the hierarchy");
+      const [left, top, right, bottom] = button!.slice(1).map(Number) as
+        [number, number, number, number];
+      run(
+        "shell",
+        "input",
+        "tap",
+        `${Math.round((left + right) / 2)}`,
+        `${Math.round((top + bottom) / 2)}`,
+      );
+      const tapped = awaitLogLine(run, /tap 1/u);
+      assert.match(tapped, /tap 1/u, "the click reached the TypeScript handler");
+      run("shell", "uiautomator", "dump", "/sdcard/nts-ui.xml");
+      assert.match(
+        run("shell", "cat", "/sdcard/nts-ui.xml"),
+        /text="Tapped 1 time"/u,
+        "the handler's closure state reached the platform",
+      );
+
       /* RESTORE: a configuration change recreates the Activity, and the
        * framework hands back the state it saved — the present arm, which
        * a cold start alone would never take. */
