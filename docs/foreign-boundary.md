@@ -162,28 +162,66 @@ five defects in this repository's own history, every one of them a decision
 made in the C backend and not the LLVM one. Every dimension above is
 cross-cutting, so each one added ahead of the legalizer is added twice.
 
-**Current state.** A decision layer landed across two modules —
-`native-callbacks.ts` (`nativeCallbackPayloads`, `nativeTrampolineForm`,
-`nativeCallLifecycle`, `nativeCallbackAdapterKey`,
-`nativeCallbackCancellationArgument`, `allocateNativeCallbackAdapters`) and
-`native-call-plan.ts` (`nativeResultForm`, `nativeArgumentForm`,
-`nativeFailureForm`, `nativeCallDisposal`, `nativeCallIsThrowCheckpoint`) —
-each returning typed data that both backends materialize.
+**Current state.** Four legalization slices have landed on top of the decision
+layer, and the distinction between the two is worth keeping sharp. The decision
+layer answers questions both backends were answering separately. A legalization
+slice goes further: it collapses arms that were only ever one shape, so a new
+member of that family arrives as a row rather than as two more hand-written
+ladders.
 
-It is deliberately weaker than the legalizer: it shares the *decision* but not
-the *lowering*, so each backend still writes its own control flow. It is the
-floor, not the target, and the floor is not holding on its own. The two
-`nativeCall` lowerings are 817 lines in the C backend and 1368 in the LLVM one
-against 608 and 1049 when [0004](records/0004-one-decision-two-backends.md)
-measured them, and `nativeCallIsThrowCheckpoint` is in that list because the
-two backends had already drifted on it — one treating any callback argument as
-a throw checkpoint and the other additionally requiring call scope, so they
-unwound at different points for the most ordinary registration shape there is.
+What is described rather than laddered, as of 2026-08-21:
 
-The lesson is narrower than "share more". The exhaustiveness guards catch a
-missing arm of a shared TYPE; they cannot see a decision that was never given
-one. Every divergence found so far has been a predicate read straight off the
-binding in both files, outside the shared vocabulary entirely.
+- **Copying result projections** (`nativeResultCopy`). Four families crossed
+  with absence — byte spans, UTF-8 spans, C strings, C-string vectors — were
+  eight arms in each backend and are now one description with two
+  materializations.
+- **Owned handle results** (`nativeResultHandle`). Two arms whose control flow
+  genuinely differs, so the decisions are shared and the shapes are not.
+- **Borrowed arguments** (`nativeArgumentBorrow`) and **handle arguments**
+  (`nativeArgumentHandle`), over a shared `NativeArgumentSource` — the three
+  nullabilities every value family crosses, said once.
+
+Each slice was verified by emitting the whole `native-ir` suite before and
+after and comparing byte for byte, in both backends. Every one is inert except
+a single redundant local in one family, noted where it happens.
+
+**What the slices found is the part worth recording.** Four facts were
+load-bearing, unwritten, and correct only because two independently written
+ladders happened to agree:
+
+1. A byte span's non-null check must precede the copy, because the copy reads a
+   length slot describing that pointer. A C string's must follow the release,
+   because the copy answers null for null and the pointer still has to be
+   freed.
+2. A non-nullable handle prepares its cell BEFORE the call, so a registration
+   owner and retained tokens attach while the callee might still fire a
+   callback. The nullable arm prepares lazily, having nothing to attach.
+3. A borrowed vector is BUILT for the call and must be released on the throwing
+   path; a borrowed C string points into storage the managed string already
+   owns and has nothing to give back.
+4. A surrendered handle has no nullable arm, because a call that may be handed
+   nothing cannot also be the call that takes ownership of it. As four
+   independent cases that read as a gap.
+
+**What is not a slice.** The seven number-conversion arms stay as they are:
+they are seven different conversions whose decisions already live in the form,
+and a description over them would be indirection bought with nothing. Saying so
+is part of the work — the target is one decision in one place, not uniformity
+for its own sake.
+
+**Still ahead, and still the target.** Trampoline emission remains duplicated
+in SHAPE rather than merely in decision — the queued-invocation record, its
+destroy/invoke/admit trio, and the token bail ladder are written twice. That is
+also the region entangled with `emitPendingCheck`/`emitUnwind` placement, where
+the decision is WHERE the call happens and the mechanism is backend-owned scope
+bookkeeping. Designing that interface without leaking one backend's model into
+the plan is the pass/fail question for the legalizer, and it is unanswered.
+
+The lesson from the divergences remains narrower than "share more". The
+exhaustiveness guards catch a missing arm of a shared TYPE; they cannot see a
+decision that was never given one. Three vocabularies that had no guard at all
+now have one, which is why a fourth trampoline shape is a build failure rather
+than a silent call-scoped emission.
 
 ## ABI capsules
 

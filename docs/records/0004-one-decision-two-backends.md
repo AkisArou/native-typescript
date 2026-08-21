@@ -267,3 +267,54 @@ upstream's two emitter files. Extracting them into this fork's own modules
 would cut its footprint in the two highest-conflict files by roughly two
 thirds, which makes the legalizer a merge-cost decision as much as a
 correctness one.
+
+## Addendum, 2026-08-21: four slices, and what each one found
+
+The extraction resumed, past the decision layer this record describes and into
+legalization proper — collapsing arms that were only ever one shape rather than
+merely sharing the answers they computed.
+
+Landed: copying result projections (eight arms per backend to one), owned
+handle results (decisions shared, shapes deliberately not), borrowed arguments
+and handle arguments over one named nullability triple (six and four arms to
+one each).
+
+**Every slice was verified by byte comparison, not by a passing suite.** The
+whole `native-ir` suite was emitted before and after each change, in both
+backends, and diffed. That bar caught two things a green run did not. The first
+comparison covered only one of the four families being changed, which made it
+evidence of nothing — the same instrument failure this record's own history is
+made of. The second, once widened, found a real difference: the uniform driver
+emits a redundant local for one family, because that family alone had skipped
+an intermediate the other three all used.
+
+**The four findings are the return, and they are larger than the line count.**
+Each was load-bearing, unwritten, and correct only because two independently
+written ladders happened to agree:
+
+1. A byte span is checked non-null BEFORE the copy; a C string AFTER the
+   release. Either position on the other family is a real defect — a length
+   slot read for a pointer that is not there, or a leak on the throwing path.
+2. A non-nullable handle prepares its cell BEFORE the call, because a
+   registration owner and retained tokens must attach while the callee might
+   still fire a callback.
+3. A borrowed vector is built for the call and must be released on the throwing
+   path; a borrowed C string has nothing to give back.
+4. A surrendered handle has no nullable arm, because a call that may be handed
+   nothing cannot also be the call that takes ownership of it.
+
+**A correction to this record's central measurement.** The line counts do not
+fall. The two lowerings went from 817 and 1368 to roughly 680 and 1150 while
+the shared layer grew by more than they shed. This was predicted and is worth
+stating plainly rather than quietly: the legalizer is not a line-count
+argument. It is an argument about how many places one decision lives, and about
+what a fifth member of a family costs — a row, or two more ladders.
+
+**What was declined.** The seven number-conversion arms are seven different
+conversions whose decisions already live in the form. Describing them would be
+indirection with nothing behind it. A slice that does not pay is not a slice.
+
+The removal condition still stands unmet: trampoline emission is duplicated in
+SHAPE, and the `emitPendingCheck`/`emitUnwind` interface — where placement is
+the decision and the mechanism is backend-owned scope bookkeeping — has no
+design yet. That interface is the pass/fail question for the whole extraction.

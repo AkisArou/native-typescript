@@ -138,17 +138,42 @@ fix, and a new arm reaching it now fails loudly rather than silently. Worth
 folding into the legalizer work rather than doing alone, since that pass
 rewrites the same ladder.
 
-### Backend-neutral foreign-boundary legalizer
+### Backend-neutral foreign-boundary legalizer — IN PROGRESS
 
 The audit's P1 and [0004](records/0004-one-decision-two-backends.md)'s
-conclusion: both emitters still materialize their own control flow, and five
-real defects have already come from one decision living in two places.
+conclusion. Four slices have landed; see
+[the foreign boundary](foreign-boundary.md) for what is described rather than
+laddered, and 0004's second addendum for what each slice found.
 
-**Merge upstream immediately before starting.** It rewrites both emitters,
+**What remains is the hard half.** Trampoline emission is duplicated in SHAPE
+rather than in decision — the queued-invocation record, its destroy/invoke/
+admit trio, and the token bail ladder are written twice, roughly 320 lines in
+the C backend and 600 in LLVM. Collapsing it means answering the question the
+first four slices did not have to: what does a plan say about WHERE an unwind
+happens, when `emitPendingCheck` and `emitUnwind` are called 20 and 25 times
+inside these lowerings and their mechanism is backend-owned scope bookkeeping?
+C walks a live-temporary scope stack and manages indentation; LLVM manipulates
+basic-block state and entry allocas and short-circuits on termination. A plan
+that says "unwind here" has to say it without knowing what a scope is on either
+side, and designing that without leaking one backend's model into the plan is
+the pass/fail question for the extraction.
+
+**Merge upstream immediately before starting it.** It rewrites both emitters,
 which are the two files with the largest overlap against upstream, and it is
-the one change that would spend the additive-divergence property that made
-the last merge 31 hunks instead of a week. It is also net-negative lines in
-those files, so it is the change that most REDUCES fork risk once landed.
+the one change that would spend the additive-divergence property that has kept
+merges cheap. Upstream shipped four commits into these files this week.
+
+**A method worth keeping.** Each slice is verified by emitting the whole
+native-ir suite before and after and diffing byte for byte, in both backends,
+rather than by a passing suite. The scratch cleanup is gated on `AB_KEEP=1` for
+exactly this. The first such comparison covered one of four changed families
+and was therefore evidence of nothing; widening it found a real difference. A
+green suite does not distinguish a refactor that preserved behaviour from one
+that changed output nobody asserts on.
+
+**Not everything is a slice.** The seven number-conversion arms were examined
+and left alone: seven genuinely different conversions whose decisions already
+live in the form. Uniformity is not the target; one decision in one place is.
 
 ### JNI resource domains: local, stable, weak
 
