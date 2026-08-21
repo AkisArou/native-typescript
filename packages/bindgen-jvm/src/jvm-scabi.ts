@@ -836,9 +836,14 @@ export function generateJvmScabiPackage(
         result: Object.freeze({
           /* Answered: the handler's boolean IS the emitting call's result,
            * which is what lets delivery run on the caller's thread with no
-           * queue. Queued: nothing comes back, and delivery runs at the
-           * runtime's pump. */
-          type: callback.answers ? needScalar("boolean") : "void",
+           * queue. Told: nothing comes back but the handler still runs
+           * during the caller's frame — synchronousReturn with a void ret,
+           * the arm fork 3c33818a admitted, because the emitting call
+           * observes the handler rather than an answer. Queued: nothing
+           * comes back, and delivery runs at the runtime's pump. */
+          type: callback.delivery === "answered"
+            ? needScalar("boolean")
+            : "void",
           passMode: "value" as const,
           nullable: false,
           ownership: Object.freeze({ kind: "value" as const }),
@@ -875,25 +880,28 @@ export function generateJvmScabiPackage(
             allowedInvocationExecutors: Object.freeze([
               Object.freeze({ kind: "same-as-caller" as const }),
             ]),
-            synchronousReturn: callback.answers,
-            /* An answered handler borrows during the call; a queued one is
+            synchronousReturn: callback.delivery !== "queued",
+            /* A synchronous handler — answered or told — borrows during
+             * the call because nothing outlives the frame; a queued one is
              * copied because delivery outlives the emission. */
             arguments: Object.freeze(callbackParameters.map((parameter) =>
               Object.freeze({
                 parameter: parameter.name,
-                transport: callback.answers
-                  ? ("borrow" as const)
-                  : ("copy" as const),
+                transport: callback.delivery === "queued"
+                  ? ("copy" as const)
+                  : ("borrow" as const),
               })
             )),
             sourceArguments: Object.freeze([
-              /* A queued handler receives its sender; an answering one does
-               * not — injecting one would mean a managed handle for the
-               * length of the call, which a borrowed payload does not have.
-               * The same reasoning the GObject contract states. */
-              ...(callback.answers
-                ? []
-                : [Object.freeze({ kind: "registration-owner" as const })]),
+              /* A queued handler receives its sender; a synchronous one —
+               * answered or told — does not: injecting one would mean a
+               * managed handle for the length of the call, which a
+               * borrowed payload does not have. The same reasoning the
+               * GObject contract states, and it does not weaken when
+               * nothing comes back. */
+              ...(callback.delivery === "queued"
+                ? [Object.freeze({ kind: "registration-owner" as const })]
+                : []),
               ...callbackParameters.map((parameter) =>
                 Object.freeze({
                   kind: "callback-parameter" as const,
@@ -927,7 +935,7 @@ export function generateJvmScabiPackage(
     adapterBindings.push(bindingId);
     const handlerParameters = [
       /* The queued handler's first argument is its sender. */
-      ...(callback.answers ? [] : [`sender: ${className}`]),
+      ...(callback.delivery === "queued" ? [`sender: ${className}`] : []),
       ...callback.parameters.map(
         (parameter, position) => `a${position}: ${sourceTypeOf(parameter)}`,
       ),
@@ -935,7 +943,7 @@ export function generateJvmScabiPackage(
     declareMember(
       callback.className,
       `  ${callback.name}(callback: (${handlerParameters}) => ${
-        callback.answers ? "boolean" : "void"
+        callback.delivery === "answered" ? "boolean" : "void"
       }): JvmConnection;`,
     );
   }

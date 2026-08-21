@@ -7,12 +7,16 @@
  * TypeScript handlers. The Android analogue is the framework constructing a
  * MainActivity: a callback before it is anything else.
  *
- * The algebra is the answered callback contract's, stated here so refusal
+ * The algebra is the retained callback contract's, stated here so refusal
  * happens where the subclass is named rather than three stages later:
- * boolean-answering overrides with exact-scalar payloads. A VOID override
- * must run during the caller's frame, and the retained contract's arms are
- * answered-boolean-synchronous and void-queued — the void-synchronous arm
- * is its own admission, and Android's own onCreate is its failing program.
+ * overrides ANSWER with a boolean or TELL with void, and both run during
+ * the caller's frame — an override exists to be observed by the framework
+ * code that dispatched it, so the queued arm is never an override's
+ * delivery, and the generator states `delivery: "synchronous"` on every
+ * void override it emits. (The void-synchronous arm arrived with fork
+ * 3c33818a, with fixture/Lifecycle as its committed evidence.) Payloads
+ * stay exact scalars: a handle payload waits on its own arm, and Android's
+ * onCreate(Bundle) is that arm's failing program.
  *
  * Each override also carries its native super binding: an ordinary
  * generated method whose body is `super.name(...)`, the only spelling of
@@ -23,6 +27,7 @@
 import { createHash } from "node:crypto";
 import { JvmGenerationError } from "./jvm-model.ts";
 import type {
+  JvmCallbackSelection,
   JvmClass,
   JvmDiagnostic,
   JvmMemberSelection,
@@ -40,7 +45,7 @@ export interface JvmSubclassSelection {
 
 export interface JvmSubclassSource {
   readonly schema: "native-typescript.jvm-subclass-source";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly baseBinaryName: string;
   readonly subclassBinaryName: string;
   /** The generated Java, compiled against the base's classes. */
@@ -50,8 +55,11 @@ export interface JvmSubclassSource {
    * javac expects (`fixture/HostBridge.java`). */
   readonly logicalPath: string;
   /** The overrides as a `callbacks:` selection on the SUBCLASS — exactly
-   * what the ingestion of the compiled result should be handed. */
-  readonly callbacks: readonly JvmMemberSelection[];
+   * what the ingestion of the compiled result should be handed. Void
+   * overrides carry `delivery: "synchronous"`: the framework code that
+   * dispatched an override observes it, so the queued arm is never an
+   * override's delivery. */
+  readonly callbacks: readonly JvmCallbackSelection[];
   /** The native super bindings as a `methods:` selection on the SUBCLASS:
    * one `ntsSuper<Name>` per override, whose body is the base
    * implementation reached non-virtually (javac compiles `super.name(...)`
@@ -167,7 +175,7 @@ export function generateJvmSubclassSource(
   }
 
   const overrideLines: string[] = [];
-  const callbacks: JvmMemberSelection[] = [];
+  const callbacks: JvmCallbackSelection[] = [];
   const superMethods: JvmMemberSelection[] = [];
   for (const overrideSelection of selection.overrides) {
     const name = typeof overrideSelection === "string"
@@ -209,16 +217,13 @@ export function generateJvmSubclassSource(
     }
     const answers = method.result.kind === "primitive" &&
       method.result.name === "boolean";
-    if (!answers) {
+    const tells = method.result.kind === "void";
+    if (!answers && !tells) {
       diagnostics.push(diagnostic(
         `${overridePath}/result`,
-        method.result.kind === "void"
-          ? "A void override must run during the caller's frame, and the " +
-            "retained contract's arms are answered-boolean-synchronous " +
-            "and void-queued; the void-synchronous arm is its own " +
-            "admission, and a lifecycle method is its failing program"
-          : "An override crosses as an answered callback, which answers " +
-            "with a boolean",
+        "An override crosses as a retained callback, which answers with a " +
+          "boolean or tells with void; any other result would make the " +
+          "handler's value the dispatching call's without a contract for it",
       ));
       continue;
     }
@@ -236,9 +241,9 @@ export function generateJvmSubclassSource(
       diagnostics.push(diagnostic(
         `${overridePath}/parameters/${index}`,
         parameter.kind === "primitive"
-          ? `Payload ${parameter.name} is outside the answered contract's ` +
+          ? `Payload ${parameter.name} is outside the retained contract's ` +
             "exact-scalar set"
-          : "An object payload waits on the answered contract admitting " +
+          : "An object payload waits on the retained contract admitting " +
             "handles; its failing program is any lifecycle method that " +
             "receives one",
       ));
@@ -257,23 +262,32 @@ export function generateJvmSubclassSource(
       method.name.slice(1)
     }`;
     const argumentNames = parameters.map((_, index) => `a${index}`);
+    const javaResult = answers ? javaScalarNames.boolean : "void";
     overrideLines.push(
       "  @Override",
-      `  public native ${javaScalarNames.boolean} ${method.name}(${
+      `  public native ${javaResult} ${method.name}(${
         parameters.join(", ")
       });`,
       "",
-      `  public ${javaScalarNames.boolean} ${superName}(${
-        parameters.join(", ")
-      }) {`,
-      `    return super.${method.name}(${argumentNames.join(", ")});`,
+      `  public ${javaResult} ${superName}(${parameters.join(", ")}) {`,
+      `    ${answers ? "return " : ""}super.${method.name}(${
+        argumentNames.join(", ")
+      });`,
       "  }",
       "",
     );
+    /* A void override's delivery is decided here, not left to the
+     * selection downstream: the framework observes what it dispatched. */
     callbacks.push(
-      typeof overrideSelection === "string"
-        ? overrideSelection
-        : Object.freeze({ ...overrideSelection }),
+      tells
+        ? Object.freeze({
+            name: method.name,
+            descriptor: method.descriptor,
+            delivery: "synchronous" as const,
+          })
+        : typeof overrideSelection === "string"
+          ? overrideSelection
+          : Object.freeze({ ...overrideSelection }),
     );
     superMethods.push(Object.freeze({
       name: superName,
@@ -302,7 +316,7 @@ export function generateJvmSubclassSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-subclass-source",
-    schemaVersion: 2,
+    schemaVersion: 3,
     baseBinaryName: base.binaryName,
     subclassBinaryName,
     source,

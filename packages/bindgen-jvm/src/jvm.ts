@@ -4,6 +4,8 @@ import { parseClassFile } from "./classfile.ts";
 import type { ParsedClass, ParsedField, ParsedMethod } from "./classfile.ts";
 import { JvmIngestionError } from "./jvm-model.ts";
 import type {
+  JvmCallback,
+  JvmCallbackSelection,
   JvmClass,
   JvmClassAccess,
   JvmClassSelection,
@@ -14,7 +16,6 @@ import type {
   JvmField,
   JvmFieldAccess,
   JvmIngestionOptions,
-  JvmMemberSelection,
   JvmMethod,
   JvmMethodAccess,
   JvmPrimitive,
@@ -251,20 +252,27 @@ function classKindOf(flags: number): JvmClass["kind"] {
   return "class";
 }
 
-interface NormalizedMemberSelections {
+interface NormalizedMemberSelections<
+  Exact extends { readonly name: string; readonly descriptor: string } = {
+    readonly name: string;
+    readonly descriptor: string;
+  },
+> {
   /** Bare-name selections; each name must resolve to exactly one member. */
   readonly names: ReadonlySet<string>;
   /** Descriptor-qualified selections, keyed `name descriptor`. */
-  readonly exact: ReadonlyMap<string, { name: string; descriptor: string }>;
+  readonly exact: ReadonlyMap<string, Exact>;
 }
 
-function normalizeMemberSelections(
-  selections: readonly JvmMemberSelection[],
+function normalizeMemberSelections<
+  Exact extends { readonly name: string; readonly descriptor: string },
+>(
+  selections: readonly (string | Exact)[],
   path: string,
   diagnostics: JvmDiagnostic[],
-): NormalizedMemberSelections {
+): NormalizedMemberSelections<Exact> {
   const names = new Set<string>();
-  const exact = new Map<string, { name: string; descriptor: string }>();
+  const exact = new Map<string, Exact>();
   const qualifiedNames = new Set<string>();
   for (const selection of selections) {
     if (typeof selection === "string") {
@@ -320,7 +328,38 @@ interface NormalizedClassSelection {
   readonly constructors: ReadonlySet<string>;
   readonly methods: NormalizedMemberSelections;
   readonly fields: NormalizedMemberSelections;
-  readonly callbacks: NormalizedMemberSelections;
+  readonly callbacks: NormalizedMemberSelections<
+    Exclude<JvmCallbackSelection, string>
+  >;
+}
+
+/* The delivery value is validated where the selection is spelled; the
+ * required-on-void / refused-on-answered algebra lives in the adapter,
+ * which is the first stage that sees the resolved result kind. */
+function normalizeCallbackSelections(
+  selections: readonly JvmCallbackSelection[],
+  path: string,
+  diagnostics: JvmDiagnostic[],
+): NormalizedMemberSelections<Exclude<JvmCallbackSelection, string>> {
+  for (const selection of selections) {
+    if (
+      typeof selection !== "string" &&
+      selection.delivery !== undefined &&
+      selection.delivery !== "synchronous" &&
+      selection.delivery !== "queued"
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS6001",
+          `${path}/${selection.name}`,
+          `Invalid callback delivery '${String(selection.delivery)}'; a ` +
+            "void callback crosses 'synchronous' (during the caller's " +
+            "frame) or 'queued' (at the runtime's pump)",
+        ),
+      );
+    }
+  }
+  return normalizeMemberSelections(selections, path, diagnostics);
 }
 
 function normalizeClassSelections(
@@ -381,7 +420,7 @@ function normalizeClassSelections(
         `${path}/field`,
         diagnostics,
       ),
-      callbacks: normalizeMemberSelections(
+      callbacks: normalizeCallbackSelections(
         selection.callbacks ?? [],
         `${path}/callback`,
         diagnostics,
@@ -789,6 +828,14 @@ export function ingestJvmClasses(
           return false;
         }
         return true;
+      })
+      .map((method): JvmCallback => {
+        /* The exact form is the only spelling that can state a delivery;
+         * a bare-name selection resolves with none stated. */
+        const stated = selection.callbacks.exact.get(
+          `${method.name} ${method.descriptor}`,
+        );
+        return Object.freeze({ ...method, delivery: stated?.delivery ?? null });
       });
     const fields = resolveMembers(
       parsed.fields,
@@ -850,7 +897,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 2,
+    schemaVersion: 3,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

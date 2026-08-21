@@ -79,10 +79,6 @@ test("refusals name Java's own rules and the missing contract arms", () => {
   for (
     const [overrides, pattern] of [
       [["sealed"], /'sealed' is final; Java itself refuses the override/u],
-      [
-        ["onNotify"],
-        /void-synchronous arm is its own admission, and a lifecycle method is its failing program/u,
-      ],
       [["absent"], /does not exist on 'fixture\/Host'/u],
     ] as const
   ) {
@@ -99,15 +95,43 @@ test("refusals name Java's own rules and the missing contract arms", () => {
   }
 });
 
-test("the void-synchronous arm's failing program is committed evidence", () => {
+test("a void override tells: native void, delivery decided by the generator", () => {
+  // Once the refusal fixture for the missing arm, onNotify is now the
+  // golden void override. The generator, not the caller, states the
+  // delivery: an override exists to be observed by the framework code
+  // that dispatched it, so `synchronous` is a decision made where the
+  // subclass is generated rather than a knob passed through.
+  const generated = generateJvmSubclassSource(hostSnapshot(), {
+    baseBinaryName: "fixture/Host",
+    overrides: ["onNotify"],
+  });
+  assert.match(
+    generated.source,
+    /@Override\n {2}public native void onNotify\(int a0\);/u,
+  );
+  assert.match(
+    generated.source,
+    /public void ntsSuperOnNotify\(int a0\) \{\n {4}super\.onNotify\(a0\);\n {2}\}/u,
+  );
+  assert.deepEqual(generated.callbacks, [
+    { name: "onNotify", descriptor: "(I)V", delivery: "synchronous" },
+  ]);
+  assert.deepEqual(generated.methods, [
+    { name: "ntsSuperOnNotify", descriptor: "(I)V" },
+  ]);
+});
+
+test("the void-synchronous arm's committed evidence now generates", () => {
   // Lifecycle.start() calls onCreate and then OBSERVES it, so queued
   // delivery is distinguishable from synchronous by construction: a
-  // handler that ran late answers 0 where 1 is the truth. The refusal
-  // this test pins is what the eventual arm deletes, arriving with this
-  // fixture as its evidence rather than being designed from a
-  // description. Its proposal must answer three questions recorded on
-  // the fixture itself: the void result, handle payloads, and where a
-  // synchronous void handler's throw goes.
+  // handler that ran late answers 0 where 1 is the truth. This test
+  // pinned the refusal until fork 3c33818a admitted the arm — the
+  // committed failing program was the admission's evidence, and the
+  // fixture's three recorded questions are now answered: the void result
+  // crosses (here), handle payloads still wait (the android-sdk pin), and
+  // a synchronous void handler's throw stays pending exactly as the
+  // asking form's does — a telling form simply has no answer to give, so
+  // the two arms share the contract rather than each spelling its own.
   const lifecycle = ingestJvmClasses(
     [
       {
@@ -130,19 +154,21 @@ test("the void-synchronous arm's failing program is committed evidence", () => {
       ],
     },
   );
-  try {
-    generateJvmSubclassSource(lifecycle, {
-      baseBinaryName: "fixture/Lifecycle",
-      overrides: ["onCreate"],
-    });
-    assert.fail("expected the void-synchronous refusal");
-  } catch (error) {
-    assert.ok(error instanceof JvmGenerationError);
-    assert.match(
-      error.diagnostics[0]!.message,
-      /void-synchronous arm is its own admission, and a lifecycle method is its failing program/u,
-    );
-  }
+  const generated = generateJvmSubclassSource(lifecycle, {
+    baseBinaryName: "fixture/Lifecycle",
+    overrides: ["onCreate"],
+  });
+  assert.match(
+    generated.source,
+    /@Override\n {2}public native void onCreate\(\);/u,
+  );
+  assert.match(
+    generated.source,
+    /public void ntsSuperOnCreate\(\) \{\n {4}super\.onCreate\(\);\n {2}\}/u,
+  );
+  assert.deepEqual(generated.callbacks, [
+    { name: "onCreate", descriptor: "()V", delivery: "synchronous" },
+  ]);
 });
 
 /**
@@ -168,7 +194,7 @@ test(
   () => {
     const generated = generateJvmSubclassSource(hostSnapshot(), {
       baseBinaryName: "fixture/Host",
-      overrides: ["onEvent"],
+      overrides: ["onEvent", "onNotify"],
     });
     const workDir = mkdtempSync(join(tmpdir(), "nt-jvm-subclass-"));
     try {
@@ -213,13 +239,21 @@ test(
       const adapter = generateJvmAdapterSource(snapshot, {
         packageSlug: "bridge",
       });
-      assert.equal(adapter.callbacks.length, 1);
+      /* Both arms of the override contract cross the same machinery: the
+       * answered override and the telling one, whose stated synchronous
+       * delivery survives the compiled class file it cannot be read from. */
+      assert.deepEqual(
+        adapter.callbacks.map(({ name, delivery }) => ({ name, delivery })),
+        [
+          { name: "onEvent", delivery: "answered" },
+          { name: "onNotify", delivery: "told" },
+        ],
+      );
       assert.deepEqual(adapter.callbacks[0]!.parameters, [
         { kind: "primitive", primitive: "int" },
       ]);
-      assert.equal(adapter.callbacks[0]!.answers, true);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
-      /* The super binding ingested as an ordinary instance method — the
+      /* The super bindings ingested as ordinary instance methods — the
        * dual-method-and-callback refusal does not fire because the super
        * spelling and the override are different members. */
       const superMethod = adapter.instanceMethods.find(
@@ -230,6 +264,11 @@ test(
         kind: "primitive",
         primitive: "boolean",
       });
+      const superTell = adapter.instanceMethods.find(
+        ({ name }) => name === "ntsSuperOnNotify",
+      );
+      assert.ok(superTell !== undefined);
+      assert.deepEqual(superTell!.result, { kind: "void" });
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

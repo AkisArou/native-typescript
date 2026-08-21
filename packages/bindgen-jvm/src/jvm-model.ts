@@ -107,6 +107,28 @@ export type JvmMemberSelection =
   | string
   | { readonly name: string; readonly descriptor: string };
 
+/** Which arm a VOID callback crosses on. `synchronous` runs the handler
+ * during the caller's frame — the telling form, what a lifecycle override
+ * needs because the framework observes it. `queued` copies the payload and
+ * delivers at the runtime's pump — safe from any thread. */
+export type JvmCallbackDelivery = "synchronous" | "queued";
+
+/**
+ * A callback selection. A void native method genuinely has both deliveries
+ * and the class file cannot say which, so the selection must: `delivery` is
+ * required for a void callback (which forces the exact object form) and
+ * refused for an answered (boolean) one, whose single delivery is already
+ * its own statement. The adapter owns that algebra; ingestion records the
+ * stated delivery faithfully.
+ */
+export type JvmCallbackSelection =
+  | string
+  | {
+      readonly name: string;
+      readonly descriptor: string;
+      readonly delivery?: JvmCallbackDelivery;
+    };
+
 /**
  * A class to project, spelled as the class file spells it: the slashed
  * binary name (`java/lang/Object`, `fixture/Widget$Metrics`).
@@ -125,7 +147,7 @@ export interface JvmClassSelection {
    * provides the implementation Java calls, rather than calling in. The
    * member must carry ACC_NATIVE — that is the metadata fact that makes
    * RegisterNatives legal — and must not also be selected as a method. */
-  readonly callbacks?: readonly JvmMemberSelection[];
+  readonly callbacks?: readonly JvmCallbackSelection[];
 }
 
 export interface JvmIngestionOptions {
@@ -270,13 +292,21 @@ export interface JvmClass {
   readonly methods: readonly JvmMethod[];
   /** Selected callback registration points: native methods whose
    * implementation TypeScript provides. Always ACC_NATIVE. */
-  readonly callbacks: readonly JvmMethod[];
+  readonly callbacks: readonly JvmCallback[];
   readonly fields: readonly JvmField[];
+}
+
+/** A selected callback: the native method plus the delivery the selection
+ * stated, null when it stated none. Recording rather than resolving keeps
+ * the delivery algebra — required on void, refused on answered — in the
+ * adapter, beside the rest of the callback contract. */
+export interface JvmCallback extends JvmMethod {
+  readonly delivery: JvmCallbackDelivery | null;
 }
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

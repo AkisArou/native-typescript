@@ -52,7 +52,10 @@ const adapterSurface: JvmClassSelection = Object.freeze({
     { name: "resize", descriptor: "(II)V" },
     { name: "resize", descriptor: "(D)V" },
   ]),
-  callbacks: Object.freeze(["onPing", "onTick"]),
+  callbacks: Object.freeze([
+    "onPing",
+    { name: "onTick", descriptor: "(I)V", delivery: "queued" as const },
+  ]),
 });
 
 function ingestSurface(
@@ -163,13 +166,13 @@ test("the adapter source is deterministic and carries its member table", () => {
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
   assert.deepEqual(sumBytes.parameters, [{ kind: "span", elem: "u8" }]);
   // The inward direction: registration points with their trampolines
-  // installed at bind, the answered/queued split carried on the table.
+  // installed at bind, the delivery split carried on the table.
   assert.equal(first.callbacks.length, 2);
   assert.deepEqual(
-    first.callbacks.map(({ name, answers }) => ({ name, answers })),
+    first.callbacks.map(({ name, delivery }) => ({ name, delivery })),
     [
-      { name: "onPing", answers: true },
-      { name: "onTick", answers: false },
+      { name: "onPing", delivery: "answered" },
+      { name: "onTick", delivery: "queued" },
     ],
   );
   assert.ok(first.connectionSupport !== null);
@@ -278,6 +281,37 @@ test("refused array elements name the carrier each is missing", () => {
     try {
       generateJvmAdapterSource(
         ingestSurface([{ binaryName: "fixture/Widget", methods: [method] }]),
+        { packageSlug: "fixture" },
+      );
+      assert.fail("expected JvmGenerationError");
+    } catch (error) {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(error.diagnostics[0]!.message, pattern);
+    }
+  }
+});
+
+test("delivery is stated exactly once: required on void, refused on answered", () => {
+  // A void native method genuinely has two contracts — during the caller's
+  // frame, or copied and pumped — and the class file states neither, so a
+  // bare selection underdetermines the crossing. An answered callback has
+  // one delivery already, so stating one would be a second spelling of a
+  // decided fact.
+  for (
+    const [callbacks, pattern] of [
+      [
+        ["onPing", "onTick"],
+        /A void callback crosses on one of two arms.*delivery: 'synchronous' or 'queued'/u,
+      ],
+      [
+        [{ name: "onPing", descriptor: "(I)Z", delivery: "queued" as const }],
+        /An answered callback runs during the emitting call because its boolean is that call's result/u,
+      ],
+    ] as const
+  ) {
+    try {
+      generateJvmAdapterSource(
+        ingestSurface([{ binaryName: "fixture/Widget", callbacks }]),
         { packageSlug: "fixture" },
       );
       assert.fail("expected JvmGenerationError");

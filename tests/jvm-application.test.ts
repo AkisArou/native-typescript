@@ -60,7 +60,11 @@ test(
       javaSources: {
         root: join(workspace, "fixtures/jvm/src"),
         logicalPath: "fixtures/jvm/src",
-        files: ["fixture/Widget.java", "fixture/Host.java"],
+        files: [
+          "fixture/Widget.java",
+          "fixture/Host.java",
+          "fixture/Lifecycle.java",
+        ],
       },
       classes: [
         {
@@ -89,16 +93,25 @@ test(
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
-          callbacks: ["onPing", "onTick"],
+          callbacks: [
+            "onPing",
+            { name: "onTick", descriptor: "(I)V", delivery: "queued" },
+          ],
         },
         {
           binaryName: "fixture/Host",
           constructors: ["()V"],
           methods: ["run"],
         },
+        {
+          binaryName: "fixture/Lifecycle",
+          constructors: ["()V"],
+          methods: ["start", "markCreated"],
+        },
       ],
       subclasses: [
         { baseBinaryName: "fixture/Host", overrides: ["onEvent"] },
+        { baseBinaryName: "fixture/Lifecycle", overrides: ["onCreate"] },
       ],
       target: {
         triple: "x86_64-unknown-linux-gnu",
@@ -136,6 +149,12 @@ test(
         assert.match(declarations, /export declare class Widget \{/u);
         assert.match(declarations, /static greet\(a0: string \| null\): string \| null;/u);
         assert.match(declarations, /ntsSuperOnEvent\(a0: jint\): boolean;/u);
+        // The telling arm's surface: a synchronous void override connect
+        // (no sender — the queued spelling has one) and its void super
+        // binding.
+        assert.match(declarations, /onCreate\(callback: \(\) => void\): JvmConnection;/u);
+        assert.match(declarations, /ntsSuperOnCreate\(\): void;/u);
+        assert.match(declarations, /markCreated\(\): void;/u);
 
         assert.ok(built.builtClassesPath !== undefined);
         const run = spawnSync(built.productPath, [], {

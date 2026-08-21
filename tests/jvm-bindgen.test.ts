@@ -315,6 +315,46 @@ test("selections that do not exist fail precisely", () => {
   );
 });
 
+test("a callback selection records its stated delivery and refuses junk", () => {
+  // Ingestion records the selection's statement faithfully — null when the
+  // bare form stated nothing — and the adapter owns the algebra that
+  // resolves or refuses it. Only the VALUE is validated here, where the
+  // selection is spelled.
+  const snapshot = ingestFixture([
+    {
+      binaryName: "fixture/Widget",
+      callbacks: [
+        "onPing",
+        { name: "onTick", descriptor: "(I)V", delivery: "synchronous" },
+      ],
+    },
+  ]);
+  const widget = snapshot.classes[0]!;
+  assert.deepEqual(
+    widget.callbacks.map(({ name, delivery }) => ({ name, delivery })),
+    [
+      { name: "onPing", delivery: null },
+      { name: "onTick", delivery: "synchronous" },
+    ],
+  );
+  assertCodes(
+    () =>
+      ingestFixture([
+        {
+          binaryName: "fixture/Widget",
+          callbacks: [
+            {
+              name: "onTick",
+              descriptor: "(I)V",
+              delivery: "eventually" as unknown as "queued",
+            },
+          ],
+        },
+      ]),
+    ["NTS6001"],
+  );
+});
+
 test("an overloaded bare-name selection demands a descriptor", () => {
   try {
     ingestFixture([{ binaryName: "fixture/Widget", methods: ["resize"] }]);

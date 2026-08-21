@@ -30,6 +30,9 @@ export type {
 } from "./jvm-scabi.ts";
 export { JvmGenerationError, JvmIngestionError } from "./jvm-model.ts";
 export type {
+  JvmCallback,
+  JvmCallbackDelivery,
+  JvmCallbackSelection,
   JvmClass,
   JvmClassAccess,
   JvmClassSelection,

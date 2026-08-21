@@ -127,17 +127,18 @@ test("the real Activity surface ingests with its contract intact", { skip }, () 
 });
 
 test(
-  "the real Activity names the two arms its subclass waits on",
+  "the real Activity's lifecycle tells; its payloads name the last arm",
   { skip },
   () => {
     /* Phase 4's acceptance app is a MainActivity whose onCreate calls
-     * super and whose input methods receive platform objects. Both land
-     * outside today's answered-boolean/exact-scalar override algebra, and
-     * this pin turns that sentence into diagnostics against the real
-     * artifact: the void-synchronous arm (onCreate) and the handle
-     * payload arm (onKeyDown's KeyEvent), each refusal naming its own
-     * admission. When either arm lands, this test fails and the
-     * acceptance program advances — the same flip withNul took. */
+     * super and whose input methods receive platform objects. This pin
+     * held BOTH missing arms until fork 3c33818a admitted the
+     * void-synchronous one — now a bare lifecycle method (onStart)
+     * generates against the real artifact, and what remains refused is
+     * exactly the handle payload: onCreate not for its void result but
+     * for its Bundle, and onKeyDown for its KeyEvent. When that arm
+     * lands, this test fails and the acceptance program advances — the
+     * same flip withNul and onStart itself took. */
     const snapshot = ingestJvmClasses(sdkSources(), {
       classes: [
         ...activityChain,
@@ -147,10 +148,26 @@ test(
           methods: [
             { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
             { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
+            { name: "onStart", descriptor: "()V" },
           ],
         },
       ],
     });
+    const admitted = generateJvmSubclassSource(snapshot, {
+      baseBinaryName: "android/app/Activity",
+      overrides: [{ name: "onStart", descriptor: "()V" }],
+    });
+    assert.match(
+      admitted.source,
+      /@Override\n {2}public native void onStart\(\);/u,
+    );
+    assert.match(
+      admitted.source,
+      /public void ntsSuperOnStart\(\) \{\n {4}super\.onStart\(\);\n {2}\}/u,
+    );
+    assert.deepEqual(admitted.callbacks, [
+      { name: "onStart", descriptor: "()V", delivery: "synchronous" },
+    ]);
     try {
       generateJvmSubclassSource(snapshot, {
         baseBinaryName: "android/app/Activity",
@@ -163,14 +180,13 @@ test(
     } catch (error) {
       assert.ok(error instanceof JvmGenerationError);
       const messages = error.diagnostics.map(({ message }) => message);
-      assert.ok(messages.some((message) =>
-        message.includes("the void-synchronous arm is its own admission")
-      ));
-      assert.ok(messages.some((message) =>
-        message.includes(
-          "An object payload waits on the answered contract admitting handles",
-        )
-      ));
+      assert.equal(messages.length, 2);
+      for (const message of messages) {
+        assert.match(
+          message,
+          /An object payload waits on the retained contract admitting handles/u,
+        );
+      }
     }
   },
 );

@@ -59,7 +59,10 @@ function snapshot() {
             { name: "resize", descriptor: "(II)V" },
             { name: "resize", descriptor: "(D)V" },
           ],
-          callbacks: ["onPing", "onTick"],
+          callbacks: [
+            "onPing",
+            { name: "onTick", descriptor: "(I)V", delivery: "queued" },
+          ],
         },
       ],
     },
@@ -104,8 +107,7 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
   });
 }
 
-function options(): JvmScabiGenerationOptions {
-  const selected = snapshot();
+function options(selected = snapshot()): JvmScabiGenerationOptions {
   const adapter = generateJvmAdapterSource(selected, { packageSlug: "fixture" });
   return {
     snapshot: selected,
@@ -361,6 +363,61 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.ok(release !== undefined && release.kind !== "constant");
   assert.equal(release.signature.parameters[0]!.type, "jvm.object");
   assert.deepEqual(widget.upcasts, [{ kind: "identity", target: "jvm.object" }]);
+});
+
+test("the telling arm: synchronous void, borrowed payloads, no sender", () => {
+  // The arm fork 3c33818a admitted: synchronousReturn with a void ret.
+  // Same native method as the queued pins above, opposite delivery — the
+  // selection is what decides, because the class file cannot. The handler
+  // borrows (nothing outlives the frame) and receives no sender, for the
+  // same managed-handle reasoning as the answered arm: neither weakens
+  // when nothing comes back.
+  const selected = ingestJvmClasses(
+    [
+      {
+        logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+        bytes: readFileSync(
+          resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Widget.class"),
+        ),
+      },
+    ],
+    {
+      classes: [
+        {
+          binaryName: "fixture/Widget",
+          constructors: ["()V"],
+          callbacks: [
+            { name: "onTick", descriptor: "(I)V", delivery: "synchronous" },
+          ],
+        },
+      ],
+    },
+  );
+  const generated = generateJvmScabiPackage(options(selected));
+  assert.match(
+    generated.declarations,
+    /onTick\(callback: \(a0: jint\) => void\): JvmConnection;/u,
+  );
+  const telling =
+    generated.manifest.bindings["fixture.fixture.widget.ontick"];
+  assert.ok(telling !== undefined && telling.kind !== "constant");
+  const tellingCallback = telling.signature.parameters.find(
+    ({ name }) => name === "callback",
+  );
+  assert.ok(tellingCallback?.callback !== undefined);
+  assert.equal(tellingCallback.callback.synchronousReturn, true);
+  assert.deepEqual(tellingCallback.callback.arguments, [
+    { parameter: "a0", transport: "borrow" },
+  ]);
+  assert.deepEqual(tellingCallback.callback.sourceArguments, [
+    { kind: "callback-parameter", parameter: "a0" },
+  ]);
+  const callbackType =
+    generated.manifest.types["jvm.fixture.widget.ontick.callback"];
+  assert.ok(callbackType !== undefined && callbackType.kind === "callback");
+  if (callbackType.kind === "callback") {
+    assert.equal(callbackType.signature.result.type, "void");
+  }
 });
 
 test("each ownership shape translates through the neutral compiler input", () => {

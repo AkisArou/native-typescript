@@ -249,43 +249,83 @@ admissible — the refusal's reasoning was sound and its premise, that
 void-synchronous and void-queued are two spellings of one delivery, is false
 for a lifecycle method that is invoked and then observed.
 
-### Handle payloads on synchronous delivery — NEXT, and the design is settled
+### Handle payloads on synchronous delivery — NEXT, design settled, needs a program
 
-The second arm Android forces, for `onKeyDown(int, KeyEvent)`. Synchronous
-delivery admits only borrowed values today: `f64` and exact scalars. A handle
-parameter is refused, on the ground that a copied string or an interned handle
-belongs to the queued delivery that has to outlive the emission, and that
-handing one over here would give a handler a pointer the toolkit still owns.
+The second arm Android forces. Synchronous delivery admits only borrowed
+values today; a handle parameter is refused, on the ground that a copied string
+or an interned handle belongs to the queued delivery that has to outlive the
+emission.
 
-**The obvious reading of that refusal is wrong, and it matters.** It sounds
-like the arm needs a BORROWED handle — a cell valid for the frame and
-invalidated after — which would be new runtime surface, a new contract
-dimension, and a new use-after-frame failure mode to detect. It does not.
+**The obvious reading of that refusal is wrong**, and it matters because acting
+on it would build the wrong thing. It sounds like the arm needs a BORROWED
+handle — a cell valid for the frame and invalidated after — which would be new
+runtime surface, a new contract dimension, and a new use-after-frame failure
+mode. It does not. A queued handle payload already arrives OWNED: the contract
+names a destructor, the invocation holds the reference, and the invoke thunk
+interns the pointer into a managed cell or prepares one. The runtime has no
+borrowed handle form anywhere.
 
-Reading how the queued path actually works settles it. A queued handle payload
-arrives ALREADY OWNED: the contract names a destructor, the invocation holds
-the reference, and the invoke thunk interns the pointer into a managed cell or
-prepares one. The whole handle machinery is built on owned cells with
-destructors, and there is no borrowed form anywhere in the runtime.
+So the answer is PROMOTION. Where the toolkit lends an object for one frame,
+the adapter promotes it before it crosses and the existing owned-handle
+contract applies unchanged. **The JVM track confirms this is not merely
+acceptable but the only spelling JNI has**: a `jobject` reaching a trampoline
+is a LOCAL reference that dies with the native frame, so their adapter promotes
+with `NewGlobalRef` and the cell's destructor is the existing class-blind
+`DeleteGlobalRef`. Bake the assumption in rather than designing around it.
 
-So the answer is PROMOTION rather than a new concept. Where the toolkit lends
-an object for one frame — a JNI local reference is exactly this — the adapter
-promotes it to something owned before it crosses, and the existing owned-handle
-payload contract applies unchanged. For JNI that is `NewGlobalRef` with
-`DeleteGlobalRef` as the destructor.
+**One Android semantic that is documentation, not a contract arm.** Some
+framework event objects — `MotionEvent` canonically, not `KeyEvent` — are
+RECYCLED by the framework after dispatch returns. The owned reference keeps the
+OBJECT legal indefinitely, but the framework reuses its contents, so a late
+READ is wrong while the reference is right. That is a fact about what a handler
+may do with a payload after the frame, and it exists in Java itself; it is not
+a reason for a borrowed form.
 
-**What the compiler has to change is therefore small**, and none of it is new
-vocabulary: admit handle parameters for synchronous delivery on the same terms
-the queued path uses (the contract names a destructor, so the payload arrives
-owned), and give the direct trampoline the intern-or-prepare cell construction
-the queued invoke thunk already performs. Two backends, one existing pattern.
+#### What the compiler needs
 
-**The cost is known and already measured.** Promotion is what the LTO
-falsifier measured at 2.4x, which is the whole motivation for
-[JNI resource domains](#jni-resource-domains-local-stable-weak). That
-sequencing is now the right way round rather than a guess: correctness first
-through promotion, and resource domains later as the measured optimisation of
-a working crossing rather than a prerequisite for one.
+Small, and no new vocabulary. Admit handle parameters for synchronous delivery
+on the terms the queued path uses — `validSourceArguments` already establishes
+that a `nativeHandle` parameter carries a destructor and nothing else does —
+and give the direct trampoline the intern-or-prepare construction the queued
+invoke thunk performs. `nativeHandleCellC` is already extracted for exactly
+this; LLVM's equivalent still lives inline in its queued thunk.
+
+One thing found while building it and lost in the revert, worth not
+rediscovering: **every bail path in the direct trampoline must release the
+payload**. The reference is handed over before the token, state, pending and
+closure checks run, so bailing out without giving it back leaks the object on
+precisely the paths nobody exercises — a disposed registration, an unwinding
+turn, a closure already gone.
+
+#### Why it is not built: no program, in either shape
+
+There is **not one callback-parameter payload with a destructor anywhere in the
+fork's suites**. The queued handle-payload machinery — the `ownedHandle` kind,
+the cell construction, the destroy-path release — has never been run by a
+program here. Mirroring untested emission into a second backend, where nothing
+can observe either being wrong, is the mistake this project keeps finding
+rather than a shortcut past it.
+
+**The fixture must inhabit an INTERSECTION, not a list.** The JVM track's pin
+needs `onKeyDown(int, KeyEvent)`: a synchronous handler that ANSWERS a boolean
+while being handed both a scalar and an object. Handle payloads are testable on
+the queued path; answered synchronous delivery is testable with scalars; their
+conjunction has never been inhabited. That is exactly the shape that lets two
+complete-looking lists agree while the pair they imply is unreachable — the
+same trap as the sub-word-result-with-error-slot defect. A fixture that only
+exercises the telling form would look like coverage and prove nothing about the
+arm the pin needs.
+
+So the fixture is two callables, not one: a telling handler handed an object
+(`onCreate`-shaped), and an ANSWERING handler handed a scalar and an object
+(`onKeyDown`-shaped). Both transfer full, both observed after the call returns
+so synchronous is distinguishable from queued by construction. It also gives
+the queued handle-payload path its first running program, which is worth doing
+regardless of this arm.
+
+**Placement note for whoever writes it:** the fixture must sit BELOW
+`nts_counter_create` in `tests/native-ir/native.c`. An earlier attempt placed it
+above and failed on implicit declarations.
 
 ### Vendored objects are not PIC
 

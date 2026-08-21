@@ -112,8 +112,11 @@ export interface JvmReleaseAdapter {
 
 /** One callback registration point: a native method whose implementation
  * TypeScript provides. An ANSWERED one (boolean result) runs during the
- * emitting call on the caller's thread; a QUEUED one (void result) is
- * delivered at the runtime's pump. */
+ * emitting call on the caller's thread because its boolean is that call's
+ * result; a TOLD one (void result, selected synchronous) runs the same way
+ * and returns having done nothing else — the lifecycle shape, where the
+ * caller observes the handler rather than an answer; a QUEUED one (void
+ * result, selected queued) is delivered at the runtime's pump. */
 export interface JvmCallbackAdapter {
   readonly className: string;
   readonly name: string;
@@ -121,7 +124,7 @@ export interface JvmCallbackAdapter {
   readonly connectSymbol: string;
   /** Exact scalars only — the retained contract's payload set. */
   readonly parameters: readonly JvmAdapterPosition[];
-  readonly answers: boolean;
+  readonly delivery: "answered" | "told" | "queued";
 }
 
 /** The shared connection machinery, present when any callback is selected:
@@ -146,7 +149,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 16;
+  readonly schemaVersion: 17;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -1115,6 +1118,36 @@ export function generateJvmAdapterSource(
         ));
         continue;
       }
+      /* Delivery is not derivable: a void native method genuinely has two
+       * contracts (during the caller's frame, or copied and pumped) and
+       * the class file states neither, so the selection must. An answered
+       * callback has exactly one — its boolean IS the emitting call's
+       * result — so a stated delivery there is a second spelling of a
+       * decided fact, refused for the same reason dual readers are. */
+      if (answers && callback.delivery !== null) {
+        diagnostics.push(diagnostic(
+          `${path}/delivery`,
+          "An answered callback runs during the emitting call because its " +
+            "boolean is that call's result; the delivery field chooses " +
+            "between the void arms and is refused here",
+        ));
+        continue;
+      }
+      if (!answers && callback.delivery === null) {
+        diagnostics.push(diagnostic(
+          `${path}/delivery`,
+          "A void callback crosses on one of two arms — synchronous " +
+            "during the caller's frame, or queued at the runtime's pump — " +
+            "and the class file cannot say which; select it with " +
+            "delivery: 'synchronous' or 'queued'",
+        ));
+        continue;
+      }
+      const delivery = answers
+        ? ("answered" as const)
+        : callback.delivery === "synchronous"
+          ? ("told" as const)
+          : ("queued" as const);
       if (refused) continue;
       usesCallbacks = true;
       const suffix = overloadedCallbackNames.has(callback.name)
@@ -1128,9 +1161,12 @@ export function generateJvmAdapterSource(
           ? `${jniCTypes[parameter.primitive]} a${index}`
           : `void *a${index}`
       );
-      /* An answered trampoline returns the handler's boolean; a queued one
-       * returns nothing - the handler's C thunk enqueues and the delivery
-       * runs at the runtime's pump. */
+      /* An answered trampoline returns the handler's boolean; a void one
+       * returns nothing. Told and queued share this C shape deliberately:
+       * whether the handler runs during this frame or the payload is
+       * copied and pumped is the COMPILER's thunk's contract, spelled in
+       * the SCABI manifest — the trampoline only reaches the registered
+       * pointer. */
       const answerType = answers ? "jboolean" : "void";
       const callbackPointer = `${answerType} (*)(${[
         ...parameters.map((parameter) =>
@@ -1226,7 +1262,7 @@ export function generateJvmAdapterSource(
         descriptor: callback.descriptor,
         connectSymbol,
         parameters: Object.freeze([...parameters]),
-        answers,
+        delivery,
       }));
     }
     if (
@@ -1697,7 +1733,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 16,
+    schemaVersion: 17,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

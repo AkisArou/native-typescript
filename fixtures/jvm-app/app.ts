@@ -2,7 +2,12 @@ import {
   applicationComplete,
   applicationStart,
 } from "@native-typescript/jvm-application";
-import { Host, HostBridge, Widget } from "@native-typescript/jvm-fixture";
+import {
+  Host,
+  HostBridge,
+  LifecycleBridge,
+  Widget,
+} from "@native-typescript/jvm-fixture";
 
 /* The target brings the JVM up and binds every registered package; from
  * here on everything is ordinary generated surface. Scalars, handles,
@@ -163,6 +168,35 @@ try {
   bridgeThrew = true;
 }
 if (!bridgeThrew) failed = true;
+
+/* The telling inward direction — the arm fork 3c33818a admitted, live.
+ * Lifecycle.start dispatches the VOID override and then observes it in the
+ * same frame, so start's return discriminates the deliveries by
+ * construction: a queued handler has not run when start reads `created`,
+ * and this line would see 0. The handler reaches the base implementation
+ * through the void super binding (a reentrant native call from inside a
+ * told handler) and then marks, so the returned 1 also proves the
+ * generated ntsSuper path returns before the mark rather than deadlocking
+ * or reordering. After disconnect, the still-registered native override
+ * throws into Java, out of start, and into an ordinary TS catch — same
+ * contract as the answered arm. */
+const lifecycle = new LifecycleBridge();
+let createdSeen = 0;
+const lifecycleConnection = lifecycle.onCreate(() => {
+  createdSeen += 1;
+  lifecycle.ntsSuperOnCreate();
+  lifecycle.markCreated();
+});
+if (lifecycle.start() !== 1) failed = true;
+if (createdSeen !== 1) failed = true;
+lifecycleConnection.disconnect();
+let lifecycleThrew = false;
+try {
+  lifecycle.start();
+} catch {
+  lifecycleThrew = true;
+}
+if (!lifecycleThrew) failed = true;
 
 let ticks = 0;
 let deliveries = 0;
