@@ -137,6 +137,11 @@ export interface Counter extends CounterMiddle {
   dispose(): void;
 }
 
+/* The same C identity through the JavaScript-number carrier: the source sees
+ * an ordinary number, checked into the exact slot at the boundary and widened
+ * back out of it. A second binding over one symbol, which is legal because a
+ * binding declares a contract — only one of them may be reached per program. */
+export declare function numberI32Identity(value: number): number;
 export declare function i8Identity(value: i8): i8;
 export declare function u8Identity(value: u8): u8;
 export declare function i16Identity(value: i16): i16;

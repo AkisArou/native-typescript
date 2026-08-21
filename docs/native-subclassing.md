@@ -301,3 +301,86 @@ The common native-subclass suite includes:
 - multiple runtime instances without a process-global peer collision;
 - generated artifact determinism and application metadata agreement;
 - sanitizer, leak, and platform lifecycle fixtures.
+
+## Implementation status — Android/JNI
+
+The JVM track built most of this document's Android path WITHOUT REFERENCE TO
+IT, which is the strongest evidence available that the direction is right: what
+follows is a list of predictions this document made, discovered independently
+and then found already written down. What it records is what EXISTS, so a
+reader can tell the direction from the distance still to travel.
+
+**Host-owned construction, without the peer.** The packager generates a `final`
+Java subclass named in the generated manifest, compiled by javac against the
+platform jar, and ART constructs it (`0d39608b`, `516cb34d`). The generated
+class carries `static { System.loadLibrary(…) }`, because a class the platform
+constructs runs nothing of ours first, and it is generated into a package the
+application owns — Android refuses application classes defined under
+`android.*`.
+
+What is absent is the PEER. A reached override today dispatches to a
+registration rather than to a TypeScript object, so this document's "create or
+attach one TypeScript peer" step has no implementation and ordinary instance
+fields have nowhere to live.
+
+**Registration is class-anchored** (`350348fb`, `70b4155c`). The platform never
+hands over the instance before calling it, so there is no moment at which a
+program could name one: registration attaches to the CLASS, answers for every
+instance, and the receiver arrives as the handler's first argument. The
+contract is process-owned — nothing owns the registration, so it returns
+nothing and cancels through nothing — and the receiver crosses as an owned
+handle the adapter promotes from the frame-scoped JNI local, with the managed
+cell's destructor giving the promotion back. Storing it is therefore
+memory-safe; keeping it past `onDestroy` is the ordinary Android leak, which is
+the program's business.
+
+**Lifecycle overrides run on the thread ART dispatches on** (`92bbc773`).
+`JNI_OnLoad` adopts the LOADING thread as the instance's owner and returns —
+nothing spawned, nothing parked — which is correct because the library is
+loaded from the generated Activity's own static initializer, so the loading
+thread is the main looper's. Every generated trampoline asks the runtime whether
+it is on the owning thread and throws `IllegalStateException` by name otherwise
+(`512fa6b4`); the predicate is weak, so an adapter linked without this runtime
+degrades to the previous behaviour rather than refusing every delivery.
+
+**The base call is a real binding.** `super`'s mechanism is this document's
+first listed option: a generated Java superclass bridge that javac compiles to
+`invokespecial`, ingested as an ordinary instance method. **Divergence,
+temporary:** it is currently EXPOSED on the TypeScript surface as
+`ntsSuperOnCreate`, which the `super` semantics section explicitly refuses. It
+has nowhere else to live until `extends` gives `super` something to mean. It is
+a way-station, and it should disappear in the same change that admits native
+base classes.
+
+**Payloads.** An override's object payload crosses as an owned handle, and a
+SYNCHRONOUS payload may be withheld (`6e371b36`, `ecbe9957`) — which is what a
+first launch's null `savedInstanceState` is: the platform reporting absence,
+not a caller declining to pass something. Both arms are taken on a device: a
+cold start reports "fresh", a rotation recreates the Activity and reports
+"restored".
+
+**`implements` for interfaces is built**, and the contrast with the paragraph
+above is the part worth keeping. ART constructs the Activity, so its lifecycle
+registration is class-anchored and process-owned; the program constructs a
+listener, so its registration is instance-anchored the ordinary way. One
+generator, opposite anchors, and the difference is WHO OWNS THE OBJECT rather
+than what kind of thing it is. A generated bridge implementing
+`View.OnClickListener` passes where the interface is expected because identity
+upcasts now include selected interfaces, walked transitively — at the ABI a
+jobject is a jobject, and the manifest says so. A default method is refused by
+name: replacing an implementation the interface already provides is a different
+act from providing the first one.
+
+**It runs** (`4577bd6c`). A signed, 16KB-aligned APK installs and launches on an
+emulator; the device lane asserts the platform's own view hierarchy rather than
+pixels or only a log line, so what it checks is that the handler's work reached
+the platform. A tap reaches a TypeScript handler and its result returns to the
+screen.
+
+### Not yet built
+
+- **The peer**, and therefore instance fields. This is the largest gap between
+  the code and this document.
+- **`extends` over a native base class** in the lowerer, which knows `extends`
+  only for mixin functions today.
+- **An application-declared constructor**, which this document already defers.

@@ -19,6 +19,22 @@ const manifest = structuredClone(parseScabiManifest(
   readFileSync(join(fixtureRoot, "package.scabi.json"), "utf8"),
 ));
 Object.assign(manifest.bindings, {
+  /* The same exact type a generated surface can only declare as `number`,
+   * because type mapping runs from the underlying primitive and a brand does
+   * not change it. Injected here beside the exact spelling so the cross-gate
+   * runs both branches of the constant rule through the parent's translator. */
+  fixture_count: {
+    kind: "constant",
+    declaration: { module: ".", name: "FixtureValue.count" },
+    type: "i32",
+    value: "17",
+    dependencies: {
+      adapterInputs: [],
+      bindings: [],
+      linkInputs: [],
+      permissions: [],
+    },
+  },
   fixture_answer: {
     kind: "constant",
     declaration: { module: ".", name: "FixtureValue.answer" },
@@ -35,11 +51,13 @@ Object.assign(manifest.bindings, {
 const translated = translateScabiNativeProgram(manifest, {
   imports: [
     "fixture_answer",
+    "fixture_count",
     "i8_identity",
     "u8_identity",
     "i16_identity",
     "u16_identity",
     "i32_identity",
+    "number_i32_identity",
     "u32_identity",
     "i64_identity",
     "u64_identity",
@@ -106,7 +124,8 @@ const declarationsPath = join(declarationsDirectory, "package.d.ts");
 writeFileSync(
   declarationsPath,
   `${readFileSync(join(fixtureRoot, "package.d.ts"), "utf8")}\n` +
-    "export declare namespace FixtureValue {\n  const answer: i32;\n}\n",
+    "export declare namespace FixtureValue {\n  const answer: i32;\n" +
+    "  const count: number;\n}\n",
 );
 
 let result;
