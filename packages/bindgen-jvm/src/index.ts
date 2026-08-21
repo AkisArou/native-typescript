@@ -1,5 +1,5 @@
 export { ingestJvmClasses } from "./jvm.ts";
-export { readJarClassSources } from "./jar.ts";
+export { readJarClassSources, readZipEntries } from "./jar.ts";
 export { generateJvmSubclassSource } from "./jvm-subclass.ts";
 export type {
   JvmSubclassSelection,

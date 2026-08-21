@@ -89,6 +89,16 @@ function fileArtifact(
 export interface AndroidApkPlan {
   readonly artifacts: readonly ArtifactDefinition[];
   readonly actions: readonly ArtifactActionDefinition[];
+  /** Everything up to and including the dex archive. */
+  readonly compile: {
+    readonly artifacts: readonly ArtifactDefinition[];
+    readonly actions: readonly ArtifactActionDefinition[];
+  };
+  /** Everything after the dex entry has been staged. */
+  readonly package: {
+    readonly artifacts: readonly ArtifactDefinition[];
+    readonly actions: readonly ArtifactActionDefinition[];
+  };
   /** The id to ask the executor for. */
   readonly productId: string;
 }
@@ -112,11 +122,27 @@ export function planAndroidApk(input: {
   readonly minSdk: number;
   readonly tools: {
     readonly aapt2: ArtifactActionDefinition["tool"];
-    readonly d8: ArtifactActionDefinition["tool"];
+    /* d8 and apksigner ship as shell wrappers around a jar, and a wrapper
+     * needs `java` on PATH — which a sandboxed action does not have, and
+     * must not be given, because a PATH naming a JDK is a physical path
+     * entering a plan. So the TOOL is the JVM itself and the jar is an
+     * ordinary input artifact. */
+    readonly java: ArtifactActionDefinition["tool"];
     readonly jar: ArtifactActionDefinition["tool"];
     readonly zipalign: ArtifactActionDefinition["tool"];
-    readonly apksigner: ArtifactActionDefinition["tool"];
   };
+  /** Artifact ids for the two build-tools jars run through `java`. */
+  readonly jars: {
+    readonly d8: string;
+    readonly apksigner: string;
+  };
+  /** A directory holding every entry the APK carries, staged by the build
+   * out of the linked archive, the dex archive and the built library:
+   * the assembly NAMES entries, and an entry inside an archive is not
+   * one. */
+  readonly stagingArtifact: string;
+  /** The entry names, in the order the archive will carry them. */
+  readonly entries: readonly string[];
   readonly keyAlias: string;
   readonly keyPassword: string;
 }): AndroidApkPlan {
@@ -130,23 +156,20 @@ export function planAndroidApk(input: {
   };
 
   const linkActionId = "link/android/resources";
-  const linked: ArtifactDefinition = Object.freeze({
-    id: ids.linked,
-    kind: "source-tree",
-    entryType: "directory",
-    mediaType: "inode/directory",
-    target: input.target,
-    domain: "target",
-    cache: "exportable",
-    origin: Object.freeze({
-      kind: "action",
-      action: linkActionId,
-      fileName: "android-linked",
-    }),
-  });
-  /* --output-to-dir is what makes the rest of the chain pure: the binary
-   * manifest ART reads is a FILE here, so the APK can be created from
-   * named entries instead of edited in place. */
+  /* aapt2 and d8 both write an ARCHIVE, or into a directory that already
+   * exists — and an action's output directory does not exist when the
+   * tool starts, because nothing pre-creates it. Both therefore produce
+   * files here, and the build stages the entries it needs out of them
+   * between graphs, exactly as it stages the library. That also keeps
+   * every stage pure: the obvious `jar --update` would edit an archive in
+   * place, which an artifact action cannot be. */
+  const linked = fileArtifact(
+    ids.linked,
+    linkActionId,
+    "base.apk",
+    "application/vnd.android.package-archive",
+    input.target,
+  );
   const linkAction = action({
     id: linkActionId,
     implementation: Object.freeze({
@@ -166,7 +189,6 @@ export function planAndroidApk(input: {
         kind: "input-path" as const,
         artifact: input.androidJarArtifact,
       }),
-      Object.freeze({ kind: "literal" as const, value: "--output-to-dir" }),
       Object.freeze({ kind: "literal" as const, value: "-o" }),
       Object.freeze({ kind: "output-path" as const, artifact: ids.linked }),
     ]),
@@ -176,20 +198,19 @@ export function planAndroidApk(input: {
   });
 
   const dexActionId = "compile/android/dex";
-  const dex: ArtifactDefinition = Object.freeze({
-    id: ids.classes,
-    kind: "source-tree",
-    entryType: "directory",
-    mediaType: "inode/directory",
-    target: input.target,
-    domain: "target",
-    cache: "exportable",
-    origin: Object.freeze({
-      kind: "action",
-      action: dexActionId,
-      fileName: "android-dex",
-    }),
-  });
+  /* d8 writes either an ARCHIVE or an existing directory, and an action's
+   * output directory does not exist when the tool starts — nothing
+   * pre-creates it, and a tool that will not create its own output cannot
+   * be handed one. So the dex stage produces the archive d8 offers, and
+   * the entry inside it is staged for assembly the same way the library
+   * is: by the build, between graphs, with a digest. */
+  const dex = fileArtifact(
+    ids.classes,
+    dexActionId,
+    "classes.zip",
+    "application/zip",
+    input.target,
+  );
   /* The class files are named individually rather than handed a
    * directory, because d8 takes files and because a named list is the
    * same list on every machine. */
@@ -199,8 +220,14 @@ export function planAndroidApk(input: {
       id: "native-typescript/android-d8",
       version: "1",
     }),
-    tool: Object.freeze({ ...input.tools.d8 }),
+    tool: Object.freeze({ ...input.tools.java }),
     arguments: Object.freeze([
+      Object.freeze({ kind: "literal" as const, value: "-cp" }),
+      Object.freeze({ kind: "input-path" as const, artifact: input.jars.d8 }),
+      Object.freeze({
+        kind: "literal" as const,
+        value: "com.android.tools.r8.D8",
+      }),
       Object.freeze({ kind: "literal" as const, value: "--min-api" }),
       Object.freeze({ kind: "literal" as const, value: `${input.minSdk}` }),
       Object.freeze({ kind: "literal" as const, value: "--lib" }),
@@ -220,6 +247,7 @@ export function planAndroidApk(input: {
     ]),
     inputs: Object.freeze([
       ...new Set([
+        input.jars.d8,
         input.androidJarArtifact,
         ...input.classes.map(({ artifact }) => artifact),
       ]),
@@ -256,20 +284,16 @@ export function planAndroidApk(input: {
       Object.freeze({ kind: "literal" as const, value: "--no-compress" }),
       Object.freeze({ kind: "literal" as const, value: "--date" }),
       Object.freeze({ kind: "literal" as const, value: APK_ENTRY_DATE }),
-      Object.freeze({ kind: "literal" as const, value: "-C" }),
-      Object.freeze({ kind: "input-path" as const, artifact: ids.linked }),
-      Object.freeze({ kind: "literal" as const, value: "AndroidManifest.xml" }),
-      Object.freeze({ kind: "literal" as const, value: "-C" }),
-      Object.freeze({ kind: "input-path" as const, artifact: ids.linked }),
-      Object.freeze({ kind: "literal" as const, value: "resources.arsc" }),
-      Object.freeze({ kind: "literal" as const, value: "-C" }),
-      Object.freeze({ kind: "input-path" as const, artifact: ids.classes }),
-      Object.freeze({ kind: "literal" as const, value: "classes.dex" }),
-      Object.freeze({ kind: "literal" as const, value: "-C" }),
-      Object.freeze({ kind: "input-path" as const, artifact: ids.library }),
-      Object.freeze({ kind: "literal" as const, value: input.libraryEntry }),
+      ...input.entries.flatMap((entry) => [
+        Object.freeze({ kind: "literal" as const, value: "-C" }),
+        Object.freeze({
+          kind: "input-path" as const,
+          artifact: input.stagingArtifact,
+        }),
+        Object.freeze({ kind: "literal" as const, value: entry }),
+      ]),
     ]),
-    inputs: Object.freeze([ids.linked, ids.classes, ids.library]),
+    inputs: Object.freeze([input.stagingArtifact]),
     outputs: Object.freeze([ids.unaligned]),
     ...common,
   });
@@ -322,8 +346,13 @@ export function planAndroidApk(input: {
       id: "native-typescript/android-apksigner",
       version: "1",
     }),
-    tool: Object.freeze({ ...input.tools.apksigner }),
+    tool: Object.freeze({ ...input.tools.java }),
     arguments: Object.freeze([
+      Object.freeze({ kind: "literal" as const, value: "-jar" }),
+      Object.freeze({
+        kind: "input-path" as const,
+        artifact: input.jars.apksigner,
+      }),
       Object.freeze({ kind: "literal" as const, value: "sign" }),
       Object.freeze({ kind: "literal" as const, value: "--ks" }),
       Object.freeze({ kind: "input-path" as const, artifact: ids.keystore }),
@@ -352,11 +381,20 @@ export function planAndroidApk(input: {
         value: "--v2-signing-enabled",
       }),
       Object.freeze({ kind: "literal" as const, value: "true" }),
+      /* v4 writes a SECOND file beside the APK — an .idsig for incremental
+       * install — which this action never declared and the executor is
+       * right to refuse. It is an install-time optimisation, not a
+       * signature the package needs to be valid. */
+      Object.freeze({
+        kind: "literal" as const,
+        value: "--v4-signing-enabled",
+      }),
+      Object.freeze({ kind: "literal" as const, value: "false" }),
       Object.freeze({ kind: "literal" as const, value: "--out" }),
       Object.freeze({ kind: "output-path" as const, artifact: ids.signed }),
       Object.freeze({ kind: "input-path" as const, artifact: ids.aligned }),
     ]),
-    inputs: Object.freeze([ids.aligned, ids.keystore]),
+    inputs: Object.freeze([ids.aligned, ids.keystore, input.jars.apksigner]),
     outputs: Object.freeze([ids.signed]),
     ...common,
   });
@@ -370,6 +408,14 @@ export function planAndroidApk(input: {
       alignAction,
       signAction,
     ]),
+    compile: Object.freeze({
+      artifacts: Object.freeze([linked, dex]),
+      actions: Object.freeze([linkAction, dexAction]),
+    }),
+    package: Object.freeze({
+      artifacts: Object.freeze([unaligned, aligned, signed]),
+      actions: Object.freeze([assembleAction, alignAction, signAction]),
+    }),
     productId: ids.signed,
   });
 }

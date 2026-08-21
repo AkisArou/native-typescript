@@ -463,6 +463,11 @@ export function generateJvmScabiPackage(
       )?.superclass ?? null;
     }
     upcasts.push(Object.freeze({ kind: "identity" as const, target: "jvm.object" }));
+    /* Ascending by target, not inheritance order: the contract reads this
+     * as a SET of valid identity targets, and the ordering is what makes a
+     * duplicate target detectable — so it is a real sort rather than a
+     * convention about which ancestor comes first. */
+    upcasts.sort((left, right) => compareText(left.target, right.target));
     types[typeId] = Object.freeze({
       kind: "handle",
       nativeName: class_.binaryName,

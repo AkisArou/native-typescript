@@ -36,10 +36,40 @@ function fail(
   throw new JvmIngestionError([diagnostic]);
 }
 
+/**
+ * Every entry an archive carries, by name. `readJarClassSources` is this
+ * with the class-file filter applied — one ZIP implementation, because a
+ * second consumer of the same archive format should not grow a second
+ * central-directory parser.
+ */
+export function readZipEntries(
+  jarBytes: Uint8Array,
+  jarLogicalPath: string,
+): { readonly name: string; readonly bytes: Uint8Array }[] {
+  return readArchive(jarBytes, jarLogicalPath, () => true).map(
+    ({ name, bytes }) => ({ name, bytes }),
+  );
+}
+
 export function readJarClassSources(
   jarBytes: Uint8Array,
   jarLogicalPath: string,
 ): JvmClassSource[] {
+  return readArchive(
+    jarBytes,
+    jarLogicalPath,
+    (name) => name.endsWith(".class") && !name.startsWith("META-INF/"),
+  ).map(({ name, bytes }) => ({
+    logicalPath: `${jarLogicalPath}!/${name}`,
+    bytes,
+  }));
+}
+
+function readArchive(
+  jarBytes: Uint8Array,
+  jarLogicalPath: string,
+  admit: (name: string) => boolean,
+): { readonly name: string; readonly bytes: Uint8Array }[] {
   const view = new DataView(
     jarBytes.buffer,
     jarBytes.byteOffset,
@@ -82,7 +112,7 @@ export function readJarClassSources(
   }
   const offsetDelta = centralStart - statedCentralOffset;
 
-  const sources: JvmClassSource[] = [];
+  const sources: { name: string; bytes: Uint8Array }[] = [];
   let cursor = centralStart;
   const decoder = new TextDecoder("utf-8", { fatal: true });
   for (let entry = 0; entry < entryCount; entry++) {
@@ -118,7 +148,7 @@ export function readJarClassSources(
     }
     cursor += 46 + nameLength + extraLength + commentLength;
 
-    if (!name.endsWith(".class") || name.startsWith("META-INF/")) continue;
+    if (!admit(name)) continue;
     const entryPath = `${jarLogicalPath}!/${name}`;
     if ((flags & 0x0001) !== 0) {
       fail("NTS6005", entryPath, "Encrypted ZIP entries are not supported");
@@ -175,7 +205,7 @@ export function readJarClassSources(
           `declares ${uncompressedSize}`,
       );
     }
-    sources.push({ logicalPath: entryPath, bytes });
+    sources.push({ name, bytes });
   }
   return sources;
 }

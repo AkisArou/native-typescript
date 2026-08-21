@@ -19,7 +19,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
-import { readJarClassSources } from "@native-typescript/bindgen-jvm";
+import {
+  readJarClassSources,
+  readZipEntries,
+} from "@native-typescript/bindgen-jvm";
 import {
   defineArtifactGraph,
   digestArtifactPath,
@@ -176,8 +179,17 @@ export async function buildAndroidApk(input: {
    * APK, so the assembly names one path that is both its location in the
    * input tree and its name in the archive. */
   const libraryEntry = `lib/${project.android.abi}/lib${project.output}.so`;
-  const libraryRoot = join(input.scratch, "native");
-  const stagedLibrary = join(libraryRoot, libraryEntry);
+  /* Every entry the APK carries, in the order the archive states them.
+   * The manifest and the resource table come out of aapt2's archive, the
+   * dex out of d8's, and the library is copied straight in. */
+  const apkEntries = [
+    "AndroidManifest.xml",
+    "resources.arsc",
+    "classes.dex",
+    libraryEntry,
+  ];
+  const stagingRoot = join(input.scratch, "staging");
+  const stagedLibrary = join(stagingRoot, libraryEntry);
   mkdirSync(join(stagedLibrary, ".."), { recursive: true });
   copyFileSync(built.productPath, stagedLibrary);
 
@@ -229,6 +241,9 @@ export async function buildAndroidApk(input: {
   }
 
   const ids = androidApkArtifactIds;
+  const d8JarId = "sdk/android-d8-jar";
+  const stagingId = "source/android/apk-staging";
+  const apksignerJarId = "sdk/android-apksigner-jar";
   const primaryClassesId = "source/android/classes-primary";
   const subclassClassesId = "source/android/classes-subclass";
   const androidJarId = "sdk/android-platform-jar";
@@ -236,7 +251,14 @@ export async function buildAndroidApk(input: {
    * classes may be the generated Activity, with everything else coming
    * from the platform. */
   const primaryClassesPath = built.builtClassesPath;
-  const [manifest, library, keystore, subclassClasses, androidJar] =
+  const [
+    manifest,
+    keystore,
+    subclassClasses,
+    androidJar,
+    d8Jar,
+    apksignerJar,
+  ] =
     await Promise.all([
       sourceFile(
         ids.manifest,
@@ -245,7 +267,7 @@ export async function buildAndroidApk(input: {
         "AndroidManifest.xml",
         "generated/android/AndroidManifest.xml",
       ),
-      sourceTree(ids.library, libraryRoot, "android-native", "generated/android/native"),
+
       sourceFile(
         ids.keystore,
         input.keystore.path,
@@ -265,6 +287,23 @@ export async function buildAndroidApk(input: {
         "application/java-archive",
         "android.jar",
         "android-sdk/android.jar",
+      ),
+      /* The build-tools jars, run through the JDK rather than through
+       * their shell wrappers: a wrapper needs `java` on PATH, and a
+       * sandboxed action has no PATH to give it. */
+      sourceFile(
+        d8JarId,
+        join(input.tools.d8, "../lib/d8.jar"),
+        "application/java-archive",
+        "d8.jar",
+        "android-sdk/d8.jar",
+      ),
+      sourceFile(
+        apksignerJarId,
+        join(input.tools.apksigner, "../lib/apksigner.jar"),
+        "application/java-archive",
+        "apksigner.jar",
+        "android-sdk/apksigner.jar",
       ),
     ]);
 
@@ -296,51 +335,106 @@ export async function buildAndroidApk(input: {
     minSdk: project.android.minSdk,
     tools: {
       aapt2: await toolIdentity("tool/aapt2", input.tools.aapt2),
-      d8: await toolIdentity("tool/d8", input.tools.d8),
+      java: await toolIdentity("tool/java", join(input.javaHome, "bin/java")),
       jar: await toolIdentity("tool/jar", join(input.javaHome, "bin/jar")),
       zipalign: await toolIdentity("tool/zipalign", input.tools.zipalign),
-      apksigner: await toolIdentity("tool/apksigner", input.tools.apksigner),
     },
+    jars: { d8: d8JarId, apksigner: apksignerJarId },
+    stagingArtifact: stagingId,
+    entries: apkEntries,
     keyAlias: input.keystore.alias,
     keyPassword: input.keystore.password,
   });
+
+  const commonInputs = {
+    tools: {
+      "tool/aapt2": { path: input.tools.aapt2 },
+      "tool/java": { path: join(input.javaHome, "bin/java") },
+      "tool/jar": { path: join(input.javaHome, "bin/jar") },
+      "tool/zipalign": { path: input.tools.zipalign },
+    },
+    sandbox: { kind: "bubblewrap" as const, path: input.tools.sandbox },
+    ...(input.cachePath === undefined
+      ? {}
+      : { cache: { kind: "local" as const, path: input.cachePath } }),
+  };
+  const sharedSources = {
+    [ids.manifest]: manifestPath,
+    [ids.keystore]: input.keystore.path,
+    ...(primaryClassesPath === undefined
+      ? {}
+      : { [primaryClassesId]: primaryClassesPath }),
+    [subclassClassesId]: built.builtSubclassesPath,
+    [androidJarId]: input.androidJarPath,
+    [d8JarId]: join(input.tools.d8, "../lib/d8.jar"),
+    [apksignerJarId]: join(input.tools.apksigner, "../lib/apksigner.jar"),
+  };
+  const compiled = await executeArtifactGraph(
+    defineArtifactGraph({
+      artifacts: [
+        manifest,
+        ...(primaryClasses === undefined ? [] : [primaryClasses]),
+        subclassClasses,
+        androidJar,
+        d8Jar,
+        ...plan.compile.artifacts,
+      ],
+      actions: [...plan.compile.actions],
+    }),
+    {
+      buildRoot: join(input.scratch, "compile"),
+      sourcePaths: sharedSources,
+      ...commonInputs,
+    },
+  );
+  /* Stage what the two archives carry. The same ZIP reader that ingests
+   * jars and jmods reads them, so packaging gains no tool for a job this
+   * build already knows how to do. */
+  function stageEntries(archivePath: string, wanted: readonly string[]): void {
+    const entries = readZipEntries(readFileSync(archivePath), archivePath);
+    for (const name of wanted) {
+      const entry = entries.find((candidate) => candidate.name === name);
+      if (entry === undefined) {
+        throw new Error(`${archivePath} carries no ${name}`);
+      }
+      const destination = join(stagingRoot, name);
+      mkdirSync(join(destination, ".."), { recursive: true });
+      writeFileSync(destination, entry.bytes);
+    }
+  }
+  const linkedArchive = compiled.artifacts.find(({ id }) => id === ids.linked);
+  const dexArchive = compiled.artifacts.find(({ id }) => id === ids.classes);
+  if (linkedArchive === undefined || dexArchive === undefined) {
+    throw new Error("the Android compile phase produced no archives");
+  }
+  stageEntries(linkedArchive.path, ["AndroidManifest.xml", "resources.arsc"]);
+  stageEntries(dexArchive.path, ["classes.dex"]);
+  const staging = await sourceTree(
+    stagingId,
+    stagingRoot,
+    "android-apk-staging",
+    "generated/android/staging",
+  );
 
   const report = await executeArtifactGraph(
     defineArtifactGraph({
       artifacts: [
         manifest,
-        library,
         keystore,
-        ...(primaryClasses === undefined ? [] : [primaryClasses]),
-        subclassClasses,
         androidJar,
-        ...plan.artifacts,
+        apksignerJar,
+        staging,
+        ...plan.package.artifacts,
       ],
-      actions: [...plan.actions],
+      actions: [...plan.package.actions],
     }),
     {
       buildRoot: join(input.scratch, "package"),
       sourcePaths: {
-        [ids.manifest]: manifestPath,
-        [ids.library]: libraryRoot,
-        [ids.keystore]: input.keystore.path,
-        ...(primaryClassesPath === undefined
-          ? {}
-          : { [primaryClassesId]: primaryClassesPath }),
-        [subclassClassesId]: built.builtSubclassesPath,
-        [androidJarId]: input.androidJarPath,
+        ...sharedSources,
+        [stagingId]: stagingRoot,
       },
-      tools: {
-        "tool/aapt2": { path: input.tools.aapt2 },
-        "tool/d8": { path: input.tools.d8 },
-        "tool/jar": { path: join(input.javaHome, "bin/jar") },
-        "tool/zipalign": { path: input.tools.zipalign },
-        "tool/apksigner": { path: input.tools.apksigner },
-      },
-      sandbox: { kind: "bubblewrap", path: input.tools.sandbox },
-      ...(input.cachePath === undefined
-        ? {}
-        : { cache: { kind: "local" as const, path: input.cachePath } }),
+      ...commonInputs,
     },
   );
   const apk = report.artifacts.find(({ id }) => id === plan.productId);

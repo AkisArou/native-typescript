@@ -34,11 +34,18 @@ function plan() {
     minSdk: 35,
     tools: {
       aapt2: tool("tool/aapt2"),
-      d8: tool("tool/d8"),
+      java: tool("tool/java"),
       jar: tool("tool/jar"),
       zipalign: tool("tool/zipalign"),
-      apksigner: tool("tool/apksigner"),
     },
+    jars: { d8: "sdk/android-d8-jar", apksigner: "sdk/android-apksigner-jar" },
+    stagingArtifact: "source/android/apk-staging",
+    entries: [
+      "AndroidManifest.xml",
+      "resources.arsc",
+      "classes.dex",
+      "lib/x86_64/libntsdemo.so",
+    ],
     keyAlias: "nts",
     keyPassword: "android",
   });
@@ -129,10 +136,10 @@ test("the APK chain is five pure stages, each a function of its inputs", () => {
 });
 
 test("the package's load-bearing properties are argued, not defaulted", () => {
-  // --output-to-dir is what makes the chain pure: the binary manifest
-  // lands as a file, so the APK is created from named entries rather
-  // than edited.
-  assert.ok(literals("link/android/resources").includes("--output-to-dir"));
+  /* aapt2 and d8 both write archives, because an action's output
+   * directory does not exist when the tool starts — so the build stages
+   * the entries out of them and the APK is CREATED from named entries
+   * rather than edited in place. */
 
   const assemble = literals("package/android/apk-assemble");
   // STORED entries, because a mapped library cannot be decompressed on
@@ -175,5 +182,11 @@ test("the dex stage names every class and desugars against the platform", () => 
   // --lib is the platform's own classes: d8 needs them to desugar
   // against, and it is the same jar the manifest linked against.
   assert.ok(literals("compile/android/dex").includes("--lib"));
+  /* d8 and apksigner ship as shell wrappers needing `java` on PATH, which
+   * a sandboxed action has none of — so the JVM is the tool and the jar
+   * is an input, rather than a PATH naming a JDK entering the plan. */
+  assert.ok(literals("compile/android/dex").includes("com.android.tools.r8.D8"));
+  assert.ok(dex.inputs.includes("sdk/android-d8-jar"));
+  assert.ok(literals("package/android/apk-sign").includes("-jar"));
   assert.ok(dex.inputs.includes("sdk/android-platform-jar"));
 });
