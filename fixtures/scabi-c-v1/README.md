@@ -23,6 +23,15 @@ hierarchy, synchronous callbacks, retained same/foreign-thread callbacks,
 native errors, and exact destruction under ordinary and sanitizer/reference-
 count lanes.
 
+It also covers the shapes a framework boundary needs, which are here because
+that gate is the only place this manifest's translation is COMPILED AND RUN
+rather than merely validated: a handler that receives an object while running
+inside the caller's frame, both telling (`tellWith`) and answering
+(`judgeWith`); a registration nothing owns and nothing can cancel
+(`noticeWith`); UTF-8 whose length arrives beside the pointer and whose text
+contains a NUL; and a failure slot under a sub-word result in both
+signednesses.
+
 The exported `nts_ts_add_i32` symbol is deliberately declared but not
 implemented here. It becomes the first TypeScript-to-C export produced by the
 ScriptC Native IR slice.
