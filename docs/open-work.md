@@ -281,18 +281,60 @@ NOT, so a PLANNED archive is uniformly PIC only because the planner refuses
 the vendored cases above. Widening those helpers touches objects the
 executable lane shares, so it carries its own cache-key consequences.
 
-### Splitting the loop's checkpoint from its fibers
+### Splitting the loop's checkpoint from its fibers — NOW BLOCKING ANDROID
 
-`attached-loop` pulls in `scr_async.c` AND `scr_child.c`, so a library that
-pumps carries fibers, timers, and child-process support it never enters. The
-attached-source registration is trivially separable; `scr_loop_checkpoint`
-is not, because it delegates to the tick and microtask drain.
+The Android crossing has exactly one gap in the compiler's box, and it is
+narrower than a port. Bionic declares `ucontext_t` for signals and ships none
+of `getcontext`/`makecontext`/`swapcontext` — they exist in no Android libc
+version. Everything else in the runtime set compiles clean for bionic under the
+NDK's clang.
 
-A refactor of the runtime's loop rather than a packaging decision.
+**The target is smaller than "scr_async.c on Android".** `LIB_RUNTIME_SOURCES`
+already excludes `scr_async.c`, so a library build never sees those functions.
+What pulls the file back in is the `attachedLoop` gate in `cc.ts` — added when
+a host that owns its loop needed the service — and a hosted JVM product
+requires exactly that. So the question is not how to port fibers to bionic; it
+is what the attached loop actually needs, which is the checkpoint and the queue
+drain rather than the fiber machinery. Library emission requires an async-free
+module graph, so no hosted product can reach a fiber at all: the gap is
+entirely in code the Android `.so` links and can never run.
 
-## In the parent
+Three shapes, with what each costs.
 
-Nothing here needs the compiler.
+**Reuse the existing musl asm.** `scr_musl.c` already implements all three in
+assembly for x86_64 and AArch64. It is excluded from library builds by
+`#ifndef SCR_LIB`, and that guard's reason is symbol collision with a host libc
+that has these functions — which bionic does not, so the rationale does not
+apply. **But the asm writes at hardcoded offsets into the libc's `ucontext_t`**
+(`SCR_UC_GREG(reg)` is `40 + reg * 8`), and bionic's layout is not musl's until
+something proves it is. That is an ABI fact, so it needs a Clang probe against
+the real headers rather than an assumption, and getting it wrong is silent
+stack corruption rather than a diagnostic.
+
+**A fourth `ScrCtx` arm with our own context struct.** The seam at
+`scr_async.c:291` is already three-armed — Windows fibers, WASI stackless,
+POSIX ucontext — and a fourth arm could save into a struct THIS project
+defines, with save/restore named `scr_ctx_*` rather than the libc's. That
+removes both hazards at once: no layout to probe, because the layout is ours,
+and no collision, because the symbols are ours. It is the cleanest of the
+three and it is roughly sixty lines of new context-switch assembly across two
+architectures — the kind of code where a mistake is silent stack corruption,
+so it wants a rested author and its own falsification.
+
+**Split the checkpoint from the fibers.** Architecturally the best answer and
+the one this entry was originally about. Measured rather than assumed: only
+~102 lines of the 3369 mention a fiber, but they are THREADED through the file
+rather than sitting in a block, and the checkpoint's fiber contact is a single
+step — draining `scr_ready` — that an async-free build never enters. So it is
+restructuring rather than carving, and the honest estimate is that it is the
+largest of the three.
+
+**Recommendation:** the fourth `ScrCtx` arm. It needs no ABI evidence about
+bionic, leaves the fiber path working rather than excluded-and-unreachable,
+introduces no second runtime configuration, and is bounded work with a clear
+falsification. The split remains worth doing on its own merits, but Android
+should not wait behind a 3369-line restructuring when sixty lines of assembly
+under our own names settles it.
 
 ### Target planner and staged build pipeline
 
