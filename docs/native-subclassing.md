@@ -198,6 +198,20 @@ invalidation edges follow authoritative platform ownership.
 
 ### What holds the peer, and what lets go
 
+**The peer holds the handle, and the terminal event releases it rather than
+the collector.** The peer needs the handle to call inherited methods, and it
+needs it outside a dispatch — a closure created in `onCreate` and run on a
+later tap may call `this.finish()`, with no receiver arriving from anywhere.
+So the reference is owned, not borrowed per dispatch.
+
+That makes deterministic release part of the design rather than a nicety. A
+global reference to an Activity keeps its view tree and its Context alive,
+which is the classic Android leak; holding one until a collector happens to
+notice would mean the platform's teardown had completed while the objects it
+tore down were still reachable. The terminal event is what makes the release
+a point in time instead of an eventuality — which is a second reason for it
+to exist, beyond cutting the cycle.
+
 The peer carries the native handle, or inherited methods cannot be called on
 it. Something must hold the PEER, or it is collected between two lifecycle
 callbacks and the program loses its state without a word. If the thing holding
@@ -288,6 +302,21 @@ checks Java exceptions, and invokes lifecycle overrides on the main Looper.
 Android may destroy and later recreate an activity. Source fields therefore
 belong to that activity peer, not durable application state by implication.
 Saved-state APIs remain ordinary Android APIs.
+
+This is not a concession and it is not ours: a recreated activity is a new
+Java object whose own fields are gone, so a peer field resetting is the
+behaviour a Java or Kotlin program has. What differs is only that nobody
+expects it the first time, in either language.
+
+**It needs a test that fails if the peer WRONGLY survives**, and that test is
+not the same as the one asserting recreation happened. A peer that outlived
+its object would keep its fields, and every existing assertion — the
+lifecycle line, the restored arm, the view hierarchy — would still pass,
+because each of them is about the new object and none is about the old one's
+state being gone. The device lane already rotates and takes the restored arm;
+what it does not yet do is assert that state set before the rotation is
+ABSENT after it. Until it does, "the peer is per-object" is a claim nothing
+can contradict.
 
 ### Apple/Objective-C
 
