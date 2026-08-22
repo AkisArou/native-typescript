@@ -108,6 +108,16 @@ delivery, and teardown should be measured on a device before `GetEnv`
 propagation, call fusion, foreign-resident strings, or `@FastNative` becomes a
 priority.
 
+The application-measurement half has since become executable. The three-way
+Kotlin and plain-NativeScript harness began in
+[record 0015](0015-first-android-nativescript-baseline.md), admitted the first
+resource optimization in [record 0016](0016-frame-bounded-native-results.md),
+and now declares strings, primitive arrays, returned handles, callback
+payloads, real text mutation, and a composite screen separately in
+[record 0017](0017-android-hotspot-matrix.md). Structural JNI counters remain
+the missing half; device ratios still do not prove which resource operation
+caused them.
+
 ## Findings accepted with modification
 
 ### The foreign-boundary legalizer is in progress, not absent

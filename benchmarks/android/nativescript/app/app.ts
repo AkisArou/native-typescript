@@ -13,11 +13,21 @@ const LIGHT_OBJECT_ITERATIONS = 50000;
 const CONSTRUCTOR_ITERATIONS = 2000;
 const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
+const STRING_ARGUMENT_ITERATIONS = 20000;
+const STRING_RESULT_ITERATIONS = 10000;
+const BYTE_ARRAY_ITERATIONS = 2000;
+const BYTE_ARRAY_LENGTH = 256;
+const HANDLE_RESULT_ITERATIONS = 32000;
+const HANDLE_RESULT_CHILDREN = 16;
+const CALLBACK_PAYLOAD_ITERATIONS = 20000;
+const TEXT_UPDATE_ITERATIONS = 10000;
+const SCREEN_BUILD_ROWS = 32;
 const TREE_CHILDREN = 128;
 
 const TAG = "nts-benchmark";
 let callbackCount = 0;
-let retainedListener: android.view.View.OnClickListener | null = null;
+let callbackPayloadChecksum = 0;
+const retainedListeners: android.view.View.OnClickListener[] = [];
 
 function runConstructors(activity: android.app.Activity): number {
   let checksum = 0;
@@ -54,6 +64,108 @@ function runSetters(activity: android.app.Activity): number {
   return checksum;
 }
 
+function runStringArguments(): number {
+  const asciiLeft = "settings/profile/42";
+  const asciiRight = "settings/profile/42";
+  const unicodeLeft = "Καλημέρα 👩‍💻 e\u0301";
+  const unicodeRight = "Καλημέρα 👩‍💻 e\u0301";
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_ARGUMENT_ITERATIONS) {
+    const equal = index & 1
+      ? android.text.TextUtils.equals(asciiLeft, asciiRight)
+      : android.text.TextUtils.equals(unicodeLeft, unicodeRight);
+    if (equal) checksum += 1;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runStringResults(rectangle: android.graphics.Rect): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_RESULT_ITERATIONS) {
+    checksum += rectangle.flattenToString().length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runByteArrays(input: androidNative.Array<number>): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < BYTE_ARRAY_ITERATIONS) {
+    checksum += android.util.Base64.encode(
+      input,
+      android.util.Base64.NO_WRAP,
+    ).length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function buildHandleResultContainer(
+  activity: android.app.Activity,
+): android.widget.LinearLayout {
+  const container = new android.widget.LinearLayout(activity);
+  let index = 0;
+  while (index < HANDLE_RESULT_CHILDREN) {
+    const child = new android.widget.TextView(activity);
+    child.setId(index + 1);
+    container.addView(child);
+    index += 1;
+  }
+  return container;
+}
+
+function runHandleResults(container: android.widget.LinearLayout): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < HANDLE_RESULT_ITERATIONS) {
+    const child = container.getChildAt(index & (HANDLE_RESULT_CHILDREN - 1));
+    if (child !== null) checksum += child.getId();
+    index += 1;
+  }
+  return checksum;
+}
+
+function runTextUpdates(activity: android.app.Activity): number {
+  const view = new android.widget.TextView(activity);
+  let checksum = 0;
+  let index = 0;
+  while (index < TEXT_UPDATE_ITERATIONS) {
+    const text = `Count: ${index & 1023}`;
+    view.setText(text);
+    checksum += text.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runScreenBuild(activity: android.app.Activity): number {
+  const screen = new android.widget.LinearLayout(activity);
+  screen.setOrientation(android.widget.LinearLayout.VERTICAL);
+  let checksum = 0;
+  let index = 0;
+  while (index < SCREEN_BUILD_ROWS) {
+    const row = new android.widget.LinearLayout(activity);
+    row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+    const title = new android.widget.TextView(activity);
+    const titleText = `Item ${index}`;
+    title.setText(titleText);
+    title.setMinimumHeight(48 + (index & 1));
+    const action = new android.widget.Button(activity);
+    const actionText = `Open ${index}`;
+    action.setText(actionText);
+    row.addView(title);
+    row.addView(action);
+    screen.addView(row);
+    checksum += titleText.length + actionText.length;
+    index += 1;
+  }
+  return checksum;
+}
+
 function logSample(
   scenario: string,
   sample: number,
@@ -78,11 +190,12 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
 
   const button = new android.widget.Button(activity);
   button.setText("Benchmark callback");
-  retainedListener = new android.view.View.OnClickListener({
+  const retainedListener = new android.view.View.OnClickListener({
     onClick: () => {
       callbackCount += 1;
     },
   });
+  retainedListeners.push(retainedListener);
   button.setOnClickListener(retainedListener);
 
   if (scenario === "light-object") {
@@ -166,6 +279,173 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
         CALLBACK_ITERATIONS,
         elapsed,
         callbackCount,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "string-argument") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runStringArguments();
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runStringArguments();
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "string-argument",
+        sample,
+        STRING_ARGUMENT_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "string-result") {
+    const rectangle = new android.graphics.Rect(1, 2, 11, 22);
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runStringResults(rectangle);
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runStringResults(rectangle);
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "string-result",
+        sample,
+        STRING_RESULT_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "byte-array") {
+    const input = Array.create("byte", BYTE_ARRAY_LENGTH);
+    let inputIndex = 0;
+    while (inputIndex < BYTE_ARRAY_LENGTH) {
+      input[inputIndex] = inputIndex & 127;
+      inputIndex += 1;
+    }
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runByteArrays(input);
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runByteArrays(input);
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "byte-array",
+        sample,
+        BYTE_ARRAY_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "handle-result") {
+    const container = buildHandleResultContainer(activity);
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runHandleResults(container);
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runHandleResults(container);
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "handle-result",
+        sample,
+        HANDLE_RESULT_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "callback-payload") {
+    const payloadButton = new android.widget.Button(activity);
+    payloadButton.setId(7);
+    const payloadListener = new android.view.View.OnClickListener({
+      onClick: (view) => {
+        if (view !== null) callbackPayloadChecksum += view.getId();
+      },
+    });
+    retainedListeners.push(payloadListener);
+    payloadButton.setOnClickListener(payloadListener);
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      callbackPayloadChecksum = 0;
+      let index = 0;
+      while (index < CALLBACK_PAYLOAD_ITERATIONS) {
+        payloadButton.callOnClick();
+        index += 1;
+      }
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      callbackPayloadChecksum = 0;
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      let index = 0;
+      while (index < CALLBACK_PAYLOAD_ITERATIONS) {
+        payloadButton.callOnClick();
+        index += 1;
+      }
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "callback-payload",
+        sample,
+        CALLBACK_PAYLOAD_ITERATIONS,
+        elapsed,
+        callbackPayloadChecksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "text-update") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runTextUpdates(activity);
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runTextUpdates(activity);
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "text-update",
+        sample,
+        TEXT_UPDATE_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "screen-build") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runScreenBuild(activity);
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runScreenBuild(activity);
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "screen-build",
+        sample,
+        SCREEN_BUILD_ROWS,
+        elapsed,
+        checksum,
       );
       sample += 1;
     }

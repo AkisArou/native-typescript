@@ -22,9 +22,12 @@ import {
 import { scriptCCompilerDistribution } from "@native-typescript/scriptc";
 import {
   ANDROID_BENCHMARK_API,
+  type AndroidBenchmarkScenario,
+  androidBenchmarkScenarios,
   androidBenchmarkWorkload,
   kotlinBenchmarkApplication,
   nativeTypescriptBenchmarkProject,
+  repeatedAndroidBenchmarkScenarios,
 } from "../benchmarks/android/native-project.ts";
 
 const workspace = join(import.meta.dirname, "..");
@@ -92,12 +95,7 @@ interface LaunchMeasurement {
 
 interface WorkloadMeasurement {
   readonly implementation: Implementation;
-  readonly scenario:
-    | "view-tree"
-    | "light-object"
-    | "constructor"
-    | "setter"
-    | "callback";
+  readonly scenario: AndroidBenchmarkScenario;
   readonly processRound: number;
   readonly sample: number;
   readonly iterations: number;
@@ -620,6 +618,17 @@ function verifyWorkloadAgreement(): void {
     CONSTRUCTOR_ITERATIONS: androidBenchmarkWorkload.constructorIterations,
     SETTER_ITERATIONS: androidBenchmarkWorkload.setterIterations,
     CALLBACK_ITERATIONS: androidBenchmarkWorkload.callbackIterations,
+    STRING_ARGUMENT_ITERATIONS:
+      androidBenchmarkWorkload.stringArgumentIterations,
+    STRING_RESULT_ITERATIONS: androidBenchmarkWorkload.stringResultIterations,
+    BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
+    BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
+    HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
+    HANDLE_RESULT_CHILDREN: androidBenchmarkWorkload.handleResultChildren,
+    CALLBACK_PAYLOAD_ITERATIONS:
+      androidBenchmarkWorkload.callbackPayloadIterations,
+    TEXT_UPDATE_ITERATIONS: androidBenchmarkWorkload.textUpdateIterations,
+    SCREEN_BUILD_ROWS: androidBenchmarkWorkload.screenBuildRows,
     TREE_CHILDREN: androidBenchmarkWorkload.treeChildren,
   };
   for (const [name, value] of Object.entries(expected)) {
@@ -635,6 +644,16 @@ function verifyWorkloadAgreement(): void {
       );
     }
   }
+}
+
+function scenarioDefinition(name: AndroidBenchmarkScenario) {
+  const definition = androidBenchmarkScenarios.find(
+    (candidate) => candidate.name === name,
+  );
+  if (definition === undefined) {
+    throw new Error(`benchmark scenario '${name}' has no declared contract`);
+  }
+  return definition;
 }
 
 interface DeviceClaim {
@@ -847,26 +866,30 @@ function parseWorkloadLog(
       checksum,
     });
   }
-  const expected = scenario === "view-tree"
-    ? 1
-    : androidBenchmarkWorkload.measuredSamples;
+  const definition = scenarioDefinition(scenario);
+  const expected = definition.measuredSamples;
   if (measurements.length !== expected) {
     throw new Error(
       `${implementation} ${scenario} emitted ${measurements.length} samples, ` +
         `expected ${expected}:\n${log}`,
     );
   }
-  const expectedChecksum = scenario === "callback"
-    ? androidBenchmarkWorkload.callbackIterations
-    : scenario === "view-tree"
-      ? androidBenchmarkWorkload.treeChildren
-      : scenario === "light-object"
-        ? androidBenchmarkWorkload.lightObjectIterations
-      : Math.floor(
-        (scenario === "constructor"
-          ? androidBenchmarkWorkload.constructorIterations
-          : androidBenchmarkWorkload.setterIterations) / 2,
-      );
+  if (measurements.some(({ iterations }) => iterations !== definition.iterations)) {
+    throw new Error(
+      `${implementation} ${scenario} reported the wrong iteration count; ` +
+        `expected ${definition.iterations}:\n${log}`,
+    );
+  }
+  const sampleNumbers = measurements.map(({ sample }) => sample).sort(
+    (left, right) => left - right,
+  );
+  if (sampleNumbers.some((sample, index) => sample !== index)) {
+    throw new Error(
+      `${implementation} ${scenario} emitted non-contiguous sample numbers; ` +
+        `expected 0 through ${expected - 1}:\n${log}`,
+    );
+  }
+  const expectedChecksum = definition.expectedChecksum;
   if (measurements.some(({ checksum }) => checksum !== expectedChecksum)) {
     throw new Error(
       `${implementation} ${scenario} produced the wrong checksum; expected ` +
@@ -933,23 +956,21 @@ function summarize(
       };
     })
   );
-  const workload = ([
-    "view-tree",
-    "light-object",
-    "constructor",
-    "setter",
-    "callback",
-  ] as const)
+  const workload = androidBenchmarkScenarios
     .flatMap((scenario) =>
       IMPLEMENTATIONS.map((implementation) => {
         const values = workloads
           .filter((entry) =>
-            entry.scenario === scenario && entry.implementation === implementation
+            entry.scenario === scenario.name &&
+            entry.implementation === implementation
           )
           .map(({ nanosecondsPerOperation }) => nanosecondsPerOperation);
         return {
           implementation,
-          scenario,
+          scenario: scenario.name,
+          layer: scenario.layer,
+          hotspot: scenario.hotspot,
+          operationUnit: scenario.operationUnit,
           samples: values.length,
           medianNanosecondsPerOperation: median(values),
           minNanosecondsPerOperation: values.length === 0 ? null : Math.min(...values),
@@ -1082,11 +1103,12 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 2,
+    schemaVersion: 3,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,
     workload: androidBenchmarkWorkload,
+    scenarios: androidBenchmarkScenarios,
     sourceState,
     toolchains,
     artifacts: applications.map(({ implementation, apkPath, sha256, bytes }) => ({
@@ -1231,14 +1253,7 @@ async function main(): Promise<void> {
       }
     }
 
-    for (
-      const scenario of [
-        "light-object",
-        "constructor",
-        "setter",
-        "callback",
-      ] as const
-    ) {
+    for (const scenario of repeatedAndroidBenchmarkScenarios) {
       for (let round = 0; round < options.rounds; round++) {
         for (const application of ordered(round)) {
           adbRun("logcat", "-c");

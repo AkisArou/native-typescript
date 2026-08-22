@@ -90,37 +90,43 @@ checksums. These are medians from five cyclically ordered process rounds on an
 x86-64 Pixel 10 Pro AVD running API 37, after ART `speed` compilation. Lower
 is better.
 
-| Workload | Native TypeScript | Kotlin | NativeScript | NTS vs NativeScript |
-| --- | ---: | ---: | ---: | ---: |
-| 128-child view tree | 68,408 ns/child | 98,895 ns/child | 55,004 ns/child | 1.24x slower |
-| lightweight `Rect` construction and `width()` | 248.84 ns/op | 27.85 ns/op | 3,516.18 ns/op | 14.13x faster |
-| `TextView` construction and scalar call | 25,823 ns/op | 25,668 ns/op | 28,717 ns/op | 1.11x faster |
-| repeated `TextView.setTextSize` | 118.32 ns/op | 21.42 ns/op | 302.36 ns/op | 2.56x faster |
-| synchronous `Button.callOnClick` | 332.19 ns/op | 2.52 ns/op | 1,654.60 ns/op | 4.98x faster |
+| Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 128-child view tree | 65,158 ns/child | 35,563 ns/child | 38,312 ns/child | 1.83x | 1.70x |
+| lightweight `Rect` construction and `width()` | 223.32 ns/op | 24.20 ns/op | 3,469.82 ns/op | 9.23x | 0.064x |
+| `TextView` construction and scalar call | 23,627 ns/op | 22,263 ns/op | 29,137 ns/op | 1.06x | 0.81x |
+| repeated `TextView.setTextSize` | 86.90 ns/op | 13.67 ns/op | 225.66 ns/op | 6.36x | 0.39x |
+| payload-free synchronous callback | 303.10 ns/delivery | 1.91 ns/delivery | 1,500.75 ns/delivery | 158.92x | 0.20x |
+| ASCII/Unicode string arguments | 497.21 ns/comparison | 29.77 ns/comparison | 1,027.01 ns/comparison | 16.70x | 0.48x |
+| fresh Java string result | 516.17 ns/result | 182.14 ns/result | 496.26 ns/result | 2.83x | 1.04x |
+| 256-byte array encoding round trip | 1,423.68 ns/encoding | 753.10 ns/encoding | 6,585.08 ns/encoding | 1.89x | 0.22x |
+| nullable object result plus receiver call | 366.31 ns/lookup | 2.82 ns/lookup | 509.41 ns/lookup | 129.78x | 0.72x |
+| callback payload plus receiver call | 378.83 ns/delivery | 3.19 ns/delivery | 1,713.54 ns/delivery | 118.59x | 0.22x |
+| dynamic `TextView` counter update | 457.82 ns/update | 297.50 ns/update | 1,108.54 ns/update | 1.54x | 0.41x |
+| nested programmatic screen build | 91,002 ns/row | 97,839 ns/row | 118,677 ns/row | 0.93x | 0.77x |
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 19,152 KiB | 18,801 KiB | 73,979 KiB |
-| Total RSS | 143,980 KiB | 142,252 KiB | 200,736 KiB |
-| APK size | 573,723 bytes | 16,592 bytes | 28,638,412 bytes |
+| Total PSS | 19,046 KiB | 19,218 KiB | 75,343 KiB |
+| Total RSS | 143,316 KiB | 142,216 KiB | 201,712 KiB |
+| APK size | 602,395 bytes | 20,688 bytes | 28,639,616 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are
-recorded observations rather than general platform rankings. The isolated
-kernels are more actionable: the first escape-selected JNI resource
-optimization reduced the unchanged lightweight-object workload from 340.81 to
-248.84 ns/op (27%) by keeping its `Rect` as a local reference and allocating no
-managed handle cell. That narrows the Kotlin gap from 11.26x to 8.94x while
-making Native TypeScript 14.13x faster than NativeScript in that kernel.
-Widget construction is at Kotlin parity in this observation. The original
+recorded observations rather than general platform rankings. The suite now
+separates boundary microcases from Android operations and a composite screen:
+widget construction and the screen build are near Kotlin parity, while
+nullable object results, callbacks, and outbound strings expose distinct
+remaining costs. The first escape-selected JNI resource optimization and its
+before/after evidence remain in
+[record 0016](docs/records/0016-frame-bounded-native-results.md). The expanded
+hotspot matrix, exact inputs, source hashes, caveats, and current results are in
+[record 0017](docs/records/0017-android-hotspot-matrix.md). The original
 three-way baseline remains in
 [record 0015](docs/records/0015-first-android-nativescript-baseline.md); the
-optimization, exact resource observer, current launch dimensions, checksums,
-and caveats are in
-[record 0016](docs/records/0016-frame-bounded-native-results.md). The reusable
-instrument is in
+reusable instrument and full workload contract are in
 [the Android benchmark README](benchmarks/android/README.md).
 
 ### iOS

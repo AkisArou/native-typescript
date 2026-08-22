@@ -49,20 +49,50 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 
 All three readable source files contain the same constants. The runner
 compares those constants to `native-project.ts` and refuses to run if they
-drift.
+drift. That project file also owns a machine-readable scenario catalog. Every
+report records each scenario's layer, hotspot, operation unit, sample count,
+and expected checksum; the runner derives its execution and summaries from
+that catalog rather than from a second handwritten list.
 
-| Scenario | Work performed |
-| --- | --- |
-| `view-tree` | Build and attach 128 `TextView` children; also supplies the process-launch screen |
-| `light-object` | Construct 50,000 `Rect`s and call one trivial method on each |
-| `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
-| `setter` | Make 50,000 `TextView.setTextSize` calls on one object |
-| `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries |
+The suite deliberately has both boundary microcases and Android-shaped work.
+A composite score would hide whether a result came from JNI mechanics,
+framework work, or language-runtime work, while microcases alone would say
+little about an application. Android's own microbenchmark guidance recommends
+isolating frequently repeated hot work such as data conversion while avoiding
+an accidentally cache-only input, so the string input alternates ASCII and
+UTF-16 text. NativeScript receives a real Java `byte[]` created with
+`Array.create`, as required by its Android marshalling contract, rather than a
+JavaScript array that would change the operation.
 
-The four repeated scenarios warm up three times and then emit seven measured
+| Layer | Scenario | Work performed |
+| --- | --- | --- |
+| Android | `view-tree` | Build and attach 128 `TextView` children; also supplies the process-launch screen |
+| Boundary | `light-object` | Construct 50,000 `Rect`s, immediately call `width()`, and let each non-escaping result die |
+| Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
+| Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
+| Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |
+| Boundary | `string-argument` | Pass 20,000 pairs of alternating ASCII and Unicode strings through `TextUtils.equals` |
+| Boundary | `string-result` | Receive and consume 10,000 fresh Java strings from `Rect.flattenToString()` |
+| Boundary | `byte-array` | Send a 256-byte primitive array through `Base64.encode` and consume the returned array 2,000 times |
+| Boundary | `handle-result` | Call `ViewGroup.getChildAt`, null-check the returned object, then call `getId` 32,000 times |
+| Boundary | `callback-payload` | Deliver 20,000 click callbacks and consume each delivered `View` through `getId` |
+| Android | `text-update` | Format 10,000 changing counter strings and assign each to one `TextView` |
+| Composite | `screen-build` | Build 32 nested rows with labels, buttons, dynamic text, scalar setters, and hierarchy edges |
+
+Every repeated scenario warms up three times and then emits seven measured
 samples in each process. `SystemClock.elapsedRealtimeNanos()` measures the
-loop on the device. A checksum makes a missing callback or incomplete loop a
-hard failure rather than a faster result.
+loop on the device. A checksum makes a missing callback, bad projection, or
+incomplete loop a hard failure rather than a faster result. The launch
+`view-tree` case emits one sample per process round.
+
+The matrix covers the currently implemented high-frequency boundary families:
+primitive calls, object construction/results, strings in both directions,
+primitive arrays in both directions, synchronous callbacks with and without
+payload use, widget mutation, and programmatic hierarchy construction. It does
+not claim coverage of first-frame rendering, touch latency, asynchronous or
+foreign-thread callbacks, storage/database APIs, networking, image buffers,
+layout/draw passes, or lifecycle teardown; those require different instruments
+rather than more loops in this one.
 
 `process-start` means `am force-stop` followed by `am start -W`; it is a new
 process with warm filesystem caches, not a claim that the whole device is
@@ -82,8 +112,8 @@ Each run directory contains:
 
 - the three signed APKs and their SHA-256 digests;
 - `results.json`, including source revisions and dirty state, toolchain
-  versions, device/build identity, raw samples, launch/workload/memory
-  summaries, and NTS/Kotlin, NativeScript/Kotlin, and
+  versions, device/build identity, the declared hotspot catalog, raw samples,
+  launch/workload/memory summaries, and NTS/Kotlin, NativeScript/Kotlin, and
   NTS/NativeScript ratios;
 - one `dumpsys meminfo` snapshot per application and launch round.
 
@@ -104,10 +134,12 @@ stable global-reference path. `light-object` exposes the optimized mechanism
 with little platform work around it; `constructor` and `view-tree` say whether
 a real widget application notices.
 
-The setter and callback scenarios prevent a constructor improvement from
-being misreported as a general JNI improvement. They identify separate costs
-that need their own evidence before `JNIEnv *` propagation, callback-token
-changes, or call fusion is admitted.
+The scalar, string, byte-array, returned-handle, and callback cases prevent one
+resource improvement from being misreported as a general JNI improvement.
+They identify separate costs that need their own evidence before `JNIEnv *`
+propagation, string residency, callback-token changes, or call fusion is
+admitted. The Android and composite cases then say whether an isolated cost is
+visible once framework work surrounds it.
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -116,3 +148,13 @@ first three-way Native TypeScript/Kotlin/NativeScript baseline is recorded in
 The first compiler-selected resource optimization and its unchanged-workload
 remeasurement are recorded in
 [record 0016](../../docs/records/0016-frame-bounded-native-results.md).
+The expanded hotspot matrix, its research basis, and first five-round result
+are recorded in
+[record 0017](../../docs/records/0017-android-hotspot-matrix.md).
+
+## Research references
+
+- [Android Microbenchmark overview](https://developer.android.com/topic/performance/benchmarking/microbenchmark-overview)
+- [Android performance measurement](https://developer.android.com/topic/performance/measuring-performance)
+- [Android JNI tips](https://developer.android.com/ndk/guides/jni-tips)
+- [NativeScript Android marshalling](https://docs.nativescript.org/guide/android-marshalling)
