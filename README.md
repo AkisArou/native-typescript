@@ -51,17 +51,18 @@ import { Bundle } from "@native-typescript/android/os";
 import { Button, LinearLayout, TextView } from "@native-typescript/android/widget";
 
 export default class MainActivity extends Activity {
+  private count = 0;
+
   override onCreate(state: Bundle | null): void {
     super.onCreate(state);
 
-    let count = 0;
     const label = new TextView(this);
     label.text = "Count: 0";
 
     const increment = new Button(this);
     increment.text = "Increment";
     increment.onClick((): void => {
-      label.text = `Count: ${++count}`;
+      label.text = `Count: ${++this.count}`;
     });
 
     const content = new LinearLayout(this);
@@ -424,7 +425,7 @@ everything else — ABI probes, adapter generation, link order — is derived.
 | GTK target runtime and generated widget surface | implemented, narrow surface |
 | GTK application lifecycle | generated and executed |
 | `build` command, project description, action cache | implemented |
-| JVM/Android bindings, JNI adapters, native subclassing | implemented, two arms pinned open |
+| JVM/Android bindings, JNI adapters, native subclassing and peers | implemented, narrow surface |
 | Terminal, iOS, macOS, Windows, React, partitions, DOM | not started |
 
 [Implementation status](docs/status.md) records what is built and proven, by

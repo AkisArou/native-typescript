@@ -132,7 +132,7 @@ export interface JvmSubclassSelection {
 
 export interface JvmSubclassSource {
   readonly schema: "native-typescript.jvm-subclass-source";
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly baseBinaryName: string;
   readonly subclassBinaryName: string;
   /** The generated Java, compiled against the base's classes. */
@@ -153,6 +153,13 @@ export interface JvmSubclassSource {
    * to invokespecial). Ordinary instance methods — the adapter needs no
    * new machinery to call the code an override replaced. */
   readonly methods: readonly JvmMemberSelection[];
+  /** The generated object's opaque managed-peer slot. Null when this
+   * subclass declares no terminal lifetime and therefore cannot host a peer.
+   * The adapter supplies the C accessors; this names the Java field they read
+   * and write so no downstream stage guesses a generator convention. */
+  readonly peerSlot: {
+    readonly field: JvmMemberReference;
+  } | null;
 }
 
 function diagnostic(path: string, message: string): JvmDiagnostic {
@@ -267,7 +274,7 @@ export function generateJvmSubclassSource(
         "slice",
     ));
   }
-  if (selection.overrides.length === 0) {
+  if (selection.overrides.length === 0 && selection.terminal === undefined) {
     diagnostics.push(diagnostic(
       path,
       "A subclass with no overrides is the base class; select at least one",
@@ -277,7 +284,39 @@ export function generateJvmSubclassSource(
   const overrideLines: string[] = [];
   const callbacks: JvmCallbackSelection[] = [];
   const superMethods: JvmMemberSelection[] = [];
-  for (const overrideSelection of selection.overrides) {
+  const terminalMethod = selection.terminal === undefined || selection.anchor !== "class"
+    ? undefined
+    : base.methods.find(
+        (method) =>
+          method.name === selection.terminal!.name &&
+          method.descriptor === selection.terminal!.descriptor &&
+          notOverridable(method, method.name) === null &&
+          method.result.kind === "void",
+      );
+  const sourceSelectsTerminal = terminalMethod === undefined
+    ? false
+    : selection.overrides.some((override) => {
+        if (typeof override !== "string") {
+          return override.name === terminalMethod.name &&
+            override.descriptor === terminalMethod.descriptor;
+        }
+        const matches = base.methods.filter(({ name }) => name === override);
+        return matches.length === 1 &&
+          matches[0]!.descriptor === terminalMethod.descriptor;
+      });
+  /* The terminal is an override even when the source class does not name it:
+   * cleanup is a platform lifetime rule, not an optional user hook. The
+   * compiler synthesizes the base-forwarding body in that case. */
+  const overrideSelections: readonly JvmMemberSelection[] = [
+    ...selection.overrides,
+    ...(terminalMethod !== undefined && !sourceSelectsTerminal
+      ? [Object.freeze({
+          name: terminalMethod.name,
+          descriptor: terminalMethod.descriptor,
+        })]
+      : []),
+  ];
+  for (const overrideSelection of overrideSelections) {
     const name = typeof overrideSelection === "string"
       ? overrideSelection
       : overrideSelection.name;
@@ -308,6 +347,9 @@ export function generateJvmSubclassSource(
     const answers = method.result.kind === "primitive" &&
       method.result.name === "boolean";
     const tells = method.result.kind === "void";
+    const terminal = terminalMethod !== undefined &&
+      method.name === terminalMethod.name &&
+      method.descriptor === terminalMethod.descriptor;
     if (!answers && !tells) {
       diagnostics.push(diagnostic(
         `${overridePath}/result`,
@@ -408,6 +450,7 @@ export function generateJvmSubclassSource(
             ...(tells ? { delivery: "synchronous" as const } : {}),
             ...(anchored ? { anchor: "class" as const } : {}),
             ...(baseCall === undefined ? {} : { baseCall }),
+            ...(terminal ? { terminal: true as const } : {}),
           })
         : typeof overrideSelection === "string"
           ? overrideSelection
@@ -458,7 +501,16 @@ export function generateJvmSubclassSource(
       /* A terminal event is OBSERVED by overriding it, so whatever would
        * refuse it as an override refuses it here, in the same words. */
       const refusal = notOverridable(declared, name);
-      if (refusal !== null) diagnostics.push(diagnostic(terminalPath, refusal));
+      if (refusal !== null) {
+        diagnostics.push(diagnostic(terminalPath, refusal));
+      } else if (declared.result.kind !== "void") {
+        diagnostics.push(diagnostic(
+          terminalPath,
+          `Terminal event '${name}${descriptor}' must return void so teardown ` +
+            "runs after an observed lifecycle notification rather than changing " +
+            "a platform answer",
+        ));
+      }
     }
   }
   if (diagnostics.length > 0) throw new JvmGenerationError(diagnostics);
@@ -493,13 +545,21 @@ export function generateJvmSubclassSource(
           "  }",
           "",
         ]),
+    ...(terminalMethod === undefined
+      ? []
+      : [
+          "  /* Association only: the registration owns the peer; this slot",
+          "   * lets distinct JNI references for one object find it. */",
+          "  private long ntsPeer;",
+          "",
+        ]),
     ...overrideLines.slice(0, -1),
     "}",
     "",
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-subclass-source",
-    schemaVersion: 4,
+    schemaVersion: 5,
     baseBinaryName: base.binaryName,
     subclassBinaryName,
     source,
@@ -507,5 +567,10 @@ export function generateJvmSubclassSource(
     logicalPath: `${subclassBinaryName}.java`,
     callbacks: Object.freeze(callbacks),
     methods: Object.freeze(superMethods),
+    peerSlot: terminalMethod === undefined
+      ? null
+      : Object.freeze({
+          field: Object.freeze({ name: "ntsPeer", descriptor: "J" }),
+        }),
   });
 }

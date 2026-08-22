@@ -361,6 +361,19 @@ function normalizeCallbackSelections(
     }
     if (
       typeof selection !== "string" &&
+      selection.terminal !== undefined &&
+      selection.terminal !== true
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS6001",
+          `${path}/${selection.name}`,
+          "A callback's terminal marker, when present, must be true",
+        ),
+      );
+    }
+    if (
+      typeof selection !== "string" &&
       selection.baseCall !== undefined &&
       (selection.baseCall.name.length === 0 ||
         selection.baseCall.descriptor.length === 0)
@@ -1160,6 +1173,7 @@ export function ingestJvmClasses(
                 name: baseCall.name,
                 descriptor: baseCall.descriptor,
               }),
+          terminal: stated?.terminal === true,
         });
       });
     const namedFields = resolveMembers(

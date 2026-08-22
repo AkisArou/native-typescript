@@ -1,7 +1,7 @@
 # Implementation Status
 
 Status: current implementation state  
-Last revised: 2026-08-21
+Last revised: 2026-08-22
 
 This document records what is **built and proven**, and by which gate. The
 normative specifications say what must be true; this says how far the
@@ -36,8 +36,8 @@ The repository is not yet an application framework or a production compiler.
 | Provider compiler requirements | read by the build |
 | Cross-namespace GIR composition | implemented |
 | JVM class-file ingestion and SCABI projection | implemented |
-| JNI adapters, native subclassing, `super` dispatch | implemented on the desktop JDK |
-| Android application crossing | blocked on two named contract arms |
+| JNI adapters, native subclassing, `super` dispatch, managed peers | implemented on the desktop JDK and Android |
+| Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions, DOM | not started |
 
@@ -327,19 +327,21 @@ Broader payload families and ownership modes remain future slices.
 ### Classes over a native base
 
 A TypeScript class may `extend` a native class. Its `override` methods lower
-into the registrations the platform dispatches, `this` is the receiver the
-framework constructed, and `super.m(...)` reaches the base implementation. No
-instance fields: with no managed state there is no second object, so nothing
-the program can hold outlives a dispatch, and the peer's undeclared lifetime
-policy is not on this path. A field refuses by name and says why.
+into the registrations the platform dispatches, and `super.m(...)` reaches the
+base implementation. A class without instance fields keeps the direct,
+allocation-free shape: `this` is the delivered native receiver. A class with
+fields instead attaches one managed peer to the host-created object, runs its
+field initializers once, and binds `this` to that peer on every dispatch.
 
-Note what that does NOT rest on. A cell per dispatch and one cell per object are
-indistinguishable here precisely because nothing persists between dispatches to
-compare — not because the interning map guarantees identity. It does not on the
-platform this is for: JVM handles declare `identity: "none"` because
-`NewGlobalRef` twice on one object yields two distinct `jobject`s, so only
-`pointer`-identity handles intern. Identity becomes observable the moment a
-field exists, which is the same boundary the refusal already draws.
+The association cannot come from handle interning. JVM handle types declare
+`identity: "none"` because two `NewGlobalRef` calls for one Java object may
+produce distinct `jobject` values. The generated object therefore stores an
+opaque peer slot. The class registration roots the peer between dispatches;
+the peer strongly carries the native base handle for inherited calls; and the
+declared terminal dispatch clears the slot before releasing the registration's
+root. The fixture uses one object, two separately retained deliveries, and a
+terminal release so rebuilt identity, missing association, and leaked lifetime
+are distinct failures on both backends.
 
 `super` is a DISTINCT binding, not the one the platform calls — if it is the
 same it redispatches to the override and never terminates, which is not a
@@ -358,13 +360,14 @@ reachable set be trimmed out from under a call that still resolves; and the
 compiler refuses `super.m(...)` when no base call is stated at all, which is
 what an abstract or interface member looks like from the program's side.
 
-An override's `this` is typed by the REGISTRATION, not by the declared base.
+The physical receiver is typed by the REGISTRATION, not by the declared base.
 A class-anchored registration answers for every instance of the class the
-packager generated, so the receiver it delivers is that class, while
+packager generated, so the handle it delivers is that class, while
 `extends Activity` names an ancestor — a weaker statement about a different
-type. The fixtures put the declared base one identity upcast above what the
-registration delivers, so a fixture where the two coincide cannot pass for the
-one where they differ.
+type. The slot is read from that delivered receiver; the peer stores the
+declared-base handle used by inherited calls. The fixtures put those types one
+identity upcast apart, so reading the slot or storing the handle through the
+wrong side cannot pass accidentally.
 
 A class extending a base the surface declares but maps no handle type to
 refuses by name. It compiled silently before — no registration, no diagnostic,
@@ -1130,22 +1133,17 @@ omitted ancestor was ABSENT rather than unselected and `TextView` projected
 with an external `View`, losing every inherited member silently. The extractor
 now asks `requiredJvmAncestry` what else it must read before ingestion runs.
 
-**The terminal event is stated, and its lowering is not built.** A peer for a
-platform object must hold the object's handle, and something must hold the
-peer, and if that something is the handle's own managed cell the two hold each
-other forever. The cell was being asked to do two jobs: ASSOCIATION — which
-peer belongs to this handle — is a lookup and can be weak, while LIFETIME
-belongs to the class-anchored registration, whose strong reference a platform
-EVENT releases rather than reachability. A class file cannot say which method
-ends an object, so a subclass selection states it, exactly as `delivery`,
-`anchor` and a callback's `baseCall` are stated. It is admitted only where the
-platform owns the object; where the program constructs it, the program also
-holds it. A terminal the base does not declare, one Java would refuse to
-override, or one stated where the program owns the object each refuses by name
-at generation. What does not exist is the lowering — nothing overrides the
-terminal to observe it and nothing releases a peer when it fires — so the fact
-is deliberately absent from SCABI until then, because a manifest field no test
-can contradict is the failure this project keeps finding.
+**The terminal event owns the peer lifetime.** A peer for a platform object
+must hold the object's handle, but making the handle cell also own the peer
+would create a cycle. The generated object's slot answers only ASSOCIATION —
+which peer belongs to this receiver. LIFETIME belongs to the class-anchored
+registration, whose strong reference a stated platform event releases. A class
+file cannot identify that event, so a subclass selection states it exactly as
+`delivery`, `anchor`, and a callback's `baseCall` are stated. The generator
+always emits its override, even when source does not, and the lowering clears
+the slot before releasing the root. A terminal the base does not declare, one
+Java would refuse to override, or one stated where the program owns the object
+still refuses by name at generation.
 
 **The Android application is a class that extends a native class.** The
 acceptance program is `class MainActivity extends …` with `override onCreate`,
@@ -1153,10 +1151,12 @@ acceptance program is `class MainActivity extends …` with `override onCreate`,
 and it runs on a device through both saved-state arms, draws, and answers a
 tap. Nothing in it registers a handler or names a lifecycle callback as a
 function argument: the registration the platform needs is synthesized from the
-override. Instance fields still refuse, naming the peer's undeclared lifetime
-policy, so the tap count is a local. The base implementation is reached with an
-ordinary `super.onCreate(state)`, and the class names `Activity` — the ancestor
-a person would write — rather than the generated subclass.
+override. Its tap count and lifecycle seed are ordinary instance fields; a
+second lifecycle dispatch recovers the seed, a click closure later mutates the
+same peer, and rotation constructs a new peer whose count starts from its field
+initializer. The base implementation is reached with an ordinary
+`super.onCreate(state)`, and the class names `Activity` — the ancestor a person
+would write — rather than the generated subclass.
 
 Landing it moved an assumption in the runtime. `applicationStart()` used to be
 able to promise it was the first thing a module did, and a registration
@@ -1221,24 +1221,27 @@ as an owned copy with a compiler-supplied length slot, and refused array
 elements name the carrier each is missing rather than failing as a class.
 
 **Native subclassing runs on the desktop JDK.** A generated Java subclass
-associates a host-constructed object with its TypeScript peer and dispatches
-the reached override. `super.onCreate()` reaches the base implementation the
-override replaced through javac's own `invokespecial`, emitted as an ordinary
-generated method — non-virtual dispatch with no new JNI machinery. A TypeScript
-handler can call back into Java from inside the handler the framework invoked,
-which is the first reentrant native call from within an answered one.
+stores the peer association for a host-constructed object and dispatches the
+reached override. Two deliveries recover the same initialized TypeScript
+fields even though each arrives through a fresh JNI global reference, and the
+terminal delivery releases the peer. `super.onCreate()` reaches the base
+implementation the override replaced through javac's own `invokespecial`,
+emitted as an ordinary generated method — non-virtual dispatch with no new JNI
+machinery. A TypeScript handler can call back into Java from inside the handler
+the framework invoked, which is the first reentrant native call from within an
+answered one.
 
 **Both JVM lanes run.** The runtime creates a JVM and runs the program, and a
 JVM the runtime did not create hosts it — the attached-loop service is what
 makes the second one possible, since the host owns the loop.
 
-**Android itself is not crossed, and the block is named rather than described.**
-A real `Activity` forces two contract arms this compiler does not have:
-void-synchronous callback delivery, for a lifecycle method that must complete
-inside the caller's frame, and handle payloads, for a `KeyEvent` argument. Both
-are pinned by a gate that runs the subclass generator over the real
-`android.jar` and asserts the refusals by name. When either arm lands the pin
-FAILS, which is the signal that the acceptance program advances.
+**Android itself is crossed.** The application is packaged, installed, and run
+on an emulator. ART constructs the generated `Activity`, synchronous lifecycle
+callbacks enter compiled TypeScript with nullable handle payloads, ordinary
+instance fields survive from `onCreate` to `onStart`, a real `super.onCreate`
+runs, and a tap reaches a retained TypeScript handler. Rotation takes the
+saved-state arm and constructs a new peer rather than carrying the old
+Activity's fields across the platform terminal event.
 
 ## Building an application
 

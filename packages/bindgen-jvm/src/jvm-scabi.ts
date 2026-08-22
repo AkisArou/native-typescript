@@ -39,6 +39,7 @@ import type {
 } from "@native-typescript/scabi";
 import { generateJvmAdapterSource } from "./jvm-adapter.ts";
 import type {
+  JvmAdapterOptions,
   JvmAdapterPosition,
   JvmAdapterResult,
   JvmAdapterSource,
@@ -58,6 +59,10 @@ export interface JvmScabiGenerationOptions {
   readonly snapshot: JvmSnapshot;
   readonly adapter: JvmAdapterSource;
   readonly packageSlug: string;
+  /** The generated-field roles used to produce `adapter`. Kept explicit so
+   * validation can reproduce the adapter from source facts rather than trust
+   * roles reported by the artifact it is validating. */
+  readonly peerSlots?: JvmAdapterOptions["peerSlots"];
   readonly evidence: ClangAbiEvidenceSnapshot;
   readonly package: PackageIdentity;
   readonly target: TargetIdentity;
@@ -176,6 +181,7 @@ function validateInputs(
 ): void {
   const expectedAdapter = generateJvmAdapterSource(options.snapshot, {
     packageSlug: options.packageSlug,
+    peerSlots: options.peerSlots,
   });
   if (canonicalizeJson(expectedAdapter) !== canonicalizeJson(options.adapter)) {
     diagnostics.push(
@@ -322,6 +328,7 @@ export function generateJvmScabiPackage(
     /** For a registration: the binding reaching what its override
      * replaced, which is what `super.m()` resolves to. */
     readonly baseCall?: string;
+    readonly terminal?: true;
   }): CallableBinding {
     return Object.freeze({
       kind: input.kind,
@@ -349,6 +356,7 @@ export function generateJvmScabiPackage(
       ]),
       ...(input.availability === undefined ? {} : { availability: input.availability }),
       ...(input.baseCall === undefined ? {} : { baseCall: input.baseCall }),
+      ...(input.terminal === undefined ? {} : { terminal: true as const }),
     });
   }
 
@@ -468,6 +476,21 @@ export function generateJvmScabiPackage(
   const classNameOf = new Map(
     [...classNames.entries()].map(([simple, binary]) => [binary, simple]),
   );
+  const peerSlotBindingIds = new Map(
+    options.adapter.peerSlots.map((slot) => [
+      slot.className,
+      Object.freeze({
+        read: `${slug}.${idToken(slot.className)}.peer.read`,
+        write: `${slug}.${idToken(slot.className)}.peer.write`,
+        slot,
+      }),
+    ]),
+  );
+  const peerSlotFieldKeys = new Set(
+    (options.peerSlots ?? []).map(({ className, field }) =>
+      `${className} ${field.name} ${field.descriptor}`
+    ),
+  );
   for (const class_ of options.snapshot.classes) {
     const typeId = selectedTypeIds.get(class_.binaryName)!;
     const upcasts: { readonly kind: "identity"; readonly target: string }[] = [];
@@ -519,11 +542,81 @@ export function generateJvmScabiPackage(
       /* The shared release: valid for this type because the upcast chain
        * ends at the release's own parameter type. */
       destructor: objectReleaseBindingId,
+      ...(peerSlotBindingIds.get(class_.binaryName) === undefined
+        ? {}
+        : {
+            peerSlot: Object.freeze({
+              read: peerSlotBindingIds.get(class_.binaryName)!.read,
+              write: peerSlotBindingIds.get(class_.binaryName)!.write,
+            }),
+          }),
     });
     declarationTypes[typeId] = Object.freeze({
       module: ".",
       name: classNameOf.get(class_.binaryName)!,
     });
+  }
+
+  if (peerSlotBindingIds.size > 0) {
+    types["void_ptr"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "void",
+      mutability: "mutable",
+      nullable: true,
+      addressSpace: 0,
+    });
+  }
+  for (const [className, peer] of peerSlotBindingIds) {
+    const typeId = selectedTypeIds.get(className);
+    const classNameSource = classNameOf.get(className);
+    if (typeId === undefined || classNameSource === undefined) {
+      diagnostics.push(diagnostic(
+        `class/${className}/peerSlot`,
+        "The generated peer slot names a class outside this selection",
+      ));
+      continue;
+    }
+    const self = Object.freeze({
+      name: "self",
+      type: typeId,
+      passMode: "pointer" as const,
+      nullable: false,
+      ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
+    });
+    defineBinding(peer.read, callable({
+      declaration: `${classNameSource}.%peerRead`,
+      kind: "function",
+      symbol: peer.slot.readSymbol,
+      parameters: [self],
+      result: Object.freeze({
+        type: "void_ptr",
+        passMode: "pointer" as const,
+        nullable: true,
+        ownership: Object.freeze({ kind: "value" as const }),
+      }),
+    }));
+    defineBinding(peer.write, callable({
+      declaration: `${classNameSource}.%peerWrite`,
+      kind: "function",
+      symbol: peer.slot.writeSymbol,
+      parameters: [
+        self,
+        Object.freeze({
+          name: "peer",
+          type: "void_ptr",
+          passMode: "pointer" as const,
+          nullable: true,
+          ownership: Object.freeze({ kind: "value" as const }),
+        }),
+      ],
+      result: Object.freeze({
+        type: "void",
+        passMode: "value" as const,
+        nullable: false,
+        ownership: Object.freeze({ kind: "value" as const }),
+      }),
+    }));
+    adapterBindings.push(peer.read, peer.write);
   }
 
   /* A method's binding id, decided ONCE.
@@ -985,6 +1078,16 @@ export function generateJvmScabiPackage(
    * its own slice with its own demand. */
   for (const class_ of options.snapshot.classes) {
     for (const field of class_.fields) {
+      /* This selected field is generated boundary machinery, not a member of
+       * the TypeScript surface. Its role is carried by the peer-slot selection
+       * and emitted above as two exact ABI operations; treating it as an
+       * ordinary selected field would correctly refuse a live field access,
+       * but would be asking the wrong question about this hidden field. */
+      if (peerSlotFieldKeys.has(
+        `${class_.binaryName} ${field.name} ${field.descriptor}`,
+      )) {
+        continue;
+      }
       const path = `class/${class_.binaryName}/field/${field.name}`;
       if (
         !field.access.static || !field.access.final ||
@@ -1320,6 +1423,7 @@ export function generateJvmScabiPackage(
     defineBinding(bindingId, callable({
       declaration: `${className}.${callback.name}`,
       ...(baseCallBindingId === null ? {} : { baseCall: baseCallBindingId }),
+      ...(callback.terminal ? { terminal: true as const } : {}),
       kind: classAnchored ? "static-method" : "method",
       symbol: callback.connectSymbol,
       parameters: [

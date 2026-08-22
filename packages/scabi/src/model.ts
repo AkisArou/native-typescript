@@ -242,6 +242,14 @@ export interface HandleType {
    * outside the destructor slice.
    */
   readonly destructor?: NativeBindingId;
+  /** Exact ABI operations that read and write the opaque managed-peer
+   * association stored on a generated foreign object. The slot restores
+   * object identity for platforms whose references cannot be interned; it is
+   * deliberately not an ownership edge. */
+  readonly peerSlot?: {
+    readonly read: NativeBindingId;
+    readonly write: NativeBindingId;
+  };
 }
 
 export interface CallbackContext {
@@ -618,6 +626,10 @@ export interface CallableBinding {
    * replacement. `super.m(...)` then refuses by name.
    */
   readonly baseCall?: NativeBindingId;
+  /** This registration observes the platform event whose return ends the
+   * receiver. Stated by selection because platform metadata describes only an
+   * ordinary method and cannot supply lifecycle meaning. */
+  readonly terminal?: true;
 }
 
 export interface ConstantBinding {
@@ -699,7 +711,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 10;
+export const SCABI_SCHEMA_VERSION = 11;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";

@@ -1,7 +1,7 @@
 # Native Subclassing and Platform Lifecycle
 
-Status: normative direction; implementation not started  
-Last revised: 2026-08-15
+Status: normative; Android/JNI peers implemented  
+Last revised: 2026-08-22
 
 This document defines how ordinary TypeScript classes participate in native
 platform inheritance, protocol/interface implementation, and host-owned
@@ -264,15 +264,14 @@ can arrive as two cells. Association therefore needs either an `IsSameObject`
 scan over live peers, which is O(n) over the handful of lifecycle objects a
 process has and entirely adequate, or an identity stored on the object itself.
 
-**Status: stated, not yet built.** The selection fact and its refusals exist —
-a terminal naming a member the base does not declare, or one Java would refuse
-to override, or one stated where the program owns the object, each fails by
-name at generation. What does not exist is the lowering: the generated class
-overriding the terminal to observe it, and the registration releasing the peer
-when it fires. The fact is deliberately not carried into SCABI until that
-lowering lands, so the manifest never grows a field nothing reads — a field no
-test can contradict is the failure this project keeps finding, and it is not
-worth introducing to look further ahead than the code is.
+**Status on Android/JNI: built.** The generator checks the terminal selection,
+emits the override even when source omits it, and gives the generated object an
+opaque `long` association slot. SCABI names the slot's exact read/write ABI and
+the terminal registration; Native IR attaches one managed peer on first
+dispatch, roots it for the registration, and clears the slot before releasing
+that root after the terminal body. A terminal naming a missing or
+non-overridable member, or one stated where the program owns the object, still
+fails by name at generation.
 
 ## Interfaces, protocols, and delegates
 
@@ -308,15 +307,12 @@ Java object whose own fields are gone, so a peer field resetting is the
 behaviour a Java or Kotlin program has. What differs is only that nobody
 expects it the first time, in either language.
 
-**It needs a test that fails if the peer WRONGLY survives**, and that test is
-not the same as the one asserting recreation happened. A peer that outlived
-its object would keep its fields, and every existing assertion — the
-lifecycle line, the restored arm, the view hierarchy — would still pass,
-because each of them is about the new object and none is about the old one's
-state being gone. The device lane already rotates and takes the restored arm;
-what it does not yet do is assert that state set before the rotation is
-ABSENT after it. Until it does, "the peer is per-object" is a claim nothing
-can contradict.
+The device lane distinguishes those two questions. It first proves that a field
+written by `onCreate` is recovered by `onStart` on the same Activity. It then
+mutates another peer field, rotates, and asserts the replacement Activity's
+first mutation starts from its initializer rather than the old value. The fork
+fixture separately counts live host objects after the terminal dispatch, so
+correct identity with an uncut registration root is also a failure.
 
 ### Apple/Objective-C
 
@@ -403,7 +399,7 @@ follows is a list of predictions this document made, discovered independently
 and then found already written down. What it records is what EXISTS, so a
 reader can tell the direction from the distance still to travel.
 
-**Host-owned construction, without the peer.** The packager generates a `final`
+**Host-owned construction, with a peer when source declares fields.** The packager generates a `final`
 Java subclass named in the generated manifest, compiled by javac against the
 platform jar, and ART constructs it (`0d39608b`, `516cb34d`). The generated
 class carries `static { System.loadLibrary(…) }`, because a class the platform
@@ -411,10 +407,13 @@ constructs runs nothing of ours first, and it is generated into a package the
 application owns — Android refuses application classes defined under
 `android.*`.
 
-What is absent is the PEER. A reached override today dispatches to a
-registration rather than to a TypeScript object, so this document's "create or
-attach one TypeScript peer" step has no implementation and ordinary instance
-fields have nowhere to live.
+For a source class with fields, the generated class also carries the opaque
+association slot. Every reached lifecycle registration delivers the generated
+receiver, the compiler recovers or creates its managed peer, and source `this`
+is that peer. The peer's hidden strong handle projects back into inherited
+native calls—including calls made later by a closure that captured `this`.
+A source class without fields keeps the earlier cheap shape and allocates no
+peer.
 
 **Registration is class-anchored** (`350348fb`, `70b4155c`). The platform never
 hands over the instance before calling it, so there is no moment at which a
@@ -476,7 +475,7 @@ pixels or only a log line, so what it checks is that the handler's work reached
 the platform. A tap reaches a TypeScript handler and its result returns to the
 screen.
 
-### The peer's lifetime is the undeclared part, not its lowering
+### The peer's lifetime, implemented
 
 Investigated 2026-08-22, recorded because the obstacle is not where it looks.
 
@@ -499,11 +498,10 @@ Both breaks are wrong in a way a program can observe:
   reference, and choosing this without saying so is exactly the silent policy
   the *Identity and lifetime* section requires to be declared.
 
-So the peer is not blocked on the lowerer. It is blocked on the per-platform
-lifetime declaration this document already demands and Android does not yet
-have: what keeps the peer alive, which callback ends it, and which executor
-performs the final release. Writing that down is the prerequisite; the lowering
-is downstream of it.
+This was the point at which implementation correctly paused: Android first had
+to state what keeps the peer alive, which callback ends it, and which executor
+performs the final release. Once `terminal` supplied that policy, the lowering
+could implement it without inventing lifecycle semantics.
 
 **The cycle resolves, and the resolution is to stop asking the cell to answer
 two questions.** ASSOCIATION — which peer belongs to this handle — is a lookup
@@ -527,6 +525,20 @@ which method ends the object, so the manifest says it —
 publishes no terminal event refuses by name when a subclass declares instance
 fields.
 
+The implemented representation follows those edges directly:
+
+- the generated Java object stores one opaque peer pointer as association;
+- the first delivered receiver creates the ScriptC peer, runs field
+  initializers, and writes that pointer;
+- the class-anchored registration holds one strong peer reference between
+  dispatches;
+- the peer holds one strong managed handle, typed at the declared native base,
+  so inherited calls remain available outside a dispatch;
+- every later JNI reference for the same object reads the same peer through the
+  generated slot, independent of handle-cell interning;
+- the terminal override clears the slot before releasing the registration
+  root, including when the source class never declared that override.
+
 **A JNI fact that invalidates the cheap association.** The claim that interning
 by foreign pointer already yields one cell per object does NOT hold for JNI:
 `NewGlobalRef` called twice on one object returns two distinct `jobject`s, and
@@ -549,7 +561,7 @@ Identity becomes observable the moment a field exists, which is the same
 boundary the refusal draws. Overrides, `this`, and `super` are all reachable
 without it, which is why they ship first.
 
-### The no-fields slice, built
+### The zero-cost no-fields slice remains
 
 `class MainActivity extends Activity` with `override` methods, a real `this`
 and a real `super` runs on a device. What it delivers and what it refuses is
@@ -576,9 +588,4 @@ member is itself bound. See
 
 ### Not yet built
 
-- **The peer**, and therefore instance fields. This is now the only large gap
-  between the code and this document, and the shape of the remaining work is
-  fixed by the JNI fact above: association cannot come from interning, so it
-  needs a stored identity on the generated object or an `IsSameObject` scan.
-  The lifetime half is stated — `terminal` — and its lowering is not written.
 - **An application-declared constructor**, which this document already defers.

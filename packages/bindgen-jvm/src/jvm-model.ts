@@ -127,6 +127,9 @@ export type JvmCallbackSelection =
       readonly delivery?: JvmCallbackDelivery;
       readonly anchor?: JvmCallbackAnchor;
       readonly baseCall?: JvmMemberReference;
+      /** This callback ends the platform-owned receiver's lifetime. A class
+       * file cannot state that role; the generated subclass selection does. */
+      readonly terminal?: true;
     };
 
 /**
@@ -378,6 +381,7 @@ export interface JvmCallback extends JvmMethod {
   /** The member reaching the implementation this override replaced, or
    * null when there is none to reach. See JvmMemberReference. */
   readonly baseCall: JvmMemberReference | null;
+  readonly terminal: boolean;
 }
 
 export interface JvmSnapshot {

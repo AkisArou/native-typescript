@@ -22,6 +22,7 @@ import {
   ingestJvmClasses,
 } from "@native-typescript/bindgen-jvm";
 import type { JvmSnapshot } from "@native-typescript/bindgen-jvm";
+import { translateScabiNativeProgram } from "@native-typescript/scriptc";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 
@@ -279,8 +280,18 @@ test("a terminal event is checked against what the base declares", () => {
       terminal,
     });
 
-  /* Accepted: an ordinary overridable void method on the base. */
-  assert.ok(terminalOf({ name: "onNotify", descriptor: "(I)V" })());
+  /* Accepted: an ordinary overridable void method on the base. It is added
+   * even when the source override list omits it, because teardown must not
+   * depend on the application remembering to declare the lifecycle hook. */
+  const generated = terminalOf({ name: "onNotify", descriptor: "(I)V" })();
+  assert.match(generated.source, /private long ntsPeer;/u);
+  assert.deepEqual(generated.peerSlot, {
+    field: { name: "ntsPeer", descriptor: "J" },
+  });
+  assert.ok(generated.callbacks.some((callback) =>
+    typeof callback !== "string" &&
+    callback.name === "onNotify" && callback.terminal === true
+  ));
 
   for (
     const [terminal, pattern] of [
@@ -585,6 +596,147 @@ test(
       );
       assert.ok(superTell !== undefined);
       assert.deepEqual(superTell!.result, { kind: "void" });
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a generated peer slot and terminal survive Java, SCABI, and Native IR",
+  { skip: javac === null ? "no javac on this host" : false },
+  () => {
+    const generated = generateJvmSubclassSource(hostSnapshot(), {
+      baseBinaryName: "fixture/Host",
+      overrides: ["onNotify"],
+      anchor: "class",
+      subclassBinaryName: "fixture/PeerBridge",
+      terminal: { name: "onNotify", descriptor: "(I)V" },
+    });
+    assert.ok(generated.peerSlot !== null);
+    const workDir = mkdtempSync(join(tmpdir(), "nt-jvm-peer-"));
+    try {
+      const sourcePath = join(workDir, generated.logicalPath);
+      mkdirSync(dirname(sourcePath), { recursive: true });
+      writeFileSync(sourcePath, generated.source);
+      execFileSync(javac!, [
+        "-cp",
+        resolve(repositoryRoot, "fixtures/jvm/classes"),
+        "-d",
+        join(workDir, "classes"),
+        sourcePath,
+      ]);
+      const compiled = join(workDir, "classes/fixture/PeerBridge.class");
+      const snapshot = ingestJvmClasses(
+        [
+          {
+            logicalPath: "fixtures/jvm/classes/fixture/Host.class",
+            bytes: readFileSync(
+              resolve(repositoryRoot, "fixtures/jvm/classes/fixture/Host.class"),
+            ),
+          },
+          { logicalPath: "generated/fixture/PeerBridge.class", bytes: readFileSync(compiled) },
+        ],
+        {
+          classes: [
+            {
+              binaryName: "fixture/Host",
+              constructors: ["()V"],
+            },
+            {
+              binaryName: generated.subclassBinaryName,
+              constructors: ["()V"],
+              methods: generated.methods,
+              fields: [generated.peerSlot.field],
+              callbacks: generated.callbacks,
+            },
+          ],
+        },
+      );
+      const adapter = generateJvmAdapterSource(snapshot, {
+        packageSlug: "peer",
+        peerSlots: [{
+          className: generated.subclassBinaryName,
+          field: generated.peerSlot.field,
+        }],
+      });
+      assert.equal(adapter.callbacks[0]?.terminal, true);
+      assert.equal(adapter.peerSlots.length, 1);
+      assert.match(adapter.source, /GetLongField\(env, \(jobject\)self,/u);
+      assert.match(adapter.source, /SetLongField\(env, \(jobject\)self,/u);
+
+      const scabi = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "peer",
+        peerSlots: [{
+          className: generated.subclassBinaryName,
+          field: generated.peerSlot.field,
+        }],
+        evidence: bridgeEvidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-peer",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-peer",
+          instance: "native-typescript.jvm-peer@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["peer"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "peer.jvm-adapters", output: "jvm-adapters.o" },
+      });
+      const terminalId = "peer.fixture.peerbridge.onnotify";
+      const terminal = scabi.manifest.bindings[terminalId];
+      assert.ok(terminal !== undefined && terminal.kind !== "constant");
+      assert.equal(terminal.terminal, true);
+      const peerHandle = scabi.manifest.types["jvm.fixture.peerbridge"];
+      assert.ok(peerHandle !== undefined && peerHandle.kind === "handle");
+      assert.ok(peerHandle.peerSlot !== undefined);
+      assert.ok(scabi.manifest.bindings[peerHandle.peerSlot.read] !== undefined);
+      assert.ok(scabi.manifest.bindings[peerHandle.peerSlot.write] !== undefined);
+
+      const translated = translateScabiNativeProgram(scabi.manifest, {
+        imports: [terminalId],
+        exports: [],
+      });
+      assert.equal(
+        translated.ok,
+        true,
+        translated.ok ? "" : JSON.stringify(translated.diagnostics),
+      );
+      if (!translated.ok) return;
+      const nativePeerHandle = translated.input.types.find(({ id }) =>
+        id.endsWith("#type:jvm.fixture.peerbridge")
+      );
+      assert.ok(nativePeerHandle?.kind === "handle");
+      assert.ok(nativePeerHandle.peerSlot !== undefined);
+      assert.ok(translated.input.bindings.some(({ id }) =>
+        id === nativePeerHandle.peerSlot!.read
+      ));
+      assert.ok(translated.input.bindings.some(({ id }) =>
+        id === nativePeerHandle.peerSlot!.write
+      ));
+      const nativeTerminal = translated.input.bindings.find(({ id }) =>
+        id.endsWith(`#${terminalId}`)
+      );
+      assert.equal(nativeTerminal?.terminal, true);
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

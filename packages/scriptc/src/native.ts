@@ -2041,6 +2041,14 @@ export function translateScabiNativeProgram(
         cycleCollection: traceableHandleTypeIds.has(typeId)
           ? "traceable"
           : "none",
+        ...(nativeType.peerSlot === undefined
+          ? {}
+          : {
+              peerSlot: Object.freeze({
+                read: `${manifest.package.instance}#${nativeType.peerSlot.read}`,
+                write: `${manifest.package.instance}#${nativeType.peerSlot.write}`,
+              }),
+            }),
         upcasts: Object.freeze(upcasts),
       }));
       if (!visitedSourceTypes.has(typeId)) {
@@ -2184,7 +2192,39 @@ export function translateScabiNativeProgram(
     return type;
   };
 
+  const peerSlotAccessors = new Map<string, {
+    readonly kind: "read" | "write";
+    readonly typeId: NativeTypeId;
+  }>();
+  for (const [typeId, type] of Object.entries(manifest.types)) {
+    if (type.kind !== "handle" || type.peerSlot === undefined) continue;
+    peerSlotAccessors.set(type.peerSlot.read, { kind: "read", typeId });
+    peerSlotAccessors.set(type.peerSlot.write, { kind: "write", typeId });
+  }
   const reachable = new Set(selection.imports);
+  const peerSlotVisitedTypes = new Set<NativeTypeId>();
+  const reachPeerSlotsOf = (typeId: NativeTypeId): boolean => {
+    if (peerSlotVisitedTypes.has(typeId)) return false;
+    peerSlotVisitedTypes.add(typeId);
+    const type = manifest.types[typeId];
+    let changed = false;
+    if (type?.kind === "handle" && type.peerSlot !== undefined) {
+      for (const accessor of [type.peerSlot.read, type.peerSlot.write]) {
+        if (!reachable.has(accessor)) {
+          reachable.add(accessor);
+          changed = true;
+        }
+      }
+    } else if (type?.kind === "callback") {
+      for (const position of [
+        ...type.signature.parameters,
+        type.signature.result,
+      ]) {
+        if (reachPeerSlotsOf(position.type)) changed = true;
+      }
+    }
+    return changed;
+  };
   let expanded = true;
   while (expanded) {
     expanded = false;
@@ -2201,6 +2241,12 @@ export function translateScabiNativeProgram(
           reachable.add(dependency);
           expanded = true;
         }
+      }
+      for (const position of [
+        ...binding.signature.parameters,
+        binding.signature.result,
+      ]) {
+        if (reachPeerSlotsOf(position.type)) expanded = true;
       }
     }
   }
@@ -2338,6 +2384,117 @@ export function translateScabiNativeProgram(
         declaration: normalizeDeclaration(manifest, binding.declaration),
         type,
         value,
+      }));
+      continue;
+    }
+    const peerSlotAccessor = peerSlotAccessors.get(bindingId);
+    if (peerSlotAccessor !== undefined) {
+      const handle = lowerType(
+        peerSlotAccessor.typeId,
+        `/types/${peerSlotAccessor.typeId}`,
+      );
+      const self = binding.signature.parameters[0];
+      const peer = binding.signature.parameters[1];
+      const pointer = manifest.types[
+        peerSlotAccessor.kind === "read"
+          ? binding.signature.result.type
+          : peer?.type ?? ""
+      ];
+      const common =
+        handle?.kind === "nativeHandle" &&
+        binding.kind === "function" &&
+        binding.baseCall === undefined &&
+        binding.terminal === undefined &&
+        binding.error.kind === "no-fail" &&
+        binding.signature.callingConvention === "c" &&
+        !binding.signature.variadic &&
+        binding.thread.behavior === "require" &&
+        binding.thread.executor.kind === "runtime-owner" &&
+        !binding.thread.blocking &&
+        self?.type === peerSlotAccessor.typeId &&
+        self.passMode === "pointer" &&
+        !self.nullable &&
+        self.ownership.kind === "borrowed" &&
+        self.ownership.scope === "call" &&
+        self.marshal === undefined &&
+        self.callback === undefined &&
+        pointer?.kind === "pointer" &&
+        pointer.pointee === "void" &&
+        pointer.addressSpace === 0 &&
+        pointer.nullable;
+      const valid = peerSlotAccessor.kind === "read"
+        ? common &&
+          binding.signature.parameters.length === 1 &&
+          binding.signature.result.passMode === "pointer" &&
+          binding.signature.result.nullable &&
+          binding.signature.result.ownership.kind === "value"
+        : common &&
+          binding.signature.parameters.length === 2 &&
+          peer?.passMode === "pointer" &&
+          peer.nullable &&
+          peer.ownership.kind === "value" &&
+          peer.marshal === undefined &&
+          peer.callback === undefined &&
+          binding.signature.result.type === "void" &&
+          binding.signature.result.passMode === "value" &&
+          !binding.signature.result.nullable &&
+          binding.signature.result.ownership.kind === "value";
+      if (!valid || handle === null || handle.kind !== "nativeHandle") {
+        diagnostics.push(diagnostic(
+          "NTS3002",
+          path,
+          `Managed peer ${peerSlotAccessor.kind} binding has an invalid accessor ABI`,
+        ));
+        continue;
+      }
+      for (const id of binding.dependencies.linkInputs) linkInputIds.add(id);
+      for (const id of binding.dependencies.adapterInputs) adapterInputIds.add(id);
+      bindings.push(Object.freeze({
+        id: `${manifest.package.instance}#${bindingId}`,
+        declaration: normalizeDeclaration(manifest, binding.declaration),
+        entry: Object.freeze({ symbol: binding.entry.symbol }),
+        sourceCall: Object.freeze({ kind: "function" as const }),
+        error: NO_NATIVE_FAILURE,
+        arguments: Object.freeze([{ name: "self", type: handle }]),
+        parameters: peerSlotAccessor.kind === "read"
+          ? Object.freeze([Object.freeze({
+              name: "self",
+              type: handle,
+              passMode: "pointer" as const,
+              ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
+              projection: Object.freeze({ kind: "argument" as const, argument: 0 }),
+            })])
+          : Object.freeze([Object.freeze({
+              name: "self",
+              type: handle,
+              passMode: "pointer" as const,
+              ownership: Object.freeze({ kind: "borrowed" as const, scope: "call" as const }),
+              projection: Object.freeze({ kind: "argument" as const, argument: 0 }),
+            }), Object.freeze({
+              name: "peer",
+              type: Object.freeze({ kind: "nativeContext" as const, addressSpace: 0 as const }),
+              passMode: "pointer" as const,
+              ownership: Object.freeze({ kind: "value" as const }),
+              projection: Object.freeze({ kind: "peerSlotValue" as const }),
+            })]),
+        result: peerSlotAccessor.kind === "read"
+          ? Object.freeze({
+              type: Object.freeze({
+                kind: "nativePointer" as const,
+                pointee: "ptr" as const,
+                const: false,
+                addressSpace: 0,
+              }),
+              passMode: "pointer" as const,
+              ownership: Object.freeze({ kind: "value" as const }),
+              projection: Object.freeze({ kind: "peerSlotValue" as const }),
+            })
+          : Object.freeze({
+              type: Object.freeze({ kind: "void" as const }),
+              passMode: "value" as const,
+              ownership: Object.freeze({ kind: "value" as const }),
+              projection: Object.freeze({ kind: "direct" as const }),
+            }),
       }));
       continue;
     }
@@ -3460,6 +3617,7 @@ export function translateScabiNativeProgram(
         ...(binding.baseCall === undefined
           ? {}
           : { baseCall: `${manifest.package.instance}#${binding.baseCall}` }),
+        ...(binding.terminal === undefined ? {} : { terminal: true as const }),
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : binding.kind === "getter"

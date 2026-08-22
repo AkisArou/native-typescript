@@ -309,6 +309,10 @@ export async function buildJvmApplication(input: {
    * classpath beside the primary directory. */
   let builtSubclassesPath: string | undefined;
   const subclassSelections: JvmClassSelection[] = [];
+  const peerSlots: Array<{
+    readonly className: string;
+    readonly field: { readonly name: string; readonly descriptor: string };
+  }> = [];
   if (project.subclasses !== undefined && project.subclasses.length > 0) {
     if (builtClassesPath === undefined && project.javaClasspathJar === undefined) {
       throw new Error(
@@ -349,7 +353,19 @@ export async function buildJvmApplication(input: {
           classes: [{
             binaryName: specification.baseBinaryName,
             ...(baseKind === "interface" ? {} : { constructors: ["()V"] }),
-            methods: specification.overrides,
+            methods: [
+              ...specification.overrides,
+              ...(specification.terminal === undefined
+                ? []
+                : specification.overrides.some((override) =>
+                    typeof override === "string"
+                      ? override === specification.terminal!.name
+                      : override.name === specification.terminal!.name &&
+                        override.descriptor === specification.terminal!.descriptor
+                  )
+                  ? []
+                  : [specification.terminal]),
+            ],
           }],
         },
       );
@@ -363,7 +379,16 @@ export async function buildJvmApplication(input: {
         constructors: ["()V"],
         methods: generated.methods,
         callbacks: generated.callbacks,
+        ...(generated.peerSlot === null
+          ? {}
+          : { fields: [generated.peerSlot.field] }),
       });
+      if (generated.peerSlot !== null) {
+        peerSlots.push({
+          className: generated.subclassBinaryName,
+          field: generated.peerSlot.field,
+        });
+      }
     }
     /* What the generated subclass resolves its base against. An
      * application that ships Java compiles its own classes first and the
@@ -472,7 +497,10 @@ export async function buildJvmApplication(input: {
     { classes: [...project.classes, ...subclassSelections] },
   );
   const slug = project.packageSlug;
-  const adapter = generateJvmAdapterSource(snapshot, { packageSlug: slug });
+  const adapter = generateJvmAdapterSource(snapshot, {
+    packageSlug: slug,
+    peerSlots,
+  });
   const probe = generateJvmClangAbiProbe(adapter);
 
   const generatedRoot = join(input.scratch, "generated", slug);
@@ -561,6 +589,7 @@ export async function buildJvmApplication(input: {
     snapshot,
     adapter,
     packageSlug: slug,
+    peerSlots,
     evidence,
     package: {
       name: `@native-typescript/jvm-${slug}`,

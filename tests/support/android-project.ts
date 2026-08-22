@@ -111,6 +111,7 @@ export const androidProject = {
       methods: [
         { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
         { name: "onStart", descriptor: "()V" },
+        { name: "onDestroy", descriptor: "()V" },
         { name: "getLocalClassName", descriptor: "()Ljava/lang/String;" },
         { name: "setContentView", descriptor: "(Landroid/view/View;)V" },
       ],
@@ -143,6 +144,10 @@ export const androidProject = {
       /* The platform constructs this class, so its own initializer is
        * the only place the native half can be loaded in time. */
       loadLibrary: "ntsdemo",
+      /* The generated override is present even though app.ts does not name
+       * it: returning from onDestroy is the platform's terminal event, so it
+       * deterministically cuts the peer root. */
+      terminal: { name: "onDestroy", descriptor: "()V" },
     },
   ],
   android: {

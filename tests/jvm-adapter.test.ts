@@ -219,6 +219,7 @@ test("every generated-C family carries a classification", () => {
       "envSupport",
       "errorSupport",
       "instanceMethods",
+      "peerSlots",
       "release",
       "spanSupport",
       "staticMethods",
@@ -233,6 +234,19 @@ test("every generated-C family carries a classification", () => {
     ({ kind }) => kind === "gap",
   ).length;
   assert.equal(gapCount, 1);
+});
+
+test("a peer slot role cannot disappear outside the selected classes", () => {
+  assert.throws(
+    () => generateJvmAdapterSource(ingestSurface(), {
+      packageSlug: "fixture",
+      peerSlots: [{
+        className: "fixture/MissingBridge",
+        field: { name: "ntsPeer", descriptor: "J" },
+      }],
+    }),
+    /Managed peer slot class 'fixture\/MissingBridge' is outside this selection/u,
+  );
 });
 
 test("the founding refusal resolves: measure returns a typed span", () => {

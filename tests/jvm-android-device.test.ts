@@ -335,6 +335,11 @@ test(
        * cannot verify a peer. It can fail the day the platform stops
        * handing us one object, which is the only thing it is for. */
       awaitLogLine(run, /onStart ran/u);
+      assert.match(
+        run("logcat", "-d", "-s", LOG_TAG),
+        /peer 42/u,
+        "onStart recovers the peer whose field onCreate wrote",
+      );
       const identities = run("logcat", "-d", "-s", LOG_TAG)
         .split("\n")
         .flatMap((line) => /identity (-?\d+)/u.exec(line)?.slice(1, 2) ?? []);
@@ -369,10 +374,11 @@ test(
 
       /* INTERACTION: the platform calls a TypeScript handler through a
        * generated class implementing its listener INTERFACE, and the
-       * handler's effect comes back through the platform. The tap count
-       * lives in an ordinary closure, so a label reading "Tapped 1 time"
-       * is TypeScript state surviving a platform callback — which no
-       * amount of inspecting the package could have shown.
+       * handler's effect comes back through the platform. The tap count is
+       * an ordinary field on the Activity peer and the listener closure
+       * captures `this`, so a label reading "Tapped 1 time" proves both the
+       * retained peer and its hidden native handle survive into a later
+       * platform callback.
        *
        * The button is located from the hierarchy rather than by a
        * remembered coordinate, because its position moves when the label
@@ -385,7 +391,7 @@ test(
       assert.match(
         run("shell", "cat", "/sdcard/nts-ui.xml"),
         /text="Tapped 1 time"/u,
-        "the handler's closure state reached the platform",
+        "the handler's peer state reached the platform",
       );
 
       /* RESTORE: a configuration change recreates the Activity, and the
@@ -410,11 +416,10 @@ test(
        * claim nothing here could contradict.
        *
        * It matters because a recreated activity is a new Java object whose
-       * own fields are gone, and whatever carries TypeScript state across
-       * an override must behave the same way — a closure today, an
-       * instance field on a peer once peers exist. A peer wrongly
-       * outliving its object would keep its fields and every assertion
-       * above would still pass.
+       * own fields are gone, and the managed peer carrying TypeScript state
+       * must behave the same way. A peer wrongly associated with the
+       * replacement object would keep its fields and every assertion above
+       * would still pass.
        *
        * The tap count is the discriminator because it is cumulative: a
        * surviving counter says `tap 2` where a fresh one says `tap 1`, and

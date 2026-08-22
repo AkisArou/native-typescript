@@ -122,6 +122,20 @@ export function generateJvmClangAbiProbe(
             ["void*"],
           ),
         ]),
+    ...adapter.peerSlots.flatMap((slot) => [
+      candidate(
+        `jvm.peer.read.${slot.readSymbol}`,
+        slot.readSymbol,
+        "void*",
+        ["void*"],
+      ),
+      candidate(
+        `jvm.peer.write.${slot.writeSymbol}`,
+        slot.writeSymbol,
+        "void",
+        ["void*", "void*"],
+      ),
+    ]),
     candidate(
       `jvm.error.message.${adapter.errorSupport.messageSymbol}`,
       adapter.errorSupport.messageSymbol,

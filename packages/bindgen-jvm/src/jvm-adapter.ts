@@ -149,6 +149,17 @@ export interface JvmCallbackAdapter {
    * the pairing along to whatever writes the manifest. Null when there is
    * no base implementation to reach. */
   readonly baseCall: JvmMemberReference | null;
+  readonly terminal: boolean;
+}
+
+/** One generated Java long field used only as an opaque managed-peer
+ * association. The C ABI deliberately carries `void *`; Java never observes
+ * or interprets the value. */
+export interface JvmPeerSlotAdapter {
+  readonly className: string;
+  readonly field: JvmMemberReference;
+  readonly readSymbol: string;
+  readonly writeSymbol: string;
 }
 
 /** The shared connection machinery, present when any callback is selected:
@@ -173,7 +184,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 20;
+  readonly schemaVersion: 21;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -201,6 +212,7 @@ export interface JvmAdapterSource {
   readonly staticMethods: readonly JvmMethodAdapter[];
   readonly instanceMethods: readonly JvmMethodAdapter[];
   readonly callbacks: readonly JvmCallbackAdapter[];
+  readonly peerSlots: readonly JvmPeerSlotAdapter[];
 }
 
 /**
@@ -318,6 +330,15 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "An answered callback runs during the emitting call because its " +
       "boolean is that call's result; a queued one enqueues at the " +
       "trampoline and is delivered at the runtime's pump",
+  },
+  peerSlots: {
+    kind: "translation",
+    custom:
+      "a generated instance long field stores one opaque managed pointer; " +
+      "GetLongField and SetLongField are exact association mechanics, while " +
+      "the compiler alone decides when the peer is created, rooted, and " +
+      "released. The accessors trap on an unattached thread because peer " +
+      "lifecycle is owner-confined",
   },
   connectionSupport: {
     kind: "translation",
@@ -628,6 +649,12 @@ function positionDeclaration(
 export interface JvmAdapterOptions {
   /** Names every generated symbol: nts_jvm_<slug>_... */
   readonly packageSlug: string;
+  /** Roles for fields emitted by the subclass generator. Metadata can show a
+   * long field exists, but only the generator knows it is a peer association. */
+  readonly peerSlots?: readonly {
+    readonly className: string;
+    readonly field: JvmMemberReference;
+  }[];
 }
 
 export function generateJvmAdapterSource(
@@ -653,6 +680,11 @@ export function generateJvmAdapterSource(
       readonly descriptor: string;
       readonly static: boolean;
     }[];
+    readonly fields: {
+      readonly fidVar: string;
+      readonly name: string;
+      readonly descriptor: string;
+    }[];
     readonly nativeRegistrations: {
       readonly name: string;
       readonly descriptor: string;
@@ -664,6 +696,7 @@ export function generateJvmAdapterSource(
   const staticMethods: JvmMethodAdapter[] = [];
   const instanceMethods: JvmMethodAdapter[] = [];
   const callbacks: JvmCallbackAdapter[] = [];
+  const peerSlots: JvmPeerSlotAdapter[] = [];
   /* Trampolines are defined with their callback's body, after bind in the
    * file, while bind installs them by address — hence forward declarations
    * beside the statics. */
@@ -673,6 +706,14 @@ export function generateJvmAdapterSource(
   const selectedNames: ReadonlySet<string> = new Set(
     snapshot.classes.map(({ binaryName }) => binaryName),
   );
+  for (const [index, slot] of (options.peerSlots ?? []).entries()) {
+    if (!selectedNames.has(slot.className)) {
+      diagnostics.push(diagnostic(
+        `peerSlots/${index}/className`,
+        `Managed peer slot class '${slot.className}' is outside this selection`,
+      ));
+    }
+  }
   let usesStrings = false;
   let usesSpans = false;
   let usesStringVectors = false;
@@ -826,8 +867,84 @@ export function generateJvmAdapterSource(
       class_,
       classVar: `${prefix}_cls_${classToken}`,
       members: [],
+      fields: [],
       nativeRegistrations: [],
     };
+    const selectedPeerSlots = (options.peerSlots ?? []).filter(
+      ({ className }) => className === class_.binaryName,
+    );
+    if (selectedPeerSlots.length > 1) {
+      diagnostics.push(diagnostic(
+        `class/${class_.binaryName}/peerSlot`,
+        "A generated class may declare exactly one managed peer slot",
+      ));
+    }
+    const peerSlotSelection = selectedPeerSlots[0];
+    if (peerSlotSelection !== undefined) {
+      const field = class_.fields.find(
+        (candidate) =>
+          candidate.name === peerSlotSelection.field.name &&
+          candidate.descriptor === peerSlotSelection.field.descriptor,
+      );
+      if (field === undefined) {
+        diagnostics.push(diagnostic(
+          `class/${class_.binaryName}/peerSlot`,
+          `Managed peer field '${peerSlotSelection.field.name}` +
+            `${peerSlotSelection.field.descriptor}' is not selected on the generated class`,
+        ));
+      } else if (field.access.static || field.descriptor !== "J") {
+        diagnostics.push(diagnostic(
+          `class/${class_.binaryName}/peerSlot`,
+          "A managed peer slot must be an instance long field",
+        ));
+      } else {
+        const fidVar = `${prefix}_fid_${classToken}_peer`;
+        const readSymbol = `${prefix}_peer_read_${classToken}`;
+        const writeSymbol = `${prefix}_peer_write_${classToken}`;
+        plan.fields.push({
+          fidVar,
+          name: field.name,
+          descriptor: field.descriptor,
+        });
+        headerDeclarations.push(
+          `void *${readSymbol}(void *self);`,
+          `void ${writeSymbol}(void *self, void *peer);`,
+        );
+        bodies.push(
+          `/* Managed peer association for ${class_.binaryName}. */`,
+          `void *${readSymbol}(void *self) {`,
+          "  JNIEnv *env = NULL;",
+          `  if (${prefix}_vm == NULL ||`,
+          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+          "                              JNI_VERSION_1_6) != JNI_OK) {",
+          `    fprintf(stderr, "${prefix}: peer read on an unattached thread\\n");`,
+          "    abort();",
+          "  }",
+          `  jlong value = (*env)->GetLongField(env, (jobject)self, ${fidVar});`,
+          "  return (void *)(uintptr_t)(uint64_t)value;",
+          "}",
+          "",
+          `void ${writeSymbol}(void *self, void *peer) {`,
+          "  JNIEnv *env = NULL;",
+          `  if (${prefix}_vm == NULL ||`,
+          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+          "                              JNI_VERSION_1_6) != JNI_OK) {",
+          `    fprintf(stderr, "${prefix}: peer write on an unattached thread\\n");`,
+          "    abort();",
+          "  }",
+          `  (*env)->SetLongField(env, (jobject)self, ${fidVar},`,
+          "                       (jlong)(uint64_t)(uintptr_t)peer);",
+          "}",
+          "",
+        );
+        peerSlots.push(Object.freeze({
+          className: class_.binaryName,
+          field: Object.freeze({ ...peerSlotSelection.field }),
+          readSymbol,
+          writeSymbol,
+        }));
+      }
+    }
     const overloadedNames = new Set(
       class_.methods
         .map(({ name }) => name)
@@ -1557,11 +1674,12 @@ export function generateJvmAdapterSource(
         delivery,
         anchor: classAnchored ? ("class" as const) : ("instance" as const),
         baseCall: callback.baseCall,
+        terminal: callback.terminal,
       }));
     }
     if (
       plan.members.length > 0 || class_.constructors.length > 0 ||
-      plan.nativeRegistrations.length > 0
+      plan.nativeRegistrations.length > 0 || plan.fields.length > 0
     ) {
       plans.push(plan);
     }
@@ -1622,6 +1740,9 @@ export function generateJvmAdapterSource(
       `static jclass ${plan.classVar};`,
       ...plan.members.map((member) =>
         `static jmethodID ${member.midVar}; /* ${member.name}${member.descriptor} */`
+      ),
+      ...plan.fields.map((field) =>
+        `static jfieldID ${field.fidVar}; /* ${field.name}${field.descriptor} */`
       ),
     ]),
     "",
@@ -1958,6 +2079,11 @@ export function generateJvmAdapterSource(
         `      env, ${plan.classVar}, "${member.name}", "${member.descriptor}");`,
         `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
       ]),
+      ...plan.fields.flatMap((field) => [
+        `  ${field.fidVar} = (*env)->GetFieldID(`,
+        `      env, ${plan.classVar}, "${field.name}", "${field.descriptor}");`,
+        `  if ((*env)->ExceptionCheck(env)) { ${prefix}_capture(env, error); return -1; }`,
+      ]),
       ...(plan.nativeRegistrations.length === 0
         ? []
         : [
@@ -2039,7 +2165,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 20,
+    schemaVersion: 21,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -2070,5 +2196,6 @@ export function generateJvmAdapterSource(
     staticMethods: Object.freeze(staticMethods),
     instanceMethods: Object.freeze(instanceMethods),
     callbacks: Object.freeze(callbacks),
+    peerSlots: Object.freeze(peerSlots),
   });
 }

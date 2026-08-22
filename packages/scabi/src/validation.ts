@@ -1,6 +1,6 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv";
-import schema from "./scabi-v10.schema.json" with { type: "json" };
+import schema from "./scabi-v11.schema.json" with { type: "json" };
 import { canonicalizeJson } from "./canonical-json.ts";
 import type {
   CallableBinding,
@@ -357,6 +357,22 @@ function validateDependencies(
             `Permission ${reference} does not exist`,
           ),
         );
+      }
+    }
+  }
+
+  for (const [typeId, type] of Object.entries(manifest.types)) {
+    if (type.kind !== "handle" || type.peerSlot === undefined) continue;
+    for (const [role, binding] of [
+      ["read", type.peerSlot.read],
+      ["write", type.peerSlot.write],
+    ] as const) {
+      if (manifest.bindings[binding] === undefined) {
+        diagnostics.push(diagnostic(
+          "NTS2011",
+          `/types/${typeId}/peerSlot/${role}`,
+          `Managed peer ${role} binding ${binding} does not exist`,
+        ));
       }
     }
   }

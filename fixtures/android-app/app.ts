@@ -22,11 +22,10 @@ import { applicationStart } from "@native-typescript/jvm-application";
  * program says what an Android program says, and the registration the
  * platform needs is synthesized from the override.
  *
- * `this` IS the receiver — the same native handle a class-anchored
- * registration hands its handler as payload zero — so `new TextView(this)`
- * and `this.setContentView(...)` reach the platform through the identity
- * upcasts the manifest already carries. There is no peer object and no
- * second identity to keep in step.
+ * `this` is the managed peer associated with the receiver the platform
+ * delivered. Its hidden strong handle keeps inherited calls available between
+ * dispatches, while the generated Activity's peer slot lets distinct JNI
+ * references for the same object recover this exact peer.
  *
  * Nothing constructs this Activity. ART does, after reading the generated
  * manifest, and it calls onCreate on the main looper — which is why the
@@ -54,17 +53,18 @@ import { applicationStart } from "@native-typescript/jvm-application";
  * honest rather than a leak: a listener on a view the Activity owns should
  * live as long as the process, and saying so is the program's job.
  *
- * The tap count is a `let` inside the override rather than an instance
- * field. An instance field is exactly what needs a PEER — a second,
- * managed object whose lifetime the platform does not declare — and it
- * refuses by name until that policy exists. A local has no such question:
- * it lives in the closure the registration owns.
+ * The tap count and lifecycle seed are ordinary instance fields. The click
+ * closure captures the peer, so its later inherited calls and field writes
+ * exercise the same lifetime edge as a normal application.
  */
 const registrations: JvmConnection[] = [];
 const listeners: ClickBridge[] = [];
 applicationStart();
 
 export default class MainActivity extends Activity {
+  private taps = 0;
+  private lifecycleSeed = 0;
+
   override onCreate(state: Bundle | null): void {
     /* The base implementation runs first, as every Android lifecycle
      * override must: an Activity that skips it throws SuperNotCalled
@@ -81,7 +81,7 @@ export default class MainActivity extends Activity {
     super.onCreate(state);
 
     const restored = state === null ? "fresh" : "restored";
-    let taps = 0;
+    this.lifecycleSeed = 42;
 
     const label = new TextView(this);
     label.setText(`Compiled TypeScript, ${restored} on Android`);
@@ -100,9 +100,11 @@ export default class MainActivity extends Activity {
     const clicks = new ClickBridge();
     listeners.push(clicks);
     registrations.push(clicks.onClick((view) => {
-      taps += 1;
-      label.setText(`Tapped ${taps} time${taps === 1 ? "" : "s"}`);
-      Log.i("native-typescript", `tap ${taps}`);
+      this.taps += 1;
+      label.setText(
+        `Tapped ${this.taps} time${this.taps === 1 ? "" : "s"}`,
+      );
+      Log.i("native-typescript", `tap ${this.taps}`);
       /* The payload is the View that was clicked, promoted into a managed
        * cell — proof it is a live object rather than a pointer that merely
        * survived the frame. */
@@ -146,6 +148,7 @@ export default class MainActivity extends Activity {
   override onStart(): void {
     super.onStart();
     Log.i("native-typescript", `identity ${System.identityHashCode(this)}`);
+    Log.i("native-typescript", `peer ${this.lifecycleSeed}`);
     Log.i("native-typescript", "onStart ran");
   }
 }

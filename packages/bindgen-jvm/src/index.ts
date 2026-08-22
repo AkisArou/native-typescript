@@ -20,6 +20,7 @@ export type {
   JvmEnvSupportAdapter,
   JvmErrorSupportAdapter,
   JvmMethodAdapter,
+  JvmPeerSlotAdapter,
 } from "./jvm-adapter.ts";
 export { planJvmAdapterObject } from "./jvm-adapter-object.ts";
 export type { JvmAdapterObjectPlan } from "./jvm-adapter-object.ts";
