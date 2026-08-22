@@ -1071,8 +1071,20 @@ async function executeAction(options: {
     }
     const staged = await digestArtifactPath(inputPath, input.entryType);
     if (staged.digest !== input.digest) {
+      /* The copy just taken does not match the digest recorded when this input
+       * was materialized, so the SOURCE changed in between — the plan pinned
+       * content that was rewritten underneath it while the build ran.
+       *
+       * Saying that is the whole value of this message. "Unexpected content"
+       * alone reads like a corrupt cache, and clearing the cache appears to
+       * work on the next run that happens not to race, which teaches that the
+       * cache is unreliable rather than that something is rebuilding an input
+       * concurrently. Naming both digests and the path points at the writer. */
       throw new ArtifactExecutionError(
-        `Action ${action.id} staged input ${inputId} with unexpected content`,
+        `Action ${action.id} staged input ${inputId} with unexpected content: ` +
+          `expected ${input.digest}, staged ${staged.digest}. Its source ` +
+          `changed after the plan pinned it, so something rewrote ` +
+          `${input.path} while this build ran.`,
         { actionId: action.id },
       );
     }
