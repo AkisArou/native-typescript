@@ -205,6 +205,26 @@ export interface HandleType {
   readonly kind: "handle";
   readonly nativeName: string;
   readonly threadSafety: "confined" | "sendable" | "shared";
+  /**
+   * What decides whether two values of this type are the same object.
+   *
+   * `pointer` is the ONLY arm that interns: a cell is looked up by the foreign
+   * pointer and reused, so one object yields one managed cell for as long as it
+   * lives. Every other arm builds a fresh cell per arrival, and that is a
+   * correctness fact rather than a performance one — anything that needs to
+   * associate managed state with a foreign object must carry its own
+   * association, because nothing here will find it.
+   *
+   * `none` is what a JVM handle declares, and it is not a shortcut. JNI's
+   * `NewGlobalRef` called twice on one object returns two distinct `jobject`s,
+   * and the specification forbids comparing references with `==` —
+   * `IsSameObject` exists precisely because identity is not the pointer. A
+   * platform whose references cannot be compared cannot be interned by them.
+   *
+   * Stated here rather than only in `docs/native-subclassing.md` because that
+   * is where the claim "the interning map already keeps identity" was written
+   * into two other documents by someone who had read the correction.
+   */
   readonly identity: "none" | "pointer" | "binding" | "platform";
   readonly upcasts: readonly IdentityHandleUpcast[];
   /**
