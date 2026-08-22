@@ -214,6 +214,12 @@ export declare class Token {
   dispose(): void;
 }
 export declare function tokenAcquire(): Token;
+/* The SAME object under the other identity arm: `pointer`, so the runtime
+ * interns it and two acquisitions are ONE managed value. */
+export declare class Shared {
+  dispose(): void;
+}
+export declare function sharedAcquire(): Shared;
 export declare function tokenOutstanding(): i32;
 export declare function tickMark(): void;
 

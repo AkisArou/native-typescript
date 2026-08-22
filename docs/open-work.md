@@ -346,7 +346,7 @@ The JVM session owns the status text recording that, including the
 document's `super` section accepts the generated-bridge MECHANISM and refuses
 that public spelling, and it has nowhere else to live until `extends` exists.
 
-### Comparing two native handles
+### Comparing two native handles — DONE (fork 4e8a7adb)
 
 `a === b` between two values of a handle type is SC1043, "comparing
 non-number, non-string values". That is a general gap, but one platform makes
@@ -378,11 +378,14 @@ name the same managed cell. That gives `pointer` handles object equality for
 free (one object, one interned cell) and gives `none` handles the honest answer
 (two cells, not equal), which is the arm's semantics rather than a compromise.
 
-**What would admit it:** a program that needs to ask whether two handles name
-one object. The uninterned fixture wanted to and could not, and asserts through
-a reference count instead — which proves the cells are distinct without saying
-what that means to someone writing TypeScript. That is a real gap and a small
-one; it is not blocking anything.
+**Built.** Cell identity, with no same-type requirement — following function and
+class identity rather than the array rule beside it, because identity-upcast
+related handles share a cell. Kept here for the two refusals the attempt met,
+both of which were right and neither of which is obvious from the outside: one
+C symbol backs exactly one binding, so the contrast type needed its own
+wrappers rather than reusing the first type's entry points; and the IR
+validator gates `bin ===` by operand kind, so the frontend and the validator
+are one change rather than two.
 
 ### The receiver's POSITION in a class-anchored registration is unstated
 

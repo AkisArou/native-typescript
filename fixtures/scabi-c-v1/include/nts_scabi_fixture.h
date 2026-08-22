@@ -180,6 +180,11 @@ NTS_SCABI_EXPORT NtsToken *nts_token_acquire(void);
 NTS_SCABI_EXPORT void nts_token_release(NtsToken *token);
 NTS_SCABI_EXPORT int32_t nts_token_value(NtsToken *token);
 NTS_SCABI_EXPORT int32_t nts_token_outstanding(void);
+/* The same object behind its OWN symbols, because one C symbol backs exactly
+ * one binding. They exist so it can also be reached under a `pointer`-identity
+ * handle, making the identity arm the only difference between the two. */
+NTS_SCABI_EXPORT NtsToken *nts_shared_acquire(void);
+NTS_SCABI_EXPORT void nts_shared_release(NtsToken *token);
 
 /* The base is its OWN type, not an alias of the counter. A platform base
  * class is — an Activity is not an Object with different members — and the

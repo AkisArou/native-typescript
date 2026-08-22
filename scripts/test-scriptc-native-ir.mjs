@@ -116,6 +116,8 @@ const translated = translateScabiNativeProgram(manifest, {
     "token_release",
     "token_value",
     "token_outstanding",
+    "shared_acquire",
+    "shared_release",
     "tick_base",
     "tick_value",
     "tick_mark",

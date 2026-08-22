@@ -473,6 +473,10 @@ int32_t nts_token_value(NtsToken *token) { return token->value; }
 
 int32_t nts_token_outstanding(void) { return nts_token_live; }
 
+NtsToken *nts_shared_acquire(void) { return nts_token_acquire(); }
+
+void nts_shared_release(NtsToken *token) { nts_token_release(token); }
+
 struct NtsTickSource {
   int32_t value;
 };
