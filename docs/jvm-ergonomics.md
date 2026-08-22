@@ -101,13 +101,22 @@ resize_df16004b(a0: jint, a1: jint): void;
 
 `resize_df16004b` is a descriptor hash. It is stable and unguessable.
 
-### 4. Selecting a class is a dependency hunt
+### 4. Selecting a class is a dependency hunt — RESOLVED, see D
 
-Selecting `android/widget/TextView` fails until `android/view/View` is
-selected, which fails until the ancestry above it is, and each failure is
-a separate build. The rule is deliberate — an unselected superclass is a
-silent-ancestry error rather than an invented one — but the consequence
-is that adding one widget costs several rounds.
+Selecting `android/widget/TextView` failed until `android/view/View` was
+selected, which failed until the ancestry above it was, and each failure
+was a separate build. The rule was deliberate — an unselected superclass
+is a silent-ancestry error rather than an invented one — but the
+consequence was that adding one widget cost several rounds.
+
+Correcting this entry, because investigating it found something worse than
+the inconvenience it describes. That refusal only ever fired when the
+ancestor was among the provided SOURCES. On the Android build path the
+extractor pulls only the classes a selection NAMES, so an omitted ancestor
+was not present-but-unselected — it was absent, and the guard could not
+fire at all. Selecting `TextView` without `View` projected `TextView` with
+an EXTERNAL superclass and lost every inherited member without a word.
+The check was measuring a different question from the one that failed.
 
 ### 5. Constants must be listed by name — RESOLVED, see E
 
@@ -245,9 +254,32 @@ because each overload is its own symbol.
 **How.** Selecting a class implies selecting the ancestors it needs to be
 that class. An ancestor with no selected members costs one handle type and
 no generated C, so the boundary does not move — what moves is how many
-builds it takes to discover the list. Keep the silent-ancestry refusal for
-the case it was written for: a class that is present but deliberately
-outside the selection.
+builds it takes to discover the list.
+
+**Landed**, and the silent-ancestry refusal is gone rather than kept. The
+proposal originally said to keep it "for the case it was written for: a
+class that is present but deliberately outside the selection". There is no
+such case. A class's superclass chain is not a decision a caller makes —
+it is what the class file says the class IS — so there is nothing for a
+caller to deliberately exclude, and the remedy for losing ancestry is to
+supply it rather than to demand it.
+
+Superclasses only, not interfaces. `extends` is what a projected class
+needs to be itself; implying every implemented interface would sweep in
+Serializable and Comparable, which say nothing about the surface a program
+asked for.
+
+**It takes two changes, not one, and the second is the one that mattered.**
+Ingestion can imply an ancestor it can SEE. But a caller reading class
+files out of an archive decides what ingestion can see before ingestion
+runs, so the extractor has to ask the same question first —
+`requiredJvmAncestry` answers "what else must come out of the jar". Without
+that half, the Android path keeps the hole described in item 4 above: the
+ancestor is absent rather than unselected, and absence was invisible to
+the guard.
+
+The acceptance project drops five selections it only ever named to satisfy
+the rule, including the whole four-deep chain above `Activity`.
 
 ### E. Constants come with their class
 
@@ -563,7 +595,7 @@ the largest single ergonomic win available.
 
 Everything else divides cleanly:
 
-- **Free, generator-side, no contract change:** D, F, G; E — *landed*.
+- **Free, generator-side, no contract change:** F, G; D and E — *landed*.
 - **Evidence the metadata already carries:** B — *landed*.
 - **Compiler capability:** C, H — *H landed*, and the peer.
 

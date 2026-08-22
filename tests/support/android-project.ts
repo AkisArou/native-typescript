@@ -10,33 +10,23 @@
 /** The API level the NDK toolchain targets and the manifest claims. */
 export const ANDROID_API = 35;
 
-/* The Activity's ancestry, which ingestion requires to be selected rather
- * than inferred: a class whose superclass is present among the sources but
- * absent from the selection is a silent-ancestry error by design. */
-const activityChain = [
-  { binaryName: "java/lang/Object" },
-  { binaryName: "android/content/Context" },
-  { binaryName: "android/content/ContextWrapper" },
-  { binaryName: "android/view/ContextThemeWrapper" },
-];
-
 export const androidProject = {
   name: "android-app",
   entry: "app.ts",
   output: "ntsdemo",
   packageSlug: "android",
   classes: [
-    ...activityChain,
-    /* Bundle is the payload onCreate is handed, so the selection must
-     * project it — and BaseBundle with it, because ingestion refuses a
-     * class whose superclass is present among the sources but absent
-     * from the selection rather than inventing an ancestry. */
-    { binaryName: "android/os/BaseBundle" },
+    /* NOTHING here names an ancestor. A class's superclass chain comes
+     * with it — `Activity` brings ContextThemeWrapper, ContextWrapper,
+     * Context and Object; `Bundle` brings BaseBundle — because a class
+     * cannot BE itself without the chain above it, and an ancestor with
+     * no selected members costs one handle type and no generated C. What
+     * is listed below is surface this application actually calls. */
+    /* Bundle is the payload onCreate is handed. */
     { binaryName: "android/os/Bundle" },
-    /* The view surface a visible application needs: a View to hand to
-     * setContentView, and a TextView to put a word in. TextView extends
-     * View, and ingestion requires a class's superclass to be selected
-     * rather than inferred, so both are named. */
+    /* The view surface a visible application needs. View is named for its
+     * own members rather than for TextView's sake — the ancestry would
+     * arrive either way; setOnClickListener and setPadding would not. */
     {
       binaryName: "android/view/View",
       methods: [

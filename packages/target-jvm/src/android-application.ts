@@ -22,6 +22,7 @@ import { join, relative } from "node:path";
 import {
   readJarClassSources,
   readZipEntries,
+  requiredJvmAncestry,
 } from "@native-typescript/bindgen-jvm";
 import {
   defineArtifactGraph,
@@ -112,7 +113,46 @@ export async function buildAndroidApk(input: {
     readFileSync(input.androidJarPath),
     "android-sdk/android.jar",
   );
-  const wanted = new Set(project.classes.map(({ binaryName }) => binaryName));
+  /* What the selection names, PLUS the ancestry those classes need to be
+   * themselves. Ingestion implies an ancestor it can see, but this decides
+   * what it can see: an ancestor whose bytes were never pulled out of the
+   * jar is not present-but-unselected, it is absent, and absence is
+   * invisible to the guard inside ingestion. Without this a selection
+   * naming TextView and not View projects TextView with an EXTERNAL
+   * superclass and silently loses every inherited member. */
+  const bytesByBinaryName = new Map<string, Uint8Array>();
+  for (const entry of jarEntries) {
+    bytesByBinaryName.set(
+      entry.logicalPath
+        .slice(entry.logicalPath.indexOf("!/") + 2)
+        .replace(/\.class$/u, ""),
+      entry.bytes,
+    );
+  }
+  const named = project.classes.map(({ binaryName }) => binaryName);
+  const ancestry = requiredJvmAncestry(
+    (binaryName) => bytesByBinaryName.get(binaryName),
+    named,
+  );
+  /* android.jar carries the superclass of every class it defines, so a
+   * chain it cannot complete is an anomaly rather than a boundary — and
+   * stopping quietly at one is exactly the silent ancestry loss implying
+   * the chain exists to prevent. Named with WHO needed it, because the
+   * selection never wrote that class and an error about a name absent
+   * from the caller's input explains nothing on its own. */
+  if (ancestry.unavailable.length > 0) {
+    throw new Error(
+      `The platform jar does not carry ${
+        ancestry.unavailable
+          .map(({ binaryName, superclass }) =>
+            `${superclass}, required as the superclass of ${binaryName}`
+          )
+          .join("; ")
+      }. An ancestor is not optional: without it the projected class loses ` +
+        "every inherited member and the upcast that reaches them",
+    );
+  }
+  const wanted = new Set([...named, ...ancestry.required]);
   const platformSources: { logicalPath: string; path: string }[] = [];
   for (const entry of jarEntries) {
     const binaryName = entry.logicalPath

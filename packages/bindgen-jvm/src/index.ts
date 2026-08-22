@@ -1,4 +1,5 @@
-export { ingestJvmClasses } from "./jvm.ts";
+export { ingestJvmClasses, requiredJvmAncestry } from "./jvm.ts";
+export type { JvmAncestryRequirement } from "./jvm.ts";
 export { readJarClassSources, readZipEntries } from "./jar.ts";
 export { generateJvmSubclassSource } from "./jvm-subclass.ts";
 export type {

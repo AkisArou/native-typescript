@@ -11,6 +11,7 @@ import {
   generateJvmScabiPackage,
   generateJvmSubclassSource,
   ingestJvmClasses,
+  requiredJvmAncestry,
   readJarClassSources,
 } from "@native-typescript/bindgen-jvm";
 import type { JvmClassSource } from "@native-typescript/bindgen-jvm";
@@ -256,17 +257,117 @@ test(
   },
 );
 
-test("selecting Activity without its ancestry is refused", { skip }, () => {
-  assert.throws(
-    () =>
-      ingestJvmClasses(sdkSources(), {
-        classes: [{ binaryName: "android/app/Activity" }],
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof JvmIngestionError);
-      assert.equal(error.diagnostics[0]!.code, "NTS6006");
-      return true;
-    },
+test("selecting Activity brings the ancestry it needs to be one", { skip }, () => {
+  /* This used to refuse, and requiring the chain to be listed made a
+   * caller discover it one failed build at a time. A class cannot BE
+   * itself without the chain above it, and an ancestor with no selected
+   * members costs one handle type and no generated C — so the boundary
+   * does not move, only the number of rounds it takes to find it. */
+  const snapshot = ingestJvmClasses(sdkSources(), {
+    classes: [{ binaryName: "android/app/Activity" }],
+  });
+  const projected = snapshot.classes.map(({ binaryName }) => binaryName);
+  assert.deepEqual(projected, [
+    "android/app/Activity",
+    "android/content/Context",
+    "android/content/ContextWrapper",
+    "android/view/ContextThemeWrapper",
+    "java/lang/Object",
+  ]);
+
+  /* Every link INTERNAL, which is the claim. An external superclass is
+   * what silent ancestry loss looks like: the class projects, and every
+   * inherited member and the upcast that reaches it are simply gone. */
+  for (const class_ of snapshot.classes) {
+    if (class_.binaryName === "java/lang/Object") continue;
+    assert.equal(
+      class_.superclass?.kind,
+      "internal",
+      `${class_.binaryName} keeps its superclass inside the projection`,
+    );
+  }
+
+  /* Implied ancestors carry no surface of their own: what a program can
+   * call is still exactly what it selected. */
+  const context = snapshot.classes.find(
+    ({ binaryName }) => binaryName === "android/content/Context",
+  );
+  assert.equal(context?.methods.length, 0);
+  assert.equal(context?.constructors.length, 0);
+});
+
+test("an extractor is told which ancestors it must also read", { skip }, () => {
+  /* The arm that could not fail before, and the reason this is a separate
+   * test rather than a line in the one above.
+   *
+   * Ingestion implies an ancestor it can SEE. But a caller reading class
+   * files out of a jar decides what ingestion can see BEFORE ingestion
+   * runs, and an ancestor whose bytes were never extracted is not
+   * present-but-unselected — it is absent. The old guard asked "present
+   * but unselected?", so on that path it was structurally incapable of
+   * firing: selecting TextView without View projected TextView with an
+   * EXTERNAL superclass and lost every inherited member, silently.
+   *
+   * So the extractor asks first, and this is that question. */
+  const sources = sdkSources();
+  const bytesByName = new Map<string, Uint8Array>();
+  for (const source of sources) {
+    bytesByName.set(
+      source.logicalPath
+        .slice(source.logicalPath.indexOf("!/") + 2)
+        .replace(/\.class$/u, ""),
+      source.bytes,
+    );
+  }
+  const lookup = (binaryName: string) => bytesByName.get(binaryName);
+
+  assert.deepEqual(
+    requiredJvmAncestry(lookup, ["android/app/Activity"]).required,
+    [
+      "android/content/Context",
+      "android/content/ContextWrapper",
+      "android/view/ContextThemeWrapper",
+      "java/lang/Object",
+    ],
+  );
+
+  /* Button extends TextView, which is the case a reader would not guess
+   * and a hand-written list gets wrong. */
+  assert.deepEqual(
+    requiredJvmAncestry(lookup, ["android/widget/Button"]).required,
+    [
+      "android/view/View",
+      "android/widget/TextView",
+      "java/lang/Object",
+    ],
+  );
+
+  /* Already-named ancestors are not repeated: this answers "what ELSE",
+   * so a caller can extract exactly the difference. */
+  assert.deepEqual(
+    requiredJvmAncestry(lookup, ["android/view/View", "java/lang/Object"])
+      .required,
+    [],
+  );
+
+  /* The archive is expected to be COMPLETE, and it is: every one of the
+   * 6,270 classes android.jar defines has its superclass in the same jar.
+   * A chain it could not finish would be an anomaly, and the walk reports
+   * one rather than stopping quietly — because stopping quietly where an
+   * archive stops is how ancestry gets lost without a word. */
+  assert.deepEqual(
+    requiredJvmAncestry(lookup, ["android/app/Activity"]).unavailable,
+    [],
+  );
+
+  /* And that report names WHO needed the missing class, since the caller
+   * never wrote it. A lookup that carries the subclass but not its base
+   * is the shape a stripped jar would have. */
+  const stripped = (binaryName: string) =>
+    binaryName === "android/view/View" ? undefined : bytesByName.get(binaryName);
+  assert.deepEqual(
+    requiredJvmAncestry(stripped, ["android/widget/TextView"]).unavailable,
+    [{ binaryName: "android/widget/TextView", superclass: "android/view/View" }],
   );
 });
 

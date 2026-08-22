@@ -13,7 +13,6 @@
  *   NTS6003 selected declaration or member does not exist
  *   NTS6004 selected declaration is outside the projection algebra
  *   NTS6005 malformed or unsupported metadata inside a well-formed file
- *   NTS6006 selection would silently lose ancestry
  *
  * NTS7xxx belongs to generation over an ingested snapshot:
  *   NTS7001 selected member is outside the generated-adapter algebra
@@ -25,7 +24,6 @@ export type JvmDiagnosticCode =
   | "NTS6003"
   | "NTS6004"
   | "NTS6005"
-  | "NTS6006"
   | "NTS7001";
 
 export interface JvmDiagnostic {
@@ -360,7 +358,7 @@ export interface JvmCallback extends JvmMethod {
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

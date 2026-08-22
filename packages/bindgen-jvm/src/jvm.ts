@@ -739,6 +739,61 @@ export function ingestJvmClasses(
   }
   if (diagnostics.length > 0) throw new JvmIngestionError(diagnostics);
 
+  /* A class's ancestry comes with it.
+   *
+   * A class cannot BE itself without the chain above it: TextView is a
+   * View, and projecting it without View drops every inherited member and
+   * the upcast that makes the receiver usable where a View is wanted.
+   * Requiring the chain to be listed made a caller discover it one failed
+   * build at a time, and an ancestor with no selected members costs one
+   * handle type and no generated C — so the boundary does not move, only
+   * the number of rounds it takes to find it.
+   *
+   * Superclasses only, not interfaces. `extends` is what a projected class
+   * needs to be itself; implying every implemented interface would sweep
+   * in Serializable and Comparable, which say nothing about the surface a
+   * program asked for.
+   *
+   * The walk stops at the first ancestor the sources do not carry, which
+   * is the deliberate boundary an external reference already spells —
+   * java/lang/Object is the usual one.
+   */
+  for (const binaryName of [...selections.keys()]) {
+    /* A cycle is not well-formed and the JVM rejects one at load time, but
+     * these bytes have not been loaded by anything. Remembering the walk
+     * turns a hang with no diagnostic into an ordinary stop; the malformed
+     * hierarchy is still reported downstream by whatever reads it. */
+    const walked = new Set<string>([binaryName]);
+    let current = parsedByName.get(binaryName);
+    while (current !== undefined) {
+      const kind = classKindOf(current.accessFlags);
+      /* Every interface records Object as its superclass, so only a class
+       * or enum has a meaningful one to walk. */
+      if (kind !== "class" && kind !== "enum") break;
+      const superName = current.superName;
+      if (superName === null) break;
+      if (walked.has(superName)) break;
+      const parsedSuper = parsedByName.get(superName);
+      if (parsedSuper === undefined) break;
+      walked.add(superName);
+      if (!selections.has(superName)) {
+        const path = `class/${superName}`;
+        selections.set(superName, {
+          binaryName: superName,
+          constructors: new Set<string>(),
+          methods: normalizeMemberSelections([], `${path}/method`, diagnostics),
+          fields: normalizeMemberSelections([], `${path}/field`, diagnostics),
+          callbacks: normalizeCallbackSelections(
+            [],
+            `${path}/callback`,
+            diagnostics,
+          ),
+        });
+      }
+      current = parsedSuper;
+    }
+  }
+
   const selectedNames = new Set(selections.keys());
   const classes: JvmClass[] = [];
   for (const selection of selections.values()) {
@@ -820,22 +875,6 @@ export function ingestJvmClasses(
      * list, so the superclass slot is null for anything but a class. */
     const superName =
       kind === "class" || kind === "enum" ? parsed.superName : null;
-    if (
-      superName !== null &&
-      parsedByName.has(superName) &&
-      !selectedNames.has(superName)
-    ) {
-      diagnostics.push(
-        diagnostic(
-          "NTS6006",
-          `${path}/@superclass`,
-          `JVM class '${selection.binaryName}' extends '${superName}', which ` +
-            "is among the provided sources but is not selected. Select it, " +
-            "or the projected class would lose its ancestry silently.",
-        ),
-      );
-      continue;
-    }
     const declaredConstructors = parsed.methods.filter(
       (method) => method.name === "<init>",
     );
@@ -1030,7 +1069,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 5,
+    schemaVersion: 6,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))
@@ -1042,6 +1081,93 @@ export function ingestJvmClasses(
       classes.sort((left, right) =>
         compareText(left.binaryName, right.binaryName)
       ),
+    ),
+  });
+}
+
+/**
+ * The classes that must accompany a selection for its ancestry to survive.
+ *
+ * Ingestion implies an ancestor it can SEE, but a caller that reads class
+ * files out of an archive decides what ingestion can see before ingestion
+ * runs — and an ancestor whose bytes were never extracted is not
+ * present-but-unselected, it is absent. That distinction is invisible to
+ * the guard inside ingestion and is exactly how an Android selection could
+ * project `TextView` with an external `View` and lose every inherited
+ * member without a diagnostic.
+ *
+ * So the caller asks first. `lookup` answers with a class's bytes or
+ * undefined, and the walk stops where the archive stops, which is the same
+ * boundary an external reference already spells.
+ *
+ * Returned in canonical order, and the input names are NOT included — this
+ * answers "what else", so a caller can extract exactly the difference.
+ *
+ * `unavailable` is the other half, and it exists because stopping quietly
+ * where the archive stops is how ancestry gets lost. An archive that is
+ * SUPPOSED to be complete — android.jar carries every superclass of every
+ * one of its 6,270 classes — has a real anomaly when it is not, and the
+ * caller that knows completeness was expected is the one that can say so.
+ * Reporting it here rather than refusing keeps the walk usable for callers
+ * whose archive is deliberately partial.
+ */
+export interface JvmAncestryRequirement {
+  readonly required: readonly string[];
+  /** A class the walk reached whose superclass the archive does not carry.
+   * Names WHO needed it, because the caller never wrote that name and an
+   * error about a class absent from their input explains nothing. */
+  readonly unavailable: readonly {
+    readonly binaryName: string;
+    readonly superclass: string;
+  }[];
+}
+
+export function requiredJvmAncestry(
+  lookup: (binaryName: string) => Uint8Array | undefined,
+  selected: readonly string[],
+): JvmAncestryRequirement {
+  const have = new Set(selected);
+  const added = new Set<string>();
+  const unavailable: { binaryName: string; superclass: string }[] = [];
+  for (const binaryName of selected) {
+    /* A well-formed class hierarchy is acyclic and the JVM enforces it at
+     * load time, but this reads bytes nobody has loaded yet. Walking a
+     * cycle would hang a build with no diagnostic, so the walk remembers
+     * where it has been and stops rather than trusting the input. */
+    const walked = new Set<string>([binaryName]);
+    let bytes = lookup(binaryName);
+    while (bytes !== undefined) {
+      const parsed = parseClassFile(bytes, `ancestry/${binaryName}`, []);
+      if (parsed === null) break;
+      const kind = classKindOf(parsed.accessFlags);
+      if (kind !== "class" && kind !== "enum") break;
+      const superName = parsed.superName;
+      if (superName === null || walked.has(superName)) break;
+      const superBytes = lookup(superName);
+      if (superBytes === undefined) {
+        unavailable.push({
+          binaryName: parsed.binaryName,
+          superclass: superName,
+        });
+        break;
+      }
+      walked.add(superName);
+      if (!have.has(superName)) {
+        have.add(superName);
+        added.add(superName);
+      }
+      bytes = superBytes;
+    }
+  }
+  return Object.freeze({
+    required: Object.freeze([...added].sort(compareText)),
+    unavailable: Object.freeze(
+      unavailable
+        .sort((left, right) =>
+          compareText(left.binaryName, right.binaryName) ||
+          compareText(left.superclass, right.superclass)
+        )
+        .map((entry) => Object.freeze(entry)),
     ),
   });
 }

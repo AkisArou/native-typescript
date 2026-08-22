@@ -1063,9 +1063,20 @@ diagnostic. Selections naming something that does not exist fail precisely
 rather than producing an empty surface.
 
 **The Android SDK ingests as itself.** The real `Activity` surface ingests with
-its contract intact, selecting `Activity` without its ancestry is refused, and
-every class in the platform SDK either ingests or is refused by design — the
-gate enumerates the whole jar rather than sampling it.
+its contract intact, and every class in the platform SDK either ingests or is
+refused by design — the gate enumerates the whole jar rather than sampling it.
+
+**A class's ancestry comes with it.** Selecting `android/app/Activity` projects
+ContextThemeWrapper, ContextWrapper, Context and Object with it, because a
+class cannot be itself without the chain above it and an ancestor with no
+selected members costs one handle type and no generated C. Superclasses only —
+implying every implemented interface would sweep in surface a program never
+asked about. This replaced a refusal that could not fire where it was most
+needed: it asked whether an unselected ancestor was among the provided sources,
+while the Android extractor reads only the classes a selection names, so an
+omitted ancestor was ABSENT rather than unselected and `TextView` projected
+with an external `View`, losing every inherited member silently. The extractor
+now asks `requiredJvmAncestry` what else it must read before ingestion runs.
 
 **Compile-time constants come with their class.** A `static final` field
 carrying a ConstantValue IS its value, so it costs no call, no generated C

@@ -398,11 +398,25 @@ test("a non-static inner class projects as a handle but defers construction", ()
   }
 });
 
-test("an unselected superclass among the sources is a silent-ancestry error", () => {
-  assertCodes(
-    () => ingestFixture([buttonSelection, clickableSelection]),
-    ["NTS6006"],
+test("an unselected superclass among the sources comes with its subclass", () => {
+  /* This used to be a silent-ancestry ERROR, on the reasoning that a
+   * projected class losing its ancestry without a word is worse than a
+   * refusal. The reasoning was right and the remedy was backwards: the
+   * chain is not a decision a caller makes, it is what the class file
+   * says a class IS, so it arrives rather than being demanded. */
+  const snapshot = ingestFixture([buttonSelection, clickableSelection]);
+  const button = snapshot.classes.find(
+    ({ binaryName }) => binaryName === "fixture/Button",
   );
+  assert.equal(button?.superclass?.kind, "internal");
+  assert.equal(button?.superclass?.binaryName, "fixture/Widget");
+  /* Implied, and therefore surface-free: nothing the selection did not
+   * ask for becomes callable. */
+  const widget = snapshot.classes.find(
+    ({ binaryName }) => binaryName === "fixture/Widget",
+  );
+  assert.equal(widget?.methods.length, 0);
+  assert.equal(widget?.constructors.length, 0);
 });
 
 function fixtureJarBytes(): Uint8Array {
