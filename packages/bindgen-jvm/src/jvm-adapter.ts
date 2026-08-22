@@ -27,6 +27,7 @@ import { JvmGenerationError } from "./jvm-model.ts";
 import type {
   JvmClass,
   JvmDiagnostic,
+  JvmMemberReference,
   JvmMethod,
   JvmNullability,
   JvmPrimitive,
@@ -142,6 +143,12 @@ export interface JvmCallbackAdapter {
   readonly delivery: "answered" | "told" | "queued";
   /** What the registration attaches to; see JvmCallbackAnchor. */
   readonly anchor: "instance" | "class";
+  /** The member reaching what this override replaced, carried through
+   * from the snapshot unchanged: the adapter generates no C for it — it
+   * is an ordinary method with its own adapter already — and only passes
+   * the pairing along to whatever writes the manifest. Null when there is
+   * no base implementation to reach. */
+  readonly baseCall: JvmMemberReference | null;
 }
 
 /** The shared connection machinery, present when any callback is selected:
@@ -166,7 +173,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 19;
+  readonly schemaVersion: 20;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -1549,6 +1556,7 @@ export function generateJvmAdapterSource(
         parameters: Object.freeze(payloadPositions),
         delivery,
         anchor: classAnchored ? ("class" as const) : ("instance" as const),
+        baseCall: callback.baseCall,
       }));
     }
     if (
@@ -2031,7 +2039,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 19,
+    schemaVersion: 20,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

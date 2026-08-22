@@ -33,11 +33,39 @@ import type {
   JvmCallbackSelection,
   JvmClass,
   JvmDiagnostic,
+  JvmMemberReference,
   JvmMemberSelection,
   JvmMethod,
   JvmPrimitive,
   JvmSnapshot,
 } from "./jvm-model.ts";
+
+/**
+ * Why Java would refuse to override this member, or null when it would not.
+ *
+ * Shared by the override path and the terminal-event check because they ask
+ * the same question for the same reason: a terminal event is observed by
+ * OVERRIDING it, so a member the generated class cannot override cannot be
+ * one. Asking it in one place also keeps the three answers testable through
+ * either caller rather than duplicated into a branch nothing reaches.
+ */
+function notOverridable(method: JvmMethod, name: string): string | null {
+  if (method.access.final) {
+    return `'${name}' is final; Java itself refuses the override`;
+  }
+  if (method.access.static) {
+    return `'${name}' is static; static methods hide rather than override, ` +
+      "and a hidden method is never dispatched virtually";
+  }
+  if (
+    method.access.visibility !== "public" &&
+    method.access.visibility !== "protected"
+  ) {
+    return `'${name}' is ${method.access.visibility}; an override must see ` +
+      "what it overrides";
+  }
+  return null;
+}
 
 export interface JvmSubclassSelection {
   /** The base, as the class file spells it (`fixture/Host`). */
@@ -65,6 +93,41 @@ export interface JvmSubclassSelection {
    * same fact that makes `loadLibrary` necessary, stated separately
    * because inferring one decision from another hides both. */
   readonly anchor?: JvmCallbackAnchor;
+  /**
+   * The member whose return ENDS the platform object's life.
+   *
+   * This exists to resolve a cycle, and the cycle is worth stating because
+   * the resolution reads as arbitrary without it. A TypeScript peer for a
+   * platform object must hold the object's handle, or inherited methods
+   * cannot be called on it. Something must in turn hold the PEER, or it is
+   * collected between two lifecycle callbacks and the program silently
+   * loses its state. If the thing holding the peer is the handle's own
+   * managed cell, the two hold each other and neither is ever released.
+   *
+   * The way out is to notice that the cell is being asked to do two jobs.
+   * ASSOCIATION — which peer belongs to this handle — is a lookup, and can
+   * be weak. LIFETIME — how long the peer lives — is not the cell's
+   * business at all. Give lifetime to the class-anchored REGISTRATION,
+   * which already exists per receiver, and the strong edge is cut by a
+   * platform EVENT rather than by reachability.
+   *
+   * That event is what this names. A class file cannot say which method
+   * ends an object — `onDestroy` is an ordinary void method in the bytes —
+   * so it is a stated selection fact, like `delivery`, `anchor` and a
+   * callback's `baseCall`, for the identical reason: the metadata is
+   * silent and inferring from a name would make a platform convention into
+   * a contract nobody wrote.
+   *
+   * Only meaningful where the PLATFORM owns the object, so it is admitted
+   * only on a class-anchored subclass: where the program constructs the
+   * object it also holds it, and its peer's lifetime is the program's
+   * business rather than a policy the platform declares.
+   *
+   * Absent means the platform declares no end, which is the honest reading
+   * for a base that has none — and the reason a peer with state cannot be
+   * built on such a base, rather than an omission to be worked around.
+   */
+  readonly terminal?: JvmMemberReference;
 }
 
 export interface JvmSubclassSource {
@@ -226,11 +289,9 @@ export function generateJvmSubclassSource(
       diagnostics,
     );
     if (method === null) continue;
-    if (method.access.final) {
-      diagnostics.push(diagnostic(
-        overridePath,
-        `'${name}' is final; Java itself refuses the override`,
-      ));
+    const refusal = notOverridable(method, name);
+    if (refusal !== null) {
+      diagnostics.push(diagnostic(overridePath, refusal));
       continue;
     }
     if (implementsInterface && !method.access.abstract) {
@@ -243,25 +304,7 @@ export function generateJvmSubclassSource(
       ));
       continue;
     }
-    if (method.access.static) {
-      diagnostics.push(diagnostic(
-        overridePath,
-        `'${name}' is static; static methods hide rather than override, ` +
-          "and a hidden method is never dispatched virtually",
-      ));
-      continue;
-    }
-    if (
-      method.access.visibility !== "public" &&
-      method.access.visibility !== "protected"
-    ) {
-      diagnostics.push(diagnostic(
-        overridePath,
-        `'${name}' is ${method.access.visibility}; an override must see ` +
-          "what it overrides",
-      ));
-      continue;
-    }
+
     const answers = method.result.kind === "primitive" &&
       method.result.name === "boolean";
     const tells = method.result.kind === "void";
@@ -375,6 +418,47 @@ export function generateJvmSubclassSource(
         name: superName,
         descriptor: method.descriptor,
       }));
+    }
+  }
+  /* The terminal event, checked where the person who stated it can act.
+   *
+   * Every refusal here is about the SELECTION rather than about any
+   * program: what a base declares, and whether the thing named is a member
+   * a generated class could observe. A program that later wants peer state
+   * on this base is affected by the answer, but it is not the thing that
+   * can change it — whoever configured the surface is. */
+  if (selection.terminal !== undefined) {
+    const terminalPath = `subclass/${selection.baseBinaryName}/terminal`;
+    const { name, descriptor } = selection.terminal;
+    const declared = base.methods.find(
+      (method) => method.name === name && method.descriptor === descriptor,
+    );
+    if (selection.anchor !== "class") {
+      diagnostics.push(diagnostic(
+        terminalPath,
+        `'${name}' is stated as the terminal event, which only a ` +
+          "class-anchored subclass has: where the PROGRAM constructs the " +
+          "object it also holds it, so how long its peer lives is the " +
+          "program's business rather than a policy the platform declares",
+      ));
+    } else if (declared === undefined) {
+      /* "or is not among its selected methods" is not padding: `base` is
+       * the SELECTED surface, so a terminal the class file declares and
+       * the selection omits arrives here identically to one that does not
+       * exist. Saying only "does not declare" would send a reader to the
+       * platform's source to check a fact that was never in question. */
+      diagnostics.push(diagnostic(
+        terminalPath,
+        `Terminal event '${name}${descriptor}' does not exist on ` +
+          `'${base.binaryName}' or is not among its selected methods; the ` +
+          "base snapshot must select the member whose return ends the " +
+          "object, because the generated class overrides it to observe it",
+      ));
+    } else {
+      /* A terminal event is OBSERVED by overriding it, so whatever would
+       * refuse it as an override refuses it here, in the same words. */
+      const refusal = notOverridable(declared, name);
+      if (refusal !== null) diagnostics.push(diagnostic(terminalPath, refusal));
     }
   }
   if (diagnostics.length > 0) throw new JvmGenerationError(diagnostics);

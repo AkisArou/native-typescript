@@ -196,6 +196,70 @@ The adapter must not keep a platform lifecycle object alive indefinitely to
 preserve a convenient managed reference. Strong, weak, borrowed, and
 invalidation edges follow authoritative platform ownership.
 
+### What holds the peer, and what lets go
+
+The peer carries the native handle, or inherited methods cannot be called on
+it. Something must hold the PEER, or it is collected between two lifecycle
+callbacks and the program loses its state without a word. If the thing holding
+the peer is the handle's own managed cell, the two hold each other and neither
+is released. Neither horn is acceptable: a weak edge silently resets state, a
+strong one leaks every peer for the life of the process.
+
+The cell is being asked to do two jobs, and only one of them is its.
+
+- **Association** — which peer belongs to this handle — is a LOOKUP, and is
+  weak. It answers a question; it does not decide how long anything lives.
+- **Lifetime** — how long the peer lives — belongs to the class-anchored
+  REGISTRATION, which already exists per receiver and is already what routes a
+  callback to its handler. It holds the peer strongly.
+
+The strong edge is then cut by a platform EVENT rather than by reachability,
+which is what makes it terminate. This does not violate the rule above: the
+peer's reference ends when the platform itself declares the object over, so
+the object is never held one dispatch longer than the platform's own contract
+holds it. That is the opposite of preserving a convenient reference.
+
+**The terminal event is a stated selection fact.** A class file cannot say
+which method ends an object — Android's `onDestroy` is an ordinary void method
+in the bytes — so the selection states it, exactly as `delivery`, `anchor` and
+a callback's `baseCall` are stated and for the identical reason: the metadata
+is silent, and inferring from a name would make a platform convention into a
+contract nobody wrote.
+
+```
+{ baseBinaryName: "android/app/Activity",
+  anchor: "class",
+  terminal: { name: "onDestroy", descriptor: "()V" }, … }
+```
+
+It is admitted only on a class-anchored subclass. Where the PROGRAM constructs
+the object it also holds it, so its peer's lifetime is the program's business
+rather than a policy the platform declares. Absent means the platform declares
+no end — the honest reading for a base that has none, and the reason a peer
+with state cannot be built on such a base rather than an omission to work
+around. Android publishes one for every base that matters: `Activity` and
+`Service` end at `onDestroy`, `Fragment` at `onDetach`, and a
+`BroadcastReceiver`'s life IS the single `onReceive`.
+
+**JNI references are not identities, which constrains the association half.**
+`NewGlobalRef` called twice on one object yields two distinct `jobject`s, and
+the JNI specification forbids comparing references with `==` — `IsSameObject`
+exists because of it. So a cell table keyed by pointer collapses
+per-REFERENCE, not per-object, and two dispatches carrying the same Activity
+can arrive as two cells. Association therefore needs either an `IsSameObject`
+scan over live peers, which is O(n) over the handful of lifecycle objects a
+process has and entirely adequate, or an identity stored on the object itself.
+
+**Status: stated, not yet built.** The selection fact and its refusals exist —
+a terminal naming a member the base does not declare, or one Java would refuse
+to override, or one stated where the program owns the object, each fails by
+name at generation. What does not exist is the lowering: the generated class
+overriding the terminal to observe it, and the registration releasing the peer
+when it fires. The fact is deliberately not carried into SCABI until that
+lowering lands, so the manifest never grows a field nothing reads — a field no
+test can contradict is the failure this project keeps finding, and it is not
+worth introducing to look further ahead than the code is.
+
 ## Interfaces, protocols, and delegates
 
 Native interfaces and Objective-C protocols may project through TypeScript

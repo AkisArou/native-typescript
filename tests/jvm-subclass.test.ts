@@ -1,4 +1,12 @@
 import assert from "node:assert/strict";
+import {
+  digestClangAbiEvidence,
+  renderCFunctionPointerType,
+} from "@native-typescript/bindgen-c";
+import type {
+  ClangAbiEvidenceSnapshot,
+  ClangAbiProbe,
+} from "@native-typescript/bindgen-c";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
@@ -8,6 +16,8 @@ import test from "node:test";
 import {
   JvmGenerationError,
   generateJvmAdapterSource,
+  generateJvmClangAbiProbe,
+  generateJvmScabiPackage,
   generateJvmSubclassSource,
   ingestJvmClasses,
 } from "@native-typescript/bindgen-jvm";
@@ -253,12 +263,111 @@ test("the void-synchronous arm's committed evidence now generates", () => {
   ]);
 });
 
+test("a terminal event is checked against what the base declares", () => {
+  /* The member whose return ENDS the platform object's life, which is what
+   * cuts the peer's reference cycle: the class-anchored registration holds
+   * the peer strongly, and a platform event releases it rather than
+   * reachability. A class file cannot say which method that is — onDestroy
+   * is an ordinary void method in the bytes — so it is stated, and because
+   * it is stated it is checked. */
+  const terminalOf = (terminal: { name: string; descriptor: string }) => () =>
+    generateJvmSubclassSource(hostSnapshot(), {
+      baseBinaryName: "fixture/Host",
+      overrides: ["onEvent"],
+      anchor: "class" as const,
+      subclassBinaryName: "fixture/TerminalBridge",
+      terminal,
+    });
+
+  /* Accepted: an ordinary overridable void method on the base. */
+  assert.ok(terminalOf({ name: "onNotify", descriptor: "(I)V" })());
+
+  for (
+    const [terminal, pattern] of [
+      [
+        { name: "onDestroy", descriptor: "()V" },
+        /Terminal event 'onDestroy\(\)V' does not exist on 'fixture\/Host' or is not among its selected methods/u,
+      ],
+      /* Observing a terminal event means overriding it, so whatever
+       * refuses an override refuses this, in the same words. */
+      [
+        { name: "sealed", descriptor: "()I" },
+        /'sealed' is final; Java itself refuses the override/u,
+      ],
+    ] as const
+  ) {
+    assert.throws(terminalOf(terminal), (error: unknown) => {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(error.diagnostics[0]!.message, pattern);
+      return true;
+    });
+  }
+
+  /* And it is meaningless where the PROGRAM owns the object: it holds the
+   * instance, so how long its peer lives is the program's business rather
+   * than a policy the platform declares. */
+  assert.throws(
+    () =>
+      generateJvmSubclassSource(hostSnapshot(), {
+        baseBinaryName: "fixture/Host",
+        overrides: ["onEvent"],
+        subclassBinaryName: "fixture/TerminalBridge",
+        terminal: { name: "onNotify", descriptor: "(I)V" },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(
+        error.diagnostics[0]!.message,
+        /only a class-anchored subclass has/u,
+      );
+      return true;
+    },
+  );
+});
+
 /**
  * The spanning proof, javac being the authority: the generated source
  * compiles against the base's real classes, the compiled subclass ingests,
  * and its native override is exactly the callback selection the generator
  * promised — so the ingress machinery takes over with nothing new.
  */
+/* Synthesized evidence, as the sibling manifest suites synthesize it: the
+ * unit under test is what the manifest says, and the real Clang probe runs
+ * in the build-pipeline lanes. */
+function bridgeEvidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
+  const clang = Object.freeze({
+    toolId: "tool/clang",
+    version: "test",
+    digest: `sha256:${"a".repeat(64)}`,
+    target: "x86_64-unknown-linux-gnu",
+  });
+  const functions = Object.freeze(probe.functions.map((function_) => {
+    const type = renderCFunctionPointerType(function_, "");
+    return Object.freeze({
+      id: function_.id,
+      symbol: function_.symbol,
+      expectedType: type,
+      clangType: type,
+    });
+  }));
+  return Object.freeze({
+    schema: "native-typescript.clang-abi-evidence" as const,
+    schemaVersion: 3 as const,
+    probeDigest: probe.sourceDigest,
+    semanticDigest: digestClangAbiEvidence({
+      probeDigest: probe.sourceDigest,
+      clang,
+      functions,
+      records: [],
+      enums: [],
+    }),
+    clang,
+    functions,
+    records: Object.freeze([]),
+    enums: Object.freeze([]),
+  });
+}
+
 function discoverJavac(): string | null {
   try {
     execFileSync("javac", ["-version"], { stdio: "ignore" });
@@ -367,6 +476,32 @@ test(
         { kind: "handle", binaryName: "fixture/Widget", nullability: "unstated" },
       ]);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
+      /* THE BASE CALL SURVIVES THE COMPILED CLASS FILE, which is the
+       * claim worth spanning for. In these bytes `ntsSuperOnEvent` is an
+       * ordinary instance method — javac left nothing that says it
+       * reaches what `onEvent` replaced — so the pairing here came from
+       * the selection the generator stated, not from anything recoverable
+       * downstream. */
+      assert.deepEqual(
+        adapter.callbacks.map(({ name, baseCall }) => ({ name, baseCall })),
+        [
+          {
+            name: "onEvent",
+            baseCall: { name: "ntsSuperOnEvent", descriptor: "(I)Z" },
+          },
+          {
+            name: "onMeasure",
+            baseCall: {
+              name: "ntsSuperOnMeasure",
+              descriptor: "(ILfixture/Widget;)Z",
+            },
+          },
+          {
+            name: "onNotify",
+            baseCall: { name: "ntsSuperOnNotify", descriptor: "(I)V" },
+          },
+        ],
+      );
       /* The payload trampoline: promotion happens only AFTER the
        * registration match, so the no-match path never takes a reference
        * there is nothing to give back on — and only when there IS an
@@ -376,6 +511,58 @@ test(
       assert.ok(adapter.source.includes(
         "          : (*env)->NewGlobalRef(env, a1);",
       ));
+      /* AND THE MANIFEST'S CROSS-REFERENCE RESOLVES. The id is the thing
+       * a compiler will follow to find `super.m()`'s target, so it is
+       * asserted to name a binding that EXISTS rather than merely to look
+       * like one — a plausible string pointing at nothing is exactly the
+       * failure a generated cross-reference produces, and it would
+       * surface far away in a lowering with no way back here. */
+      const scabi = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "bridge",
+        evidence: bridgeEvidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-bridge",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-bridge",
+          instance: "native-typescript.jvm-bridge@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["bridge"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "bridge.jvm-adapters", output: "jvm-adapters.o" },
+      });
+      const registration = scabi.manifest.bindings[
+        "bridge.fixture.hostbridge.onevent"
+      ];
+      assert.ok(registration !== undefined && registration.kind !== "constant");
+      assert.equal(
+        registration.baseCall,
+        "bridge.fixture.hostbridge.ntssuperonevent",
+      );
+      assert.ok(
+        scabi.manifest.bindings[registration.baseCall!] !== undefined,
+        "the base call names a binding this manifest carries",
+      );
+
       /* A dispatch on a thread that does not own the instance throws by
        * name rather than reading a closure it must not: the obligation
        * the runtime does not police, made observable where it is broken. */

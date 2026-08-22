@@ -319,6 +319,9 @@ export function generateJvmScabiPackage(
     /** Beyond the error-derived edges: what this binding reaches by
      * contract, e.g. a callback registration reaching its cancellation. */
     readonly bindingDependencies?: readonly string[];
+    /** For a registration: the binding reaching what its override
+     * replaced, which is what `super.m()` resolves to. */
+    readonly baseCall?: string;
   }): CallableBinding {
     return Object.freeze({
       kind: input.kind,
@@ -345,6 +348,7 @@ export function generateJvmScabiPackage(
         ...(input.bindingDependencies ?? []),
       ]),
       ...(input.availability === undefined ? {} : { availability: input.availability }),
+      ...(input.baseCall === undefined ? {} : { baseCall: input.baseCall }),
     });
   }
 
@@ -520,6 +524,54 @@ export function generateJvmScabiPackage(
       module: ".",
       name: classNameOf.get(class_.binaryName)!,
     });
+  }
+
+  /* A method's binding id, decided ONCE.
+   *
+   * A callback needs it before its own binding is written — `baseCall`
+   * names the member that reaches what an override replaced — and the
+   * method loop runs later. Recomputing the id in two places would put
+   * the overload-suffix rule in two places with it, which is exactly the
+   * kind of duplicated convention that drifts silently and produces a
+   * manifest whose cross-reference is a plausible string pointing at
+   * nothing. So both readers take it from here. */
+  const methodAdapters = [
+    ...options.adapter.staticMethods,
+    ...options.adapter.instanceMethods,
+  ].sort((left, right) =>
+    compareText(left.className, right.className) ||
+    compareText(left.name, right.name) ||
+    compareText(left.descriptor, right.descriptor)
+  );
+
+  function methodKey(method: {
+    readonly className: string;
+    readonly name: string;
+    readonly descriptor: string;
+  }): string {
+    return `${method.className} ${method.name} ${method.descriptor}`;
+  }
+
+  const methodMembers = new Map<
+    string,
+    { readonly member: string; readonly bindingId: string }
+  >();
+  {
+    const seen = new Set<string>();
+    for (const method of methodAdapters as readonly JvmMethodAdapter[]) {
+      const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
+      const memberKey = `${method.className}.${method.name}`;
+      const member = seen.has(memberKey)
+        ? `${method.name}_${suffix ?? "overload"}`
+        : method.name;
+      seen.add(memberKey);
+      methodMembers.set(methodKey(method), {
+        member,
+        bindingId: `${slug}.${idToken(method.className)}.${
+          member.toLowerCase()
+        }`,
+      });
+    }
   }
 
   const stringMarshal = Object.freeze({
@@ -1197,6 +1249,35 @@ export function generateJvmScabiPackage(
     ) {
       continue;
     }
+    /* The member that reaches what this override replaced, resolved from
+     * the STATED pairing to the binding that actually exists. Resolving
+     * rather than re-deriving is the point: the selection says which
+     * member it is, and this says which binding that member became, so
+     * neither end depends on the generator's naming convention.
+     *
+     * A stated base call whose method produced no binding refuses. That
+     * is reachable — a method can be selected and then refused by the
+     * adapter algebra while its callback still projects — and it is
+     * exactly the gap where a manifest looks well formed and a
+     * cross-reference points at nothing. */
+    let baseCallBindingId: string | null = null;
+    if (callback.baseCall !== null) {
+      const resolved = methodMembers.get(methodKey({
+        className: callback.className,
+        name: callback.baseCall.name,
+        descriptor: callback.baseCall.descriptor,
+      }));
+      if (resolved === undefined) {
+        diagnostics.push(diagnostic(
+          `class/${callback.className}/callback/${callback.name}/baseCall`,
+          `'${callback.name}' names base call '${callback.baseCall.name}` +
+            `${callback.baseCall.descriptor}', which this package projects ` +
+            "no binding for; a base call must name a member that crossed",
+        ));
+        continue;
+      }
+      baseCallBindingId = resolved.bindingId;
+    }
     const classAnchored = callback.anchor === "class";
     const callbackTypeId =
       `jvm.${idToken(callback.className)}.${callback.name.toLowerCase()}.callback`;
@@ -1238,6 +1319,7 @@ export function generateJvmScabiPackage(
      * "refused" with a value. */
     defineBinding(bindingId, callable({
       declaration: `${className}.${callback.name}`,
+      ...(baseCallBindingId === null ? {} : { baseCall: baseCallBindingId }),
       kind: classAnchored ? "static-method" : "method",
       symbol: callback.connectSymbol,
       parameters: [
@@ -1335,10 +1417,16 @@ export function generateJvmScabiPackage(
         : Object.freeze({ kind: "nullable" as const }),
       /* The error contract's own edges are derived by `callable`; a
        * process-owned registration reaches nothing else, because it has
-       * no cancellation to reach. */
-      bindingDependencies: classAnchored
-        ? []
-        : [connectionDisconnectId, connectionReleaseId],
+       * no cancellation to reach.
+       *
+       * A base call IS reached, so it is declared like any other edge
+       * rather than living only in the cross-reference. A binding that
+       * names another without depending on it would let the reachable set
+       * be trimmed out from under a `super.m()` that still resolves. */
+      bindingDependencies: [
+        ...(classAnchored ? [] : [connectionDisconnectId, connectionReleaseId]),
+        ...(baseCallBindingId === null ? [] : [baseCallBindingId]),
+      ],
     }));
     adapterBindings.push(bindingId);
     const handlerParameters = [
@@ -1359,26 +1447,12 @@ export function generateJvmScabiPackage(
     );
   }
 
-  const methodAdapters = [
-    ...options.adapter.staticMethods,
-    ...options.adapter.instanceMethods,
-  ].sort((left, right) =>
-    compareText(left.className, right.className) ||
-    compareText(left.name, right.name) ||
-    compareText(left.descriptor, right.descriptor)
-  );
-  const memberNames = new Set<string>();
   for (const method of methodAdapters as readonly JvmMethodAdapter[]) {
     const className = classNameOf.get(method.className);
     const typeId = selectedTypeIds.get(method.className);
     if (className === undefined || typeId === undefined) continue;
-    const suffix = method.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
-    const baseName = method.name;
-    const memberKey = `${method.className}.${baseName}`;
-    const member = memberNames.has(memberKey)
-      ? `${baseName}_${suffix ?? "overload"}`
-      : baseName;
-    memberNames.add(memberKey);
+    const resolved = methodMembers.get(methodKey(method))!;
+    const member = resolved.member;
     if (
       refusesNestedMember(
         className,
@@ -1388,7 +1462,7 @@ export function generateJvmScabiPackage(
     ) {
       continue;
     }
-    const bindingId = `${slug}.${idToken(method.className)}.${member.toLowerCase()}`;
+    const bindingId = resolved.bindingId;
     const receiver: AbiParameter[] = method.kind === "static"
       ? []
       : [
