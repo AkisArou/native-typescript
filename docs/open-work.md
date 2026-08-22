@@ -473,6 +473,72 @@ Execution platform, ABI target, and application environment are one
 `TargetDescriptor` today, which is why the JVM build accepts an arbitrary
 triple over hardcoded x86-64/ELF/glibc facts. Follows the target planner.
 
+### Runtime performance: first thoughts, and the measurement that would admit them
+
+**Nothing in this entry is evidence.** One measured performance fact exists in
+this project — the 2.4× granularity tax, which has its own entry above and its
+own falsifier behind it. Everything below is reasoning about where cost OUGHT
+to be, written down so it is not re-derived from scratch, and explicitly not a
+finding. Each item's admitting condition is the same one, and it does not
+exist yet.
+
+**The admitting condition, and the first item: an application-level
+benchmark.** Not a microbenchmark — the granularity falsifier already is one,
+and it answered its question. What is missing is a program doing what an
+application does, measured against the two things a person would otherwise
+have written it in: a Kotlin app making the same platform calls, and a React
+Native app rendering the same screen. Startup to first frame, steady-state
+frame cost, and cost per user interaction. Until that exists, every item below
+is a guess with a plausible mechanism, which tonight demonstrated is not worth
+much: an hour of correct reasoning ran from a false premise and produced a
+specific, plausible, wrong answer.
+
+**Where the JNI cost is, and is not.** A call on a resolved `jmethodID` is a
+few loads and an indirect call. What is expensive is the surroundings —
+`FindClass` and `GetMethodID` by string, local reference frames, global
+reference promotion, string conversion, and the managed-to-native transition.
+This project pays almost none of the first group by construction: every class
+and method id resolves once, in the bind phase, and nothing resolves a name at
+run time anywhere. The transition and the promotion are what remain.
+
+Candidates, in the order their reasoning is strongest rather than their payoff
+is largest:
+
+- **Fewer crossings rather than cheaper ones.** The expensive shape is N small
+  calls where one carrying N values would do, and that is a binding-design
+  question rather than a runtime one — which makes it the only item here that
+  could be got wrong permanently, since a projected surface is hard to change
+  once programs use it.
+
+- **`@FastNative` on generated trampolines.** ART's
+  `dalvik.annotation.optimization.FastNative` skips part of the
+  managed-to-native transition bookkeeping for a native method that does not
+  block. A generated trampoline is close to that shape. `@CriticalNative` is
+  NOT available to it — that one requires a static method with only primitive
+  parameters and no `JNIEnv`, and a trampoline is an instance method taking
+  both — so the two are not interchangeable and only the first is a candidate.
+  **Needs verification before it is planned**: whether ART honours these on
+  application-declared classes on the versions targeted, and what the
+  annotations' `@hide` status means for a generated class that references
+  them. This is the item most likely to be wrong as written.
+
+- **The payload promotion**, which is the measured entry above rather than a
+  new idea. It is the one per-dispatch cost this boundary adds that Java does
+  not pay, and JNI resource domains are the fix already sequenced for it.
+
+**Where this architecture should already be ahead, stated as a claim.**
+Against React Native, the difference is structural rather than incremental:
+compiled TypeScript is native code, so there is no engine, no interpreter, no
+JSI marshalling layer, and no JS heap or its collector — and no JIT warmup,
+which should matter most at startup. Against Kotlin the asymmetry runs the
+other way at the boundary: a crossing call cannot be inlined by ART, where the
+equivalent Kotlin call often can, so a tight loop calling a platform method
+favours Kotlin while the program's own work favours us. Which dominates is a
+ratio, and a ratio is a measurement.
+
+None of that paragraph is measured either. It is recorded to say what the
+benchmark should be built to falsify.
+
 ### Declined as premature
 
 Package splitting, an execution-backend abstraction for macOS and Windows,
