@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,6 +126,80 @@ function findBuildTools(): {
   return null;
 }
 
+/**
+ * One attached emulator, and two gates that both want it.
+ *
+ * This lane installs, launches, rotates and uninstalls ONE package, and
+ * it writes global device state — `logcat -c` clears the buffer, and
+ * `user_rotation` is a system setting. Two runs overlapping do not fail
+ * gracefully: one uninstalls the package the other has launched, and the
+ * loser reads as a code defect in whatever it was about to commit. That
+ * is the expensive failure, because it points away from the collision.
+ *
+ * A unique applicationId per run would serialise nothing, but it would
+ * move a value that appears in the generated manifest, the generated Java
+ * package, the dex, and the log tag asserted on below — so the lane's own
+ * evidence would become per-run and a failure could not be reproduced by
+ * hand. One canonical package and an exclusive lock keeps the artifact a
+ * person can install and poke at.
+ *
+ * `flock` rather than a lock FILE this test manages: the kernel releases
+ * on process death, so there is no stale-lock path to get subtly wrong
+ * and no pid-reuse race to reason about. The holder is a subprocess
+ * parked on stdin; closing that pipe — deliberately, or by this process
+ * dying — ends it and drops the lock.
+ */
+const DEVICE_LOCK = "/tmp/native-typescript-android-device.lock";
+
+/** Seconds to wait for the other run's device section, which takes about
+ * two minutes. Generous enough that skipping is rare, bounded enough that
+ * the test's own timeout is never what fails. */
+const DEVICE_LOCK_WAIT = 420;
+
+interface DeviceClaim {
+  readonly release: () => void;
+}
+
+/** The lock, or null when another run still holds it. */
+async function claimDevice(): Promise<DeviceClaim | null> {
+  const holder = spawn(
+    "flock",
+    [
+      "-w",
+      String(DEVICE_LOCK_WAIT),
+      DEVICE_LOCK,
+      "-c",
+      /* Announce the acquisition, then hold it by blocking on stdin.
+       * `exec` replaces the shell so nothing is left between this
+       * process's pipe and the lock. */
+      "echo held; exec cat",
+    ],
+    { stdio: ["pipe", "pipe", "ignore"] },
+  );
+  return await new Promise<DeviceClaim | null>((resolve, reject) => {
+    let announced = "";
+    holder.stdout.on("data", (chunk: Buffer) => {
+      announced += chunk.toString("utf8");
+      if (!announced.includes("held")) return;
+      resolve({
+        release: () => {
+          holder.stdin.end();
+          holder.kill();
+        },
+      });
+    });
+    /* flock exits non-zero when the wait expires; any other exit before
+     * the announcement means it never ran, which is a host problem rather
+     * than contention and must not read as "busy". */
+    holder.on("exit", (code) => {
+      if (announced.includes("held")) return;
+      if (code === 1) resolve(null);
+      else reject(new Error(`flock exited ${String(code)} without the lock`));
+    });
+    holder.on("error", reject);
+  });
+}
+
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixtureRoot = join(workspace, "fixtures/android-app");
@@ -151,8 +225,8 @@ const skip =
 
 test(
   "the application runs on a device and reports through the platform's log",
-  { skip, timeout: 900_000 },
-  async () => {
+  { skip, timeout: 1_200_000 },
+  async (t) => {
     const serial = (device as { serial: string }).serial;
     const run = (...args: readonly string[]): string =>
       execFileSync(adb!, ["-s", serial, ...args], {
@@ -170,6 +244,7 @@ test(
     assert.equal(existsSync(scriptCCompilerDistribution()), true);
 
     const scratch = mkdtempSync(join(tmpdir(), "nts-android-device-"));
+    let claim: DeviceClaim | null = null;
     try {
       const keystore = join(scratch, "debug.jks");
       execFileSync(join(javaHome!, "bin/keytool"), [
@@ -202,6 +277,24 @@ test(
       const applicationId = androidProject.android.applicationId;
       const activity = androidProject.android.activityBinaryName
         .replace(/\//gu, ".");
+
+      /* Claimed HERE rather than at the top: everything above builds the
+       * compiler and the APK and touches no device, so holding the lock
+       * through it would block a sibling run for two minutes of work it
+       * could have been doing. Everything below mutates the device. */
+      claim = await claimDevice();
+      if (claim === null) {
+        /* A different sentence from "no attached Android device" on
+         * purpose. Both are legitimate reasons not to run, and a skip
+         * that names which input was missing is the only kind worth
+         * reading. */
+        t.skip(
+          "another run holds the emulator: this lane takes an exclusive " +
+            `lock on ${DEVICE_LOCK} and waited ${DEVICE_LOCK_WAIT}s for it`,
+        );
+        return;
+      }
+
       /* Uninstall first: a stale install from an earlier run would make a
        * passing log line say nothing about this build. */
       try {
@@ -292,6 +385,9 @@ test(
       } catch {
         /* Teardown is best-effort: the assertions above are the verdict. */
       }
+      /* After the device teardown, so the next run never observes the
+       * rotation or the install this one was still undoing. */
+      claim?.release();
       rmSync(scratch, { recursive: true, force: true });
     }
   },
