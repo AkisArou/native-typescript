@@ -29,6 +29,17 @@ deliberate boundary. The highest-risk moment for repeating a mechanism is
 immediately after finding it, while the shape still looks like someone else's
 mistake.
 
+**When the world cannot be made wrong, point the instrument at the wrong
+thing.** The usual objection to falsifying is that the subject is an
+environment you do not control — you cannot make Android hand back two objects
+where it hands back one, or make a platform violate its own contract. But an
+assertion has two sides, and the other one is yours. Aim the probe at a
+different object, flip the fixture's declared arm, hand the compiler the old
+source: each breaks the same assertion through the half you own, and proves the
+same discriminating power. Every falsification recorded here was done that way,
+and two of them were nearly skipped on the belief that the check was
+unfalsifiable.
+
 **When the check is a REFUSAL, watch which refusal.** A test that expects a
 compile to fail passes when the compile fails for an unrelated reason: same
 red, different subject, and falsifying it proves nothing because it was already
