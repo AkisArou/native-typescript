@@ -59,7 +59,7 @@ MainActivity.onCreate((activity, savedState: Bundle | null) => {
 
   const label = new TextView(activity);
   label.setText(`Compiled TypeScript, ${restored} on Android`);
-  label.setTextColor(0xFF000000 | 0);
+  label.setTextColor(0xFF000000);
   label.setTextSize(24);
   /* The constant comes from the platform's own class file: a static
    * final with a ConstantValue IS its value, so naming it costs no call
