@@ -44,6 +44,10 @@ export const androidProject = {
           name: "setOnClickListener",
           descriptor: "(Landroid/view/View$OnClickListener;)V",
         },
+        /* Declared on View, so every widget inherits it through the
+         * upcast chain — which is why it is selected HERE rather than on
+         * each descendant that uses it. */
+        { name: "setPadding", descriptor: "(IIII)V" },
       ],
     },
     /* The listener INTERFACE, selected so a generated implementation can
@@ -82,17 +86,16 @@ export const androidProject = {
         { name: "setTextColor", descriptor: "(I)V" },
         { name: "setTextSize", descriptor: "(F)V" },
         /* A modern Android window is edge to edge, so a full-screen view
-         * draws its first line UNDER the status bar. Insetting it is the
-         * application's own choice of numbers, which is why it can be
-         * written here while `Gravity.CENTER` cannot: an INTEGER constant
-         * is projected and translates, but a program that references one
-         * stops in the compiler, because a TypeScript `number` maps to
-         * f64 and the manifest correctly says i32. Reported; a double
-         * constant works today, and this flips when the integer rule
-         * lands. */
-        { name: "setPadding", descriptor: "(IIII)V" },
+         * draws its first line UNDER the status bar. Centring is what
+         * puts the text where a person can read it. */
+        { name: "setGravity", descriptor: "(I)V" },
       ],
     },
+    /* Selected for a constant: the platform states what CENTER means, and
+     * a program spelling 17 itself would repeat a fact the class file
+     * already carries. A static final with a ConstantValue IS its value,
+     * so naming it costs no call and no generated C. */
+    { binaryName: "android/view/Gravity", fields: ["CENTER"] },
     {
       binaryName: "android/util/Log",
       methods: [{ name: "i", descriptor: "(Ljava/lang/String;Ljava/lang/String;)I" }],

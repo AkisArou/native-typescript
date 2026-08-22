@@ -1,6 +1,7 @@
 import {
   Button,
   ClickBridge,
+  Gravity,
   LinearLayout,
   Log,
   MainActivity,
@@ -60,7 +61,10 @@ MainActivity.onCreate((activity, savedState: Bundle | null) => {
   label.setText(`Compiled TypeScript, ${restored} on Android`);
   label.setTextColor(0xFF000000 | 0);
   label.setTextSize(24);
-  label.setPadding(64, 420, 64, 32);
+  /* The constant comes from the platform's own class file: a static
+   * final with a ConstantValue IS its value, so naming it costs no call
+   * and the compiler carries the number the class file states. */
+  label.setGravity(Gravity.CENTER);
 
   const button = new Button(activity);
   button.setText("Tap me");
@@ -80,6 +84,11 @@ MainActivity.onCreate((activity, savedState: Bundle | null) => {
   button.setOnClickListener(clicks);
 
   const content = new LinearLayout(activity);
+  /* A modern Android window is edge to edge: without an inset the first
+   * child draws under the status and action bars, where a person can
+   * neither read it nor tap it. Insetting the CONTAINER is where an
+   * application puts that, rather than on each child. */
+  content.setPadding(48, 420, 48, 48);
   /* LinearLayout.VERTICAL is 1. The platform states that in a static
    * final, and this program cannot name it yet: an integer constant is
    * projected and translates, but referencing one stops in the compiler
