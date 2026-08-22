@@ -302,6 +302,15 @@ framework lifecycle is not one — that dispatch runs in the caller's frame.
 
 ### A TypeScript class extending a NATIVE class — SPECIFIED, not open
 
+[`jvm-ergonomics.md`](jvm-ergonomics.md) proposes the surface this capability
+would enable, surveyed against NativeScript and ordered by cost. It is a
+proposal — nothing in it is implemented — and it is linked from here because a
+proposal nothing references is a document that gets rewritten rather than
+read. Its ordering puts the peer late deliberately: the cheap generator-side
+items remove more typing per hour, and the peer subsumes part of what the
+others would otherwise each work around.
+
+
 **This entry was wrong and is kept, corrected, because the mistake is
 instructive.** It recorded the `class MainActivity extends Activity` shape as an
 open design question and then reasoned about what `this` could mean — while
