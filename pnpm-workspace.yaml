@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "benchmarks/android/nativescript"
 
 catalogMode: strict
 cleanupUnusedCatalogs: true
@@ -11,5 +12,21 @@ catalog:
   saxes: "6.0.0"
   typescript: "7.0.2"
 
+catalogs:
+  nativescript:
+    "@nativescript/android": "9.0.5"
+    "@nativescript/core": "9.0.20"
+    "@nativescript/types": "9.0.0"
+    "@nativescript/types-android": "9.0.0"
+    "@nativescript/webpack": "5.0.38"
+    nativescript: "9.0.7"
+    ts-loader: "9.6.2"
+    typescript: "5.7.3"
+    webpack: "5.109.2"
+
 allowBuilds:
+  "@nativescript/core": true
+  "@parcel/watcher": true
+  core-js-pure: true
   esbuild: true
+  nativescript: true

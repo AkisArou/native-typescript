@@ -1,0 +1,22 @@
+{
+  "name": "@native-typescript/benchmark-android-nativescript",
+  "version": "0.0.0",
+  "private": true,
+  "main": "app/app.ts",
+  "scripts": {
+    "build:android": "ns build android --release --no-hmr"
+  },
+  "dependencies": {
+    "@nativescript/core": "catalog:nativescript"
+  },
+  "devDependencies": {
+    "@nativescript/android": "catalog:nativescript",
+    "@nativescript/types": "catalog:nativescript",
+    "@nativescript/types-android": "catalog:nativescript",
+    "@nativescript/webpack": "catalog:nativescript",
+    "nativescript": "catalog:nativescript",
+    "ts-loader": "catalog:nativescript",
+    "typescript": "catalog:nativescript",
+    "webpack": "catalog:nativescript"
+  }
+}

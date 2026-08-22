@@ -1,0 +1,16 @@
+android {
+  compileSdkVersion 35
+  buildToolsVersion "35.0.0"
+
+  defaultConfig {
+    minSdkVersion 24
+    targetSdkVersion 35
+    versionCode 1
+    versionName "1.0.0"
+
+    ndk {
+      abiFilters.clear()
+      abiFilters "x86_64"
+    }
+  }
+}

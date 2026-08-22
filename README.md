@@ -80,6 +80,43 @@ the `MainActivity` TypeScript peer, dispatches the reached override, and lowers
 `super.onCreate()` to the exact native base implementation. The generated
 ingress function is not a second public lifecycle API.
 
+#### Current Android benchmark
+
+The first three-way release baseline compares the same raw Android workload in
+Native TypeScript, direct Kotlin, and plain NativeScript TypeScript. The
+NativeScript application uses neither React nor XML UI, and all timed work uses
+the same `android.*` objects, calls, iteration counts, and checksums. These are
+medians from five cyclically ordered process rounds on an x86-64 Pixel 10 Pro
+AVD running API 37, after ART `speed` compilation. Lower is better.
+
+| Workload | Native TypeScript | Kotlin | NativeScript | NTS vs NativeScript |
+| --- | ---: | ---: | ---: | ---: |
+| 128-child view tree | 29,780 ns/child | 43,953 ns/child | 37,753 ns/child | 1.27x faster |
+| lightweight `Rect` construction and `width()` | 340.81 ns/op | 30.27 ns/op | 3,398.83 ns/op | 9.97x faster |
+| `TextView` construction and scalar call | 23,278 ns/op | 22,345 ns/op | 27,841 ns/op | 1.20x faster |
+| repeated `TextView.setTextSize` | 88.62 ns/op | 13.23 ns/op | 227.07 ns/op | 2.56x faster |
+| synchronous `Button.callOnClick` | 272.52 ns/op | 2.15 ns/op | 1,337.37 ns/op | 4.91x faster |
+
+The post-warm-foreground median memory and packaged artifact observations were:
+
+| Measurement | Native TypeScript | Kotlin | NativeScript |
+| --- | ---: | ---: | ---: |
+| Total PSS | 17,876 KiB | 17,560 KiB | 73,795 KiB |
+| Total RSS | 142,428 KiB | 141,568 KiB | 202,708 KiB |
+| APK size | 569,627 bytes | 16,592 bytes | 28,638,400 bytes |
+
+The view-tree result has only five high-variance emulator observations, and
+the artifact sizes reflect deliberately different product shapes. They are
+recorded baselines rather than general platform rankings. The isolated kernels
+are more actionable: Native TypeScript already materially outperforms the
+dynamic NativeScript boundary, while the 11.26x gap between Native TypeScript
+and Kotlin for a cheap non-escaping object identifies JNI local-reference
+specialization as the next optimization. The complete method, raw dimensions,
+launch observations, checksums, and interpretation are in
+[record 0015](docs/records/0015-first-android-nativescript-baseline.md), and the
+reusable instrument is in
+[the Android benchmark README](benchmarks/android/README.md).
+
 ### iOS
 
 UIKit remains available as an ordinary native target surface, with Objective-C
