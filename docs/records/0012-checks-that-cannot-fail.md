@@ -13,9 +13,41 @@ carries no information about the thing it names. That is worse than a missing
 test, because a missing test is visible in a coverage list and this is not —
 the list says the property is covered.
 
-Six distinct mechanisms have now produced it — four on the day this record was
-written, two more the following day. They are worth separating, because the
-defence against each is different.
+## The whole of it, for someone who will not read the rest
+
+**Falsify every check that matters: break the thing deliberately and watch the
+check go red.** That one habit catches five of the six mechanisms below, and it
+is the only thing that catches the two worst.
+
+**Falsify the ones you just wrote a comment to justify, first.** A guard nobody
+explained is easy to doubt; a guard with a rationale beside it reads as
+settled, and the rationale is usually true of exactly one caller — the one its
+author had in mind while writing it. Mechanism 6 was found and then reproduced
+forty minutes later, in the code fixing it, under a comment calling it a
+deliberate boundary. The highest-risk moment for repeating a mechanism is
+immediately after finding it, while the shape still looks like someone else's
+mistake.
+
+If you do more than that, do these:
+
+- Ask what the check's EVIDENCE is, and whether the subject can influence it.
+- Ask what the rest of the system actually hands the check — and measure that
+  rather than reasoning about it.
+- Ask what would have to be true for the check to fail. If nothing would, it is
+  decoration.
+
+The rest of this document is evidence for those four lines. It is longer than
+anyone recalls under pressure, which is a property of the document rather than
+of the reader: both sessions that produced these findings had read it, and
+neither consulted it at the moment it would have helped. A record has no
+failure mode — nothing goes red when it is ignored — so it is subject to its
+own mechanism 4, and the four lines above are the only part expected to survive
+contact with a real afternoon.
+
+## The mechanisms
+
+Six have produced it — four on the day this record was written, two more the
+following day. They are separated because the defence against each differs.
 
 ## 1. The instrument cannot see its own subject
 
