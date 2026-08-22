@@ -94,49 +94,32 @@ been covered end-to-end only, which catches a decision that is WRONG and is
 useless against one that is merely DIFFERENT on the two sides — both emit a
 working program, just not the same one.
 
-### `validate.ts` restates manifest unions instead of importing them
+### `validate.ts` restated manifest unions — DONE (fork 56ea70ce)
 
-The `utf8Span` arm shipped with one of its two check sites widened and the
-other not, so the compiler accepted a binding and then refused every call to
-it. Both sites are now correct and an audit confirms no cast is missing an arm
-today, but the SHAPE that allowed it is untouched.
+Kept because the SHAPE recurs and the entry outlived the fix by long enough to
+send someone to do it twice.
 
-Three places restate the nine-arm result-projection union by hand:
-`ir/validate.ts` around 2671 and 4997 cast to a locally spelled union, and
-around 5119 a terminal `kind !== ... && kind !== ...` whitelist must be
-edited in lockstep with them. TypeScript cannot object, because a local union
-whose arms are a subset with payloads widened to `unknown` is comparable in
-both directions — omitting an arm silently shrinks the compile-time domain.
+Three places restated a nine-arm result-projection union by hand, and
+TypeScript could not object: a local union whose arms are a subset with
+payloads widened to `unknown` is comparable in both directions, so omitting an
+arm silently shrank the compile-time domain. It shipped one defect that way —
+the `utf8Span` arm reached one of its two check sites and not the other, so the
+compiler accepted a binding and then refused every call to it.
 
-The distinction that matters: the FIELD-loosening half is legitimate defence,
-since bindings are materialized from a document an embedder hands over, and
-`typeof x.nullable !== "boolean"` has to be reachable to mean anything. The
-ARM list is pure restatement with no defensive value — an embedder cannot
-produce an unlisted `kind` without the enumeration, and an exhaustive
-`default` rejects it at runtime just as well while also failing at compile
-time. The parameter side of the same function already validates through the
-published type with no cast, which is the proof it can be done.
+`Untrusted<T>` is now derived FROM the published union, so an arm cannot be
+forgotten; both result sites use it; the parameter switch ends in
+`default: { const _: never = x }`, which turns a new arm into a BUILD failure
+rather than a misleading "incomplete or ambiguous ABI projection" at runtime;
+and the `release` shape check that was written out four times character for
+character is one `validNativeRelease`.
 
-The fix is an `Untrusted<T>` mapped type derived FROM the published union, so
-arms cannot be forgotten, plus `switch` with `default: { const _: never = x }`
-at both sites — the repo's existing idiom. That deletes the 5119 whitelist
-outright. Two adjacent items belong in the same pass: the parameter switch
-covers 12 of 14 arms with no `default`, so a new arm gets no validation and a
-misleading "incomplete or ambiguous ABI projection" message; and one
-`release` shape check is copied identically four times.
-
-**Mostly landed** in fork 56ea70ce. `Untrusted<T>` derives the loosened view
-from the published union, so neither result-side site enumerates arms any
-more and omission is structurally impossible. The parameter switch gained the
-`default` it never had, binding `never`, so a new parameter arm upstream stops
-the file compiling. The four identical release checks are one function.
-
-**What remains:** the terminal `kind !== ... && kind !== ...` whitelist in the
-call-site chain still restates the arms handled above it. Removing it means
-turning a long if/else ladder into a switch — a restructure, not a correctness
-fix, and a new arm reaching it now fails loudly rather than silently. Worth
-folding into the legalizer work rather than doing alone, since that pass
-rewrites the same ladder.
+The distinction that made it tractable is the one to carry forward: loosening
+FIELDS is legitimate defence, because bindings are materialized from a document
+an embedder hands over and `typeof x.nullable !== "boolean"` has to be
+reachable to mean anything. Restating the ARM LIST has no defensive value — an
+embedder cannot produce an unlisted `kind` without the enumeration, and an
+exhaustive `default` rejects it at runtime just as well while also failing at
+compile time.
 
 ### Backend-neutral foreign-boundary legalizer — IN PROGRESS
 
