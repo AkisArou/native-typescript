@@ -482,6 +482,18 @@ int32_t nts_tick_fire(int32_t seed) {
   return nts_tick_marks;
 }
 
+/* The base's member as an ORDINARY VIRTUAL call — what a platform's own
+ * `Activity.onCreate` binding is, and what `super` must NOT reach. On Android
+ * this one redispatches into the override that called it and the program
+ * recurses until the stack ends; here it marks distinctively instead, so a
+ * test can say WHICH binding a base call resolved to rather than only that
+ * something ran. */
+void nts_tick_virtual(NtsTickSource *self, int32_t seed) {
+  (void)self;
+  (void)seed;
+  nts_tick_marks += 100;
+}
+
 void nts_tick_base(NtsTickSource *self, int32_t seed) {
   (void)self;
   nts_tick_marks += seed;

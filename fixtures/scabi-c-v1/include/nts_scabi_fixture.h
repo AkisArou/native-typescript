@@ -186,6 +186,7 @@ NTS_SCABI_EXPORT int32_t nts_tick_fire(int32_t seed);
  * an ordinary function, because what the compiler needs from it is only that
  * it is a DISTINCT binding from the one the platform calls. Were it the same,
  * super would redispatch to the override and never terminate. */
+NTS_SCABI_EXPORT void nts_tick_virtual(NtsTickSource *self, int32_t seed);
 NTS_SCABI_EXPORT void nts_tick_base(NtsTickSource *self, int32_t seed);
 
 NTS_SCABI_EXPORT void nts_notice_register(NtsNoticeCallback callback,
