@@ -12,36 +12,55 @@
  *   live in libm, and a shared link does not pull it in. On glibc libm is
  *   folded into libc and its absence resolves to nothing, so the DESKTOP
  *   CAN NEVER NOTICE; on bionic the loader fails at `dlopen` naming a
- *   symbol rather than the library. Proved by `jvm-android-build`, which
- *   asserts `NEEDED [libm.so]` — added because every artifact assertion
- *   passed on a library that could not load.
+ *   symbol rather than the library. Proved by
+ *   `tests/jvm-android-build.test.ts` — added because every artifact
+ *   assertion passed on a library that could not load.
  *
  * - `-Wl,--no-undefined`, Android only. A `-shared` link accepts undefined
  *   symbols, which is how an unresolvable library gets built and only
  *   fails when something loads it. The desktop hosted library genuinely
  *   has undefined JNI symbols the HOST supplies, so it keeps the
  *   permissive link — that difference is the platform's, not a taste.
+ *   NO LANE PROVES THIS ONE, and that is a property of the flag rather
+ *   than an omission: it is preventive, so deleting it changes no
+ *   artifact whenever every symbol happens to resolve, which is every
+ *   build we make. There is no program here with a deliberate undefined
+ *   symbol, so nothing goes red. `tests/jvm-constraint-lanes.test.ts`
+ *   checks only that the flag is still WRITTEN here and still under the
+ *   Android branch — a source-level check, which catches a refactor
+ *   dropping it and proves nothing about the linker. Said plainly because
+ *   a green suite must not be read as evidence it works.
  *
  * - `-DNTS_JVM_ADOPT_IN_PLACE=1`, Android only. Without it the runtime
  *   spawns an owner thread the platform will never dispatch on, and the
  *   first lifecycle callback reads a closure from a foreign thread —
- *   corruption rather than a diagnostic. Proved on the device lane, which
- *   is the only place a wrong owner thread is observable.
+ *   corruption rather than a diagnostic. Proved by
+ *   `tests/jvm-android-device.test.ts`, the only place a wrong owner
+ *   thread is observable.
  *
  * - The executable-product refusal for an Android target. Android has no
  *   libjvm to create; a library there is adopted by the process that loads
- *   it. Proved by `jvm-android-build`'s rejection case.
+ *   it. Proved by `tests/jvm-android-build.test.ts`, rejection case.
  *
  * - `-Wl,-z,max-page-size=16384`. 16KB-page devices refuse a library
- *   aligned for 4KB. Proved by the LOAD-segment alignment assertion.
+ *   aligned for 4KB. Proved by `tests/jvm-android-build.test.ts`, the
+ *   LOAD-segment alignment assertion.
  *
  * - `javaClasspathJar` and the two-pass base ingestion. A generated
  *   subclass compiles against either built classes or a platform jar, and
  *   the base's KIND has to be learned before its constructors can be
- *   selected. Proved by the subclass and Android app lanes.
+ *   selected. Proved by `tests/jvm-subclass.test.ts` and
+ *   `tests/jvm-android-app.test.ts`.
  *
  * Anything here that turns out to have NO lane proving it is a finding
- * rather than something to preserve quietly.
+ * rather than something to preserve quietly. That condition has already
+ * fired once: `--no-undefined` had no lane, which is why its bullet now
+ * says exactly how far the one it has goes.
+ *
+ * THE LANE NAMES ABOVE ARE CHECKED. `tests/jvm-constraint-lanes.test.ts`
+ * parses every `tests/…test.ts` named in this block and fails if one does
+ * not exist — because a comment claiming a lane that was deleted or
+ * renamed is worse than no comment, and nothing else would notice.
  */
 
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
