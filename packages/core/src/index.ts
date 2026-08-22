@@ -25,6 +25,12 @@ export type {
   ResolvedPkgConfigSdk,
 } from "./pkg-config.ts";
 export { resolveSourceArtifact } from "./source-artifact.ts";
+export {
+  resolveTargetBuildEnvironment,
+  sourceTreeArtifact,
+  toolIdentity,
+} from "./target-build.ts";
+export type { TargetBuildEnvironment } from "./target-build.ts";
 export type { SourceArtifactResolution } from "./source-artifact.ts";
 export {
   ArtifactExecutionError,

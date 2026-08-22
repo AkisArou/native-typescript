@@ -12,10 +12,8 @@ import {
   planScriptCRuntimeObject,
   resolvePkgConfigSdk,
   resolveSourceArtifact,
-} from "@native-typescript/core";
-import type {
-  ArtifactActionDefinition,
-  ArtifactDefinition,
+  resolveTargetBuildEnvironment,
+  sourceTreeArtifact,
 } from "@native-typescript/core";
 import { parseScabiManifest } from "@native-typescript/scabi";
 import type { ScabiManifest } from "@native-typescript/scabi";
@@ -72,37 +70,6 @@ export interface GtkApplicationToolPaths {
   readonly sandbox: string;
 }
 
-async function toolIdentity(
-  id: string,
-  path: string,
-): Promise<ArtifactActionDefinition["tool"]> {
-  const content = await digestArtifactPath(path, "file");
-  return Object.freeze({ id, version: content.digest.slice(7, 19), digest: content.digest });
-}
-
-async function treeArtifact(options: {
-  readonly id: string;
-  readonly path: string;
-  readonly fileName: string;
-  readonly logicalPath: string;
-  readonly target: string;
-  readonly domain: ArtifactDefinition["domain"];
-}): Promise<ArtifactDefinition> {
-  const resolved = await resolveSourceArtifact({
-    id: options.id,
-    path: options.path,
-    kind: "source-tree",
-    entryType: "directory",
-    mediaType: "inode/directory",
-    target: options.target,
-    domain: options.domain,
-    cache: "exportable",
-    fileName: options.fileName,
-    logicalPath: options.logicalPath,
-  });
-  return resolved.artifact;
-}
-
 interface GeneratedPackageContent {
   readonly slug: string;
   readonly path: string;
@@ -128,17 +95,13 @@ export async function buildGtkApplication(input: {
   mkdirSync(input.scratch, { recursive: true });
   const target = project.target.triple;
   const executionPlatform = project.target.executionPlatform;
-  const clangTool = await toolIdentity("tool/clang", input.tools.clang);
-  const nodeTool = await toolIdentity("tool/node", input.tools.node);
-  const tools = {
-    [clangTool.id]: { path: input.tools.clang },
-    [nodeTool.id]: { path: input.tools.node },
-  };
-  const sandbox = { kind: "bubblewrap" as const, path: input.tools.sandbox };
-  const cache =
-    input.cachePath === undefined
-      ? undefined
-      : { kind: "local" as const, path: input.cachePath };
+  const { clangTool, nodeTool, tools, sandbox, cache } =
+    await resolveTargetBuildEnvironment({
+      clang: input.tools.clang,
+      node: input.tools.node,
+      sandbox: input.tools.sandbox,
+      ...(input.cachePath === undefined ? {} : { cachePath: input.cachePath }),
+    });
 
   const sdk = await resolvePkgConfigSdk({
     id: "gtk4",
@@ -287,7 +250,7 @@ export async function buildGtkApplication(input: {
   const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
   const compilerDistribution = join(checkout.path, "packages/compiler/dist");
   const runtimeArtifacts = await Promise.all([
-    treeArtifact({
+    sourceTreeArtifact({
       id: "runtime/scriptc",
       path: scriptcRuntimeRoot,
       fileName: "scriptc-runtime",
@@ -295,7 +258,7 @@ export async function buildGtkApplication(input: {
       target,
       domain: "target",
     }),
-    treeArtifact({
+    sourceTreeArtifact({
       id: "headers/scriptc/runtime",
       path: scriptcRuntimeInclude,
       fileName: "scriptc-runtime-headers",
@@ -303,7 +266,7 @@ export async function buildGtkApplication(input: {
       target,
       domain: "target",
     }),
-    treeArtifact({
+    sourceTreeArtifact({
       id: "tool-input/scriptc/emitter",
       path: compilerDistribution,
       fileName: "scriptc-emitter",
