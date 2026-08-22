@@ -126,7 +126,28 @@ export type JvmCallbackSelection =
       readonly descriptor: string;
       readonly delivery?: JvmCallbackDelivery;
       readonly anchor?: JvmCallbackAnchor;
+      readonly baseCall?: JvmMemberReference;
     };
+
+/**
+ * The member that reaches the implementation an override REPLACED.
+ *
+ * A class file cannot say this. `ntsSuperOnCreate` is an ordinary instance
+ * method in the bytes — nothing distinguishes it from a method the class
+ * happens to declare, and the only thing that knows it is a base call is
+ * the generator that emitted it. So it is a stated selection fact, for the
+ * same reason `delivery` and `anchor` are: the metadata is silent and
+ * guessing from a name would make a convention into a contract.
+ *
+ * Absent means the override has no base implementation to reach, which is
+ * the honest reading for an abstract or interface member — the generated
+ * class is the first implementation rather than a replacement for one, and
+ * `super.m()` then refuses by name instead of resolving to nothing.
+ */
+export interface JvmMemberReference {
+  readonly name: string;
+  readonly descriptor: string;
+}
 
 /**
  * What a registration is attached to.
@@ -354,11 +375,14 @@ export interface JvmCallback extends JvmMethod {
   readonly delivery: JvmCallbackDelivery | null;
   /** What the registration attaches to; `instance` unless stated. */
   readonly anchor: JvmCallbackAnchor;
+  /** The member reaching the implementation this override replaced, or
+   * null when there is none to reach. See JvmMemberReference. */
+  readonly baseCall: JvmMemberReference | null;
 }
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 6;
+  readonly schemaVersion: 7;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

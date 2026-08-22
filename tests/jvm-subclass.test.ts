@@ -72,7 +72,16 @@ test("the generated subclass is deterministic and spells the override native", (
     first.source,
     /public boolean ntsSuperOnEvent\(int a0\) \{\n {4}return super\.onEvent\(a0\);\n {2}\}/u,
   );
-  assert.deepEqual(first.callbacks, ["onEvent"]);
+  /* The selection now STATES which member reaches the base: a class file
+   * cannot say it, and re-deriving `ntsSuperOnEvent` from a name would
+   * make this generator's convention into a contract. */
+  assert.deepEqual(first.callbacks, [
+    {
+      name: "onEvent",
+      descriptor: "(I)Z",
+      baseCall: { name: "ntsSuperOnEvent", descriptor: "(I)Z" },
+    },
+  ]);
   assert.deepEqual(first.methods, [
     { name: "ntsSuperOnEvent", descriptor: "(I)Z" },
   ]);
@@ -117,7 +126,12 @@ test("a void override tells: native void, delivery decided by the generator", ()
     /public void ntsSuperOnNotify\(int a0\) \{\n {4}super\.onNotify\(a0\);\n {2}\}/u,
   );
   assert.deepEqual(generated.callbacks, [
-    { name: "onNotify", descriptor: "(I)V", delivery: "synchronous" },
+    {
+      name: "onNotify",
+      descriptor: "(I)V",
+      delivery: "synchronous",
+      baseCall: { name: "ntsSuperOnNotify", descriptor: "(I)V" },
+    },
   ]);
   assert.deepEqual(generated.methods, [
     { name: "ntsSuperOnNotify", descriptor: "(I)V" },
@@ -172,7 +186,13 @@ test("an object payload crosses the generator as its Java source spelling", () =
     generated.source,
     /public boolean ntsSuperOnMeasure\(int a0, fixture\.Widget a1\) \{\n {4}return super\.onMeasure\(a0, a1\);\n {2}\}/u,
   );
-  assert.deepEqual(generated.callbacks, ["onMeasure"]);
+  assert.deepEqual(generated.callbacks, [
+    {
+      name: "onMeasure",
+      descriptor: "(ILfixture/Widget;)Z",
+      baseCall: { name: "ntsSuperOnMeasure", descriptor: "(ILfixture/Widget;)Z" },
+    },
+  ]);
   assert.deepEqual(generated.methods, [
     { name: "ntsSuperOnMeasure", descriptor: "(ILfixture/Widget;)Z" },
   ]);
@@ -224,7 +244,12 @@ test("the void-synchronous arm's committed evidence now generates", () => {
     /public void ntsSuperOnCreate\(\) \{\n {4}super\.onCreate\(\);\n {2}\}/u,
   );
   assert.deepEqual(generated.callbacks, [
-    { name: "onCreate", descriptor: "()V", delivery: "synchronous" },
+    {
+      name: "onCreate",
+      descriptor: "()V",
+      delivery: "synchronous",
+      baseCall: { name: "ntsSuperOnCreate", descriptor: "()V" },
+    },
   ]);
 });
 

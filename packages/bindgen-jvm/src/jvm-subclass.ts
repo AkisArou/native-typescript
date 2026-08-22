@@ -69,7 +69,7 @@ export interface JvmSubclassSelection {
 
 export interface JvmSubclassSource {
   readonly schema: "native-typescript.jvm-subclass-source";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly baseBinaryName: string;
   readonly subclassBinaryName: string;
   /** The generated Java, compiled against the base's classes. */
@@ -344,15 +344,27 @@ export function generateJvmSubclassSource(
         : []),
     );
     /* A void override's delivery is decided here, not left to the
-     * selection downstream: the framework observes what it dispatched. */
+     * selection downstream: the framework observes what it dispatched.
+     *
+     * The BASE CALL is stated here for the same reason and a stronger
+     * one: this is the only place that knows `ntsSuperOnCreate` reaches
+     * what `onCreate` replaced. In the compiled bytes it is an ordinary
+     * instance method, so a consumer could only recover the link by
+     * re-deriving the name — which would make a convention this generator
+     * invented into a contract everything downstream depends on. Stating
+     * it keeps the convention here, where it belongs. */
     const anchored = selection.anchor === "class";
+    const baseCall = hasBaseImplementation
+      ? Object.freeze({ name: superName, descriptor: method.descriptor })
+      : undefined;
     callbacks.push(
-      tells || anchored
+      tells || anchored || baseCall !== undefined
         ? Object.freeze({
             name: method.name,
             descriptor: method.descriptor,
             ...(tells ? { delivery: "synchronous" as const } : {}),
             ...(anchored ? { anchor: "class" as const } : {}),
+            ...(baseCall === undefined ? {} : { baseCall }),
           })
         : typeof overrideSelection === "string"
           ? overrideSelection
@@ -403,7 +415,7 @@ export function generateJvmSubclassSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-subclass-source",
-    schemaVersion: 3,
+    schemaVersion: 4,
     baseBinaryName: base.binaryName,
     subclassBinaryName,
     source,

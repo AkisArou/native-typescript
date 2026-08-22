@@ -361,6 +361,21 @@ function normalizeCallbackSelections(
     }
     if (
       typeof selection !== "string" &&
+      selection.baseCall !== undefined &&
+      (selection.baseCall.name.length === 0 ||
+        selection.baseCall.descriptor.length === 0)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS6001",
+          `${path}/${selection.name}`,
+          "A callback's baseCall names a member by name and descriptor; " +
+            "both must be non-empty",
+        ),
+      );
+    }
+    if (
+      typeof selection !== "string" &&
       selection.anchor !== undefined &&
       selection.anchor !== "instance" &&
       selection.anchor !== "class"
@@ -1111,10 +1126,40 @@ export function ingestJvmClasses(
         const stated = selection.callbacks.exact.get(
           `${method.name} ${method.descriptor}`,
         );
+        const baseCall = stated?.baseCall;
+        if (baseCall !== undefined) {
+          /* Named rather than derived, so it is checked rather than
+           * trusted: a base call that does not resolve to a method this
+           * class declares would leave `super.m()` pointing at nothing,
+           * and the failure would surface in the compiler with no way
+           * back to the selection that caused it. */
+          const declared = parsed.methods.some(
+            (candidate) =>
+              candidate.name === baseCall.name &&
+              candidate.descriptor === baseCall.descriptor,
+          );
+          if (!declared) {
+            diagnostics.push(
+              diagnostic(
+                "NTS6003",
+                `${path}/callback/${method.name}/baseCall`,
+                `Callback '${method.name}' names base call ` +
+                  `'${baseCall.name}${baseCall.descriptor}', which ` +
+                  `'${selection.binaryName}' does not declare`,
+              ),
+            );
+          }
+        }
         return Object.freeze({
           ...method,
           delivery: stated?.delivery ?? null,
           anchor: stated?.anchor ?? "instance",
+          baseCall: baseCall === undefined
+            ? null
+            : Object.freeze({
+                name: baseCall.name,
+                descriptor: baseCall.descriptor,
+              }),
         });
       });
     const namedFields = resolveMembers(
@@ -1195,7 +1240,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 6,
+    schemaVersion: 7,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

@@ -183,14 +183,34 @@ test(
       admitted.source,
       /public void ntsSuperOnStart\(\) \{\n {4}super\.onStart\(\);\n {2}\}/u,
     );
+    /* Each override STATES the member that reaches what it replaced. The
+     * generator is the only thing that knows `ntsSuperOnCreate` is a base
+     * call rather than an ordinary method it happens to declare, so it
+     * says so instead of leaving a convention to be re-derived. */
     assert.deepEqual(admitted.callbacks, [
       {
         name: "onCreate",
         descriptor: "(Landroid/os/Bundle;)V",
         delivery: "synchronous",
+        baseCall: {
+          name: "ntsSuperOnCreate",
+          descriptor: "(Landroid/os/Bundle;)V",
+        },
       },
-      { name: "onKeyDown", descriptor: "(ILandroid/view/KeyEvent;)Z" },
-      { name: "onStart", descriptor: "()V", delivery: "synchronous" },
+      {
+        name: "onKeyDown",
+        descriptor: "(ILandroid/view/KeyEvent;)Z",
+        baseCall: {
+          name: "ntsSuperOnKeyDown",
+          descriptor: "(ILandroid/view/KeyEvent;)Z",
+        },
+      },
+      {
+        name: "onStart",
+        descriptor: "()V",
+        delivery: "synchronous",
+        baseCall: { name: "ntsSuperOnStart", descriptor: "()V" },
+      },
     ]);
   },
 );
