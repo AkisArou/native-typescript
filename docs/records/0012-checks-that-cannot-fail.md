@@ -282,6 +282,28 @@ That is worth recording in the record itself: a finding nobody reads has the
 same value as a check that cannot fail. Whatever else this document is for, it
 is not a substitute for a lane.
 
+**And the remedy is not better consulting.** Four decisions were violated in one
+night by people who had read the document recording them —
+`-Wl,--no-undefined`; an interning claim contradicted by a paragraph three lines
+above it in the same file; recreation semantics asked about rather than read;
+and `extends`, whose design two sessions each re-derived from its absence in the
+lowerer. Asking tired readers to consult more carefully is asking for more
+discipline exactly where there is least available.
+
+**A decision should leave a mark at the SITE where someone would violate it** —
+a check, a refusal, or at minimum a comment carrying the CONSEQUENCE rather than
+a pointer to the document. The document keeps the reasoning; the site keeps the
+constraint. Three of those four were repaired that way before anyone named why
+it worked: `-Wl,--no-undefined` by a build-lane assertion that `libm.so` is
+NEEDED; the recreation semantics by a test that turns a described semantic into
+a checkable one; and `extends` by replacing a plan with the facts building it
+produced, so the reader no longer has to hold anything. The one still
+outstanding is a mark where `identity: "none"` is declared, saying what it
+costs.
+
+This is the same rule the record applies to code, turned on itself: a document
+has no failure mode, so it needs one attached to it at the point of use.
+
 ## What this changes
 
 Nothing normative. It is an argument about how to read a green suite, and its
