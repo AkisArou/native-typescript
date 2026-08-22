@@ -354,7 +354,28 @@ NOT, so a PLANNED archive is uniformly PIC only because the planner refuses
 the vendored cases above. Widening those helpers touches objects the
 executable lane shares, so it carries its own cache-key consequences.
 
-### Splitting the loop's checkpoint from its fibers — NOW BLOCKING ANDROID
+### Splitting the loop's checkpoint from its fibers — NO LONGER BLOCKING ANDROID
+
+**Settled 2026-08-21 by fork `7e6c0efd`, and NOT by the recommendation below.**
+Android now builds, installs and runs on a device, so nothing here blocks it;
+what follows is kept because the split remains worth doing on its own merits
+and because the difference between the recommendation and the answer is the
+useful part.
+
+The recommendation was a fourth `ScrCtx` arm implementing context switching in
+assembly under our own names. The arm that landed carries no saved context at
+all and TRAPS in every switch and spawn — because a fiber cannot be reached on
+Android, guaranteed twice: the executable lane refuses every mobile target by
+name, so the only Android product is a library archive, and library emission
+requires an async-free module graph, so no library reaches a fiber either. This
+is dead code that must LINK, not dead code that must work.
+
+Sixty lines of assembly would have been sixty lines maintained against two
+architectures to implement something no program can call. The trap names the
+impossibility instead, and if a future change breaks either guarantee the
+failure is a named trap rather than a corrupted stack.
+
+The original analysis follows, unedited.
 
 The Android crossing has exactly one gap in the compiler's box, and it is
 narrower than a port. Bionic declares `ucontext_t` for signals and ships none
