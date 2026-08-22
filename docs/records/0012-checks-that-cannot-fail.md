@@ -36,6 +36,11 @@ red for free. Assert the message, not the failure. Found 2026-08-22 — a progra
 meant to prove a heritage-clause refusal was refused earlier at the
 external-module import check, and only printing the diagnostics showed it.
 
+**Anything that filters must say what it dropped.** A window that keeps the
+last N of a filtered stream shrinks exactly when there is most to see, so the
+instrument goes blind in proportion to the severity of what it is watching. A
+count costs one line and separates diagnoses that are otherwise identical.
+
 If you do more than that, do these:
 
 - Ask what the check's EVIDENCE is, and whether the subject can influence it.
@@ -54,8 +59,9 @@ contact with a real afternoon.
 
 ## The mechanisms
 
-Six have produced it — four on the day this record was written, two more the
-following day. They are separated because the defence against each differs.
+Seven have produced it — four on the day this record was written, three more
+the following day. They are separated because the defence against each
+differs.
 
 ## 1. The instrument cannot see its own subject
 
@@ -189,6 +195,68 @@ and MEASURE that rather than reasoning about it. The finding here came from
 running the extractor and reading what ingestion received; no amount of reading
 the guard would have produced it, because the guard is not wrong.
 
+## 7. The instrument's window shrinks when there is most to see
+
+The newest, the only one found in the tooling rather than in the code, and the
+most expensive per line of code involved.
+
+An Android lane captured failure context as `logcat -d -t 200`, then filtered to
+the program's tag, then kept the last 40. Ordinarily that is a good report. On
+the run that mattered the program had recursed thousands of times and Android
+had printed a long Java stack trace, so the last 200 lines of the whole buffer
+WERE the stack trace: every line the program produced was crowded out before
+the filter ran. The report said the handler had produced no output. It had
+produced thousands.
+
+Nothing failed. The lane reported confidently, and that report was the premise
+of an hour of correct reasoning toward a wrong conclusion — a missing module
+init, a plausible mechanism that fit every symptom the broken instrument
+described. The real defect was a `super` call resolving to the member of its
+own name and calling itself.
+
+**Why this one is worse than the others.** The earlier six are silent: they run,
+they pass, and they tell you nothing. This one SPEAKS, and it speaks most
+misleadingly exactly when something is most wrong, because the volume of the
+failure is what destroys the evidence of it. It also cannot be falsified in the
+ordinary way — break the subject deliberately and the instrument reports
+correctly, because a deliberate break is small.
+
+**The defence is a count.** Four thousand lines and zero lines are opposite
+diagnoses that look identical once the lines are gone, and no care applied to
+the surviving forty recovers the difference. `native-typescript lines: 4127`
+would have said "recursion" in one glance. Any filtering step should carry how
+much it discarded; anything that truncates should say so where the reader is
+looking.
+
+**The general form**, which also covers mechanism 5 and a diagnostic found the
+same night that read a filtered selection and reported as if it had read the
+whole platform surface: **the check is right about what it examined and wrong
+about what it claims.** That sentence is worth more than the taxonomy — it is
+the question to ask of any check, instrument or message that reports on a
+subject it does not hold entirely.
+
+## A note on fixtures that agree for the wrong reason
+
+Three fixtures failed this way in one night, all in the same family, and the
+pattern is about how a fixture gets built rather than three coincidences.
+
+- A cross-gate test that SKIPPED in the configuration it existed to gate, so a
+  manifest field travelled the whole system with nothing able to contradict it.
+- A base type and a delivered receiver that were the SAME type, so a compiler
+  reading one could not be told from a compiler reading the other. Two defects
+  hid there, and the second only appeared once the first was fixed.
+- A base class that declared a member and BOUND nothing, so a resolution path
+  that should have claimed the call found no symbol and the correct path
+  received it by default. Every run was green for a reason unrelated to the
+  code being right.
+
+Each was green, and each needed a real failure on real hardware to expose. The
+question a fixture must answer is not "does this pass?" but "what would this
+have to see in order to disagree?" — and a fixture whose subject has only one
+value cannot disagree about it. Where a real surface always distinguishes two
+things, a fixture that collapses them is not a simplification; it is the
+removal of the only thing under test.
+
 ## A note on this record's own contents
 
 Mechanism 1 already recorded that `-shared` accepts undefined symbols by
@@ -218,5 +286,6 @@ practical consequences are already in the working documents:
 ## Removal or revisit condition
 
 None. This is a description of how verification fails, not a state to be
-discharged. It was revised when a fifth and sixth mechanism were found, one day
-later, which is the rate this predicted. Expect a seventh.
+discharged. It was revised when a fifth and sixth mechanism were found one day
+later, and again the same day for a seventh — which arrived within hours of
+this document predicting it. Expect an eighth.
