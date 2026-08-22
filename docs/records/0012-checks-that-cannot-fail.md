@@ -1,7 +1,7 @@
 # 0012 — Checks that cannot fail
 
 Status: accepted finding, no removal condition
-Last revised: 2026-08-21
+Last revised: 2026-08-22
 
 Fourteen defects were found on 2026-08-21. Every one had passed every gate it
 was subject to, and none of the gates was negligent. This record is about why,
@@ -13,7 +13,8 @@ carries no information about the thing it names. That is worse than a missing
 test, because a missing test is visible in a coverage list and this is not —
 the list says the property is covered.
 
-Four distinct mechanisms produced it. They are worth separating, because the
+Six distinct mechanisms have now produced it — four on the day this record was
+written, two more the following day. They are worth separating, because the
 defence against each is different.
 
 ## 1. The instrument cannot see its own subject
@@ -101,6 +102,66 @@ suites were, and the C suite had no program exercising that path.
 being green says nothing about the other. Behaviour has to be asserted per
 backend by a program that runs, not by emission that compiles.
 
+## 5. The instrument reads its own answer
+
+Found 2026-08-22, and it is the purest form in this record: the check's
+evidence source includes the thing under test, so the claim proves itself.
+
+- A check asserting that every fork-owned test file is named by some lane. It
+  searched `package.json` and every script those scripts delegate to — and the
+  list of claims lived INSIDE one of those scripts. A deliberately false entry
+  ("this file is covered by `scriptc:test:imaginary`") passed, because the
+  claim's own text was the evidence that satisfied it.
+
+The fix was not a better search. It was moving the claims to a module no lane
+reads, so a claim has to be backed by a lane's own text rather than by itself.
+
+**Defence.** Name the check's evidence source out loud and ask whether the
+subject can influence it. Falsification catches this one reliably — a
+self-satisfying check passes every deliberate break, which is a very loud
+signal once you look for it — and nothing else does, because the check is
+correct about everything except where it is looking.
+
+## 6. A guard whose precondition another component prevents
+
+Found 2026-08-22. The guard is well-formed, its condition is exactly right for
+the situation it names, and a neighbouring component ensures that situation
+never arises on the path that matters. Distinct from mechanism 2: nothing here
+is a coverage gap, and no fixture would have found it — the guard is production
+code and its trigger is uninhabited by construction.
+
+- `NTS6006` refused a selection that omitted a superclass, its message
+  promising that otherwise "the projected class would lose its ancestry
+  silently". It fired only when the superclass was PRESENT among the provided
+  sources but unselected. The Android extractor pulls from `android.jar`
+  exactly the classes a selection names, so an omitted ancestor was never
+  present-but-unselected — it was absent, and the guard could not see it.
+  Selecting `TextView` without `View` ingested cleanly with the superclass
+  recorded as external, which is precisely the silent ancestry loss the
+  diagnostic said was impossible.
+
+The consequence was bounded — the program fails later at a call site with
+"does not exist" on an inherited method — but it points at the method rather
+than the ancestry, which is several confusing builds from the cause.
+
+**Defence.** For each guard, ask what the rest of the system actually hands it,
+and MEASURE that rather than reasoning about it. The finding here came from
+running the extractor and reading what ingestion received; no amount of reading
+the guard would have produced it, because the guard is not wrong.
+
+## A note on this record's own contents
+
+Mechanism 1 already recorded that `-shared` accepts undefined symbols by
+default and that `-Wl,--no-undefined` is what moves the discovery back to the
+build. On 2026-08-22 that exact defect was rediscovered on Android, from
+scratch, by shipping a library whose every artifact assertion passed and which
+could not load because `fmod` was undefined. The lesson was written down, was
+true, and was not consulted.
+
+That is worth recording in the record itself: a finding nobody reads has the
+same value as a check that cannot fail. Whatever else this document is for, it
+is not a substitute for a lane.
+
 ## What this changes
 
 Nothing normative. It is an argument about how to read a green suite, and its
@@ -117,5 +178,5 @@ practical consequences are already in the working documents:
 ## Removal or revisit condition
 
 None. This is a description of how verification fails, not a state to be
-discharged. It should be revised when a fifth mechanism is found, and the
-finding of one is likelier than its absence.
+discharged. It was revised when a fifth and sixth mechanism were found, one day
+later, which is the rate this predicted. Expect a seventh.
