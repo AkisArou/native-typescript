@@ -1,3 +1,49 @@
+/**
+ * PLATFORM CONSTRAINTS THIS FILE CARRIES, AND THE LANE THAT PROVES EACH.
+ *
+ * Written for whoever refactors this — extracting a shell both targets
+ * share is a named piece of open work, and the danger in it is not the
+ * shell. Every constraint below produces a WORKING BUILD when it is
+ * dropped, and fails later, elsewhere, in terms that do not name it. A
+ * mechanical move loses one of these silently; the list exists so the move
+ * can be checked rather than remembered.
+ *
+ * - `-lm` on the shared link. Math symbols the compiled program reaches
+ *   live in libm, and a shared link does not pull it in. On glibc libm is
+ *   folded into libc and its absence resolves to nothing, so the DESKTOP
+ *   CAN NEVER NOTICE; on bionic the loader fails at `dlopen` naming a
+ *   symbol rather than the library. Proved by `jvm-android-build`, which
+ *   asserts `NEEDED [libm.so]` — added because every artifact assertion
+ *   passed on a library that could not load.
+ *
+ * - `-Wl,--no-undefined`, Android only. A `-shared` link accepts undefined
+ *   symbols, which is how an unresolvable library gets built and only
+ *   fails when something loads it. The desktop hosted library genuinely
+ *   has undefined JNI symbols the HOST supplies, so it keeps the
+ *   permissive link — that difference is the platform's, not a taste.
+ *
+ * - `-DNTS_JVM_ADOPT_IN_PLACE=1`, Android only. Without it the runtime
+ *   spawns an owner thread the platform will never dispatch on, and the
+ *   first lifecycle callback reads a closure from a foreign thread —
+ *   corruption rather than a diagnostic. Proved on the device lane, which
+ *   is the only place a wrong owner thread is observable.
+ *
+ * - The executable-product refusal for an Android target. Android has no
+ *   libjvm to create; a library there is adopted by the process that loads
+ *   it. Proved by `jvm-android-build`'s rejection case.
+ *
+ * - `-Wl,-z,max-page-size=16384`. 16KB-page devices refuse a library
+ *   aligned for 4KB. Proved by the LOAD-segment alignment assertion.
+ *
+ * - `javaClasspathJar` and the two-pass base ingestion. A generated
+ *   subclass compiles against either built classes or a platform jar, and
+ *   the base's KIND has to be learned before its constructors can be
+ *   selected. Proved by the subclass and Android app lanes.
+ *
+ * Anything here that turns out to have NO lane proving it is a finding
+ * rather than something to preserve quietly.
+ */
+
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,6 +58,9 @@ import {
   planScriptCProgramEmission,
   planScriptCRuntimeObject,
   resolveSourceArtifact,
+  resolveTargetBuildEnvironment,
+  sourceTreeArtifact,
+  toolIdentity,
 } from "@native-typescript/core";
 import type {
   ArtifactActionDefinition,
@@ -126,41 +175,6 @@ export interface JvmApplicationBuildResult {
   readonly jvmLibraryPath: string | null;
 }
 
-async function toolIdentity(
-  id: string,
-  path: string,
-): Promise<ArtifactActionDefinition["tool"]> {
-  const content = await digestArtifactPath(path, "file");
-  return Object.freeze({
-    id,
-    version: content.digest.slice(7, 19),
-    digest: content.digest,
-  });
-}
-
-async function treeArtifact(options: {
-  readonly id: string;
-  readonly path: string;
-  readonly fileName: string;
-  readonly logicalPath: string;
-  readonly target: string;
-  readonly domain: ArtifactDefinition["domain"];
-}): Promise<ArtifactDefinition> {
-  const resolved = await resolveSourceArtifact({
-    id: options.id,
-    path: options.path,
-    kind: "source-tree",
-    entryType: "directory",
-    mediaType: "inode/directory",
-    target: options.target,
-    domain: options.domain,
-    cache: "exportable",
-    fileName: options.fileName,
-    logicalPath: options.logicalPath,
-  });
-  return resolved.artifact;
-}
-
 export async function buildJvmApplication(input: {
   readonly projectRoot: string;
   readonly project: JvmApplicationProject;
@@ -178,17 +192,16 @@ export async function buildJvmApplication(input: {
   mkdirSync(input.scratch, { recursive: true });
   const target = project.target.triple;
   const executionPlatform = project.target.executionPlatform;
-  const clangTool = await toolIdentity("tool/clang", input.tools.clang);
-  const nodeTool = await toolIdentity("tool/node", input.tools.node);
-  const tools = {
-    [clangTool.id]: { path: input.tools.clang },
-    [nodeTool.id]: { path: input.tools.node },
-  };
-  const sandbox = { kind: "bubblewrap" as const, path: input.tools.sandbox };
-  const cache =
-    input.cachePath === undefined
-      ? undefined
-      : { kind: "local" as const, path: input.cachePath };
+  /* Questions about THIS MACHINE, whose answers cannot differ by target
+   * because the question does not mention one. What a platform is allowed
+   * to be stricter about — the link line especially — stays here. */
+  const { clangTool, nodeTool, tools, sandbox, cache } =
+    await resolveTargetBuildEnvironment({
+      clang: input.tools.clang,
+      node: input.tools.node,
+      sandbox: input.tools.sandbox,
+      ...(input.cachePath === undefined ? {} : { cachePath: input.cachePath }),
+    });
   /* The triple is the platform fact: an Android target's jni.h lives in
    * the NDK toolchain's own sysroot (the clang tool the caller passes IS
    * the NDK wrapper), and no libjvm exists there to create — so the only
@@ -632,7 +645,7 @@ export async function buildJvmApplication(input: {
   const scriptcRuntimeInclude = join(scriptcRuntimeRoot, "src");
   const compilerDistribution = join(checkout.path, "packages/compiler/dist");
   const runtimeArtifacts = await Promise.all([
-    treeArtifact({
+    sourceTreeArtifact({
       id: "runtime/scriptc",
       path: scriptcRuntimeRoot,
       fileName: "scriptc-runtime",
@@ -640,7 +653,7 @@ export async function buildJvmApplication(input: {
       target,
       domain: "target",
     }),
-    treeArtifact({
+    sourceTreeArtifact({
       id: "headers/scriptc/runtime",
       path: scriptcRuntimeInclude,
       fileName: "scriptc-runtime-headers",
@@ -648,7 +661,7 @@ export async function buildJvmApplication(input: {
       target,
       domain: "target",
     }),
-    treeArtifact({
+    sourceTreeArtifact({
       id: "tool-input/scriptc/emitter",
       path: compilerDistribution,
       fileName: "scriptc-emitter",
