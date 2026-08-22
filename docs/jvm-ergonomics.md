@@ -19,10 +19,9 @@ must buy something a reader can name.
 lookup by name, no per-call allocation the platform would not also make.
 A convenience that costs a JNI round trip per frame is not a convenience.
 
-## The target
+## The one thing worth taking from NativeScript
 
-NativeScript is the comparison to beat, because it is what an Android
-developer coming to TypeScript already expects:
+NativeScript writes a listener like this:
 
 ```js
 button.setOnClickListener(
@@ -35,21 +34,31 @@ button.setOnClickListener(
 );
 ```
 
-Three things that spelling gets right. The Java namespace is spelled the
-way Java spells it, nested classes included, rather than a flattened
-invention. An interface is implemented by passing an
-object of its methods, which reads like the anonymous class it replaces.
-And nothing in the program is bookkeeping: no registration array, no
-manual retain.
+The part worth having is the CONSTRUCTION FORM: an interface is
+implemented by passing an object of its methods, which reads like the
+anonymous class it replaces and needs no separate class, no registration
+call, and no bookkeeping variable.
 
-It gets those by resolving through runtime metadata: the name lookup, the
-method resolution, and the dispatch all happen while the app is running.
-We do not have to make that trade. Every one of those three properties is
-reachable from generated code, where the lookup happened at build time and
-the call site is a direct trampoline. **Matching NativeScript's spelling
-while keeping generated dispatch is the goal of this document** — the
-same program to write, without paying for a reflective boundary at each
-tap.
+The part not worth having is the DOTTED GLOBAL. `android.view.View` as an
+ambient object means a program never says where a name comes from, unused
+surface has to exist to be reachable, and something must populate that
+object before the program runs. Ours are module imports and should stay
+module imports — but the nesting inside them is worth keeping, because
+`View.OnClickListener` is what the class is called:
+
+```ts
+import { View } from "@native-typescript/android/view";
+
+button.setOnClickListener(new View.OnClickListener({ … }));
+```
+
+The module supplies the package; the outer class supplies the nesting.
+
+And NativeScript buys its version with runtime metadata — the name lookup,
+the method resolution, and the dispatch all happen while the app runs. We
+do not have to make that trade, because our lookup happened at build time.
+**The goal is that construction form over generated dispatch**: the same
+line to write, without a reflective boundary at each tap.
 
 ## What is awkward today
 
@@ -120,18 +129,22 @@ to be.
 `label.setTextColor(0xFF000000 | 0)`. `0xFF000000` is 4278190080, which is
 not an `int`, and Java's `int` is signed.
 
-### 9. One flat package
+### 9. One flat package, and nested classes flattened into it
 
 Everything arrives from `@native-typescript/jvm-android`, where Java has
-`android.app`, `android.os`, `android.widget`.
+`android.app`, `android.os`, `android.widget` — and a nested class like
+`View$OnClickListener` is spelled `ViewOnClickListener`, which is a name
+that exists nowhere else.
 
 ## Proposals
 
 ### A. Implement an interface by passing its methods
 
-**Call site**, matching NativeScript exactly:
+**Call site:**
 
 ```ts
+import { View } from "@native-typescript/android/view";
+
 button.setOnClickListener(
   new View.OnClickListener({
     onClick(view) { /* ... */ },
@@ -141,20 +154,21 @@ button.setOnClickListener(
 
 and, for an interface with exactly one abstract method, the shorter form
 NativeScript cannot offer, because ours knows at build time that there is
-only one method to mean:
+only one method a bare function could mean:
 
 ```ts
 button.setOnClickListener((view) => { /* ... */ });
 ```
 
-**How.** The generated implementation class IS the interface's declared
-name: `View.OnClickListener` is constructible even though Java's interface
-is not, because an interface has no other constructor for the spelling to
-collide with. Its constructor takes an object whose properties are the
-interface's methods; the generator emits one `native` method per selected
-member, and the constructor registers each handler on the instance it just
-made. `ClickBridge` disappears from the program — the class the program
-names is the class the generator emits.
+**How.** The generated implementation class IS the interface's name:
+`View.OnClickListener` is constructible even though Java's interface is
+not,
+because an interface has no other constructor for the spelling to collide
+with. Its constructor takes an object whose properties are the interface's
+methods; the generator emits one `native` method per selected member, and
+the constructor registers each handler on the instance it just made.
+`ClickBridge` disappears from the program — the class the program names is
+the class the generator emits.
 
 The single-abstract-method form is the same machinery with the object
 literal implied, admitted only where the interface has exactly one
@@ -187,7 +201,7 @@ and silently unregisters — today's behaviour with the arrays omitted.
 exactly as Java's anonymous class — and exactly what NativeScript
 allocates for the same line. The difference is dispatch: theirs resolves
 `onClick` through runtime metadata on every tap, ours is a registered
-trampoline that calls a closure. Same spelling, one fewer lookup per
+trampoline calling a closure. Same construction form, no lookup per
 event.
 
 ### B. Read the nullability the class file already states
@@ -247,21 +261,30 @@ declares what.
 
 ### G. Java package paths, and nested classes spelled as nested
 
-**Call site.** `import { View } from "@native-typescript/android/view";`
-and then `View.OnClickListener` — the name Java uses.
+**Call site.**
 
-**How.** Two changes with one motivation. Modules mirror Java packages
-(`android/app`, `android/os`, `android/widget`) instead of one flat module
-per project. And a nested class is emitted as a member of a namespace
-merged with its outer class, so `android/view/View$OnClickListener` reads
-`View.OnClickListener` rather than today's flattened
-`ViewOnClickListener`. The namespace-merging shape is already in use for
-constants.
+```ts
+import { Activity } from "@native-typescript/android/app";
+import { View } from "@native-typescript/android/view";
 
-This is what makes the target spelling reachable: NativeScript's
-`android.view.View.OnClickListener` and our
-`View.OnClickListener` name the same class the same way, one resolved at
-run time and one at build time.
+const listener = new View.OnClickListener({ /* ... */ });
+```
+
+**How.** Two changes with one motivation. Modules mirror the Java package
+a class lives in (`android/app`, `android/os`, `android/view`,
+`android/widget`) instead of one flat module per project. And a nested
+class is emitted as a member of a namespace merged with its outer class,
+so `android/view/View$OnClickListener` reads `View.OnClickListener` rather
+than today's flattened `ViewOnClickListener` — a name that exists nowhere
+else and that a reader cannot map back to Java. The namespace-merging
+shape is already in use for constants.
+
+The module supplies what Java's package prefix supplied; the outer class
+supplies the nesting, which is part of the class's identity rather than
+decoration. It also removes a collision class for free: two packages may
+each nest an `OnClickListener`, and under this spelling they are
+`View.OnClickListener` and whatever else, rather than two claims on one
+flattened name.
 
 Generator-side; no runtime effect.
 
@@ -308,7 +331,7 @@ With everything in this document, plus the peer from
 
 ```ts
 import { Activity } from "@native-typescript/android/app";
-import { Gravity, View } from "@native-typescript/android/view";
+import { Gravity } from "@native-typescript/android/view";
 import {
   Button, LinearLayout, TextView,
 } from "@native-typescript/android/widget";
@@ -326,6 +349,9 @@ export default class MainActivity extends Activity {
 
     const button = new Button(this);
     button.setText("Tap me");
+    /* The explicit form is `new View.OnClickListener({ onClick(v) {…} })`;
+     * a bare function is admitted because this interface has exactly one
+     * abstract method, so there is nothing else it could mean. */
     button.setOnClickListener(() => {
       this.taps += 1;
       label.setText(`Tapped ${this.taps}`);
