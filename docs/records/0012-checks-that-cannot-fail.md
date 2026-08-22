@@ -17,7 +17,8 @@ the list says the property is covered.
 
 **Falsify every check that matters: break the thing deliberately and watch the
 check go red.** That one habit catches five of the six mechanisms below, and it
-is the only thing that catches the two worst.
+is the only thing that catches the two worst. It is necessary and not
+sufficient — see the refusal caveat below.
 
 **Falsify the ones you just wrote a comment to justify, first.** A guard nobody
 explained is easy to doubt; a guard with a rationale beside it reads as
@@ -27,6 +28,13 @@ forty minutes later, in the code fixing it, under a comment calling it a
 deliberate boundary. The highest-risk moment for repeating a mechanism is
 immediately after finding it, while the shape still looks like someone else's
 mistake.
+
+**When the check is a REFUSAL, watch which refusal.** A test that expects a
+compile to fail passes when the compile fails for an unrelated reason: same
+red, different subject, and falsifying it proves nothing because it was already
+red for free. Assert the message, not the failure. Found 2026-08-22 — a program
+meant to prove a heritage-clause refusal was refused earlier at the
+external-module import check, and only printing the diagnostics showed it.
 
 If you do more than that, do these:
 
