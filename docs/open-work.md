@@ -346,6 +346,33 @@ The JVM session owns the status text recording that, including the
 document's `super` section accepts the generated-bridge MECHANISM and refuses
 that public spelling, and it has nowhere else to live until `extends` exists.
 
+### The receiver's POSITION in a class-anchored registration is unstated
+
+An override's `this` is the callback's first parameter, and nothing in the
+metadata says so. Both fixtures put it there, the JVM generator puts it there,
+and the lowering now depends on it in two places — the receiver's type and the
+closure's shape.
+
+**Why it matters more than an unstated convention usually does.** If a platform
+ever delivered the receiver second, nothing would fail. `this` would be typed
+from whatever parameter zero holds, the synthesized closure would still match
+the registration, the program would compile, and `this` would silently be the
+wrong object. That is the same silent-wrongness class as the two receiver-type
+defects fixed in fork `699b03ae`, and it is the reason the position deserves to
+be stated rather than agreed.
+
+**Where it would live.** The callback contract already has a source-argument
+kind that is an identity rather than a payload — `registration-owner`, injected
+for an owner-scoped registration. A `registration-receiver` arm beside it would
+say the same thing for the class-anchored shape, and the lowering would FIND
+the receiver instead of assuming its index. That is a manifest arm, a translator
+arm, a lowering change, and a generator change, in both fixtures.
+
+**What would admit it:** a surface that does not put the receiver first, or the
+JVM track reaching a second class-anchored shape. Neither exists yet, which is
+why this is written down rather than built — but unlike most entries here, the
+consumer already exists, so it can land the day the arm does.
+
 ### Vendored objects are not PIC
 
 The archive's program and runtime objects are position-independent. Vendored
