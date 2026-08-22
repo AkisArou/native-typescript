@@ -344,18 +344,7 @@ test(
        * remembered coordinate, because its position moves when the label
        * above it changes size — which is how the first run of this lane
        * lost three taps out of four. */
-      const button = /class="android\.widget\.Button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/u
-        .exec(hierarchy);
-      assert.ok(button !== null, "the application's Button is in the hierarchy");
-      const [left, top, right, bottom] = button!.slice(1).map(Number) as
-        [number, number, number, number];
-      run(
-        "shell",
-        "input",
-        "tap",
-        `${Math.round((left + right) / 2)}`,
-        `${Math.round((top + bottom) / 2)}`,
-      );
+      tapButton(run, hierarchy);
       const tapped = awaitLogLine(run, /tap 1/u);
       assert.match(tapped, /tap 1/u, "the click reached the TypeScript handler");
       run("shell", "uiautomator", "dump", "/sdcard/nts-ui.xml");
@@ -377,6 +366,39 @@ test(
         /onCreate ran restored in MainActivity/u,
         "a recreated Activity is handed the state the framework saved",
       );
+
+      /* AND THE STATE THE OLD ACTIVITY HELD IS GONE.
+       *
+       * Every assertion above this point is about the NEW object — that
+       * the lifecycle ran, that the saved-state arm was taken, that the
+       * hierarchy is there. None of them notices state belonging to the
+       * OLD one surviving, so "an activity's state is per-instance" was a
+       * claim nothing here could contradict.
+       *
+       * It matters because a recreated activity is a new Java object whose
+       * own fields are gone, and whatever carries TypeScript state across
+       * an override must behave the same way — a closure today, an
+       * instance field on a peer once peers exist. A peer wrongly
+       * outliving its object would keep its fields and every assertion
+       * above would still pass.
+       *
+       * The tap count is the discriminator because it is cumulative: a
+       * surviving counter says `tap 2` where a fresh one says `tap 1`, and
+       * those are different lines rather than a difference of degree. */
+      run("shell", "uiautomator", "dump", "/sdcard/nts-ui.xml");
+      const afterRotation = run("shell", "cat", "/sdcard/nts-ui.xml");
+      assert.doesNotMatch(
+        afterRotation,
+        /text="Tapped \d+ time/u,
+        "a recreated Activity draws its initial label, not the old one's count",
+      );
+      tapButton(run, afterRotation);
+      assert.match(
+        awaitLogLine(run, /tap \d+/u),
+        /tap 1\b/u,
+        "the first tap after recreation counts from one: the state the " +
+          "previous instance held did not outlive it",
+      );
     } finally {
       try {
         run("shell", "rm", "-f", "/sdcard/nts-ui.xml");
@@ -392,6 +414,28 @@ test(
     }
   },
 );
+
+/** Taps the centre of the application's Button, located from the hierarchy
+ * rather than from a remembered coordinate: the button moves when the label
+ * above it changes size, which is how the first run of this lane lost three
+ * taps out of four. */
+function tapButton(
+  run: (...args: readonly string[]) => string,
+  hierarchy: string,
+): void {
+  const button = /class="android\.widget\.Button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/u
+    .exec(hierarchy);
+  assert.ok(button !== null, "the application's Button is in the hierarchy");
+  const [left, top, right, bottom] = button.slice(1).map(Number) as
+    [number, number, number, number];
+  run(
+    "shell",
+    "input",
+    "tap",
+    `${Math.round((left + right) / 2)}`,
+    `${Math.round((top + bottom) / 2)}`,
+  );
+}
 
 /** Polls logcat for the tag's next line, so the test waits on the DEVICE
  * rather than on a sleep long enough to hide a slow dispatch. */
