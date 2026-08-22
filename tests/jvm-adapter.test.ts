@@ -162,9 +162,14 @@ test("the adapter source is deterministic and carries its member table", () => {
   const splitWords = first.staticMethods.find(
     ({ name }) => name === "splitWords",
   )!;
-  assert.deepEqual(splitWords.result, { kind: "string-vector" });
+  assert.deepEqual(splitWords.result, {
+  kind: "string-vector",
+  nullability: "unstated",
+});
   const sumBytes = first.staticMethods.find(({ name }) => name === "sumBytes")!;
-  assert.deepEqual(sumBytes.parameters, [{ kind: "span", elem: "u8" }]);
+  assert.deepEqual(sumBytes.parameters, [
+  { kind: "span", elem: "u8", nullability: "unstated" },
+]);
   // The inward direction: registration points with their trampolines
   // installed at bind, the delivery split carried on the table.
   assert.equal(first.callbacks.length, 2);
@@ -240,7 +245,11 @@ test("the founding refusal resolves: measure returns a typed span", () => {
   const measure = withMeasure.instanceMethods.find(
     ({ name }) => name === "measure",
   )!;
-  assert.deepEqual(measure.result, { kind: "span", elem: "i32" });
+  assert.deepEqual(measure.result, {
+  kind: "span",
+  elem: "i32",
+  nullability: "unstated",
+});
   assert.ok(
     withMeasure.header.includes(
       `uint8_t *${measure.adapterSymbol}(void *self, const char *a0, jboolean a1, size_t *out_length, char **error);`,
@@ -258,7 +267,9 @@ test("a String[] argument crosses as a borrowed terminated vector", () => {
   const countTags = withCount.staticMethods.find(
     ({ name }) => name === "countTags",
   )!;
-  assert.deepEqual(countTags.parameters, [{ kind: "string-vector" }]);
+  assert.deepEqual(countTags.parameters, [
+  { kind: "string-vector", nullability: "unstated" },
+]);
   assert.ok(
     withCount.header.includes(
       `jint ${countTags.adapterSymbol}(const char *const *a0, char **error);`,
@@ -351,7 +362,10 @@ test("a class-anchored registration answers for instances it never named", () =>
   assert.equal(callback.anchor, "class");
   // The receiver leads the payloads, typed as the class it answers for.
   assert.deepEqual(callback.parameters, [
-    { kind: "handle", binaryName: "fixture/Widget" },
+    /* The receiver a class-anchored registration hands the handler is
+     * non-null by the JVM's dispatch rule: an instance method is reached
+     * THROUGH an object, so there is no call that omits it. */
+    { kind: "handle", binaryName: "fixture/Widget", nullability: "non-null" },
     { kind: "primitive", primitive: "int" },
   ]);
   // Connect takes no receiver because there is none to take, and hands
@@ -417,7 +431,11 @@ test("a byte[] result crosses as an owned copy with a length out slot", () => {
   const reverse = withReverse.staticMethods.find(
     ({ name }) => name === "reverseBytes",
   )!;
-  assert.deepEqual(reverse.result, { kind: "span", elem: "u8" });
+  assert.deepEqual(reverse.result, {
+  kind: "span",
+  elem: "u8",
+  nullability: "unstated",
+});
   assert.deepEqual(withReverse.spanSupport, { region: "copy" });
   // The length rides a compiler-owned out slot beside the error slot.
   assert.ok(

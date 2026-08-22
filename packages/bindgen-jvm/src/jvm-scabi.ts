@@ -531,6 +531,38 @@ export function generateJvmScabiPackage(
       nullable: true,
       addressSpace: 0,
     });
+    types["const_utf8"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "const",
+      nullable: false,
+      addressSpace: 0,
+    });
+    types["utf8"] ??= Object.freeze({
+      kind: "pointer",
+      pointee: "i8",
+      mutability: "mutable",
+      nullable: false,
+      addressSpace: 0,
+    });
+  }
+
+  /**
+   * Whether a reference slot may be narrowed to non-null.
+   *
+   * A class file states nullability through annotations, which are a CLAIM
+   * by the library rather than anything the JVM enforces. That is enough to
+   * narrow a slot the CALLER fills, because the narrowed type is then what
+   * stops a null from ever being written — we are the enforcement. It is not
+   * enough on its own to narrow a slot the PLATFORM fills, so a non-null
+   * result is checked in the generated adapter and refuses by name when the
+   * claim turns out to be false. Both directions read the same fact here;
+   * the adapter is where the asymmetry is spent.
+   */
+  function statedNonNull(
+    position: JvmAdapterPosition | Exclude<JvmAdapterResult, { kind: "void" }>,
+  ): boolean {
+    return position.kind !== "primitive" && position.nullability === "non-null";
   }
 
   /** The TS carrier per span element. */
@@ -622,11 +654,12 @@ export function generateJvmScabiPackage(
       needStringTypes();
       /* The adapter copies during the call through the UTF-16 bridge, so
        * the caller's buffer is borrowed for exactly the call. */
+      const nonNull = statedNonNull(position);
       return [Object.freeze({
         name: `a${index}`,
-        type: "nullable_const_utf8",
+        type: nonNull ? "const_utf8" : "nullable_const_utf8",
         passMode: "pointer",
-        nullable: true,
+        nullable: !nonNull,
         ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
         marshal: stringMarshal,
       })];
@@ -684,13 +717,15 @@ export function generateJvmScabiPackage(
       ];
     }
     if (position.kind === "handle") {
-      /* Java's type system says any reference may be null, and the class
-       * file carries no narrower fact, so the honest slot is nullable. */
+      /* Java's type system says any reference may be null, so a slot the
+       * class file states nothing about is nullable — that is the honest
+       * default and the overwhelmingly common case. An annotation is the
+       * one thing that can narrow it. */
       return [Object.freeze({
         name: `a${index}`,
         type: selectedTypeIds.get(position.binaryName)!,
         passMode: "pointer",
-        nullable: true,
+        nullable: !statedNonNull(position),
         ownership: Object.freeze({ kind: "borrowed", scope: "call" }),
       })];
     }
@@ -716,9 +751,12 @@ export function generateJvmScabiPackage(
     position: JvmAdapterPosition | Exclude<JvmAdapterResult, { kind: "void" }>,
   ): string {
     if (position.kind === "handle") {
-      return `${classNameOf.get(position.binaryName)!} | null`;
+      const name = classNameOf.get(position.binaryName)!;
+      return statedNonNull(position) ? name : `${name} | null`;
     }
-    if (position.kind === "string") return "string | null";
+    if (position.kind === "string") {
+      return statedNonNull(position) ? "string" : "string | null";
+    }
     /* Two physical slots, one source value: the view and its byteLength. */
     if (position.kind === "span") return spanCarriers[position.elem];
     if (position.kind === "string-vector") return "string[]";
@@ -1283,9 +1321,9 @@ export function generateJvmScabiPackage(
              * per-method metadata says otherwise. Null on success is an
              * ordinary value; the error-out slot is what reads failure,
              * which is exactly why this coexists with a string result. */
-            type: "nullable_utf8",
+            type: statedNonNull(method.result) ? "utf8" : "nullable_utf8",
             passMode: "pointer" as const,
-            nullable: true,
+            nullable: !statedNonNull(method.result),
             ownership: Object.freeze({ kind: "value" as const }),
             marshal: Object.freeze({
               kind: "string" as const,

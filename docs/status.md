@@ -1067,6 +1067,20 @@ its contract intact, selecting `Activity` without its ancestry is refused, and
 every class in the platform SDK either ingests or is refused by design — the
 gate enumerates the whole jar rather than sampling it.
 
+**Stated nullability narrows the surface.** Ingestion reads the annotations a
+class file carries and records three states per reference position — non-null,
+nullable, and unstated — because "the library promised" and "the library said
+nothing" are different facts even where both reach the same slot today. It is
+not a rare decoration: across `Activity`, `View`, `TextView`, `Bundle` and
+`Log`, 654 of 1417 methods carry one, and `Activity.onCreate`'s `Bundle` is
+annotated nullable, which is the withheld arm stated by the platform rather
+than argued for by us. A non-null ARGUMENT narrows outright, since the narrowed
+TypeScript type is then itself what prevents a null. A non-null RESULT narrows
+too, but an annotation is a claim the JVM does not enforce, so the generated
+adapter checks it and a platform that breaks its promise gets a named refusal
+through the error slot instead of a null crossing into a type that says it
+cannot exist.
+
 **Adapters are generated C.** Every generated family carries a classification,
 so an adapter shape nobody has classified cannot be emitted silently. A
 `String[]` argument crosses as a borrowed terminated vector, a `byte[]` result

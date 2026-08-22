@@ -208,6 +208,20 @@ export type JvmTypeReference =
         | { readonly kind: "object"; readonly binaryName: string };
     };
 
+/**
+ * What a class file STATES about whether a reference position may be null.
+ *
+ * Three states rather than two, because "the library promised a value" and
+ * "the library said nothing" are different facts even though both currently
+ * lower to the same nullable slot. Collapsing them would throw away the only
+ * evidence a later consumer has for tightening a signature.
+ *
+ * `unstated` is overwhelmingly the common case: nullability is a convention
+ * carried by annotations, not something the JVM records, so a class compiled
+ * without them says nothing at all.
+ */
+export type JvmNullability = "non-null" | "nullable" | "unstated";
+
 export type JvmVisibility = "public" | "protected" | "package" | "private";
 
 export interface JvmMethodAccess {
@@ -270,6 +284,15 @@ export interface JvmMethod {
    * remains the ABI identity.
    */
   readonly genericSignature: string | null;
+  /**
+   * What the class file states about the result, and about each parameter in
+   * declaration order. A primitive or void position is always `unstated`:
+   * nullability is not a property such a slot has, and recording an
+   * annotation that landed on one would put meaningless variation into a
+   * snapshot that feeds a cache key.
+   */
+  readonly resultNullability: JvmNullability;
+  readonly parameterNullability: readonly JvmNullability[];
 }
 
 export interface JvmField {
@@ -280,6 +303,7 @@ export interface JvmField {
   readonly constantValue: JvmConstantValue | null;
   readonly deprecated: boolean;
   readonly genericSignature: string | null;
+  readonly nullability: JvmNullability;
 }
 
 /** Where a nested class sits, from the `InnerClasses` attribute. */
@@ -326,7 +350,7 @@ export interface JvmCallback extends JvmMethod {
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

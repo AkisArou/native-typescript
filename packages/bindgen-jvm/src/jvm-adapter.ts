@@ -28,6 +28,7 @@ import type {
   JvmClass,
   JvmDiagnostic,
   JvmMethod,
+  JvmNullability,
   JvmPrimitive,
   JvmSnapshot,
   JvmTypeReference,
@@ -42,12 +43,19 @@ export type JvmSpanElement = "u8" | "i32" | "f32";
  * class this selection projects, a string, a borrowed typed span (two C
  * slots carrying one Java primitive array), or a borrowed NUL-terminated
  * string vector carrying one Java String[]. */
+/** What the class file states about a reference position, carried from
+ * ingestion so the manifest can narrow a slot the platform has promised
+ * about. Only reference positions have it — a primitive slot has no null. */
+interface Stated {
+  readonly nullability: JvmNullability;
+}
+
 export type JvmAdapterPosition =
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
-  | { readonly kind: "handle"; readonly binaryName: string }
-  | { readonly kind: "string" }
-  | { readonly kind: "span"; readonly elem: JvmSpanElement }
-  | { readonly kind: "string-vector" };
+  | ({ readonly kind: "handle"; readonly binaryName: string } & Stated)
+  | ({ readonly kind: "string" } & Stated)
+  | ({ readonly kind: "span"; readonly elem: JvmSpanElement } & Stated)
+  | ({ readonly kind: "string-vector" } & Stated);
 
 /** A span result crosses as an owned copy with a compiler-owned length
  * out slot beside the error slot, counting ELEMENTS by construction:
@@ -62,10 +70,10 @@ export type JvmAdapterPosition =
 export type JvmAdapterResult =
   | { readonly kind: "void" }
   | { readonly kind: "primitive"; readonly primitive: JvmPrimitive }
-  | { readonly kind: "handle"; readonly binaryName: string }
-  | { readonly kind: "string" }
-  | { readonly kind: "span"; readonly elem: JvmSpanElement }
-  | { readonly kind: "string-vector" };
+  | ({ readonly kind: "handle"; readonly binaryName: string } & Stated)
+  | ({ readonly kind: "string" } & Stated)
+  | ({ readonly kind: "span"; readonly elem: JvmSpanElement } & Stated)
+  | ({ readonly kind: "string-vector" } & Stated);
 
 export interface JvmConstructorAdapter {
   readonly className: string;
@@ -158,7 +166,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 18;
+  readonly schemaVersion: 19;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -463,6 +471,9 @@ function positionOf(
   /** Whether this position is one the CALLER fills. A widening that is
    * sound on the way in is not sound on the way out. */
   accepts: boolean,
+  /** What the class file states about this position, carried through
+   * unchanged: this function decides the ABI family, not the promise. */
+  nullability: JvmNullability,
 ): JvmAdapterPosition | JvmAdapterResult | null {
   if (type.kind === "void") return { kind: "void" };
   if (type.kind === "primitive") {
@@ -470,7 +481,7 @@ function positionOf(
   }
   if (type.kind === "object") {
     if (type.binaryName === "java/lang/String") {
-      return { kind: "string" };
+      return { kind: "string", nullability };
     }
     /* The platform writes its text surface in CharSequence — TextView's
      * only usable setText takes one — and every String IS a CharSequence,
@@ -486,7 +497,7 @@ function positionOf(
      * implements" would sweep in Comparable and Serializable, where a
      * string argument says nothing about what the method wants. */
     if (type.binaryName === "java/lang/CharSequence") {
-      if (accepts) return { kind: "string" };
+      if (accepts) return { kind: "string", nullability };
       diagnostics.push(diagnostic(
         path,
         `${what} is java/lang/CharSequence, which crosses INTO the ` +
@@ -498,7 +509,7 @@ function positionOf(
       return null;
     }
     if (selectedNames.has(type.binaryName)) {
-      return { kind: "handle", binaryName: type.binaryName };
+      return { kind: "handle", binaryName: type.binaryName, nullability };
     }
     diagnostics.push(
       diagnostic(
@@ -513,7 +524,7 @@ function positionOf(
     const element = type.element.name;
     const spanElement = spanElements[element];
     if (spanElement !== undefined) {
-      return { kind: "span", elem: spanElement };
+      return { kind: "span", elem: spanElement, nullability };
     }
     const carrier = missingElementCarriers[element];
     diagnostics.push(diagnostic(
@@ -534,7 +545,7 @@ function positionOf(
     type.element.kind === "object" &&
     type.element.binaryName === "java/lang/String"
   ) {
-    return { kind: "string-vector" };
+    return { kind: "string-vector", nullability };
   }
   diagnostics.push(
     diagnostic(
@@ -567,6 +578,7 @@ function resolveSignature(
       `Parameter ${index}`,
       diagnostics,
       true,
+      method.parameterNullability[index] ?? "unstated",
     );
     if (position === null || position.kind === "void") refused = true;
     else parameters.push(position);
@@ -578,6 +590,7 @@ function resolveSignature(
     "Result",
     diagnostics,
     false,
+    method.resultNullability,
   );
   if (result === null || refused) return null;
   return { parameters, result };
@@ -934,6 +947,21 @@ export function generateJvmAdapterSource(
         midVar,
         ...argumentList,
       ].join(", ")})`;
+      /* A nullability annotation is a CLAIM the library makes, not
+       * something the JVM enforces, and the manifest has already narrowed
+       * this slot on the strength of it. Handing over a null the declared
+       * type says cannot exist would make the boundary the source of a
+       * value nothing in the program can account for, so the claim is
+       * checked exactly where it is spent and refuses by name when false.
+       * The check costs one comparison against a branch the null arm was
+       * already taking. */
+      const statedNonNullResult =
+        result.kind !== "void" && result.kind !== "primitive" &&
+        result.nullability === "non-null";
+      const brokenPromise = JSON.stringify(
+        `${class_.binaryName}.${method.name}${method.descriptor} is ` +
+          "annotated non-null but returned null",
+      );
       headerDeclarations.push(
         `${returnType}${returnType.endsWith("*") ? "" : " "}${adapterSymbol}(${[
           ...receiver,
@@ -968,7 +996,14 @@ export function generateJvmAdapterSource(
                 `    ${prefix}_capture(env, error);`,
                 `    return NULL;`,
                 `  }`,
-                `  if (local == NULL) return NULL;`,
+                ...(statedNonNullResult
+                  ? [
+                      `  if (local == NULL) {`,
+                      `    *error = ${prefix}_message(${brokenPromise});`,
+                      `    return NULL;`,
+                      `  }`,
+                    ]
+                  : [`  if (local == NULL) return NULL;`]),
                 `  jobject stable = (*env)->NewGlobalRef(env, local);`,
                 `  (*env)->DeleteLocalRef(env, local);`,
                 `  if (stable == NULL) *error = ${prefix}_message("JNI global reference table exhausted");`,
@@ -990,6 +1025,9 @@ export function generateJvmAdapterSource(
                   `  }`,
                   `  if (resultString == NULL) {`,
                   `    *out_length = 0;`,
+                  ...(statedNonNullResult
+                    ? [`    *error = ${prefix}_message(${brokenPromise});`]
+                    : []),
                   `    return NULL;`,
                   `  }`,
                   `  char *owned = ${prefix}_jstring_to_utf8(env, resultString, out_length, error);`,
@@ -1147,6 +1185,7 @@ export function generateJvmAdapterSource(
             parameters.push({
               kind: "handle",
               binaryName: parameter.binaryName,
+              nullability: callback.parameterNullability[index] ?? "unstated",
             });
             return;
           }
@@ -1264,7 +1303,17 @@ export function generateJvmAdapterSource(
        * crosses exactly as any other object payload does — promoted from
        * the frame-scoped local reference into a managed cell. */
       const payloadPositions: JvmAdapterPosition[] = classAnchored
-        ? [{ kind: "handle", binaryName: class_.binaryName }, ...parameters]
+        /* The receiver is non-null by the JVM's own dispatch rule rather
+         * than by any annotation: an instance method is reached THROUGH an
+         * object, so there is no call in which this argument is absent. */
+        ? [
+            {
+              kind: "handle" as const,
+              binaryName: class_.binaryName,
+              nullability: "non-null" as const,
+            },
+            ...parameters,
+          ]
         : [...parameters];
       /* An answered trampoline returns the handler's boolean; a void one
        * returns nothing. Told and queued share this C shape deliberately:
@@ -1982,7 +2031,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 18,
+    schemaVersion: 19,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

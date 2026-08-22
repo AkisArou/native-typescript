@@ -224,7 +224,9 @@ test(
     const setText = generated.instanceMethods.find(
       ({ name }) => name === "setText",
     )!;
-    assert.deepEqual(setText.parameters, [{ kind: "string" }]);
+    assert.deepEqual(setText.parameters, [
+      { kind: "string", nullability: "unstated" },
+    ]);
 
     /* The same type in the other direction, refused by name. */
     try {
@@ -429,16 +431,20 @@ test(
       generated.declarations,
       /onCreate\(a0: Bundle \| null\): void;/u,
     );
+    /* Narrowed by what android.jar itself states: Intent.setAction is
+     * annotated non-null, so the chain reads the way it reads in Java —
+     * `intent.setAction(x).putExtra(y)` with no null test between them.
+     * The ARGUMENT stays open because nothing states otherwise. */
     assert.match(
       generated.declarations,
-      /setAction\(a0: string \| null\): Intent \| null;/u,
+      /setAction\(a0: string \| null\): Intent;/u,
     );
     // The arrays family against the real artifact: a byte[] payload in
     // (span + units:"elements"), a byte[] result out, a String[] vector,
     // and an int[] span, all on Intent as shipped.
     assert.match(
       generated.declarations,
-      /putExtra\(a0: string \| null, a1: Uint8Array\): Intent \| null;/u,
+      /putExtra\(a0: string \| null, a1: Uint8Array\): Intent;/u,
     );
     assert.match(
       generated.declarations,

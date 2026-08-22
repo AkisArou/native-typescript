@@ -18,6 +18,7 @@ import type {
   JvmIngestionOptions,
   JvmMethod,
   JvmMethodAccess,
+  JvmNullability,
   JvmPrimitive,
   JvmSnapshot,
   JvmTypeReference,
@@ -456,6 +457,60 @@ function referenceTo(
   });
 }
 
+/**
+ * The annotation types this ingestion reads as stating nullability.
+ *
+ * Nullability is a convention carried by annotations rather than something
+ * the JVM records, so there is no general rule to apply here — only a named,
+ * closed set. Matching exact descriptors rather than a simple-name suffix
+ * keeps an unrelated `NonNull` from some other library from being read as a
+ * promise; a descriptor absent from both sets reads as `unstated`, which is
+ * the answer this ingestion gave before the sets existed and is therefore
+ * never a regression.
+ *
+ * The `Recently*` pair is what android.jar actually carries on surface
+ * annotated after the fact, and it means the same thing.
+ */
+const NON_NULL_ANNOTATIONS: ReadonlySet<string> = new Set([
+  "Landroid/annotation/NonNull;",
+  "Landroidx/annotation/NonNull;",
+  "Landroidx/annotation/RecentlyNonNull;",
+  "Ljavax/annotation/Nonnull;",
+  "Lorg/jetbrains/annotations/NotNull;",
+]);
+
+const NULLABLE_ANNOTATIONS: ReadonlySet<string> = new Set([
+  "Landroid/annotation/Nullable;",
+  "Landroidx/annotation/Nullable;",
+  "Landroidx/annotation/RecentlyNullable;",
+  "Ljavax/annotation/Nullable;",
+  "Lorg/jetbrains/annotations/Nullable;",
+]);
+
+/**
+ * What a set of annotation descriptors states about one position.
+ *
+ * A position carrying BOTH a non-null and a nullable annotation is a
+ * contradiction in the class file rather than a case to resolve: picking a
+ * side would be this ingestion deciding what the library meant. It reads as
+ * `unstated`, which claims nothing.
+ */
+function nullabilityOf(
+  annotations: readonly string[],
+  type: JvmTypeReference,
+): JvmNullability {
+  /* Only a reference position HAS nullability. An annotation that landed on
+   * an int says nothing about null, and recording it would put meaningless
+   * variation into a snapshot that feeds a cache key. */
+  if (type.kind === "primitive" || type.kind === "void") return "unstated";
+  const nonNull = annotations.some((name) => NON_NULL_ANNOTATIONS.has(name));
+  const nullable = annotations.some((name) => NULLABLE_ANNOTATIONS.has(name));
+  if (nonNull && nullable) return "unstated";
+  if (nonNull) return "non-null";
+  if (nullable) return "nullable";
+  return "unstated";
+}
+
 function freezeMethod(
   parsed: ParsedMethod,
   kind: JvmMethod["kind"],
@@ -465,6 +520,14 @@ function freezeMethod(
 ): JvmMethod | null {
   const signature = parseMethodDescriptor(parsed.descriptor, path, diagnostics);
   if (signature === null) return null;
+  /* JVMS 4.7.18 permits `num_parameters` to differ from the descriptor's
+   * arity, and javac exercises that: an inner class's constructor omits its
+   * synthetic leading parameters from the array. When the counts disagree
+   * there is no alignment this code can justify — attaching a promise to the
+   * wrong slot is worse than attaching none — so every parameter reads as
+   * unstated, which is exactly what an unannotated class file gives. */
+  const aligned =
+    parsed.parameterAnnotations.length === signature.parameters.length;
   return Object.freeze({
     kind,
     name: parsed.name,
@@ -479,6 +542,12 @@ function freezeMethod(
     ),
     deprecated: parsed.deprecated,
     genericSignature: parsed.genericSignature,
+    resultNullability: nullabilityOf(parsed.annotations, signature.result),
+    parameterNullability: Object.freeze(
+      signature.parameters.map((type, index) =>
+        nullabilityOf(aligned ? parsed.parameterAnnotations[index]! : [], type)
+      ),
+    ),
   });
 }
 
@@ -500,6 +569,7 @@ function freezeField(
         : Object.freeze(parsed.constantValue),
     deprecated: parsed.deprecated,
     genericSignature: parsed.genericSignature,
+    nullability: nullabilityOf(parsed.annotations, type),
   });
 }
 
@@ -917,7 +987,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 3,
+    schemaVersion: 4,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

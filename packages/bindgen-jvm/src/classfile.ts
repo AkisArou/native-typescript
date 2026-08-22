@@ -26,6 +26,11 @@ export interface ParsedMethod {
   readonly deprecated: boolean;
   readonly genericSignature: string | null;
   readonly exceptions: readonly string[];
+  /** Annotation type descriptors on the method, which is where a result's
+   * contract is stated. */
+  readonly annotations: readonly string[];
+  /** Annotation type descriptors per parameter, in declaration order. */
+  readonly parameterAnnotations: readonly (readonly string[])[];
 }
 
 export interface ParsedField {
@@ -35,6 +40,7 @@ export interface ParsedField {
   readonly deprecated: boolean;
   readonly genericSignature: string | null;
   readonly constantValue: JvmConstantValue | null;
+  readonly annotations: readonly string[];
 }
 
 export interface ParsedClass {
@@ -321,6 +327,59 @@ interface MemberAttributes {
   genericSignature: string | null;
   exceptions: string[];
   constantValue: JvmConstantValue | null;
+  /** Annotation type descriptors on the member itself, which for a method
+   * is where a result's contract is stated. */
+  annotations: string[];
+  /** Annotation type descriptors per parameter, in declaration order.
+   * Shorter than the parameter list when trailing parameters carry none,
+   * which the class file is allowed to do. */
+  parameterAnnotations: string[][];
+}
+
+/* An annotation's VALUES are not read — only which annotations are
+ * present — but the element_value grammar still has to be walked, because
+ * a value's size depends on its tag and the next annotation begins after
+ * it. JVMS 4.7.16.1. */
+function skipElementValue(reader: Reader): void {
+  const tag = String.fromCharCode(reader.u1());
+  switch (tag) {
+    case "B": case "C": case "D": case "F":
+    case "I": case "J": case "S": case "Z":
+    case "s": case "c":
+      reader.skip(2);
+      return;
+    case "e":
+      reader.skip(4);
+      return;
+    case "@":
+      readAnnotation(reader);
+      return;
+    case "[": {
+      const count = reader.u2();
+      for (let i = 0; i < count; i++) skipElementValue(reader);
+      return;
+    }
+    default:
+      throw new ClassFileError(`Unknown annotation element tag '${tag}'`);
+  }
+}
+
+/** Reads one annotation, returning its type descriptor. */
+function readAnnotation(reader: Reader, pool?: ConstantPool): string {
+  const typeIndex = reader.u2();
+  const pairs = reader.u2();
+  for (let i = 0; i < pairs; i++) {
+    reader.skip(2);
+    skipElementValue(reader);
+  }
+  return pool === undefined ? "" : pool.utf8At(typeIndex);
+}
+
+function readAnnotationList(reader: Reader, pool: ConstantPool): string[] {
+  const count = reader.u2();
+  const types: string[] = [];
+  for (let i = 0; i < count; i++) types.push(readAnnotation(reader, pool));
+  return types;
 }
 
 function readMemberAttributes(
@@ -332,6 +391,8 @@ function readMemberAttributes(
     genericSignature: null,
     exceptions: [],
     constantValue: null,
+    annotations: [],
+    parameterAnnotations: [],
   };
   const count = reader.u2();
   for (let i = 0; i < count; i++) {
@@ -364,6 +425,24 @@ function readMemberAttributes(
         }
         out.constantValue = pool.constantValueAt(reader.u2());
         break;
+      /* Visible and invisible are one question here: whether the library
+       * STATED the contract, not whether reflection can see it. The
+       * platform's own nullability annotations are invisible ones. */
+      case "RuntimeVisibleAnnotations":
+      case "RuntimeInvisibleAnnotations":
+        out.annotations.push(...readAnnotationList(reader, pool));
+        break;
+      case "RuntimeVisibleParameterAnnotations":
+      case "RuntimeInvisibleParameterAnnotations": {
+        const parameters = reader.u1();
+        for (let j = 0; j < parameters; j++) {
+          const forParameter = readAnnotationList(reader, pool);
+          const existing = out.parameterAnnotations[j];
+          if (existing === undefined) out.parameterAnnotations[j] = forParameter;
+          else existing.push(...forParameter);
+        }
+        break;
+      }
       default:
         reader.skip(length);
         break;
@@ -487,6 +566,7 @@ export function parseClassFile(
         deprecated: attributes.deprecated,
         genericSignature: attributes.genericSignature,
         constantValue: attributes.constantValue,
+        annotations: Object.freeze([...attributes.annotations]),
       });
     }
     const methods: ParsedMethod[] = [];
@@ -503,6 +583,12 @@ export function parseClassFile(
         deprecated: attributes.deprecated,
         genericSignature: attributes.genericSignature,
         exceptions: attributes.exceptions,
+        annotations: Object.freeze([...attributes.annotations]),
+        parameterAnnotations: Object.freeze(
+          attributes.parameterAnnotations.map((forParameter) =>
+            Object.freeze([...forParameter])
+          ),
+        ),
       });
     }
     const classAttributes = readClassAttributes(reader, pool, binaryName);

@@ -339,7 +339,7 @@ test(
       ]);
       assert.deepEqual(adapter.callbacks[1]!.parameters, [
         { kind: "primitive", primitive: "int" },
-        { kind: "handle", binaryName: "fixture/Widget" },
+        { kind: "handle", binaryName: "fixture/Widget", nullability: "unstated" },
       ]);
       assert.equal(adapter.callbacks[0]!.className, "fixture/HostBridge");
       /* The payload trampoline: promotion happens only AFTER the

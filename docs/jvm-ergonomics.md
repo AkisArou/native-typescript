@@ -1,6 +1,6 @@
 # Working with Android from TypeScript
 
-Status: proposal; nothing here is implemented  
+Status: proposal, except where a section says otherwise  
 Last revised: 2026-08-22
 
 The Android crossing works: a compiled TypeScript program runs as an
@@ -83,12 +83,14 @@ the program, and getting either array wrong produces a listener that
 silently stops answering — the platform reports "no TypeScript handler is
 registered", which is true and unhelpful.
 
-### 2. Everything is nullable
+### 2. Everything is nullable — RESOLVED, see B
 
 `resized(a0: jint): Widget | null`, `getText(): string | null`,
 `setContentView(a0: View | null)`. Java's type system says any reference
-may be null, so the generated surface says so everywhere, and a program
-narrows values that cannot be absent.
+may be null, so the generated surface said so everywhere, and a program
+narrowed values that cannot be absent. It now says so only where the class
+file states nothing: `Intent.setAction` comes back as `Intent`, and
+`Activity.getLocalClassName()` as `string`.
 
 ### 3. Overloads get hashed names
 
@@ -124,10 +126,11 @@ fails with "does not exist". Correct, and surprising the first time.
 public API. It exists because without `extends` there is no `super` for it
 to be.
 
-### 8. A colour needs `| 0`
+### 8. A colour needs `| 0` — RESOLVED, see H
 
 `label.setTextColor(0xFF000000 | 0)`. `0xFF000000` is 4278190080, which is
-not an `int`, and Java's `int` is signed.
+not an `int`, and Java's `int` is signed. The acceptance application now
+writes `label.setTextColor(0xFF000000)`.
 
 ### 9. One flat package, and nested classes flattened into it
 
@@ -290,10 +293,45 @@ Generator-side; no runtime effect.
 
 ### H. Colours and unsigned constants
 
-**How.** A helper — `Int32.fromUnsigned(0xFF000000)` — rather than
-teaching the boundary to reinterpret out-of-range numbers. Silent
-reinterpretation would be the boundary deciding what a program meant; a
-named helper is the program saying it.
+**Awkward.** `label.setTextColor(0xFF000000)` does not compile. The
+literal is 4278190080, `int` is signed, and the compiler refuses at the
+call site: "the literal 4278190080, which no 'i32' value represents, so
+this call could only throw." Every colour in Android is written this way,
+so the first thing anyone puts on a screen hits it.
+
+**How.** Admit the literal, by adopting the rule the source language
+already has. This looked at first like a case for a helper —
+`Int32.fromUnsigned(0xFF000000)` — on the reasoning that reinterpreting
+an out-of-range number would be the boundary deciding what a program
+meant. That reasoning was wrong about one thing: for a hexadecimal
+literal the source language has already decided, and decided this way.
+
+The line is between spellings, not between values: **a radix spelling
+names bits, a decimal spelling names a quantity.** Java wrote it down in
+JLS 3.10.1 — `int x = 0xFF000000;` compiles and means -16777216, while
+`int x = 4278190080;` is rejected as "integer number too large" — but the
+distinction is not Java's. It holds in C too, and in JavaScript's own
+bitwise operators, because it is a fact about how people write bit
+patterns rather than a fact about one language.
+
+So: for an N-bit integer slot, a hexadecimal, binary, or octal literal in
+`[2^(N-1), 2^N)` is admitted as its two's-complement value; the decimal
+spelling of the same number keeps refusing, and says why. We are not
+inventing a meaning for those bits — we are agreeing with the language
+whose `int` it is, which is the same standard the rest of this boundary
+holds itself to for layout and signedness.
+
+Two properties make this cheap rather than a concession. It is a
+compile-time rule on literals, so it costs nothing at runtime. And it
+leaves computed values strict: an arithmetic result that overflows `int`
+still refuses, because nothing in the source said those were bits.
+
+**Landed.** Compiler-side, in `refuseUnprovableNumberLiterals`; no runtime
+effect, both backends. The helper is superseded and was never built. The
+decimal spelling of the same number still refuses, and its diagnostic now
+names the spellings that are admitted — without that, the rule reads as
+"large literals are fine now" and the next reader extends it to computed
+values, where nothing in the source says what width the bits were for.
 
 ## The program, before and after
 
@@ -344,7 +382,7 @@ export default class MainActivity extends Activity {
     super.onCreate(state);
 
     const label = new TextView(this);
-    label.setTextColor(Int32.fromUnsigned(0xFF000000));
+    label.setTextColor(0xFF000000);
     label.setGravity(Gravity.CENTER);
 
     const button = new Button(this);
@@ -372,6 +410,118 @@ run time. The count moves from a closure into an instance field because
 there is finally an instance to put it on, and nothing in the program is
 bookkeeping.
 
+## Threads, and which one your code runs on
+
+A reasonable question, once the surface looks like Java: can a program use
+`Thread`, `ExecutorService`, `Handler` and the rest the way Java does?
+
+Mostly yes, and the interesting part is that our architecture already
+answered this — `docs/runtime-and-threading.md` is normative here and says
+more precisely what NativeScript's documentation says loosely. Three
+different things hide under one question, and they have three different
+answers.
+
+### Calling Java's threading APIs: ordinary binding
+
+`Executors.newFixedThreadPool(4)`, `handler.post(…)`, `queue.offer(x)`,
+`new Thread(r)` are method calls on selected classes. Nothing about them
+touches our runtime's threading, and nothing in the algebra treats them
+specially — an `ExecutorService` is a handle exactly as a `TextView` is.
+
+Measured rather than assumed: selecting `java/lang/Thread`,
+`java/lang/Runnable`, `java/util/concurrent/{Executor,ExecutorService,
+Executors}`, `android/os/Looper` and `android/os/Handler` against the real
+`android.jar` ingests all eight classes and generates adapters with no new
+family and no refusal — `Executors.newFixedThreadPool` comes back as an
+`ExecutorService` handle, `Handler.post` as a boolean, `Thread.start` as
+void. This costs nothing new to support.
+
+### A Java thread calling back INTO TypeScript: refused today, by name
+
+This is where the substance is. A runtime instance is bound to one **owner
+executor** — on Android, the main Looper — and only callbacks on the owner
+may enter compiled TypeScript, touch heap values, or drain microtasks.
+That is not an implementation limit, it is the design: it is what keeps
+every reference-count operation from becoming a shared-memory
+synchronization problem.
+
+So every generated trampoline carries this, and it is worth reading
+because it is the whole answer:
+
+```c
+if (nts_jvm_runtime_owner_thread_is_current != NULL &&
+    !nts_jvm_runtime_owner_thread_is_current()) {
+  (*env)->ThrowNew(env, cls_illegal_state,
+      "… was dispatched on a thread that does not own the TypeScript "
+      "instance; a handler runs on the owning thread or not at all");
+  return;
+}
+```
+
+`new Thread(runnable).start()` with a TypeScript `run` therefore throws
+`IllegalStateException` on that Java thread today. Loudly, naming the
+thread rule, before touching a single managed value — which is the correct
+failure and the one NativeScript's equivalent situation does not reliably
+produce.
+
+**The fix is already specified and small.** A runtime instance is defined
+to have "a thread-safe foreign-event ingress queue", and the `queued`
+delivery contract exists precisely to copy a payload and deliver it at the
+runtime's pump. What is missing is that the guard is currently
+unconditional: it refuses a queued dispatch that the design permits. The
+change is to make the rule say what it means — **a synchronous delivery
+(`answered` or `told`) requires the owner thread; a `queued` delivery may
+be posted from any thread, because posting is all it does on the calling
+thread** — and to hold the ingress queue to that. Then this works:
+
+```ts
+const pool = Executors.newFixedThreadPool(4);
+pool.execute(new Runnable({          // delivery: "queued"
+  run() { /* runs on the owner, posted from a pool thread */ },
+}));
+```
+
+Note what it does and does not buy. The Java work runs on the pool's
+threads; the TypeScript body runs on the owner. That is **safety, not
+parallelism** — and it is exactly right for the common case, which is a
+background Java API reporting a result the program wants to act on.
+
+### TypeScript running concurrently: a second instance, not a second thread
+
+For CPU-heavy TypeScript, the answer is not a Java thread at all. Ordinary
+heap values belong to exactly one runtime instance and never cross between
+instances; concurrency comes from a **separate runtime instance** with
+explicit value transport.
+
+This is the same answer NativeScript gives — its Workers are isolated JS
+contexts, and `enableMultithreadedJavascript` defaults to `false` — so the
+model is not a limitation we carry and they escape. The difference is that
+theirs is a runtime configuration flag and ours is a property the compiler
+can rely on.
+
+One consequence worth naming, because it needs no new machinery: two
+runtime instances can talk **through Java**. A `ConcurrentLinkedQueue` or
+a `Handler` is a native handle, each instance holds its own reference to
+it, and the object is as thread-safe as Java says it is. Value transport
+between TypeScript instances is a real design question; passing a
+platform object that both instances already know how to hold is not.
+
+### Your own Java in the project
+
+NativeScript lets a project drop `.java` under `App_Resources` and call
+the result directly. We are closer to that than it looks: the build
+already runs `javac` over generated subclasses and already ingests class
+files by binary name, so a project's own Java sources compiling into the
+application and becoming ingestible is plumbing rather than new
+capability.
+
+It is also worth more than it first appears, and possibly more than
+threading. Every refusal in this boundary — a `CharSequence` result, a
+`long[]`, a generic signature — is a case where a person could write four
+lines of Java and move on, instead of waiting for the algebra to widen. An
+escape hatch that lands in the same APK, with no reflection and no bridge,
+takes the pressure off every "not yet projected" diagnostic we emit.
+
 ## The root cause, and the honest ordering
 
 Most of the awkwardness above is one missing thing wearing several hats.
@@ -383,9 +533,9 @@ the largest single ergonomic win available.
 
 Everything else divides cleanly:
 
-- **Free, generator-side, no contract change:** D, E, F, G, H.
-- **Evidence the metadata already carries:** B.
-- **Compiler capability:** C, and the peer.
+- **Free, generator-side, no contract change:** D, E, F, G.
+- **Evidence the metadata already carries:** B — *landed*.
+- **Compiler capability:** C, H — *H landed*, and the peer.
 
 A reasonable order is B, D, E, F first — they are cheap, they remove the
 most typing, and none of them changes what a program means. Then A, whose
@@ -404,10 +554,17 @@ generated path stays generated.
 program can see is a leak; one that quietly dies is the bug this document
 opens with. Either is worse than a policy stated in one place.
 
-**No silent widening.** `@NonNull` may be wrong, an unsigned literal is
-not an `int`, and a `CharSequence` result is not a string. Each of those
-stays a refusal or a named helper rather than a conversion nobody asked
-for.
+**No silent widening.** A `CharSequence` result is not a string, and it
+stays a refusal rather than a conversion nobody asked for.
+
+The two cases that looked like this one and were not are worth keeping
+straight, because the distinction is the whole rule. `@NonNull` may be
+wrong — so B narrows the slot and the adapter CHECKS the claim, which is
+not trusting a widening but refusing a broken promise by name. And a
+radix-spelled literal was never a widening at all: `0xFF000000` names 32
+bits in every language that has the spelling, so admitting it agrees with
+the source rather than converting behind the program's back. The decimal
+spelling of the same number still refuses, which is where the line is.
 
 **No per-dispatch cost that Java would not pay.** One payload promotion
 per callback is a global reference Java does not allocate; that cost is
