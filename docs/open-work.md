@@ -508,6 +508,43 @@ It is also what makes the reachability-driven ingress rule load-bearing
 rather than paper — neither target has a binding provider to carry the
 declaration until this exists.
 
+**What the duplication actually is**, read 2026-08-22 so the next attempt
+starts from mechanics rather than from the finding. `buildGtkApplication` and
+`buildJvmApplication` are 488 and 1144 lines, and the shell they share is
+specific: create the scratch root; resolve `tool/clang` and `tool/node` into
+identities and a tools map; build the sandbox and optional cache options;
+locate the ScriptC checkout and turn its runtime tree, its headers and its
+compiler distribution into artifacts; and, after the per-target work, run the
+graph and read the product out. Phase two is the same sentence in both files —
+plan the target's objects, compile the program, link — differing only in which
+`plan…TargetObjects` is called and what SDK arguments it is handed.
+
+**What is genuinely per-target**, and must stay so: SDK resolution
+(`pkg-config` against gtk4 versus a JDK plus an optional Android SDK/NDK);
+ingestion and selection into a manifest (GIR namespaces versus class files);
+the target-objects planner; and the product kinds, which are not the same set —
+GTK builds an executable, JVM builds an executable OR a hosted library, and
+Android refuses the executable by name because no libjvm exists to create.
+
+**The design question, and it is the only one.** A `TargetPlan` today is a
+validated composition — compiler, target, providers, capabilities. Making it
+PLAN means deciding whether it carries stages as DATA that a generic executor
+runs, or whether it stays a validation and the shell becomes a function both
+targets call. The first is the planner the audit describes; the second is
+cheaper, removes the duplication that exists, and introduces no new concept.
+
+**Recommended order:** the shared shell first, mechanically, with both targets
+calling it and the per-target work passed in. Then ask whether stages should be
+data — because with one shell and two providers the question is answerable from
+the code, and today it can only be answered from a survey. Doing it the other
+way round means designing a stage vocabulary against two pipelines that have
+never been made to look alike.
+
+**What would admit it:** a third target, or a second product on an existing
+one. Both make the shell's shape a fact rather than a guess. Note that the JVM
+target already has two products, which is why its file is the longer one and
+why it is the better place to read the shape from.
+
 ### Three-way target identity
 
 Execution platform, ABI target, and application environment are one
