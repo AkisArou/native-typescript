@@ -257,6 +257,18 @@ value cannot disagree about it. Where a real surface always distinguishes two
 things, a fixture that collapses them is not a simplification; it is the
 removal of the only thing under test.
 
+**A fixture that can only agree is not evidence**, and the cause is visible in
+how each of the three was written: built to demonstrate a mechanism WORKING. A
+fixture built to show that something works tends to be unable to show that it
+does not, because every element that would distinguish a right implementation
+from a wrong one is a complication the demonstration did not need.
+
+The remedy is an ordering. Build the disagreeing shape FIRST and watch it fail
+before making it pass. All three were repaired that way after the fact — the
+old compiler was checked out and the new fixture run against it — which proves
+the same thing at several times the cost, after a defect had already reached
+hardware.
+
 ## A note on this record's own contents
 
 Mechanism 1 already recorded that `-shared` accepts undefined symbols by

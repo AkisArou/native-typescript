@@ -407,14 +407,20 @@ it is on the owning thread and throws `IllegalStateException` by name otherwise
 (`512fa6b4`); the predicate is weak, so an adapter linked without this runtime
 degrades to the previous behaviour rather than refusing every delivery.
 
-**The base call is a real binding.** `super`'s mechanism is this document's
-first listed option: a generated Java superclass bridge that javac compiles to
-`invokespecial`, ingested as an ordinary instance method. **Divergence,
-temporary:** it is currently EXPOSED on the TypeScript surface as
-`ntsSuperOnCreate`, which the `super` semantics section explicitly refuses. It
-has nowhere else to live until `extends` gives `super` something to mean. It is
-a way-station, and it should disappear in the same change that admits native
-base classes.
+**The base call is a real binding, and `super` reaches it.** `super`'s
+mechanism is this document's first listed option: a generated Java superclass
+bridge that javac compiles to `invokespecial`, ingested as an ordinary instance
+method. The manifest names it — `baseCall` on the registration — because a
+class file cannot say which method is another method's base: a bridge is an
+ordinary instance method and nothing in the bytes marks it.
+
+Naming it is also what makes `super` STATIC in fact and not only in intent. The
+member behind `super.onCreate` is `Activity.onCreate`, so resolving the call by
+member symbol produced a virtual call that redispatched into the override that
+made it — unbounded recursion, reported by ART as SuperNotCalled and by nothing
+else. `super.m` denotes the base implementation, which is a different operation
+from the member of that name, and the manifest is where the difference is
+stated.
 
 **Payloads.** An override's object payload crosses as an owned handle, and a
 SYNCHRONOUS payload may be withheld (`6e371b36`, `ecbe9957`) — which is what a
@@ -505,73 +511,45 @@ correctness requirement rather than an optimisation, and it would otherwise be
 discovered after the lowering looked finished.
 
 **What does NOT need it.** A class extending a native class with NO managed
-fields has no second object and therefore no cycle: `this` is the handle cell,
-whose identity the interning map already guarantees. Overrides, `this`, and
-`super` are all reachable that way, which is why they can ship first — and an
-instance field is what must refuse by name until the policy above exists.
+fields has no second object and therefore no cycle: nothing the program can
+hold outlives a dispatch, so one cell per object and one cell per dispatch are
+indistinguishable. Note that this does NOT rest on interning — the paragraph
+above is exactly why it cannot: a JVM handle declares `identity: "none"`, so
+every dispatch builds a fresh cell, and only `pointer`-identity handles intern.
+Identity becomes observable the moment a field exists, which is the same
+boundary the refusal draws. Overrides, `this`, and `super` are all reachable
+without it, which is why they ship first.
 
-### Implementation plan: the no-fields slice
+### The no-fields slice, built
 
-Written 2026-08-22 after investigating the lowerer, so the next attempt starts
-from mechanics rather than from a survey. This slice deliberately excludes
-instance fields, which is what keeps it free of the peer's lifetime question
-above.
+`class MainActivity extends Activity` with `override` methods, a real `this`
+and a real `super` runs on a device. What it delivers and what it refuses is
+recorded in [status](status.md); three things learned building it belong here,
+because each is a fact about the SHAPE rather than about progress.
 
-**What it delivers.** `class MainActivity extends Activity` with `override`
-methods, a real `this`, and a real `super` — the program this document's source
-model shows, minus fields. It removes `ntsSuperOnCreate` from the public
-surface, which this document's `super` section refuses and which ships today
-only because there is no `super` for it to be.
+**An override's `this` is typed by the REGISTRATION, not by the declared base.**
+A class-anchored registration answers for every instance of the class the
+packager generated, so the receiver it delivers is that class, while `extends
+Activity` names an ancestor — a weaker statement about a different type. Typing
+`this` from the base produced a handler the registration could not accept.
 
-**Why no fields means no peer.** With no managed state, `this` IS the native
-handle cell: there is no second object to associate, so nothing needs the
-registration to own a peer and nothing needs a terminal event. An instance
-field is exactly what introduces the second object, which is why it refuses
-here and waits for the policy above.
+**`super.m` is not the member of that name.** Resolving it by member symbol
+reaches the base's own virtual binding, which redispatches into the override
+that called it. The manifest's `baseCall` is what makes the distinction, and
+nothing else can: in a class file a bridge is an ordinary instance method.
 
-**Recognition is already in** (fork `2d81d607`). `nativeBaseHandleName` resolves
-a base identifier through its value symbol, resolving aliases the way
-`nativeTypeOf` does, and answers with the handle type the base declares. Today
-it feeds a diagnostic; it is the same question the lowering asks.
-
-**The shape of the lowering.** An override is a REGISTRATION the program does
-not write:
-
-    class MainActivity extends Activity {
-      override onCreate(state: Bundle | null): void { super.onCreate(state); … }
-    }
-
-is the program that exists today spelled as a class:
-
-    MainActivity.onCreate((self, state) => { self.ntsSuperOnCreate(state); … });
-
-So the lowering is: for each `override m`, find the binding whose declaration
-is `${className}.${m}`, lower the method body as a closure whose first
-parameter is the receiver, bind `this` to that parameter, and append the
-registration call to the declaring file's init (`lowerFileInit` in
-`lower-modules.ts`, which is where a file's top-level statements already go).
-`super.m(args)` lowers to the base-call binding on the same receiver.
-
-**What must refuse, each by name.** An instance field or a constructor (the
-peer). A non-`override` method, since nothing dispatches it. An `override` with
-no matching binding — the class the packager generated does not declare that
-member, which is a selection problem and should say so. A `super` call to a
-member whose metadata records no base implementation.
-
-**What proves it.** A fork program is not enough: the fixture's handles are
-interfaces, and the registration-per-override shape only exists in a generated
-JVM surface. The honest test is the Android acceptance application rewritten in
-the class form, on the device, asserting the same log line — which makes this
-slice's gate the JVM session's lane rather than the fork's.
-
-**The risk worth naming.** Synthesizing a call the program did not write is new
-in this lowerer. Everything else here is rearrangement of existing paths, so if
-that one piece resists, the slice is not obviously worth forcing.
+**What proves it is the device lane**, not a fork program. The registration-per-
+override shape only exists in a generated platform surface, and both defects
+above were invisible to a fork fixture until it was given the shape a real
+surface always has — a base one upcast above the receiver, and a base whose
+member is itself bound. See
+[0012](records/0012-checks-that-cannot-fail.md).
 
 ### Not yet built
 
-- **The peer**, and therefore instance fields. This is the largest gap between
-  the code and this document.
-- **`extends` over a native base class** in the lowerer, which knows `extends`
-  only for mixin functions today.
+- **The peer**, and therefore instance fields. This is now the only large gap
+  between the code and this document, and the shape of the remaining work is
+  fixed by the JNI fact above: association cannot come from interning, so it
+  needs a stored identity on the generated object or an `IsSameObject` scan.
+  The lifetime half is stated — `terminal` — and its lowering is not written.
 - **An application-declared constructor**, which this document already defers.
