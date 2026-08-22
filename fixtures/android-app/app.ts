@@ -1,10 +1,10 @@
 import {
+  Activity,
   Button,
   ClickBridge,
   Gravity,
   LinearLayout,
   Log,
-  MainActivity as GeneratedActivity,
   TextView,
 } from "@native-typescript/jvm-android";
 /* Type-only: a Bundle is never constructed or called here, it is only
@@ -63,27 +63,21 @@ const registrations: JvmConnection[] = [];
 const listeners: ClickBridge[] = [];
 applicationStart();
 
-/* EXTENDS THE GENERATED CLASS, not `Activity`, and that is the one place
- * this program is still further from Java than it should be.
- *
- * `super.onCreate(state)` is the spelling this wants and it is not wired
- * yet, so reaching the base implementation goes through `ntsSuperOnCreate`
- * — a method the GENERATED subclass declares, not one `Activity` has. So
- * the base here has to be the generated class rather than the platform
- * one. The binding is found by declaration identity, `MainActivity.onCreate`,
- * which is the name this class carries either way, so the registration is
- * unaffected by which base is named.
- *
- * When `super` lands over a native base, this becomes
- * `class MainActivity extends Activity` with `super.onCreate(state)`, the
- * alias disappears, and the last divergence from the Java a person would
- * write goes with it. */
-export default class MainActivity extends GeneratedActivity {
+export default class MainActivity extends Activity {
   override onCreate(state: Bundle | null): void {
     /* The base implementation runs first, as every Android lifecycle
      * override must: an Activity that skips it throws SuperNotCalled
-     * before it draws. */
-    this.ntsSuperOnCreate(state);
+     * before it draws.
+     *
+     * An ordinary `super` call with nothing left to explain, which is the
+     * point — this is the line the whole subclassing design was for. It
+     * was spelled `ntsSuperOnCreate` for as long as nothing linked an
+     * override to the binding that reaches what it replaced, and the class
+     * had to name the GENERATED subclass as its base to see that method at
+     * all. Both are gone: the manifest states the base call, and `this` is
+     * typed from the registration, so the receiver is a MainActivity and
+     * widens to Activity on the way in. */
+    super.onCreate(state);
 
     const restored = state === null ? "fresh" : "restored";
     let taps = 0;

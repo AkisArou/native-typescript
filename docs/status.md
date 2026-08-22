@@ -1148,9 +1148,9 @@ and it runs on a device through both saved-state arms, draws, and answers a
 tap. Nothing in it registers a handler or names a lifecycle callback as a
 function argument: the registration the platform needs is synthesized from the
 override. Instance fields still refuse, naming the peer's undeclared lifetime
-policy, so the tap count is a local. Reaching the base implementation is still
-spelled `ntsSuperOnCreate`, which is why the program names the generated class
-as its base rather than `Activity`.
+policy, so the tap count is a local. The base implementation is reached with an
+ordinary `super.onCreate(state)`, and the class names `Activity` — the ancestor
+a person would write — rather than the generated subclass.
 
 Landing it moved an assumption in the runtime. `applicationStart()` used to be
 able to promise it was the first thing a module did, and a registration

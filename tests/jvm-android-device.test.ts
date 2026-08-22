@@ -416,11 +416,25 @@ function awaitLogLine(
   let context = "";
   try {
     const crash = run("logcat", "-d", "-b", "crash", "-t", "40");
-    const own = run("logcat", "-d", "-t", "200").split("\n")
-      .filter((entry) => /ntsdemo|native-typescript|AndroidRuntime|DEBUG/u.test(entry))
-      .slice(-40)
-      .join("\n");
-    context = `\n--- crash buffer ---\n${crash}\n--- process lines ---\n${own}`;
+    /* The program's OWN lines come from their own tag-filtered query
+     * rather than by filtering a slice of the whole buffer.
+     *
+     * The earlier version took the last 200 lines of everything, filtered,
+     * then kept 40 — so a long Java stack trace crowded every one of the
+     * program's lines out of the window, and the report said the handler
+     * had produced no output when it had produced thousands. Absence from
+     * a truncated view is not absence from the run, and reading it as one
+     * cost an hour chasing a module that was never silent.
+     *
+     * The COUNT is here for the same reason: a handler that ran four
+     * thousand times and one that never ran look identical once the lines
+     * are gone, and they are opposite diagnoses. */
+    const tagged = run("logcat", "-d", "-s", LOG_TAG, "-t", "400")
+      .split("\n")
+      .filter((entry) => entry.includes(LOG_TAG));
+    const shown = tagged.slice(-30).join("\n");
+    context = `\n--- crash buffer ---\n${crash}` +
+      `\n--- ${LOG_TAG} lines: ${tagged.length} (last 30) ---\n${shown}`;
   } catch {
     /* Best effort: the assertion below is the verdict either way. */
   }

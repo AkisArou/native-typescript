@@ -130,18 +130,17 @@ value the class file already states. The acceptance project now selects
 `Button` inherits `setText` from `TextView`, so selecting it on `Button`
 failed with "does not exist". Correct, and surprising the first time.
 
-### 7. `super` is spelled `ntsSuperOnCreate` — NARROWED
+### 7. `super` is spelled `ntsSuperOnCreate` — RESOLVED
 
 `docs/native-subclassing.md` explicitly refuses this spelling in the
 public API. It existed because without `extends` there was no `super` for
-it to be. `extends` now works — the acceptance application is a class that
-extends a native class, on a device — so what remains is only the spelling:
-reaching the base implementation still goes through `ntsSuperOnCreate`,
-and because that method is declared on the GENERATED subclass rather than
-on `Activity`, the program must currently name the generated class as its
-base. On Android that is not cosmetic: an Activity that does not reach the
-base `onCreate` throws SuperNotCalled before it draws, so this is the one
-divergence the class form cannot simply drop.
+it to be. The acceptance application is now `class MainActivity extends Activity`
+with `super.onCreate(state)`, on a device. Two things had to land for the
+spelling to go: the manifest gained `baseCall`, naming the binding that
+reaches what an override replaced, and `this` inside an override took its
+type from the registration rather than from the declared base — so the
+receiver is a MainActivity and widens to Activity on the way into the base
+call.
 
 ### 8. A colour needs `| 0` — RESOLVED, see H
 
