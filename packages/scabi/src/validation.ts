@@ -208,6 +208,22 @@ function validateCallableBinding(
   diagnostics: ScabiDiagnostic[],
 ): void {
   const dependencies = new Set(binding.dependencies.bindings);
+  if (binding.baseCall !== undefined) {
+    /* The base call is reached only when a program writes `super.m(...)`, so
+     * nothing else in the manifest names it and a selection that dropped it
+     * would leave a link resolving to nothing. Checked here for the same
+     * reason a destructor is: a reference the envelope carries is a reference
+     * the envelope keeps honest, and the alternative is discovering it as a
+     * missing symbol at link time with no path back to which binding meant it. */
+    validateBindingReference(
+      manifest,
+      id,
+      dependencies,
+      binding.baseCall,
+      `/bindings/${id}/baseCall`,
+      diagnostics,
+    );
+  }
   if (binding.error.kind === "error-handle" || binding.error.kind === "error-out") {
     /* The two entries are ordinary bindings, so they are reachability
      * dependencies like a destructor rather than free-floating symbols. Both

@@ -575,6 +575,29 @@ export interface CallableBinding {
   readonly error: ErrorContract;
   readonly dependencies: BindingDependencies;
   readonly availability?: BindingAvailability;
+  /**
+   * The binding that reaches the BASE implementation of the member this one
+   * registers, for a callback whose handler OVERRIDES one.
+   *
+   * `super.m(...)` must reach the base statically and must never redispatch to
+   * the override, so it cannot be the binding the platform calls — it is a
+   * distinct operation with its own receiver, arguments and error contract,
+   * realized by a generated superclass bridge or a non-virtual call. Naming it
+   * lets the compiler validate a base call like any other native operation
+   * rather than trusting a spelling.
+   *
+   * A STATED SELECTION FACT, for the reason `delivery` and the registration
+   * owner are: the metadata is silent. In the compiled class file a bridge is
+   * an ordinary instance method and nothing distinguishes it from a method the
+   * class happens to declare, so recovering the link downstream would mean
+   * re-deriving a generator's naming convention — which is that convention
+   * becoming a contract nobody wrote down.
+   *
+   * Absent means the base has no implementation to reach, which is what an
+   * abstract or interface member is: a first implementation rather than a
+   * replacement. `super.m(...)` then refuses by name.
+   */
+  readonly baseCall?: NativeBindingId;
 }
 
 export interface ConstantBinding {

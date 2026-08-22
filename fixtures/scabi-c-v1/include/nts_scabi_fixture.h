@@ -159,6 +159,35 @@ NTS_SCABI_EXPORT int32_t nts_judge_ask_maybe(NtsJudge *judge, int32_t code,
  * never cancelled — the shape a framework dispatch takes when the platform
  * constructs the receiver, so there is no instance to anchor to at the moment
  * one could register. The receiver arrives as an ordinary payload instead. */
+/* A registration whose handler is a MEMBER of the receiver's own class: the
+ * platform shape where the framework constructs the object and calls a
+ * lifecycle member on it, so the program declares the member instead of
+ * handing over a function. The callback takes the receiver FIRST and the
+ * call's own argument after, which is the order a lowered method already has —
+ * its `this` is parameter zero — so an override lowers straight into this slot
+ * with no adapter between. */
+/* The base is its OWN type, not an alias of the counter. A platform base
+ * class is — an Activity is not an Object with different members — and the
+ * manifest says the same thing structurally: one handle type carries one
+ * source declaration, so a type reachable under two spellings is not
+ * expressible and should not be. */
+typedef struct NtsTickSource NtsTickSource;
+typedef void (*NtsTickCallback)(NtsTickSource *self, int32_t seed,
+                                void *context);
+
+NTS_SCABI_EXPORT int32_t nts_tick_source_value(NtsTickSource *self);
+NTS_SCABI_EXPORT void nts_tick_source_destroy(NtsTickSource *self);
+NTS_SCABI_EXPORT void nts_tick_register(NtsTickCallback callback,
+                                        void *context);
+NTS_SCABI_EXPORT void nts_tick_mark(void);
+NTS_SCABI_EXPORT int32_t nts_tick_fire(int32_t seed);
+/* The BASE implementation `super.onTick(...)` reaches. On a real platform this
+ * is a generated superclass bridge compiled to a non-virtual call; here it is
+ * an ordinary function, because what the compiler needs from it is only that
+ * it is a DISTINCT binding from the one the platform calls. Were it the same,
+ * super would redispatch to the override and never terminate. */
+NTS_SCABI_EXPORT void nts_tick_base(NtsTickSource *self, int32_t seed);
+
 NTS_SCABI_EXPORT void nts_notice_register(NtsNoticeCallback callback,
                                           void *context);
 NTS_SCABI_EXPORT void nts_notice_mark(void);

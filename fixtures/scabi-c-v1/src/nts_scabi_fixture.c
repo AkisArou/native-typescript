@@ -452,6 +452,41 @@ int32_t nts_notice_fire(int32_t seed) {
   return nts_notice_marks;
 }
 
+struct NtsTickSource {
+  int32_t value;
+};
+
+int32_t nts_tick_source_value(NtsTickSource *self) { return self->value; }
+
+void nts_tick_source_destroy(NtsTickSource *self) { free(self); }
+
+static NtsTickCallback nts_tick_cb = NULL;
+static void *nts_tick_ctx = NULL;
+static int32_t nts_tick_marks = 0;
+
+void nts_tick_register(NtsTickCallback callback, void *context) {
+  nts_tick_cb = callback;
+  nts_tick_ctx = context;
+}
+
+void nts_tick_mark(void) { nts_tick_marks += 1; }
+
+int32_t nts_tick_fire(int32_t seed) {
+  nts_tick_marks = 0;
+  /* The framework constructs the receiver, which is why nothing in the program
+   * does — and why the registration is anchored to the class rather than to an
+   * instance that does not exist when one could register. */
+  NtsTickSource *self = calloc(1, sizeof *self);
+  self->value = seed;
+  nts_tick_cb(self, seed, nts_tick_ctx);
+  return nts_tick_marks;
+}
+
+void nts_tick_base(NtsTickSource *self, int32_t seed) {
+  (void)self;
+  nts_tick_marks += seed;
+}
+
 static NtsMaybeCallback nts_maybe_cb = NULL;
 static void *nts_maybe_ctx = NULL;
 static int32_t nts_maybe_marks = 0;

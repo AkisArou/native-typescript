@@ -3454,6 +3454,12 @@ export function translateScabiNativeProgram(
         id: `${manifest.package.instance}#${bindingId}`,
         declaration: normalizeDeclaration(manifest, binding.declaration),
         entry: Object.freeze({ symbol: binding.entry.symbol }),
+        /* Qualified the same way this binding's own id is, because the
+         * frontend resolves it against the ids it was handed — a manifest-local
+         * name would name nothing once two packages are loaded together. */
+        ...(binding.baseCall === undefined
+          ? {}
+          : { baseCall: `${manifest.package.instance}#${binding.baseCall}` }),
         sourceCall: binding.kind === "method"
           ? Object.freeze({ kind: "method", receiverArgument: 0 } as const)
           : binding.kind === "getter"

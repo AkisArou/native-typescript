@@ -1777,6 +1777,7 @@
         "dependencies": {
           "$ref": "#/$defs/dependencies"
         },
+        "baseCall": { "$ref": "#/$defs/id" },
         "availability": {
           "$ref": "#/$defs/availability"
         }

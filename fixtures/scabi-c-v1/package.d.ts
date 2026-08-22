@@ -190,6 +190,24 @@ export declare function judgeWith(
 export declare function noticeWith(callback: (subject: Counter) => void): void;
 export declare function noticeMark(): void;
 export declare function noticeFire(seed: i32): i32;
+
+/* A native class a TypeScript class may EXTEND. The platform shape: the
+ * framework constructs the object and calls a member on it, so the program
+ * declares the member rather than registering a function, and `this` is the
+ * object the framework made. */
+export declare class TickSource {
+  dispose(): void;
+  value(): i32;
+  /* What `super.onTick(...)` reaches. Declared on the base because that is
+   * where the base implementation lives; the manifest names the binding. */
+  baseTick(seed: i32): void;
+  /* The member a subclass overrides. A platform base really does declare its
+   * lifecycle members — Activity declares onCreate — so `override` is legal
+   * for the ordinary TypeScript reason rather than by special arrangement. */
+  onTick(seed: i32): void;
+}
+export declare function tickMark(): void;
+export declare function tickFire(seed: i32): i32;
 /* The same registration where the payload may be absent: the handler receives
  * `Counter | null` and tests it, because a platform that hands a lifecycle an
  * object on one call and nothing on another is describing a value rather than

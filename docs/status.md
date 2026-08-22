@@ -324,6 +324,31 @@ of the stored invocation rather than a branch in one trampoline.
 
 Broader payload families and ownership modes remain future slices.
 
+### Classes over a native base
+
+A TypeScript class may `extend` a native class. Its `override` methods lower
+into the registrations the platform dispatches, `this` is the receiver the
+framework constructed, and `super.m(...)` reaches the base implementation. No
+instance fields: with no managed state there is no second object, so `this` IS
+the handle cell whose identity the interning map already keeps, and the peer's
+undeclared lifetime policy is not on this path. A field refuses by name and
+says why.
+
+`super` is a DISTINCT binding, not the one the platform calls — were it the
+same it would redispatch to the override and never terminate — so SCABI's
+callable bindings carry `baseCall` naming it. Three checks stand between a
+generator and a call that resolves to nothing, and they catch different things:
+the JVM generator refuses to WRITE an id whose method produced no binding;
+SCABI's validation rejects a manifest whose `baseCall` names a binding it does
+not carry, or names one without declaring the dependency, which would let the
+reachable set be trimmed out from under a call that still resolves; and the
+compiler refuses `super.m(...)` when no base call is stated at all, which is
+what an abstract or interface member looks like from the program's side.
+
+The C fixture carries the same shape as the JVM surface, so the cross-gate runs
+the pairing through parse, validation, translation, lowering and a linked binary
+rather than only through the IR the fork hands itself.
+
 ### Foreign-thread ingress and scheduling
 
 An instance-owned, target-wakeable MPSC gateway provides bounded FIFO drains,
