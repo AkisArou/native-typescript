@@ -304,6 +304,16 @@ export interface JvmField {
   readonly deprecated: boolean;
   readonly genericSignature: string | null;
   readonly nullability: JvmNullability;
+  /**
+   * Whether a selection NAMED this field or it came with its class.
+   *
+   * The distinction decides what an unprojectable field means. A named one
+   * was asked about, so failing to project it is an answer to a question and
+   * refuses by name. An implied one was never asked about, so not projecting
+   * it is not a refusal at all — it is recorded beside the class with the
+   * reason, because absence with a reason next to it is not silence.
+   */
+  readonly selection: "named" | "implied";
 }
 
 /** Where a nested class sits, from the `InnerClasses` attribute. */
@@ -350,7 +360,7 @@ export interface JvmCallback extends JvmMethod {
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;

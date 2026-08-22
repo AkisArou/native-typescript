@@ -109,11 +109,12 @@ a separate build. The rule is deliberate — an unselected superclass is a
 silent-ancestry error rather than an invented one — but the consequence
 is that adding one widget costs several rounds.
 
-### 5. Constants must be listed by name
+### 5. Constants must be listed by name — RESOLVED, see E
 
 `{ binaryName: "android/view/Gravity", fields: ["CENTER"] }`. A constant
 costs no call and no generated C; naming each one is bookkeeping for a
-value the class file already states.
+value the class file already states. The acceptance project now selects
+`{ binaryName: "android/view/Gravity" }` and gets all 27.
 
 ### 6. A method belongs to the class that declares it
 
@@ -254,6 +255,35 @@ outside the selection.
 being listed. They cost no call, no C, and no runtime; the manifest grows
 by a literal each. Fields that are NOT compile-time constants keep their
 refusal, because reading one is a field access against a live class.
+
+**Landed**, and the interesting half was not the projection. Implying
+constants means meeting many more that cannot be projected — of 197 across
+eight Android classes, 18 fall outside the algebra, 13 String and 5 float.
+Under the old rule each was a hard refusal, which is right when a program
+asked and absurd when it did not: selecting `android/view/View` would have
+failed on thirteen String constants nobody mentioned.
+
+So it turns on who asked. A NAMED field was asked about, and not
+projecting it answers that question — it refuses. An IMPLIED one was never
+asked about, so not projecting it is not a refusal at all; it is recorded
+next to its class with the reason, and the reason is per constant, because
+"String constants are not projected" and "f32 has no value form" are
+different futures and a reader deserves to know which one they are waiting
+on. Absence with a reason beside it is not silence.
+
+That leaves `fields:` a better job than it had. It is now an ASSERTION
+that these must project, rather than a selection of which ones do — so a
+platform version that changes a constant's type is a diagnostic instead of
+a silent disappearance. Naming a constant that would arrive anyway
+produces byte-identical declarations and manifest digests, so no selection
+written before this rule pays for having been written.
+
+It also needed one compiler change, which is the kind this proposal keeps
+producing: a class with BOTH a constructor and a merged namespace could
+not resolve its constructor, because the merge predicate admitted an
+ambient interface and not an ambient namespace. No such class had ever
+existed — only constant-only classes got namespaces — so the gap was
+invisible until constants came with their class.
 
 ### F. Members resolve on their declaring class
 
@@ -533,7 +563,7 @@ the largest single ergonomic win available.
 
 Everything else divides cleanly:
 
-- **Free, generator-side, no contract change:** D, E, F, G.
+- **Free, generator-side, no contract change:** D, F, G; E — *landed*.
 - **Evidence the metadata already carries:** B — *landed*.
 - **Compiler capability:** C, H — *H landed*, and the peer.
 

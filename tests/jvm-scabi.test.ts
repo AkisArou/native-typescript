@@ -451,10 +451,16 @@ test("a compile-time constant crosses as its value, and the rest refuse", () => 
   const generated = generateJvmScabiPackage(options(withConstants));
   /* Ambient values merged into a namespace beside the class: the
    * compiler resolves a constant only through a value declaration, and
-   * `Widget.MAX_DEPTH` still reads as the class file writes it. */
+   * `Widget.MAX_DEPTH` still reads as the class file writes it.
+   *
+   * Matched to the last const rather than to the closing brace: the three
+   * constants this selection did not name still come with the class, and
+   * the ones that cannot be projected leave their reason in the same
+   * namespace. What this pins is that the values lead, in canonical
+   * order. */
   assert.match(
     generated.declarations,
-    /export declare namespace Widget \{\n {2}const MAX_DEPTH: jint;\n {2}const RATIO: jdouble;\n\}/u,
+    /export declare namespace Widget \{\n {2}const MAX_DEPTH: jint;\n {2}const RATIO: jdouble;\n/u,
   );
 
   const depth = generated.manifest.bindings["fixture.fixture.widget.max_depth"];

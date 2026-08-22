@@ -91,11 +91,15 @@ export const androidProject = {
         { name: "setGravity", descriptor: "(I)V" },
       ],
     },
-    /* Selected for a constant: the platform states what CENTER means, and
-     * a program spelling 17 itself would repeat a fact the class file
-     * already carries. A static final with a ConstantValue IS its value,
-     * so naming it costs no call and no generated C. */
-    { binaryName: "android/view/Gravity", fields: ["CENTER"] },
+    /* Selected for its constants, and NOT listing them. The platform
+     * states what CENTER means, and a program spelling 17 itself would
+     * repeat a fact the class file already carries; a static final with a
+     * ConstantValue IS its value, so it costs no call and no generated C
+     * and therefore arrives with the class. Naming `fields: ["CENTER"]`
+     * here would still work and would now be an assertion that it must
+     * project — worth doing where a program depends on one surviving a
+     * platform version, and bookkeeping where it does not. */
+    { binaryName: "android/view/Gravity" },
     {
       binaryName: "android/util/Log",
       methods: [{ name: "i", descriptor: "(Ljava/lang/String;Ljava/lang/String;)I" }],

@@ -780,6 +780,12 @@ export function generateJvmScabiPackage(
   const constantScalarIds = new Set<string>();
   /** Ambient const lines per class, emitted as a merged namespace. */
   const constantsByClass = new Map<string, string[]>();
+  /** Why a constant that came with its class is absent from it, per class.
+   * Each line names its OWN reason rather than sharing one: "String
+   * constants are not projected" and "f32 has no value form" are different
+   * futures, and a reader who sees which applies knows whether to wait or
+   * to work around it. */
+  const unprojectedByClass = new Map<string, string[]>();
 
   /** A constant's manifest type, its literal value, and how the surface
    * spells it. The descriptor decides — a class file records a boolean,
@@ -892,8 +898,26 @@ export function generateJvmScabiPackage(
         ));
         continue;
       }
-      const constant = constantOf(field, path, diagnostics);
-      if (constant === null) continue;
+      /* Whether an unprojectable constant is a FAILURE depends on who
+       * asked. A named field was asked about, so not projecting it is an
+       * answer to a question and refuses. An implied one was never asked
+       * about, so not projecting it is not a refusal at all — it is
+       * recorded beside its class with the reason, because absence with a
+       * reason next to it is not silence. Reusing constantOf for both
+       * keeps one authored explanation per kind rather than two that can
+       * drift. */
+      const why: JvmDiagnostic[] = [];
+      const constant = constantOf(field, path, why);
+      if (constant === null) {
+        if (field.selection === "named") {
+          diagnostics.push(...why);
+          continue;
+        }
+        const unprojected = unprojectedByClass.get(class_.binaryName) ?? [];
+        unprojected.push(`  /* ${why[0]?.message ?? "not projected"} */`);
+        unprojectedByClass.set(class_.binaryName, unprojected);
+        continue;
+      }
       const bindingId = `${slug}.${idToken(class_.binaryName)}.${
         field.name.toLowerCase()
       }`;
@@ -1463,16 +1487,24 @@ export function generateJvmScabiPackage(
       ? classNameOf.get(class_.superclass.binaryName)
       : undefined;
     const constants = constantsByClass.get(class_.binaryName) ?? [];
+    /* Constants that came with the class and could not be projected are
+     * listed HERE, inside the namespace a reader is already looking at
+     * when they cannot find one. "Does not exist" is what TypeScript says;
+     * this is where the reason is. */
+    const unprojected = unprojectedByClass.get(class_.binaryName) ?? [];
     declarationLines.push(
       `export declare class ${className}${parent === undefined ? "" : ` extends ${parent}`} {`,
       ...(declarationsByClass.get(class_.binaryName) ?? []),
       "}",
       "",
-      ...(constants.length === 0
+      ...(constants.length === 0 && unprojected.length === 0
         ? []
         : [
             `export declare namespace ${className} {`,
             ...constants,
+            ...(unprojected.length === 0
+              ? []
+              : [...(constants.length === 0 ? [] : [""]), ...unprojected]),
             "}",
             "",
           ]),

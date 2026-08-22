@@ -555,6 +555,7 @@ function freezeField(
   parsed: ParsedField,
   path: string,
   diagnostics: JvmDiagnostic[],
+  selection: JvmField["selection"],
 ): JvmField | null {
   const type = parseFieldDescriptor(parsed.descriptor, path, diagnostics);
   if (type === null) return null;
@@ -570,7 +571,31 @@ function freezeField(
     deprecated: parsed.deprecated,
     genericSignature: parsed.genericSignature,
     nullability: nullabilityOf(parsed.annotations, type),
+    selection,
   });
+}
+
+/**
+ * A compile-time constant comes with its class.
+ *
+ * A `static final` field carrying a ConstantValue IS its value: projecting it
+ * costs no call, no generated C, and no runtime — the manifest grows by a
+ * literal. Making a program list each one was bookkeeping for a fact the
+ * class file already states, and it cost a build per omission.
+ *
+ * Public only, because a constant the platform does not expose is not one a
+ * program may name. A static final WITHOUT a ConstantValue is deliberately
+ * not implied: reading one means a field access against a live class, which
+ * is state crossing rather than a stated value, and a selection that names
+ * one still gets that refusal.
+ */
+function isImpliedConstant(parsed: ParsedField): boolean {
+  return (
+    visibilityOf(parsed.accessFlags) === "public" &&
+    (parsed.accessFlags & 0x0008) !== 0 &&
+    (parsed.accessFlags & 0x0010) !== 0 &&
+    parsed.constantValue !== null
+  );
 }
 
 /**
@@ -927,17 +952,35 @@ export function ingestJvmClasses(
           anchor: stated?.anchor ?? "instance",
         });
       });
-    const fields = resolveMembers(
+    const namedFields = resolveMembers(
       parsed.fields,
       selection.fields,
       "field",
       `${path}/field`,
       diagnostics,
-    )
-      .map((field) =>
-        freezeField(field, `${path}/field/${field.name}`, diagnostics),
-      )
-      .filter((field): field is JvmField => field !== null);
+    );
+    const namedFieldKeys = new Set(
+      namedFields.map((field) => `${field.name} ${field.descriptor}`),
+    );
+    const fields = [
+      ...namedFields.map((field) =>
+        freezeField(field, `${path}/field/${field.name}`, diagnostics, "named"),
+      ),
+      ...parsed.fields
+        .filter(
+          (field) =>
+            !namedFieldKeys.has(`${field.name} ${field.descriptor}`) &&
+            isImpliedConstant(field),
+        )
+        .map((field) =>
+          freezeField(
+            field,
+            `${path}/field/${field.name}`,
+            diagnostics,
+            "implied",
+          ),
+        ),
+    ].filter((field): field is JvmField => field !== null);
     classes.push(
       Object.freeze({
         kind,
@@ -987,7 +1030,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 4,
+    schemaVersion: 5,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

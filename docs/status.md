@@ -1067,6 +1067,18 @@ its contract intact, selecting `Activity` without its ancestry is refused, and
 every class in the platform SDK either ingests or is refused by design — the
 gate enumerates the whole jar rather than sampling it.
 
+**Compile-time constants come with their class.** A `static final` field
+carrying a ConstantValue IS its value, so it costs no call, no generated C
+and no runtime, and a selection no longer lists them one at a time — the
+acceptance project selects `android/view/Gravity` and gets all 27 of its
+constants. What a constant that cannot be projected means now depends on who
+asked: a NAMED field was asked about, so failing to project it refuses by
+name, while an IMPLIED one was never asked about and is instead recorded
+beside its class with its own reason, because "String constants are not
+projected" and "f32 has no value form" are different futures. Naming a
+constant that would arrive anyway produces byte-identical declarations and
+manifest digests.
+
 **Stated nullability narrows the surface.** Ingestion reads the annotations a
 class file carries and records three states per reference position — non-null,
 nullable, and unstated — because "the library promised" and "the library said
