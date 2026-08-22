@@ -377,6 +377,41 @@ pixels or only a log line, so what it checks is that the handler's work reached
 the platform. A tap reaches a TypeScript handler and its result returns to the
 screen.
 
+### The peer's lifetime is the undeclared part, not its lowering
+
+Investigated 2026-08-22, recorded because the obstacle is not where it looks.
+
+The peer carries the native base handle so inherited methods work, so peer →
+handle is strong. For the peer to survive BETWEEN lifecycle callbacks —
+`onCreate` setting a field the later `onStart` reads — something must keep it
+alive, and the only candidate that is not "retain every peer for the process"
+is the handle cell itself. That makes handle → peer strong too, and the two
+edges are a cycle neither side leaves.
+
+Both breaks are wrong in a way a program can observe:
+
+- **Weak handle → peer.** Nothing holds the peer between callbacks, so it is
+  collected and the next dispatch builds a fresh one. The identity rule above
+  still holds — a collected peer is not live — while the program watches its
+  fields reset for no reason it can see.
+- **Strong handle → peer.** The peer lives exactly as long as the cell, which
+  is correct for Android, where destruction ends it. But this document forbids
+  keeping a platform lifecycle object alive to preserve a convenient managed
+  reference, and choosing this without saying so is exactly the silent policy
+  the *Identity and lifetime* section requires to be declared.
+
+So the peer is not blocked on the lowerer. It is blocked on the per-platform
+lifetime declaration this document already demands and Android does not yet
+have: what keeps the peer alive, which callback ends it, and which executor
+performs the final release. Writing that down is the prerequisite; the lowering
+is downstream of it.
+
+**What does NOT need it.** A class extending a native class with NO managed
+fields has no second object and therefore no cycle: `this` is the handle cell,
+whose identity the interning map already guarantees. Overrides, `this`, and
+`super` are all reachable that way, which is why they can ship first — and an
+instance field is what must refuse by name until the policy above exists.
+
 ### Not yet built
 
 - **The peer**, and therefore instance fields. This is the largest gap between
