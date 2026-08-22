@@ -94,11 +94,23 @@ export const androidProject = {
       binaryName: "android/util/Log",
       methods: [{ name: "i", descriptor: "(Ljava/lang/String;Ljava/lang/String;)I" }],
     },
+    /* Selected so the SAME object can be observed twice. Two lifecycle
+     * dispatches on one Activity is the shape a peer must preserve — both
+     * must find one peer — and nothing checked that the platform even
+     * delivers one object across them. `identityHashCode` is how that is
+     * asked without comparing handles, which the compiler refuses today. */
+    {
+      binaryName: "java/lang/System",
+      methods: [
+        { name: "identityHashCode", descriptor: "(Ljava/lang/Object;)I" },
+      ],
+    },
     {
       binaryName: "android/app/Activity",
       constructors: ["()V"],
       methods: [
         { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+        { name: "onStart", descriptor: "()V" },
         { name: "getLocalClassName", descriptor: "()Ljava/lang/String;" },
         { name: "setContentView", descriptor: "(Landroid/view/View;)V" },
       ],
@@ -115,7 +127,12 @@ export const androidProject = {
     },
     {
       baseBinaryName: "android/app/Activity",
-      overrides: [{ name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" }],
+      overrides: [
+        { name: "onCreate", descriptor: "(Landroid/os/Bundle;)V" },
+        /* A SECOND dispatch on the same instance. Its only job is to be a
+         * second place the same object arrives. */
+        { name: "onStart", descriptor: "()V" },
+      ],
       /* NOT the base's package: Android refuses to load application
        * classes defined in android.*, so the Activity is generated into
        * a package the application owns. */

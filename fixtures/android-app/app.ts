@@ -5,6 +5,7 @@ import {
   Gravity,
   LinearLayout,
   Log,
+  System,
   TextView,
 } from "@native-typescript/jvm-android";
 /* Type-only: a Bundle is never constructed or called here, it is only
@@ -124,5 +125,27 @@ export default class MainActivity extends Activity {
       "native-typescript",
       `onCreate ran ${restored} in ${this.getLocalClassName()}`,
     );
+    Log.i("native-typescript", `identity ${System.identityHashCode(this)}`);
+  }
+
+  /* A SECOND dispatch on the same instance, and that is its whole job.
+   *
+   * Two lifecycle callbacks arriving at one Activity is the shape a peer
+   * must preserve: both must find the same peer, or a field written in
+   * one and read in the other is gone. Nothing checked that the platform
+   * even hands us ONE object across them — the assumption everything
+   * about peers rests on, never stated and never tested.
+   *
+   * `identityHashCode` is how that is asked without comparing the
+   * handles, which the compiler refuses today (SC1043) and which would be
+   * the direct question. It is a ONE-SIDED instrument and worth saying so
+   * where it is used: hash codes may collide, so a match is consistent
+   * with one object rather than proof of it, while a mismatch is proof of
+   * two. It cannot verify a peer; it can falsify the assumption a peer
+   * would be built on. */
+  override onStart(): void {
+    super.onStart();
+    Log.i("native-typescript", `identity ${System.identityHashCode(this)}`);
+    Log.i("native-typescript", "onStart ran");
   }
 }

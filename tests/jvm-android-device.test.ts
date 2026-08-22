@@ -315,6 +315,40 @@ test(
         "a cold start delivers no saved state",
       );
 
+      /* TWO DISPATCHES, ONE OBJECT — the assumption everything about
+       * peers rests on, and until now neither stated nor tested.
+       *
+       * A peer must be found by both `onCreate` and `onStart` or a field
+       * written in one and read in the other is gone. That requires the
+       * platform to deliver the SAME Activity to both, which is true and
+       * was nowhere checked.
+       *
+       * Asked through `identityHashCode` because the direct question —
+       * comparing the two handles — does not compile today, and because
+       * with `identity: "none"` the two dispatches deliver two distinct
+       * managed cells for one Java object, so a handle comparison would
+       * answer about cells rather than about the object anyway.
+       *
+       * ONE-SIDED, deliberately, and the assertion says which way: hash
+       * codes may collide, so matching is consistent with one object
+       * rather than proof of it, while differing is proof of two. This
+       * cannot verify a peer. It can fail the day the platform stops
+       * handing us one object, which is the only thing it is for. */
+      awaitLogLine(run, /onStart ran/u);
+      const identities = run("logcat", "-d", "-s", LOG_TAG)
+        .split("\n")
+        .flatMap((line) => /identity (-?\d+)/u.exec(line)?.slice(1, 2) ?? []);
+      assert.equal(
+        identities.length,
+        2,
+        `onCreate and onStart each report an identity (saw ${identities.length})`,
+      );
+      assert.equal(
+        identities[0],
+        identities[1],
+        "both lifecycle dispatches reached the same Activity instance",
+      );
+
       /* What the platform BUILT, not what the program said it built. The
        * log line proves the handler ran; the view hierarchy proves the
        * handler's work reached the screen — a TextView the program
