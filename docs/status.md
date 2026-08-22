@@ -1078,6 +1078,16 @@ omitted ancestor was ABSENT rather than unselected and `TextView` projected
 with an external `View`, losing every inherited member silently. The extractor
 now asks `requiredJvmAncestry` what else it must read before ingestion runs.
 
+**A member resolves on the class that declares it.** Selecting `setText` on
+`Button` selects it on `TextView`, where the class file declares it, rather
+than refusing — the upcast chain already makes the call legal, so knowing
+which ancestor declares what was a requirement with nothing behind it. The
+nearest declaring ancestor wins, which is the binding a Java compiler would
+choose and identical at run time either way, since JNI dispatches virtually.
+Methods only: a constructor is never inherited, and a constant projects into a
+namespace merged with its declaring class, which TypeScript does not inherit
+through `extends`.
+
 **Compile-time constants come with their class.** A `static final` field
 carrying a ConstantValue IS its value, so it costs no call, no generated C
 and no runtime, and a selection no longer lists them one at a time — the

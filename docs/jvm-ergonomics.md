@@ -125,10 +125,10 @@ costs no call and no generated C; naming each one is bookkeeping for a
 value the class file already states. The acceptance project now selects
 `{ binaryName: "android/view/Gravity" }` and gets all 27.
 
-### 6. A method belongs to the class that declares it
+### 6. A method belongs to the class that declares it — RESOLVED, see F
 
 `Button` inherits `setText` from `TextView`, so selecting it on `Button`
-fails with "does not exist". Correct, and surprising the first time.
+failed with "does not exist". Correct, and surprising the first time.
 
 ### 7. `super` is spelled `ntsSuperOnCreate`
 
@@ -323,6 +323,27 @@ invisible until constants came with their class.
 selects it there, rather than refusing. The upcast chain already makes the
 call legal; this only removes the requirement to know which ancestor
 declares what.
+
+**Landed.** The NEAREST declaring ancestor wins, which matters where an
+ancestor overrides: asking for `setPadding` on `Button` resolves it on
+`TextView`, not `View`, because TextView overrides it — the same binding a
+Java compiler would choose, and identical at run time either way since JNI
+dispatches virtually.
+
+Methods only. A constructor is never inherited, and a callback is a native
+method the class itself declares. A FIELD deliberately stays put: a
+constant projects into a namespace merged with its declaring class, and
+TypeScript does not inherit a merged namespace through `extends`, so
+moving the selection would let ingestion succeed while `Button.MAX_LINES`
+still failed to resolve — trading a clear refusal for a confusing one.
+
+Superclasses only, matching D. A member found on an implemented interface
+would resolve onto a class the projection does not carry.
+
+The walk widens where a member may be FOUND and invents nothing: a name
+that exists nowhere in the chain still refuses, and a member the class
+declares itself — an override included — never triggers a search, because
+the class file has already answered.
 
 ### G. Java package paths, and nested classes spelled as nested
 
@@ -595,12 +616,13 @@ the largest single ergonomic win available.
 
 Everything else divides cleanly:
 
-- **Free, generator-side, no contract change:** F, G; D and E — *landed*.
+- **Free, generator-side, no contract change:** G; D, E and F — *landed*.
 - **Evidence the metadata already carries:** B — *landed*.
 - **Compiler capability:** C, H — *H landed*, and the peer.
 
-A reasonable order is B, D, E, F first — they are cheap, they remove the
-most typing, and none of them changes what a program means. Then A, whose
+A reasonable order was B, D, E, F first — they are cheap, they remove the
+most typing, and none of them changes what a program means. All four have
+landed. Then A, whose
 value is high and whose lifetime policy deserves the argument. Then the
 peer, which subsumes part of A and all of `ntsSuper*`. C last, unless
 overload-heavy surface arrives sooner.

@@ -603,6 +603,36 @@ function isImpliedConstant(parsed: ParsedField): boolean {
  * member list. A bare name matching several overloads is refused with the
  * declared descriptors in the message, so the fix is copy-paste.
  */
+/**
+ * The nearest ancestor that DECLARES what `declares` is looking for, or
+ * null when nothing in the chain does.
+ *
+ * Only the superclass chain, matching what ingestion implies: a member on
+ * an implemented interface would resolve onto a class this projection does
+ * not carry, so finding it there would trade one confusing failure for
+ * another.
+ */
+function declaringAncestor(
+  start: string,
+  parsedByName: ReadonlyMap<string, ParsedClass>,
+  declares: (parsed: ParsedClass) => boolean,
+): string | null {
+  const walked = new Set<string>([start]);
+  let current = parsedByName.get(start);
+  while (current !== undefined) {
+    const kind = classKindOf(current.accessFlags);
+    if (kind !== "class" && kind !== "enum") return null;
+    const superName = current.superName;
+    if (superName === null || walked.has(superName)) return null;
+    const parsedSuper = parsedByName.get(superName);
+    if (parsedSuper === undefined) return null;
+    walked.add(superName);
+    if (declares(parsedSuper)) return superName;
+    current = parsedSuper;
+  }
+  return null;
+}
+
 function resolveMembers<Member extends { name: string; descriptor: string }>(
   declared: readonly Member[],
   selections: NormalizedMemberSelections,
@@ -791,6 +821,102 @@ export function ingestJvmClasses(
         });
       }
       current = parsedSuper;
+    }
+  }
+
+  /* A member resolves on the class that DECLARES it.
+   *
+   * `Button` inherits `setText` from `TextView`, so selecting it on Button
+   * used to fail with "does not exist" — correct about the class file and
+   * useless as advice, because the call is legal either way: the upcast
+   * chain is what makes a Button usable where a TextView is wanted, and it
+   * exists whether or not a caller knew which ancestor to name. This only
+   * removes the requirement to know.
+   *
+   * Methods only. A constructor is never inherited. A callback is a native
+   * method the class itself declares, so there is nothing to inherit. And
+   * a FIELD deliberately stays put: a constant projects into a namespace
+   * merged with its declaring class, and TypeScript does not inherit a
+   * merged namespace through `extends`, so moving the selection would make
+   * ingestion succeed while `Button.MAX_LINES` still did not resolve —
+   * trading a clear refusal for a confusing one.
+   */
+  const movedMethods: {
+    readonly from: string;
+    readonly to: string;
+    readonly name: string;
+    readonly descriptor: string | null;
+  }[] = [];
+  for (const [binaryName, selection] of selections) {
+    const parsed = parsedByName.get(binaryName);
+    if (parsed === undefined) continue;
+    for (const name of selection.methods.names) {
+      /* Declared here — including an override, which is the class file's
+       * own answer and needs no walk. */
+      if (parsed.methods.some((method) => method.name === name)) continue;
+      const owner = declaringAncestor(
+        binaryName,
+        parsedByName,
+        (ancestor) => ancestor.methods.some((method) => method.name === name),
+      );
+      if (owner !== null) {
+        movedMethods.push({ from: binaryName, to: owner, name, descriptor: null });
+      }
+    }
+    for (const exact of selection.methods.exact.values()) {
+      const declaredHere = parsed.methods.some(
+        (method) =>
+          method.name === exact.name && method.descriptor === exact.descriptor,
+      );
+      if (declaredHere) continue;
+      const owner = declaringAncestor(
+        binaryName,
+        parsedByName,
+        (ancestor) =>
+          ancestor.methods.some(
+            (method) =>
+              method.name === exact.name &&
+              method.descriptor === exact.descriptor,
+          ),
+      );
+      if (owner !== null) {
+        movedMethods.push({
+          from: binaryName,
+          to: owner,
+          name: exact.name,
+          descriptor: exact.descriptor,
+        });
+      }
+    }
+  }
+  if (movedMethods.length > 0) {
+    const rebuilt = new Map<
+      string,
+      { names: Set<string>; exact: Map<string, { name: string; descriptor: string }> }
+    >();
+    for (const [binaryName, selection] of selections) {
+      rebuilt.set(binaryName, {
+        names: new Set(selection.methods.names),
+        exact: new Map(selection.methods.exact),
+      });
+    }
+    for (const move of movedMethods) {
+      /* The owner is always selected: it was reached by the same walk that
+       * implied the ancestry above, so it is already in this map. */
+      const from = rebuilt.get(move.from)!;
+      const to = rebuilt.get(move.to)!;
+      if (move.descriptor === null) {
+        from.names.delete(move.name);
+        to.names.add(move.name);
+        continue;
+      }
+      const key = `${move.name} ${move.descriptor}`;
+      from.exact.delete(key);
+      to.exact.set(key, { name: move.name, descriptor: move.descriptor });
+    }
+    for (const [binaryName, selection] of [...selections.entries()]) {
+      const methods = rebuilt.get(binaryName)!;
+      selections.set(binaryName, { ...selection, methods });
     }
   }
 

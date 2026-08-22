@@ -419,6 +419,84 @@ test("an unselected superclass among the sources comes with its subclass", () =>
   assert.equal(widget?.constructors.length, 0);
 });
 
+test("a member selected on a subclass resolves on the class that declares it", () => {
+  /* `depth` is declared on Widget and inherited by Button. Asking for it
+   * on Button used to fail with "does not exist" — correct about the class
+   * file and useless as advice, because the call is legal either way: the
+   * upcast chain is what makes a Button usable where a Widget is wanted,
+   * and it exists whether or not the caller knew which ancestor to name. */
+  const snapshot = ingestFixture([
+    {
+      binaryName: "fixture/Button",
+      constructors: ["(Ljava/lang/String;)V"],
+      methods: ["depth", "click"],
+    },
+    clickableSelection,
+  ]);
+
+  const button = classNamed(snapshot, "fixture/Button");
+  const widget = classNamed(snapshot, "fixture/Widget");
+
+  /* `click` is Button's own, so it stays. `depth` moves to where it is
+   * declared, and the declaration file puts it on Widget — which Button
+   * extends, so a program still writes `button.depth()`. */
+  assert.deepEqual(button.methods.map(({ name }) => name), ["click"]);
+  assert.deepEqual(widget.methods.map(({ name }) => name), ["depth"]);
+});
+
+test("an override stays on the class that overrides it", () => {
+  /* `onClick` is declared on Button AND on the Clickable interface it
+   * implements. The class file's own declaration is the answer; there is
+   * nothing to search for. */
+  const snapshot = ingestFixture([
+    {
+      binaryName: "fixture/Button",
+      constructors: ["(Ljava/lang/String;)V"],
+      methods: [{ name: "onClick", descriptor: "(Lfixture/Button;)V" }],
+    },
+    clickableSelection,
+  ]);
+  assert.deepEqual(
+    classNamed(snapshot, "fixture/Button").methods.map(({ name }) => name),
+    ["onClick"],
+  );
+});
+
+test("the descriptor-qualified form walks the ancestry too", () => {
+  const snapshot = ingestFixture([
+    {
+      binaryName: "fixture/Button",
+      constructors: ["(Ljava/lang/String;)V"],
+      methods: [{ name: "checkedAdd", descriptor: "(II)I" }],
+    },
+    clickableSelection,
+  ]);
+  assert.deepEqual(
+    classNamed(snapshot, "fixture/Widget").methods.map(
+      ({ name, descriptor }) => `${name}${descriptor}`,
+    ),
+    ["checkedAdd(II)I"],
+  );
+  assert.deepEqual(classNamed(snapshot, "fixture/Button").methods, []);
+});
+
+test("a member that exists nowhere in the ancestry still refuses", () => {
+  /* The walk widens where a member may be FOUND; it does not invent one.
+   * A misspelling is still a misspelling. */
+  assertCodes(
+    () =>
+      ingestFixture([
+        {
+          binaryName: "fixture/Button",
+          constructors: ["(Ljava/lang/String;)V"],
+          methods: ["depht"],
+        },
+        clickableSelection,
+      ]),
+    ["NTS6003"],
+  );
+});
+
 function fixtureJarBytes(): Uint8Array {
   return readFileSync(
     resolve(repositoryRoot, "fixtures/jvm/fixture.jar"),
