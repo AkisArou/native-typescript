@@ -109,6 +109,8 @@ const translated = translateScabiNativeProgram(manifest, {
     "span_label_maybe",
     "tick_register",
     "tick_source_destroy",
+    "tick_target_destroy",
+    "unmapped_value",
     "tick_base",
     "tick_value",
     "tick_mark",

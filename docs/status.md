@@ -345,6 +345,20 @@ reachable set be trimmed out from under a call that still resolves; and the
 compiler refuses `super.m(...)` when no base call is stated at all, which is
 what an abstract or interface member looks like from the program's side.
 
+An override's `this` is typed by the REGISTRATION, not by the declared base.
+A class-anchored registration answers for every instance of the class the
+packager generated, so the receiver it delivers is that class, while
+`extends Activity` names an ancestor — a weaker statement about a different
+type. The fixtures put the declared base one identity upcast above what the
+registration delivers, so a fixture where the two coincide cannot pass for the
+one where they differ.
+
+A class extending a base the surface declares but maps no handle type to
+refuses by name. It compiled silently before — no registration, no diagnostic,
+and a link error naming an unrelated support symbol as the first sign. A base
+with nothing native about it at all is a different fact and is already refused
+where external module imports are resolved.
+
 The C fixture carries the same shape as the JVM surface, so the cross-gate runs
 the pairing through parse, validation, translation, lowering and a linked binary
 rather than only through the IR the fork hands itself.
@@ -1102,6 +1116,23 @@ while the Android extractor reads only the classes a selection names, so an
 omitted ancestor was ABSENT rather than unselected and `TextView` projected
 with an external `View`, losing every inherited member silently. The extractor
 now asks `requiredJvmAncestry` what else it must read before ingestion runs.
+
+**The terminal event is stated, and its lowering is not built.** A peer for a
+platform object must hold the object's handle, and something must hold the
+peer, and if that something is the handle's own managed cell the two hold each
+other forever. The cell was being asked to do two jobs: ASSOCIATION — which
+peer belongs to this handle — is a lookup and can be weak, while LIFETIME
+belongs to the class-anchored registration, whose strong reference a platform
+EVENT releases rather than reachability. A class file cannot say which method
+ends an object, so a subclass selection states it, exactly as `delivery`,
+`anchor` and a callback's `baseCall` are stated. It is admitted only where the
+platform owns the object; where the program constructs it, the program also
+holds it. A terminal the base does not declare, one Java would refuse to
+override, or one stated where the program owns the object each refuses by name
+at generation. What does not exist is the lowering — nothing overrides the
+terminal to observe it and nothing releases a peer when it fires — so the fact
+is deliberately absent from SCABI until then, because a manifest field no test
+can contradict is the failure this project keeps finding.
 
 **The Android application is a class that extends a native class.** The
 acceptance program is `class MainActivity extends …` with `override onCreate`,

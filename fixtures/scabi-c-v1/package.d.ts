@@ -207,6 +207,24 @@ export declare class TickSource {
   onTick(seed: i32): void;
 }
 export declare function tickMark(): void;
+
+/* The class the platform CONSTRUCTS, one identity upcast below the base a
+ * program names. A program never writes this type — it writes `extends
+ * TickSource` — which is exactly why an override's `this` takes its type from
+ * the registration rather than from the declared base. */
+export declare class TickTarget extends TickSource {}
+
+/* Declared by the surface, mapped to NO handle type — a selection short a
+ * type, which is the shape a packaging bug takes. Nothing may bind to it; it
+ * exists so a class can try to extend it and be told why it cannot. */
+export declare class UnmappedSource {
+  /* A member that DOES bind, so the import resolves and the class reaches the
+   * heritage check. Without it the name has nothing native at all and the
+   * external-module check refuses first, which is a different fact. */
+  value(): i32;
+  onTick(seed: i32): void;
+}
+
 export declare function tickFire(seed: i32): i32;
 /* The same registration where the payload may be absent: the handler receives
  * `Counter | null` and tests it, because a platform that hands a lifecycle an
