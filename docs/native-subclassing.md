@@ -446,6 +446,64 @@ whose identity the interning map already guarantees. Overrides, `this`, and
 `super` are all reachable that way, which is why they can ship first — and an
 instance field is what must refuse by name until the policy above exists.
 
+### Implementation plan: the no-fields slice
+
+Written 2026-08-22 after investigating the lowerer, so the next attempt starts
+from mechanics rather than from a survey. This slice deliberately excludes
+instance fields, which is what keeps it free of the peer's lifetime question
+above.
+
+**What it delivers.** `class MainActivity extends Activity` with `override`
+methods, a real `this`, and a real `super` — the program this document's source
+model shows, minus fields. It removes `ntsSuperOnCreate` from the public
+surface, which this document's `super` section refuses and which ships today
+only because there is no `super` for it to be.
+
+**Why no fields means no peer.** With no managed state, `this` IS the native
+handle cell: there is no second object to associate, so nothing needs the
+registration to own a peer and nothing needs a terminal event. An instance
+field is exactly what introduces the second object, which is why it refuses
+here and waits for the policy above.
+
+**Recognition is already in** (fork `2d81d607`). `nativeBaseHandleName` resolves
+a base identifier through its value symbol, resolving aliases the way
+`nativeTypeOf` does, and answers with the handle type the base declares. Today
+it feeds a diagnostic; it is the same question the lowering asks.
+
+**The shape of the lowering.** An override is a REGISTRATION the program does
+not write:
+
+    class MainActivity extends Activity {
+      override onCreate(state: Bundle | null): void { super.onCreate(state); … }
+    }
+
+is the program that exists today spelled as a class:
+
+    MainActivity.onCreate((self, state) => { self.ntsSuperOnCreate(state); … });
+
+So the lowering is: for each `override m`, find the binding whose declaration
+is `${className}.${m}`, lower the method body as a closure whose first
+parameter is the receiver, bind `this` to that parameter, and append the
+registration call to the declaring file's init (`lowerFileInit` in
+`lower-modules.ts`, which is where a file's top-level statements already go).
+`super.m(args)` lowers to the base-call binding on the same receiver.
+
+**What must refuse, each by name.** An instance field or a constructor (the
+peer). A non-`override` method, since nothing dispatches it. An `override` with
+no matching binding — the class the packager generated does not declare that
+member, which is a selection problem and should say so. A `super` call to a
+member whose metadata records no base implementation.
+
+**What proves it.** A fork program is not enough: the fixture's handles are
+interfaces, and the registration-per-override shape only exists in a generated
+JVM surface. The honest test is the Android acceptance application rewritten in
+the class form, on the device, asserting the same log line — which makes this
+slice's gate the JVM session's lane rather than the fork's.
+
+**The risk worth naming.** Synthesizing a call the program did not write is new
+in this lowerer. Everything else here is rearrangement of existing paths, so if
+that one piece resists, the slice is not obviously worth forcing.
+
 ### Not yet built
 
 - **The peer**, and therefore instance fields. This is the largest gap between
