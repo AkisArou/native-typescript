@@ -26,7 +26,7 @@
     "scriptc:test:callback-token": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-token.test.ts",
     "scriptc:test:callback-table": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-table.test.ts",
     "scriptc:test:callback-handle": "pnpm --dir=third_party/scriptc exec vitest run tests/harness/callback-handle.test.ts",
-    "scriptc:test": "pnpm --dir third_party/scriptc test:sandbox"
+    "scriptc:test": "pnpm scriptc:test:manifest && pnpm scriptc:test:export && pnpm scriptc:test:native-ir && pnpm scriptc:test:owned && pnpm scriptc:test:owner-gateway && pnpm scriptc:test:callback-token && pnpm scriptc:test:callback-table && pnpm scriptc:test:callback-handle && pnpm scriptc:test:sanitized"
   },
   "devDependencies": {
     "@native-typescript/bindgen-c": "workspace:*",

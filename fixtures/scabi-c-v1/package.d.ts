@@ -142,6 +142,7 @@ export interface Counter extends CounterMiddle {
  * back out of it. A second binding over one symbol, which is legal because a
  * binding declares a contract — only one of them may be reached per program. */
 export declare function numberI32Identity(value: number): number;
+export declare function numberU32Identity(value: number): number;
 export declare function i8Identity(value: i8): i8;
 export declare function u8Identity(value: u8): u8;
 export declare function i16Identity(value: i16): i16;
