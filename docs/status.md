@@ -341,9 +341,15 @@ platform this is for: JVM handles declare `identity: "none"` because
 `pointer`-identity handles intern. Identity becomes observable the moment a
 field exists, which is the same boundary the refusal already draws.
 
-`super` is a DISTINCT binding, not the one the platform calls — were it the
-same it would redispatch to the override and never terminate — so SCABI's
-callable bindings carry `baseCall` naming it. Three checks stand between a
+`super` is a DISTINCT binding, not the one the platform calls — if it is the
+same it redispatches to the override and never terminates, which is not a
+hypothetical: resolving `super.onCreate` through its member symbol reached
+`Activity.onCreate`, called it virtually, and re-entered the override, on a
+device, reported by ART as SuperNotCalled and by nothing else. So SCABI's
+callable bindings carry `baseCall` naming the base, and the compiler declines
+`super` receivers in the path that resolves calls by member symbol: `super.m`
+denotes the base implementation, which is a different operation from the member
+of that name. Three checks stand between a
 generator and a call that resolves to nothing, and they catch different things:
 the JVM generator refuses to WRITE an id whose method produced no binding;
 SCABI's validation rejects a manifest whose `baseCall` names a binding it does
