@@ -115,6 +115,8 @@ test("the adapter source is deterministic and carries its member table", () => {
   );
   const [a, b] = first.constructors;
   assert.notEqual(a!.adapterSymbol, b!.adapterSymbol);
+  assert.notEqual(a!.frameBoundedSymbol, a!.adapterSymbol);
+  assert.ok(first.source.includes(`void *${a!.frameBoundedSymbol}(`));
 
   assert.deepEqual(
     first.staticMethods.map(({ name }) => name).sort(),
@@ -192,6 +194,10 @@ test("the adapter source is deterministic and carries its member table", () => {
   // the class-blind handle release, and disconnect returning the reference
   // a registration held on its instance.
   assert.ok(first.source.includes(`void ${first.release.adapterSymbol}(`));
+  assert.ok(
+    first.source.includes(`void ${first.release.frameBoundedSymbol}(void *ref)`),
+  );
+  assert.ok(first.source.includes("->DeleteLocalRef(env, (jobject)ref)"));
   assert.equal(
     (first.source.match(/->DeleteGlobalRef/gu) ?? []).length,
     2,
@@ -200,6 +206,11 @@ test("the adapter source is deterministic and carries its member table", () => {
     first.source.includes(`const char *${first.errorSupport.messageSymbol}(`),
   );
   assert.ok(first.source.includes(`void ${first.errorSupport.releaseSymbol}(`));
+  const resized = first.instanceMethods.find(({ name }) => name === "resized")!;
+  assert.ok(resized.frameBoundedSymbol !== null);
+  assert.ok(first.source.includes(`void *${resized.frameBoundedSymbol}(`));
+  const depth = first.instanceMethods.find(({ name }) => name === "depth")!;
+  assert.equal(depth.frameBoundedSymbol, null);
 });
 
 test("every generated-C family carries a classification", () => {
@@ -717,6 +728,9 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const constructorSymbol = adapter.constructors.find(
       ({ descriptor }) => descriptor === "(I)V",
     )!.adapterSymbol;
+    const frameConstructorSymbol = adapter.constructors.find(
+      ({ descriptor }) => descriptor === "(I)V",
+    )!.frameBoundedSymbol;
     const depthSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "depth",
     )!.adapterSymbol;
@@ -729,6 +743,9 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const resizedSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "resized",
     )!.adapterSymbol;
+    const frameResizedSymbol = adapter.instanceMethods.find(
+      ({ name }) => name === "resized",
+    )!.frameBoundedSymbol!;
     const compareSymbol = adapter.instanceMethods.find(
       ({ name }) => name === "compareDepth",
     )!.adapterSymbol;
@@ -793,6 +810,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const disconnectSymbol = adapter.connectionSupport!.disconnectSymbol;
     const connectionFreeSymbol = adapter.connectionSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
+    const releaseFrame = adapter.release.frameBoundedSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
     const releaseSymbol = adapter.errorSupport.releaseSymbol;
@@ -821,6 +839,10 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (JNI_CreateJavaVM(&vm, (void **)&env, &args) != JNI_OK) return 10;",
       "  char *error = NULL;",
       `  if (${adapter.bind.adapterSymbol}(env, &error) != 0) return 11;`,
+      `  void *local = ${frameConstructorSymbol}(9, &error);`,
+      "  if (local == NULL || error != NULL) return 56;",
+      `  if (${depthSymbol}(local, &error) != 9 || error != NULL) return 57;`,
+      `  ${releaseFrame}(local);`,
       `  void *w = ${constructorSymbol}(7, &error);`,
       "  if (w == NULL || error != NULL) return 12;",
       `  if (${depthSymbol}(w, &error) != 7 || error != NULL) return 13;`,
@@ -837,6 +859,10 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       `  if (${compareSymbol}(w, w2, &error) <= 0 || error != NULL) return 19;`,
       `  if (${compareSymbol}(w, NULL, &error) != -1 || error != NULL) return 20;`,
       `  ${releaseWidget}(w2);`,
+      `  void *local2 = ${frameResizedSymbol}(w, 4, &error);`,
+      "  if (local2 == NULL || error != NULL) return 58;",
+      `  if (${depthSymbol}(local2, &error) != 4 || error != NULL) return 59;`,
+      `  ${releaseFrame}(local2);`,
       /* String results ride the span shape: the byte count arrives in the
        * compiler's slot, which the strcmp checks cross-examine against the
        * terminator the bridge still writes. */

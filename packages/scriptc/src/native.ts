@@ -3695,6 +3695,18 @@ export function translateScabiNativeProgram(
           passMode: binding.signature.result.passMode as "value" | "pointer",
           ownership: resultOwnership,
           projection: resultProjection,
+          ...(binding.signature.result.frameBounded === undefined
+            ? {}
+            : {
+                frameBounded: Object.freeze({
+                  entry: Object.freeze({
+                    symbol: binding.signature.result.frameBounded.entry,
+                  }),
+                  release: Object.freeze({
+                    symbol: binding.signature.result.frameBounded.release,
+                  }),
+                }),
+              }),
         }),
       }),
     );

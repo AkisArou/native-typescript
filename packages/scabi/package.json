@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/scabi-v11.schema.json"
+    "./schema": "./src/scabi-v12.schema.json"
   },
   "dependencies": {
     "ajv": "catalog:"

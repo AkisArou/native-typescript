@@ -1193,6 +1193,10 @@ export function generateJvmScabiPackage(
           passMode: "pointer",
           nullable: false,
           ownership: Object.freeze({ kind: "owned", transfer: "to-runtime" }),
+          frameBounded: Object.freeze({
+            entry: constructor.frameBoundedSymbol,
+            release: options.adapter.release.frameBoundedSymbol,
+          }),
         }),
         error: errorContract,
       }));
@@ -1660,10 +1664,19 @@ export function generateJvmScabiPackage(
         ? Object.freeze({
             type: selectedTypeIds.get(method.result.binaryName)!,
             passMode: "pointer" as const,
-            /* A Java method may return null on success; the error slot is
-             * what distinguishes failure, so null is an ordinary value. */
-            nullable: true,
+            /* Java references are nullable unless metadata promises
+             * otherwise. The adapter checks a non-null promise before the
+             * value crosses, so the manifest may spend that promise too. */
+            nullable: !statedNonNull(method.result),
             ownership: Object.freeze({ kind: "owned" as const, transfer: "to-runtime" as const }),
+            ...(statedNonNull(method.result)
+              ? {
+                  frameBounded: Object.freeze({
+                    entry: method.frameBoundedSymbol!,
+                    release: options.adapter.release.frameBoundedSymbol,
+                  }),
+                }
+              : {}),
           })
         : Object.freeze({
             type: method.result.kind === "void"

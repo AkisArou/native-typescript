@@ -82,39 +82,45 @@ ingress function is not a second public lifecycle API.
 
 #### Current Android benchmark
 
-The first three-way release baseline compares the same raw Android workload in
-Native TypeScript, direct Kotlin, and plain NativeScript TypeScript. The
-NativeScript application uses neither React nor XML UI, and all timed work uses
-the same `android.*` objects, calls, iteration counts, and checksums. These are
-medians from five cyclically ordered process rounds on an x86-64 Pixel 10 Pro
-AVD running API 37, after ART `speed` compilation. Lower is better.
+The current three-way release measurement compares the same raw Android
+workload in Native TypeScript, direct Kotlin, and plain NativeScript
+TypeScript. The NativeScript application uses neither React nor XML UI, and
+all timed work uses the same `android.*` objects, calls, iteration counts, and
+checksums. These are medians from five cyclically ordered process rounds on an
+x86-64 Pixel 10 Pro AVD running API 37, after ART `speed` compilation. Lower
+is better.
 
 | Workload | Native TypeScript | Kotlin | NativeScript | NTS vs NativeScript |
 | --- | ---: | ---: | ---: | ---: |
-| 128-child view tree | 29,780 ns/child | 43,953 ns/child | 37,753 ns/child | 1.27x faster |
-| lightweight `Rect` construction and `width()` | 340.81 ns/op | 30.27 ns/op | 3,398.83 ns/op | 9.97x faster |
-| `TextView` construction and scalar call | 23,278 ns/op | 22,345 ns/op | 27,841 ns/op | 1.20x faster |
-| repeated `TextView.setTextSize` | 88.62 ns/op | 13.23 ns/op | 227.07 ns/op | 2.56x faster |
-| synchronous `Button.callOnClick` | 272.52 ns/op | 2.15 ns/op | 1,337.37 ns/op | 4.91x faster |
+| 128-child view tree | 68,408 ns/child | 98,895 ns/child | 55,004 ns/child | 1.24x slower |
+| lightweight `Rect` construction and `width()` | 248.84 ns/op | 27.85 ns/op | 3,516.18 ns/op | 14.13x faster |
+| `TextView` construction and scalar call | 25,823 ns/op | 25,668 ns/op | 28,717 ns/op | 1.11x faster |
+| repeated `TextView.setTextSize` | 118.32 ns/op | 21.42 ns/op | 302.36 ns/op | 2.56x faster |
+| synchronous `Button.callOnClick` | 332.19 ns/op | 2.52 ns/op | 1,654.60 ns/op | 4.98x faster |
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 17,876 KiB | 17,560 KiB | 73,795 KiB |
-| Total RSS | 142,428 KiB | 141,568 KiB | 202,708 KiB |
-| APK size | 569,627 bytes | 16,592 bytes | 28,638,400 bytes |
+| Total PSS | 19,152 KiB | 18,801 KiB | 73,979 KiB |
+| Total RSS | 143,980 KiB | 142,252 KiB | 200,736 KiB |
+| APK size | 573,723 bytes | 16,592 bytes | 28,638,412 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are
-recorded baselines rather than general platform rankings. The isolated kernels
-are more actionable: Native TypeScript already materially outperforms the
-dynamic NativeScript boundary, while the 11.26x gap between Native TypeScript
-and Kotlin for a cheap non-escaping object identifies JNI local-reference
-specialization as the next optimization. The complete method, raw dimensions,
-launch observations, checksums, and interpretation are in
-[record 0015](docs/records/0015-first-android-nativescript-baseline.md), and the
-reusable instrument is in
+recorded observations rather than general platform rankings. The isolated
+kernels are more actionable: the first escape-selected JNI resource
+optimization reduced the unchanged lightweight-object workload from 340.81 to
+248.84 ns/op (27%) by keeping its `Rect` as a local reference and allocating no
+managed handle cell. That narrows the Kotlin gap from 11.26x to 8.94x while
+making Native TypeScript 14.13x faster than NativeScript in that kernel.
+Widget construction is at Kotlin parity in this observation. The original
+three-way baseline remains in
+[record 0015](docs/records/0015-first-android-nativescript-baseline.md); the
+optimization, exact resource observer, current launch dimensions, checksums,
+and caveats are in
+[record 0016](docs/records/0016-frame-bounded-native-results.md). The reusable
+instrument is in
 [the Android benchmark README](benchmarks/android/README.md).
 
 ### iOS

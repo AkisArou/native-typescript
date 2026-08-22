@@ -53,7 +53,7 @@ export interface ScriptCExecutablePlanners {
 const expectedProtocol = Object.freeze({
   protocol: "scriptc.embedder",
   protocolVersion: 1,
-  irVersion: 45,
+  irVersion: 46,
   executablePlanVersion: 1,
   libraryPlanVersion: 1,
   externalCcPlanVersion: 1,

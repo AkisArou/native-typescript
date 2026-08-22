@@ -659,6 +659,14 @@ test("each ownership shape translates through the neutral compiler input", () =>
   // reference, and what releases it is what the handle type names.
   const constructor = binding("fixture.fixture.widget.constructor");
   assert.equal(constructor.result.projection.kind, "direct");
+  const constructorManifest =
+    generated.manifest.bindings["fixture.fixture.widget.constructor"];
+  assert.ok(constructorManifest !== undefined && constructorManifest.kind !== "constant");
+  assert.ok(constructorManifest.signature.result.frameBounded !== undefined);
+  assert.deepEqual(constructor.result.frameBounded, {
+    entry: { symbol: constructorManifest.signature.result.frameBounded!.entry },
+    release: { symbol: constructorManifest.signature.result.frameBounded!.release },
+  });
 
   // A void instance method carries its receiver.
   const resize = input.bindings.find((entry) =>
@@ -677,6 +685,11 @@ test("each ownership shape translates through the neutral compiler input", () =>
   // the constructor's non-null direct projection.
   const resized = binding("fixture.fixture.widget.resized");
   assert.equal(resized.result.projection.kind, "nullableHandle");
+  const resizedManifest =
+    generated.manifest.bindings["fixture.fixture.widget.resized"];
+  assert.ok(resizedManifest !== undefined && resizedManifest.kind !== "constant");
+  assert.equal(resizedManifest.signature.result.frameBounded, undefined);
+  assert.equal(resized.result.frameBounded, undefined);
   const compare = binding("fixture.fixture.widget.comparedepth");
   assert.ok(compare !== undefined);
 

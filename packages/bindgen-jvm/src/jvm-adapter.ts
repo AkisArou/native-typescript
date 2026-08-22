@@ -3,13 +3,15 @@
  * analogue of gobject-adapter.ts. Each selected member becomes one ordinary
  * C symbol the existing call algebra reaches, materializing the env-table
  * dispatch and method-ID identity behind it. The adapter translates
- * conventions and decides no lifetime: acquisition of a constructed object
- * is normalized to one stable global reference whose release SYMBOL is
- * named, and when it is released stays the compiler's decision.
+ * conventions and decides no lifetime: an object-producing member exposes
+ * both its frame-scoped JNI local reference and a stable global reference,
+ * with an exact release for each. Which resource domain a call uses remains
+ * the compiler's decision.
  *
- * `JNIEnv *` is a thread capability the runtime owns; every adapter takes
- * it rather than acquiring it, because acquisition is a context decision an
- * adapter is not allowed to make.
+ * `JNIEnv *` is a thread capability the runtime owns. The current ABI
+ * reacquires it from the JavaVM cached at bind time; carrying that capability
+ * through a legalized foreign-call region is a separate compiler/runtime
+ * optimization, not something an individual member adapter may infer.
  *
  * The algebra is deliberately bounded and refuses precisely: JNI primitive
  * scalars and void, selected-class handles, java/lang/String through an
@@ -81,6 +83,10 @@ export interface JvmConstructorAdapter {
   /** The JNI identity the adapter resolves: ("<init>", descriptor). */
   readonly descriptor: string;
   readonly adapterSymbol: string;
+  /** Alternate entry that returns the JNI local reference directly. The
+   * compiler may select it only while all uses remain in the current native
+   * frame, and releases it through `JvmReleaseAdapter.frameBoundedSymbol`. */
+  readonly frameBoundedSymbol: string;
   readonly parameters: readonly JvmAdapterPosition[];
 }
 
@@ -90,6 +96,8 @@ export interface JvmMethodAdapter {
   readonly name: string;
   readonly descriptor: string;
   readonly adapterSymbol: string;
+  /** Present exactly when the result is a Java object handle. */
+  readonly frameBoundedSymbol: string | null;
   readonly result: JvmAdapterResult;
   readonly parameters: readonly JvmAdapterPosition[];
 }
@@ -122,6 +130,8 @@ export interface JvmReleaseAdapter {
    * identity-upcast target, so the one release lives on the root handle
    * every class upcasts to. */
   readonly adapterSymbol: string;
+  /** Releases one compiler-selected frame-bounded JNI local reference. */
+  readonly frameBoundedSymbol: string;
 }
 
 /** One callback registration point: a native method whose implementation
@@ -184,7 +194,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 21;
+  readonly schemaVersion: 22;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -367,25 +377,25 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
   constructors: {
     kind: "translation",
     custom:
-      "NewObject returns a frame-scoped local reference no neutral handle " +
-      "can hold; acquisition is normalized to one stable global reference " +
-      "whose release symbol is named, and when it is released stays the " +
-      "compiler's decision",
+      "NewObject returns a frame-scoped local reference; the adapter exposes " +
+      "both that exact resource and a stable global reference. The compiler " +
+      "selects between them and the adapter only spells acquisition and the " +
+      "matching releases",
   },
   staticMethods: {
     kind: "translation",
     custom:
       "the call is CallStatic<Type>Method through the env table with a " +
-      "cached class reference and method ID; an object result is promoted " +
-      "to a stable global reference exactly as a constructor's is",
+      "cached class reference and method ID; an object result exposes the " +
+      "same compiler-selected local-or-stable mechanics as a constructor",
   },
   instanceMethods: {
     kind: "translation",
     custom:
       "the call is Call<Type>Method through the env table on a stable " +
-      "receiver reference with a cached method ID; an object result is a " +
-      "frame-scoped local reference, so its acquisition is normalized to a " +
-      "stable global reference exactly as a constructor's is",
+      "receiver reference with a cached method ID; an object result exposes " +
+      "both its JNI local reference and a stable global normalization, with " +
+      "the compiler selecting the representation",
   },
 });
 
@@ -967,10 +977,12 @@ export function generateJvmAdapterSource(
         static: false,
       });
       const adapterSymbol = `${prefix}_new_${classToken}${suffix}`;
+      const frameBoundedSymbol = `${adapterSymbol}_frame`;
       const parameterDeclarations = signature.parameters.map(positionDeclaration);
       const argumentList = signature.parameters.map(argumentOf);
       headerDeclarations.push(
         `void *${adapterSymbol}(${[...parameterDeclarations, "char **error"].join(", ")});`,
+        `void *${frameBoundedSymbol}(${[...parameterDeclarations, "char **error"].join(", ")});`,
       );
       bodies.push(
         `/* ${class_.binaryName}.<init>${constructor.descriptor} */`,
@@ -998,12 +1010,35 @@ export function generateJvmAdapterSource(
         `  return stable;`,
         `}`,
         "",
+        `/* Same constructor, preserving the JNI local-reference domain. */`,
+        `void *${frameBoundedSymbol}(${[
+          ...parameterDeclarations,
+          "char **error",
+        ].join(", ")}) {`,
+        `  JNIEnv *env = ${prefix}_env(error);`,
+        `  if (env == NULL) return NULL;`,
+        ...bridgedPrologue(signature.parameters, "return NULL;"),
+        `  jobject local = (*env)->NewObject(${[
+          "env",
+          plan.classVar,
+          midVar,
+          ...argumentList,
+        ].join(", ")});`,
+        ...bridgedEpilogue(signature.parameters),
+        `  if ((*env)->ExceptionCheck(env)) {`,
+        `    ${prefix}_capture(env, error);`,
+        `    return NULL;`,
+        `  }`,
+        `  return local;`,
+        `}`,
+        "",
       );
       constructors.push(
         Object.freeze({
           className: class_.binaryName,
           descriptor: constructor.descriptor,
           adapterSymbol,
+          frameBoundedSymbol,
           parameters: Object.freeze([...signature.parameters]),
         }),
       );
@@ -1024,6 +1059,9 @@ export function generateJvmAdapterSource(
       });
       const adapterSymbol = `${prefix}_call_${classToken}_${method.name}${suffix}`;
       const result = signature.result;
+      const frameBoundedSymbol = result.kind === "handle"
+        ? `${adapterSymbol}_frame`
+        : null;
       if (result.kind === "span") usesSpans = true;
       if (result.kind === "string-vector") {
         usesStringVectors = true;
@@ -1092,6 +1130,13 @@ export function generateJvmAdapterSource(
           ...parameterDeclarations,
           ...trailing,
         ].join(", ")});`,
+        ...(frameBoundedSymbol === null
+          ? []
+          : [`void *${frameBoundedSymbol}(${[
+              ...receiver,
+              ...parameterDeclarations,
+              ...trailing,
+            ].join(", ")});`]),
       );
       bodies.push(
         `/* ${class_.binaryName}.${method.name}${method.descriptor} */`,
@@ -1256,12 +1301,43 @@ export function generateJvmAdapterSource(
         `}`,
         "",
       );
+      if (result.kind === "handle") {
+        bodies.push(
+          `/* Same method, preserving the JNI local-reference domain. */`,
+          `void *${frameBoundedSymbol!}(${[
+            ...receiver,
+            ...parameterDeclarations,
+            ...trailing,
+          ].join(", ")}) {`,
+          `  JNIEnv *env = ${prefix}_env(error);`,
+          `  if (env == NULL) return NULL;`,
+          ...bridgedPrologue(signature.parameters, "return NULL;"),
+          `  jobject local = ${call};`,
+          ...bridgedEpilogue(signature.parameters),
+          `  if ((*env)->ExceptionCheck(env)) {`,
+          `    ${prefix}_capture(env, error);`,
+          `    return NULL;`,
+          `  }`,
+          ...(statedNonNullResult
+            ? [
+                `  if (local == NULL) {`,
+                `    *error = ${prefix}_message(${brokenPromise});`,
+                `    return NULL;`,
+                `  }`,
+              ]
+            : []),
+          `  return local;`,
+          `}`,
+          "",
+        );
+      }
       const adapter = Object.freeze({
         kind: method.access.static ? ("static" as const) : ("instance" as const),
         className: class_.binaryName,
         name: method.name,
         descriptor: method.descriptor,
         adapterSymbol,
+        frameBoundedSymbol,
         result: signature.result,
         parameters: Object.freeze([...signature.parameters]),
       });
@@ -1692,6 +1768,7 @@ export function generateJvmAdapterSource(
   const envHelperSymbol = `${prefix}_env`;
   const bindVmSymbol = `${prefix}_bind_vm`;
   const releaseSymbol = `${prefix}_release`;
+  const frameReleaseSymbol = `${prefix}_release_frame`;
   const strvFreeSymbol = `${prefix}_strv_free`;
   const disconnectSymbol = `${prefix}_disconnect`;
   const connectionFreeSymbol = `${prefix}_connection_free`;
@@ -2025,6 +2102,21 @@ export function generateJvmAdapterSource(
     "  (*env)->DeleteGlobalRef(env, (jobject)ref);",
     "}",
     "",
+    "/* A frame-bounded result stays a JNI local reference. Its lexical",
+    " * owner calls this exact release before the surrounding native frame",
+    " * ends; no managed handle cell or global-reference edge exists. */",
+    `void ${frameReleaseSymbol}(void *ref) {`,
+    "  if (ref == NULL) return;",
+    "  JNIEnv *env = NULL;",
+    `  if (${prefix}_vm == NULL ||`,
+    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+    "                              JNI_VERSION_1_6) != JNI_OK) {",
+    `    fprintf(stderr, "${prefix}: frame release on an unattached thread\\n");`,
+    "    abort();",
+    "  }",
+    "  (*env)->DeleteLocalRef(env, (jobject)ref);",
+    "}",
+    "",
     `static jclass ${prefix}_resolve_class(JNIEnv *env, const char *name,`,
     "                                      char **error) {",
     "  jclass local = (*env)->FindClass(env, name);",
@@ -2149,6 +2241,7 @@ export function generateJvmAdapterSource(
     `jint ${bindSymbol}(JNIEnv *env, char **error);`,
     `jint ${bindVmSymbol}(JavaVM *vm, char **error);`,
     `void ${releaseSymbol}(void *ref);`,
+    `void ${frameReleaseSymbol}(void *ref);`,
     ...(usesStringVectors ? [`void ${strvFreeSymbol}(char **vector);`] : []),
     ...(usesCallbacks
       ? [
@@ -2165,14 +2258,17 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 21,
+    schemaVersion: 22,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
     sourceDigest: `sha256:${createHash("sha256").update(source).digest("hex")}`,
     bind: Object.freeze({ adapterSymbol: bindSymbol, bindVmSymbol }),
     envSupport: Object.freeze({ helperSymbol: envHelperSymbol }),
-    release: Object.freeze({ adapterSymbol: releaseSymbol }),
+    release: Object.freeze({
+      adapterSymbol: releaseSymbol,
+      frameBoundedSymbol: frameReleaseSymbol,
+    }),
     errorSupport: Object.freeze({
       messageSymbol: errorMessageSymbol,
       releaseSymbol: errorReleaseSymbol,

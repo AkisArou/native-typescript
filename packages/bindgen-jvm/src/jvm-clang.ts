@@ -88,6 +88,12 @@ export function generateJvmClangAbiProbe(
       "void",
       ["void*"],
     ),
+    candidate(
+      `jvm.release.${adapter.release.frameBoundedSymbol}`,
+      adapter.release.frameBoundedSymbol,
+      "void",
+      ["void*"],
+    ),
     ...(adapter.stringVectorSupport === null
       ? []
       : [
@@ -148,7 +154,7 @@ export function generateJvmClangAbiProbe(
       "void",
       ["void*"],
     ),
-    ...adapter.constructors.map((constructor) =>
+    ...adapter.constructors.flatMap((constructor) => [
       candidate(
         `jvm.constructor.${constructor.adapterSymbol}`,
         constructor.adapterSymbol,
@@ -157,9 +163,18 @@ export function generateJvmClangAbiProbe(
           ...constructor.parameters.flatMap(positionCTypes),
           "char**",
         ],
-      )
-    ),
-    ...[...adapter.staticMethods, ...adapter.instanceMethods].map((method) =>
+      ),
+      candidate(
+        `jvm.constructor.${constructor.frameBoundedSymbol}`,
+        constructor.frameBoundedSymbol,
+        "void*",
+        [
+          ...constructor.parameters.flatMap(positionCTypes),
+          "char**",
+        ],
+      ),
+    ]),
+    ...[...adapter.staticMethods, ...adapter.instanceMethods].flatMap((method) => [
       candidate(
         `jvm.${method.kind}.${method.adapterSymbol}`,
         method.adapterSymbol,
@@ -169,8 +184,20 @@ export function generateJvmClangAbiProbe(
           ...method.parameters.flatMap(positionCTypes),
           ...trailingCTypes(method.result),
         ],
-      )
-    ),
+      ),
+      ...(method.frameBoundedSymbol === null
+        ? []
+        : [candidate(
+            `jvm.${method.kind}.${method.frameBoundedSymbol}`,
+            method.frameBoundedSymbol,
+            "void*",
+            [
+              ...(method.kind === "instance" ? ["void*"] : []),
+              ...method.parameters.flatMap(positionCTypes),
+              ...trailingCTypes(method.result),
+            ],
+          )]),
+    ]),
   ].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
   /* jni.h declares the platform's types; the adapter's own header declares
    * the probed symbols, because no SDK header knows generated C. Both are

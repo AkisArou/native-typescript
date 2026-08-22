@@ -1,7 +1,7 @@
 # Android performance comparison
 
-Status: first measurement slice  
-Last revised: 2026-08-22
+Status: active measurement instrument  
+Last revised: 2026-08-23
 
 This benchmark compares three equivalent direct-Android applications:
 
@@ -94,12 +94,15 @@ completion rather than being renamed to the stronger first-frame claim.
 
 ## Interpretation
 
-The lightweight-object and constructor scenarios are the first resource-domain
-targets. Today Native TypeScript promotes every returned object to a global
-JNI reference and a managed handle cell. `light-object` exposes that mechanism
+The lightweight-object and constructor scenarios were the first
+resource-domain targets. Native TypeScript now keeps an exact, non-null object
+result frame-bounded when an immutable local is used only by synchronous
+borrowed native calls. The value remains a JNI local reference, receives one
+lexical `DeleteLocalRef`, and never enters a managed handle cell. Any storage,
+capture, suspension, callback ownership, or other unsupported use stays on the
+stable global-reference path. `light-object` exposes the optimized mechanism
 with little platform work around it; `constructor` and `view-tree` say whether
-a real widget application notices. After frame-bounded results land, their
-checksums and Kotlin workloads must remain unchanged.
+a real widget application notices.
 
 The setter and callback scenarios prevent a constructor improvement from
 being misreported as a general JNI improvement. They identify separate costs
@@ -110,3 +113,6 @@ The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
 first three-way Native TypeScript/Kotlin/NativeScript baseline is recorded in
 [record 0015](../../docs/records/0015-first-android-nativescript-baseline.md).
+The first compiler-selected resource optimization and its unchanged-workload
+remeasurement are recorded in
+[record 0016](../../docs/records/0016-frame-bounded-native-results.md).

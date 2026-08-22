@@ -421,7 +421,7 @@ export type MarshallingContract =
 
 export type PassMode = "value" | "pointer" | "hidden-return";
 
-export interface AbiResult {
+interface AbiValue {
   readonly type: NativeTypeId;
   readonly passMode: PassMode;
   readonly nullable: boolean;
@@ -432,7 +432,19 @@ export interface AbiResult {
   readonly conversion?: NumberConversion;
 }
 
-export interface AbiParameter extends AbiResult {
+export interface AbiResult extends AbiValue {
+  /** Alternate mechanics for the same logical owned handle when its lifetime
+   * is proven to stay inside the current foreign frame. The package names the
+   * entry and exact release; whole-program analysis alone decides whether a
+   * call may use them. Absent for values and for packages that expose only a
+   * stable representation. */
+  readonly frameBounded?: {
+    readonly entry: string;
+    readonly release: string;
+  };
+}
+
+export interface AbiParameter extends AbiValue {
   readonly name: string;
   readonly callback?: CallbackContract;
 }
@@ -711,7 +723,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 11;
+export const SCABI_SCHEMA_VERSION = 12;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";

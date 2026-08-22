@@ -225,9 +225,20 @@ test("the manifest slot carries the promise, not just the declaration", () => {
   assert.equal(pointerNullability(manifest, argument.type), false);
   assert.equal(binding.signature.result.nullable, false);
   assert.equal(
+    binding.signature.result.frameBounded,
+    undefined,
+    "a Java string is not a native handle resource",
+  );
+  assert.equal(
     pointerNullability(manifest, binding.signature.result.type),
     false,
   );
+
+  const self = manifest.bindings["fixture.fixture.stated.self"];
+  assert.ok(self !== undefined && self.kind !== "constant");
+  assert.equal(self.signature.result.nullable, false);
+  assert.equal(typeof self.signature.result.frameBounded?.entry, "string");
+  assert.equal(typeof self.signature.result.frameBounded?.release, "string");
 
   const unstated = manifest.bindings["fixture.fixture.stated.silent"];
   assert.ok(unstated !== undefined && unstated.kind !== "constant");
@@ -236,6 +247,11 @@ test("the manifest slot carries the promise, not just the declaration", () => {
     true,
   );
   assert.equal(unstated.signature.result.nullable, true);
+  assert.equal(
+    unstated.signature.result.frameBounded,
+    undefined,
+    "a successful null cannot inhabit the first frame-bounded handle slice",
+  );
 });
 
 test("a promise the platform breaks refuses by name instead of crossing", () => {
