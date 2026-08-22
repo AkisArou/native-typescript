@@ -406,5 +406,25 @@ function awaitLogLine(
     if (line !== undefined) return line;
     execFileSync("sleep", ["1"]);
   }
-  throw new Error(`no ${LOG_TAG} line matching ${pattern} within 60s`);
+  /* A timeout on this lane used to say only that no line arrived, which
+   * names the symptom and nothing else — the interesting cases (a Java
+   * exception before the handler, a link failure at load, a refused
+   * registration) all report through channels this filter excludes. So
+   * the failure carries what the DEVICE said: the crash buffer, plus the
+   * process's own lines. Without this a runtime failure and a
+   * never-registered handler are the same message. */
+  let context = "";
+  try {
+    const crash = run("logcat", "-d", "-b", "crash", "-t", "40");
+    const own = run("logcat", "-d", "-t", "200").split("\n")
+      .filter((entry) => /ntsdemo|native-typescript|AndroidRuntime|DEBUG/u.test(entry))
+      .slice(-40)
+      .join("\n");
+    context = `\n--- crash buffer ---\n${crash}\n--- process lines ---\n${own}`;
+  } catch {
+    /* Best effort: the assertion below is the verdict either way. */
+  }
+  throw new Error(
+    `no ${LOG_TAG} line matching ${pattern} within 60s${context}`,
+  );
 }

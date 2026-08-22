@@ -152,6 +152,46 @@ typedef void **NtsJvmEnvOut;
 
 static bool nts_jvm_adopted;
 
+/* Whether the ScriptC half of the boot has run. */
+static bool nts_jvm_services_ready;
+
+/**
+ * The retained-callback service and the pump, configured with THIS
+ * runtime's wake.
+ *
+ * It runs before the module's top level, and the reason is a change in
+ * what a program can promise. `applicationStart()` used to be the first
+ * thing a module did, so it could configure the service and be sure it
+ * was first. A TypeScript class that extends a native one is registered
+ * by a call the compiler synthesizes AHEAD of the program's own
+ * statements — because the platform reaches an override through the class
+ * rather than through anything the program does — so "the program calls
+ * applicationStart first" stopped being something the program controls.
+ *
+ * Letting the first registration configure the service lazily is not the
+ * alternative it looks like. That path installs the OWNER LOOP's wake and
+ * its pipe-based FFI, and on Android nothing drains that pipe: the
+ * adopt-in-place boot returns to the platform rather than parking. Whoever
+ * configures first decides where a queued delivery goes, so this runtime
+ * configures first, deliberately.
+ *
+ * Idempotent, because `applicationStart()` still calls it and a program
+ * that says so out loud should not be punished for it.
+ */
+static const char *nts_jvm_start_services(void) {
+  if (nts_jvm_services_ready) return NULL;
+  if (!scr_retained_callbacks_configure(nts_jvm_runtime_wake, NULL)) {
+    return "retained-callback service configuration failed";
+  }
+  if (!scr_loop_set_attached(nts_jvm_runtime_pending, nts_jvm_runtime_poll,
+                             &nts_jvm_loop)) {
+    (void)scr_retained_callbacks_destroy();
+    return "attaching the pump to the loop failed";
+  }
+  nts_jvm_services_ready = true;
+  return NULL;
+}
+
 /* Which thread owns the ScriptC instance. An instance is never entered
  * from two threads, and the runtime does not police that — reaching a
  * handler means reading a closure, and a closure read from a foreign
@@ -221,6 +261,12 @@ static void *nts_jvm_owner_main(void *opaque) {
   /* Binds are pure JNI, so they precede the instance; the ScriptC service
    * setup runs INSIDE the instance, from applicationStart on this same
    * thread, exactly as the executable path orders it. */
+  const char *failure = nts_jvm_start_services();
+  if (failure != NULL) {
+    fprintf(stderr, "nts_jvm_runtime: %s\n", failure);
+    nts_jvm_boot_signal(true);
+    return NULL;
+  }
   nts_jvm_boot_signal(false);
   if (nts_jvm_hosted_init != NULL) {
     nts_jvm_hosted_init();
@@ -289,6 +335,12 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
       return JNI_ERR;
     }
   }
+  const char *failure = nts_jvm_start_services();
+  if (failure != NULL) {
+    fprintf(stderr, "nts_jvm_runtime: %s\n", failure);
+    nts_jvm_vm = NULL;
+    return JNI_ERR;
+  }
   if (nts_jvm_hosted_init != NULL) {
     nts_jvm_hosted_init();
   }
@@ -327,16 +379,8 @@ void nts_jvm_application_start(char **error) {
      * binds; what remains is the ScriptC half, on the instance's own
      * thread — which this is, because the owner called the init that
      * evaluated the module calling here. */
-    if (!scr_retained_callbacks_configure(nts_jvm_runtime_wake, NULL)) {
-      *error = nts_jvm_owned_message(
-          "retained-callback service configuration failed");
-      return;
-    }
-    if (!scr_loop_set_attached(nts_jvm_runtime_pending, nts_jvm_runtime_poll,
-                               &nts_jvm_loop)) {
-      (void)scr_retained_callbacks_destroy();
-      *error = nts_jvm_owned_message("attaching the pump to the loop failed");
-    }
+    const char *failure = nts_jvm_start_services();
+    if (failure != NULL) *error = nts_jvm_owned_message(failure);
     return;
   }
   if (nts_jvm_vm != NULL) {

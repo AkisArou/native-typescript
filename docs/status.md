@@ -1078,6 +1078,26 @@ omitted ancestor was ABSENT rather than unselected and `TextView` projected
 with an external `View`, losing every inherited member silently. The extractor
 now asks `requiredJvmAncestry` what else it must read before ingestion runs.
 
+**The Android application is a class that extends a native class.** The
+acceptance program is `class MainActivity extends …` with `override onCreate`,
+`this` as the receiver, `new TextView(this)` and `this.setContentView(...)` —
+and it runs on a device through both saved-state arms, draws, and answers a
+tap. Nothing in it registers a handler or names a lifecycle callback as a
+function argument: the registration the platform needs is synthesized from the
+override. Instance fields still refuse, naming the peer's undeclared lifetime
+policy, so the tap count is a local. Reaching the base implementation is still
+spelled `ntsSuperOnCreate`, which is why the program names the generated class
+as its base rather than `Activity`.
+
+Landing it moved an assumption in the runtime. `applicationStart()` used to be
+able to promise it was the first thing a module did, and a registration
+synthesized ahead of the program's statements took that promise away: the first
+retained callback configured the callback service with the OWNER LOOP's wake
+and its pipe FFI, which nothing drains on Android, and `applicationStart()` then
+refused because the service was already configured. The runtime now configures
+the service itself, with its own wake, before the module's top level runs.
+Whoever configures first decides where a queued delivery goes.
+
 **A nested class is spelled as nested.** `android/view/View$OnClickListener`
 projects as `View.OnClickListener` rather than the flattened
 `ViewOnClickListener`, a name that existed nowhere else and that a reader
