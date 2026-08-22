@@ -424,14 +424,28 @@ export function generateJvmScabiPackage(
   }));
   adapterBindings.push(objectReleaseBindingId);
 
-  /* Class handles: TS names are the last segment of the binary name, with
-   * nesting flattened; a collision is refused rather than mangled. */
+  /* Class handles: a TS name is the binary name's last segment, and a
+   * NESTED class keeps its nesting — `android/view/View$OnClickListener`
+   * reads `View.OnClickListener`, which is what the class is called.
+   * Flattening it to `ViewOnClickListener` produced a name that exists
+   * nowhere else and that a reader cannot map back to Java.
+   *
+   * The nesting is spelled whether or not the OUTER class is itself
+   * selected, because a name that changed shape depending on an unrelated
+   * selection would be worse than either spelling. An outer namespace with
+   * no class beside it is ordinary TypeScript; when the outer class IS
+   * selected, the two merge.
+   *
+   * It also removes a collision class: two packages may each nest an
+   * `OnClickListener`, and under this spelling they are `View.
+   * OnClickListener` and whatever else rather than two claims on one name.
+   * A collision that survives is still refused rather than mangled. */
   const classNames = new Map<string, string>();
   const selectedTypeIds = new Map<string, string>();
   for (const class_ of options.snapshot.classes) {
     const simple = class_.binaryName
       .slice(class_.binaryName.lastIndexOf("/") + 1)
-      .replace(/\$/gu, "");
+      .replace(/\$/gu, ".");
     const existing = classNames.get(simple);
     if (existing !== undefined) {
       diagnostics.push(
@@ -740,6 +754,41 @@ export function generateJvmScabiPackage(
     })];
   }
 
+  /**
+   * A member on a NESTED class would need a two-level declaration name,
+   * which does not resolve.
+   *
+   * `View.OnClickListener` is one hop and the compiler reaches it. Adding a
+   * member makes it `View.OnClickListener.onClick`, and the symbol walk
+   * reads the DECLARED type at every hop after the first — where a
+   * namespace member does not live — so the binding would resolve to
+   * nothing and surface far away as a type that "maps to 'unknown'".
+   *
+   * Refused here, where the cause is. Nothing in the projected surface
+   * takes this path today, so it costs nothing; when something does, the
+   * fix is a compiler rule ("value at every hop except the last, the
+   * member's own space at the last") and this guard becomes a deletion.
+   *
+   * A nested class's own CONSTRUCTOR is not affected: its declaration is
+   * the class name itself, one hop, so `new View.OnClickListener(…)` — the
+   * construction form this spelling exists for — resolves today.
+   */
+  function refusesNestedMember(
+    className: string,
+    path: string,
+    member: string,
+  ): boolean {
+    if (!className.includes(".")) return false;
+    diagnostics.push(diagnostic(
+      path,
+      `'${member}' is a member of nested class '${className}', whose ` +
+        "declaration would be two levels deep; a member of a nested class " +
+        "waits on the compiler resolving a namespace member past the first " +
+        "hop, and its constructor is unaffected",
+    ));
+    return true;
+  }
+
   const declarationsByClass = new Map<string, string[]>();
   function declareMember(binaryName: string, line: string): void {
     const lines = declarationsByClass.get(binaryName) ?? [];
@@ -922,6 +971,7 @@ export function generateJvmScabiPackage(
         field.name.toLowerCase()
       }`;
       const className = classNameOf.get(class_.binaryName)!;
+      if (refusesNestedMember(className, path, field.name)) continue;
       defineBinding(bindingId, Object.freeze({
         kind: "constant" as const,
         declaration: Object.freeze({
@@ -964,6 +1014,19 @@ export function generateJvmScabiPackage(
       const first = index === 0;
       const suffix = constructor.adapterSymbol.match(/_([0-9a-f]{8})$/u)?.[1];
       const member = first ? "constructor" : `new_${suffix ?? index}`;
+      /* The FIRST constructor's declaration is the class name itself, one
+       * hop, so a nested class stays constructible. A factory is a member
+       * and takes the two-level path. */
+      if (
+        !first &&
+        refusesNestedMember(
+          className,
+          `class/${class_.binaryName}/constructor/${member}`,
+          member,
+        )
+      ) {
+        return;
+      }
       const bindingId = `${slug}.${idToken(class_.binaryName)}.${member.toLowerCase()}`;
       defineBinding(bindingId, callable({
         declaration: first ? className : `${className}.${member}`,
@@ -1125,6 +1188,15 @@ export function generateJvmScabiPackage(
     const className = classNameOf.get(callback.className);
     const typeId = selectedTypeIds.get(callback.className);
     if (className === undefined || typeId === undefined) continue;
+    if (
+      refusesNestedMember(
+        className,
+        `class/${callback.className}/callback/${callback.name}`,
+        callback.name,
+      )
+    ) {
+      continue;
+    }
     const classAnchored = callback.anchor === "class";
     const callbackTypeId =
       `jvm.${idToken(callback.className)}.${callback.name.toLowerCase()}.callback`;
@@ -1307,6 +1379,15 @@ export function generateJvmScabiPackage(
       ? `${baseName}_${suffix ?? "overload"}`
       : baseName;
     memberNames.add(memberKey);
+    if (
+      refusesNestedMember(
+        className,
+        `class/${method.className}/method/${method.name}`,
+        method.name,
+      )
+    ) {
+      continue;
+    }
     const bindingId = `${slug}.${idToken(method.className)}.${member.toLowerCase()}`;
     const receiver: AbiParameter[] = method.kind === "static"
       ? []
@@ -1480,6 +1561,12 @@ export function generateJvmScabiPackage(
       : []),
     ...(convertedScalarIds.length > 0 || usesJlong ? [""] : []),
   ];
+  /* A nested class's declarations go inside a namespace named for its
+   * outer class rather than at the top level. TypeScript merges repeated
+   * namespace declarations, so this coexists with the constants block a
+   * class may also have, and with the class itself when the outer one is
+   * selected too. */
+  const nestedByOuter = new Map<string, string[]>();
   for (const class_ of options.snapshot.classes) {
     const className = classNameOf.get(class_.binaryName)!;
     const parent = class_.superclass !== null &&
@@ -1492,15 +1579,17 @@ export function generateJvmScabiPackage(
      * when they cannot find one. "Does not exist" is what TypeScript says;
      * this is where the reason is. */
     const unprojected = unprojectedByClass.get(class_.binaryName) ?? [];
-    declarationLines.push(
-      `export declare class ${className}${parent === undefined ? "" : ` extends ${parent}`} {`,
+    const nested = className.lastIndexOf(".");
+    const simpleName = nested === -1 ? className : className.slice(nested + 1);
+    const lines = [
+      `export declare class ${simpleName}${parent === undefined ? "" : ` extends ${parent}`} {`,
       ...(declarationsByClass.get(class_.binaryName) ?? []),
       "}",
       "",
       ...(constants.length === 0 && unprojected.length === 0
         ? []
         : [
-            `export declare namespace ${className} {`,
+            `export declare namespace ${simpleName} {`,
             ...constants,
             ...(unprojected.length === 0
               ? []
@@ -1508,6 +1597,29 @@ export function generateJvmScabiPackage(
             "}",
             "",
           ]),
+    ];
+    if (nested === -1) {
+      declarationLines.push(...lines);
+      continue;
+    }
+    const outer = className.slice(0, nested);
+    const collected = nestedByOuter.get(outer) ?? [];
+    /* `export` inside an ambient namespace is redundant and TypeScript
+     * treats every member as exported; dropping it keeps the nested body
+     * reading like the file it is nested in. */
+    collected.push(
+      ...lines.map((line) =>
+        line.length === 0 ? line : `  ${line.replace(/^export declare /u, "")}`
+      ),
+    );
+    nestedByOuter.set(outer, collected);
+  }
+  for (const outer of [...nestedByOuter.keys()].sort(compareText)) {
+    declarationLines.push(
+      `export declare namespace ${outer} {`,
+      ...nestedByOuter.get(outer)!,
+      "}",
+      "",
     );
   }
   const declarationSource = `${declarationLines.join("\n").trimEnd()}\n`;

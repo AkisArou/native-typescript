@@ -142,12 +142,14 @@ to be.
 not an `int`, and Java's `int` is signed. The acceptance application now
 writes `label.setTextColor(0xFF000000)`.
 
-### 9. One flat package, and nested classes flattened into it
+### 9. One flat package, and nested classes flattened into it — HALF RESOLVED, see G
 
 Everything arrives from `@native-typescript/jvm-android`, where Java has
 `android.app`, `android.os`, `android.widget` — and a nested class like
-`View$OnClickListener` is spelled `ViewOnClickListener`, which is a name
-that exists nowhere else.
+`View$OnClickListener` was spelled `ViewOnClickListener`, which is a name
+that exists nowhere else. The nesting half is fixed: it now reads
+`View.OnClickListener`. The one flat module is not, and is much larger
+than it looks — see G.
 
 ## Proposals
 
@@ -372,7 +374,48 @@ each nest an `OnClickListener`, and under this spelling they are
 `View.OnClickListener` and whatever else, rather than two claims on one
 flattened name.
 
-Generator-side; no runtime effect.
+**These two halves are not the same size, and they should be taken
+separately.**
+
+*Nested spelling* — **landed** — is generator-side with no runtime effect, as claimed. A
+nested class is emitted inside a namespace named for its outer class, and
+the nesting is spelled whether or not the outer class is itself selected —
+a name that changed shape depending on an unrelated selection would be
+worse than either spelling, and an outer namespace with no class beside it
+is ordinary TypeScript. It needs one compiler change: a handle type's
+declaration name becomes dotted for the first time, and the symbol walk
+looks for the nested class on the outer class's INSTANCE type, where a
+nested class does not live. The constant path already passes the right
+member space; the type path does not.
+
+*Per-package modules* — **not started** — is not generator-side and is much
+larger than it reads. No generator emits a module other than `"."` within a package —
+`bindgen-gir` uses a non-root module only to name a DIFFERENT package — so
+sub-modules are a new packaging capability, touching what the manifest's
+declaration references mean, how many files a binding package produces,
+and how the target assembles them. It is worth doing and it is not a
+spelling change.
+
+**One boundary the spelling exposes, and it reaches proposal A.** A nested
+class's own constructor declaration is the class name itself — one hop —
+so `new View.OnClickListener(…)` resolves. A MEMBER on a nested class
+would be two hops, and the compiler's symbol walk reads the declared type
+at every hop after the first, where a namespace member does not live. That
+refuses by name rather than emitting a binding that resolves to nothing.
+
+Nothing in the projected surface takes that path today, but **A does**: a
+generated implementation named `View.OnClickListener` would register its
+`onClick` as a member of a nested class. So A needs the compiler rule
+first — "value at every hop except the last, the member's own space at the
+last" — and that rule is worth admitting only once a program needs it,
+which A would be.
+
+The spelling is also the half that was actually asked for. Module imports
+are already what this project has and what makes it preferable to a dotted
+ambient global; `android/widget` versus one flat module is a tidiness win,
+while `View.OnClickListener` versus `ViewOnClickListener` is the
+difference between a name a reader can map back to Java and one that
+exists nowhere else.
 
 ### H. Colours and unsigned constants
 
@@ -616,7 +659,8 @@ the largest single ergonomic win available.
 
 Everything else divides cleanly:
 
-- **Free, generator-side, no contract change:** G; D, E and F — *landed*.
+- **Free, generator-side, no contract change:** G's modules half; D, E, F
+  and G's nesting half — *landed*.
 - **Evidence the metadata already carries:** B — *landed*.
 - **Compiler capability:** C, H — *H landed*, and the peer.
 

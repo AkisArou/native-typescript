@@ -1078,6 +1078,17 @@ omitted ancestor was ABSENT rather than unselected and `TextView` projected
 with an external `View`, losing every inherited member silently. The extractor
 now asks `requiredJvmAncestry` what else it must read before ingestion runs.
 
+**A nested class is spelled as nested.** `android/view/View$OnClickListener`
+projects as `View.OnClickListener` rather than the flattened
+`ViewOnClickListener`, a name that existed nowhere else and that a reader
+could not map back to Java. The nesting is spelled whether or not the outer
+class is itself selected, so a name never changes shape because of an
+unrelated selection. It also removes a collision class: two packages may each
+nest an `OnClickListener`. A nested class's CONSTRUCTOR is one hop and
+resolves; a MEMBER on one would be two, which the compiler's symbol walk does
+not reach past the first hop, so it refuses by name rather than emitting a
+binding that resolves to nothing.
+
 **A member resolves on the class that declares it.** Selecting `setText` on
 `Button` selects it on `TextView`, where the class file declares it, rather
 than refusing — the upcast chain already makes the call legal, so knowing

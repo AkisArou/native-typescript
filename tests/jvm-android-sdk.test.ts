@@ -296,6 +296,84 @@ test("selecting Activity brings the ancestry it needs to be one", { skip }, () =
   assert.equal(context?.constructors.length, 0);
 });
 
+test("a nested class is constructible, and a member on one refuses", { skip }, () => {
+  /* `android/view/View$OnClickListener` reads `View.OnClickListener`,
+   * which is what the class is called. That name is ONE hop and the
+   * compiler reaches it, so the class projects and its constructor — the
+   * construction form this spelling exists for — is unaffected.
+   *
+   * A MEMBER on it would be `View.OnClickListener.onClick`, two hops, and
+   * the symbol walk reads the declared type at every hop after the first,
+   * where a namespace member does not live. Rather than emit a binding
+   * that resolves to nothing and surfaces far away as "maps to 'unknown'",
+   * it refuses where the cause is. */
+  const sources = sdkSources().filter(({ logicalPath }) =>
+    /android\/(view\/View(\$OnClickListener)?|content\/Context(ThemeWrapper|Wrapper)?)\.class$/u
+      .test(logicalPath) ||
+    logicalPath.endsWith("java/lang/Object.class")
+  );
+
+  const nestedName = ingestJvmClasses(sources, {
+    classes: [{ binaryName: "android/view/View$OnClickListener" }],
+  });
+  assert.equal(nestedName.classes.length, 1);
+
+  const withMember = ingestJvmClasses(sources, {
+    classes: [
+      {
+        binaryName: "android/view/View$OnClickListener",
+        methods: [{ name: "onClick", descriptor: "(Landroid/view/View;)V" }],
+      },
+      { binaryName: "android/view/View" },
+    ],
+  });
+  const adapter = generateJvmAdapterSource(withMember, { packageSlug: "android" });
+  assert.throws(
+    () =>
+      generateJvmScabiPackage({
+        snapshot: withMember,
+        adapter,
+        packageSlug: "android",
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/android-nested",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm.android",
+          instance: "native-typescript.jvm.android@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "google",
+          name: "android",
+          version: "35",
+          deploymentTarget: "35",
+          modules: ["android"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "android.jvm-adapters", output: "jvm-adapters.o" },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof JvmGenerationError);
+      assert.match(
+        error.diagnostics[0]!.message,
+        /member of nested class 'View\.OnClickListener'.*two levels deep/su,
+      );
+      return true;
+    },
+  );
+});
+
 test("an extractor is told which ancestors it must also read", { skip }, () => {
   /* The arm that could not fail before, and the reason this is a separate
    * test rather than a line in the one above.
