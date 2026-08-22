@@ -329,10 +329,17 @@ Broader payload families and ownership modes remain future slices.
 A TypeScript class may `extend` a native class. Its `override` methods lower
 into the registrations the platform dispatches, `this` is the receiver the
 framework constructed, and `super.m(...)` reaches the base implementation. No
-instance fields: with no managed state there is no second object, so `this` IS
-the handle cell whose identity the interning map already keeps, and the peer's
-undeclared lifetime policy is not on this path. A field refuses by name and
-says why.
+instance fields: with no managed state there is no second object, so nothing
+the program can hold outlives a dispatch, and the peer's undeclared lifetime
+policy is not on this path. A field refuses by name and says why.
+
+Note what that does NOT rest on. A cell per dispatch and one cell per object are
+indistinguishable here precisely because nothing persists between dispatches to
+compare — not because the interning map guarantees identity. It does not on the
+platform this is for: JVM handles declare `identity: "none"` because
+`NewGlobalRef` twice on one object yields two distinct `jobject`s, so only
+`pointer`-identity handles intern. Identity becomes observable the moment a
+field exists, which is the same boundary the refusal already draws.
 
 `super` is a DISTINCT binding, not the one the platform calls — were it the
 same it would redispatch to the override and never terminate — so SCABI's
