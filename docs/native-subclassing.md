@@ -406,6 +406,40 @@ have: what keeps the peer alive, which callback ends it, and which executor
 performs the final release. Writing that down is the prerequisite; the lowering
 is downstream of it.
 
+**The cycle resolves, and the resolution is to stop asking the cell to answer
+two questions.** ASSOCIATION — which peer belongs to this handle — is a lookup
+and may be weak. LIFETIME — how long the peer lives — is not the cell's
+business at all, and giving it to the cell is what produced the cycle. Give it
+instead to the registration, which already exists per receiver and already
+routes the callbacks: registration → peer strong, handle → peer weak, peer →
+handle strong. No cycle.
+
+The strong edge is then cut by a platform TERMINAL EVENT rather than by
+reachability — `onDestroy` on Android — and the generated class can always
+override it whether or not the program does, so the hook cannot be forgotten.
+This does not violate the prohibition above: the peer's reference ends when the
+platform declares the object over, which is the platform's own lifetime adopted
+exactly rather than a managed reference held for convenience.
+
+That makes lifetime the third STATED SELECTION FACT, beside `delivery` and
+`anchor`, and for the same reason each of those exists: a class file cannot say
+which method ends the object, so the manifest says it —
+`terminal: { name: "onDestroy", descriptor: "()V" }` — and a base that
+publishes no terminal event refuses by name when a subclass declares instance
+fields.
+
+**A JNI fact that invalidates the cheap association.** The claim that interning
+by foreign pointer already yields one cell per object does NOT hold for JNI:
+`NewGlobalRef` called twice on one object returns two distinct `jobject`s, and
+the specification forbids comparing references with `==` — `IsSameObject`
+exists precisely because identity is not the pointer. So cells key
+per-REFERENCE, and two dispatches carrying the same Activity can intern to two
+cells. Association therefore needs a stored identity on the generated object or
+an `IsSameObject` scan over live peers, which is O(n) over the handful of
+lifecycle objects a program has and is entirely affordable. This is a
+correctness requirement rather than an optimisation, and it would otherwise be
+discovered after the lowering looked finished.
+
 **What does NOT need it.** A class extending a native class with NO managed
 fields has no second object and therefore no cycle: `this` is the handle cell,
 whose identity the interning map already guarantees. Overrides, `this`, and
