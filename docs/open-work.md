@@ -346,6 +346,44 @@ The JVM session owns the status text recording that, including the
 document's `super` section accepts the generated-bridge MECHANISM and refuses
 that public spelling, and it has nowhere else to live until `extends` exists.
 
+### Comparing two native handles
+
+`a === b` between two values of a handle type is SC1043, "comparing
+non-number, non-string values". That is a general gap, but one platform makes
+it load-bearing rather than a convenience.
+
+**Why it matters now.** A handle whose identity arm is `none` builds a cell per
+arrival, so two arrivals of ONE foreign object are two managed values. That is
+the arm's user-visible semantics and the thing someone will meet and file as a
+bug — and a program cannot currently observe it, so the fixture asserts it
+through a reference count instead.
+
+**What the peer slot actually is, which this makes visible.** With
+`identity: "none"` the slot is not merely how the peer is FOUND — it is what
+RESTORES object identity. Two lifecycle dispatches deliver two distinct handle
+cells for one Activity, both find the same peer, and `this` in `onCreate` and
+`this` in `onStart` are the same value although the handles underneath are not.
+
+**It is NOT a prerequisite for that slice, and this entry said so before being
+corrected.** `this === this` is one observer of the slot's claim and not the
+best one: a field written in `onCreate` and read in `onStart` says the same
+thing in the terms a program cares about — nobody writes `this === this`, they
+write `this.taps` and expect it to still be there — and a broken slot resets it,
+which fails as loudly as the rotation counter. That observer needs no
+comparison, and it becomes writable exactly when fields do, which is inside the
+slice rather than before it.
+
+**What it would mean.** Cell identity: two handle values are the same when they
+name the same managed cell. That gives `pointer` handles object equality for
+free (one object, one interned cell) and gives `none` handles the honest answer
+(two cells, not equal), which is the arm's semantics rather than a compromise.
+
+**What would admit it:** a program that needs to ask whether two handles name
+one object. The uninterned fixture wanted to and could not, and asserts through
+a reference count instead — which proves the cells are distinct without saying
+what that means to someone writing TypeScript. That is a real gap and a small
+one; it is not blocking anything.
+
 ### The receiver's POSITION in a class-anchored registration is unstated
 
 An override's `this` is the callback's first parameter, and nothing in the

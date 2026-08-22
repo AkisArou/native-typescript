@@ -452,6 +452,27 @@ int32_t nts_notice_fire(int32_t seed) {
   return nts_notice_marks;
 }
 
+struct NtsToken {
+  int32_t value;
+};
+
+static NtsToken nts_token_object = { 7 };
+static int32_t nts_token_live = 0;
+
+NtsToken *nts_token_acquire(void) {
+  nts_token_live += 1;
+  return &nts_token_object;
+}
+
+void nts_token_release(NtsToken *token) {
+  (void)token;
+  nts_token_live -= 1;
+}
+
+int32_t nts_token_value(NtsToken *token) { return token->value; }
+
+int32_t nts_token_outstanding(void) { return nts_token_live; }
+
 struct NtsTickSource {
   int32_t value;
 };

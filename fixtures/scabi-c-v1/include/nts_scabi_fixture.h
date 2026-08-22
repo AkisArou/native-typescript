@@ -166,6 +166,21 @@ NTS_SCABI_EXPORT int32_t nts_judge_ask_maybe(NtsJudge *judge, int32_t code,
  * call's own argument after, which is the order a lowered method already has —
  * its `this` is parameter zero — so an override lowers straight into this slot
  * with no adapter between. */
+/* ONE object handed out TWICE, under a reference count.
+ *
+ * The fixture for a handle whose identity arm is `none`: a platform whose
+ * references cannot be compared for identity — JNI, where two global refs to
+ * one object are distinct pointers — so the runtime may not intern by pointer
+ * and every arrival owns its own reference. Returning the same pointer is what
+ * makes the arm observable; the count is what proves each cell released
+ * exactly the reference it took. */
+typedef struct NtsToken NtsToken;
+
+NTS_SCABI_EXPORT NtsToken *nts_token_acquire(void);
+NTS_SCABI_EXPORT void nts_token_release(NtsToken *token);
+NTS_SCABI_EXPORT int32_t nts_token_value(NtsToken *token);
+NTS_SCABI_EXPORT int32_t nts_token_outstanding(void);
+
 /* The base is its OWN type, not an alias of the counter. A platform base
  * class is — an Activity is not an Object with different members — and the
  * manifest says the same thing structurally: one handle type carries one
