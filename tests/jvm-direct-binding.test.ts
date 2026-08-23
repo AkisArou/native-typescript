@@ -89,6 +89,7 @@ test(
           methods: [
             { name: "depth", descriptor: "()I" },
             { name: "nameLength", descriptor: "(Ljava/lang/String;)I" },
+            { name: "reverseBytes", descriptor: "([B)[B" },
           ],
         }],
       },
@@ -133,6 +134,7 @@ test(
         "fixture.fixture.widget.constructor",
         "fixture.fixture.widget.depth",
         "fixture.fixture.widget.namelength",
+        "fixture.fixture.widget.reversebytes",
       ],
       exports: [],
     });
@@ -163,6 +165,9 @@ test(
           "}\n" +
           "export function utf16Length(value: string): number {\n" +
           "  return value.length;\n" +
+          "}\n" +
+          "export function reversedByteLength(value: Uint8Array): number {\n" +
+          "  return Widget.reverseBytes(value).length;\n" +
           "}\n" +
           "const LOOP_LIMIT = 50000;\n" +
           "export function integerLoop(): number {\n" +
@@ -208,6 +213,7 @@ test(
           "suppliedDepth",
           "nullableDepth",
           "utf16Length",
+          "reversedByteLength",
           "integerLoop",
           "integerLoopAcrossNative",
           "overflowingNumber",
@@ -248,6 +254,9 @@ test(
           functionName: "utf16Length",
           methodName: "utf16Length",
         }, {
+          functionName: "reversedByteLength",
+          methodName: "reversedByteLength",
+        }, {
           functionName: "integerLoop",
           methodName: "integerLoop",
         }, {
@@ -283,6 +292,7 @@ test(
           "    System.out.println(DirectBinding.nullableDepth(new fixture.Widget(11), true));\n" +
           "    System.out.println(DirectBinding.nullableDepth(new fixture.Widget(11), false));\n" +
           "    System.out.println(DirectBinding.utf16Length(\"👩‍💻\"));\n" +
+          "    System.out.println(DirectBinding.reversedByteLength(new byte[] {1, 2, 3, 4}));\n" +
           "    System.out.println(DirectBinding.integerLoop());\n" +
           "    System.out.println(DirectBinding.integerLoopAcrossNative(new fixture.Widget(9)));\n" +
           "    System.out.println(DirectBinding.overflowingNumber());\n" +
@@ -313,6 +323,8 @@ test(
       assert.match(bytecode, /fixture\/Widget\."<init>":\(I\)V/u);
       assert.match(bytecode, /fixture\/Widget\.depth:\(\)I/u);
       assert.match(bytecode, /java\/lang\/String\.length:\(\)I/u);
+      assert.match(bytecode, /fixture\/Widget\.reverseBytes:\(\[B\)\[B/u);
+      assert.match(bytecode, /arraylength/u);
       assert.doesNotMatch(bytecode, /nts_jvm_fixture/u);
       assert.doesNotMatch(bytecode, / native /u);
       const run = spawnSync(
@@ -323,7 +335,7 @@ test(
       assert.equal(run.status, 0);
       assert.equal(
         run.stdout,
-        "6.0\n7.0\n9.0\n11.0\n-1.0\n5.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
+        "6.0\n7.0\n9.0\n11.0\n-1.0\n5.0\n4.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

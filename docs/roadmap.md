@@ -193,6 +193,14 @@ with bytecode proving no JNI entry, handle cell, or tagged union. The evidence
 and the associated immutable-global/string-length fact fixes are in
 [record 0027](records/0027-direct-jvm-reference-values.md).
 
+The first primitive-array representation now stays resident too. ScriptC
+`bytes<u8>` is Java `byte[]` across exact `[B` direct arguments and results,
+and its length lowers to `arraylength`; the unchanged 256-byte Base64 kernel
+reached 0.94x Kotlin and ran 2.14x faster than the JNI route. Unsigned element
+access and every broader bytes operation remain refused rather than inheriting
+Java's signed-byte semantics. The proof and device evidence are in
+[record 0028](records/0028-direct-jvm-byte-arrays.md).
+
 *The exact family that remains.* [Language profile](language-profile.md)
 specifies a whole numeric contract for it, and all of it is implemented except
 the helper families: same-type wrapping `+`, `-`, `*`, the three bitwise

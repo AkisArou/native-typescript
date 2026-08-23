@@ -79,6 +79,7 @@ const DIRECT_JVM_SCENARIOS = [
   "setter",
   "string-argument",
   "string-result",
+  "byte-array",
   "handle-result",
 ] as const satisfies readonly AndroidBenchmarkScenario[];
 
@@ -650,6 +651,12 @@ async function buildDirectJvmApk(input: {
     "equals",
     "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z",
   );
+  const base64EncodeBinding = findDirectBinding(
+    "static-method",
+    "android/util/Base64",
+    "encode",
+    "([BI)[B",
+  );
   const viewGetIdBinding = findDirectBinding(
     "instance-method",
     "android/view/View",
@@ -669,6 +676,7 @@ async function buildDirectJvmApk(input: {
     textViewConstructorBinding,
     textViewSetTextSizeBinding,
     equalsBinding,
+    base64EncodeBinding,
     viewGetIdBinding,
     viewGroupGetChildAtBinding,
   ] as const;
@@ -711,6 +719,7 @@ async function buildDirectJvmApk(input: {
       "runSetters",
       "runStringArguments",
       "runStringResults",
+      "runByteArrays",
       "runHandleResults",
     ],
     sourceRoot: directRoot,
@@ -748,6 +757,10 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runStringResults",
         methodName: "runStringResults",
+      },
+      {
+        functionName: "runByteArrays",
+        methodName: "runByteArrays",
       },
       {
         functionName: "runHandleResults",
@@ -801,6 +814,7 @@ async function buildDirectJvmApk(input: {
     "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
       "Ljava/lang/CharSequence;)Z",
     "android/graphics/Rect.flattenToString:()Ljava/lang/String;",
+    "android/util/Base64.encode:([BI)[B",
     "android/widget/LinearLayout.getChildAt:(I)Landroid/view/View;",
     "android/view/View.getId:()I",
   ];
@@ -811,6 +825,11 @@ async function buildDirectJvmApk(input: {
           bytecode,
       );
     }
+  }
+  if (!bytecode.includes("arraylength")) {
+    throw new Error(
+      `Direct-JVM bytecode did not consume the byte[] result in ART:\n${bytecode}`,
+    );
   }
   if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
     throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
@@ -834,6 +853,7 @@ async function buildDirectJvmApk(input: {
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
     "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
+    "NativeTypeScriptKernel.runByteArrays:([B)D",
     "NativeTypeScriptKernel.runHandleResults:(Landroid/widget/LinearLayout;)D",
   ];
   for (const generatedInvocation of generatedInvocations) {
@@ -1054,11 +1074,21 @@ function sourceConstant(source: string, language: Implementation, name: string):
   return Number(found.replace(/_/gu, ""));
 }
 
+function javaSourceConstant(source: string, name: string): number {
+  const found = new RegExp(
+    `private static final int ${name} = ([0-9_]+);`,
+    "u",
+  ).exec(source)?.[1];
+  if (found === undefined) throw new Error(`Java source has no ${name}`);
+  return Number(found.replace(/_/gu, ""));
+}
+
 function verifyWorkloadAgreement(): void {
   const nts = readFileSync(nativeSource, "utf8");
   const kotlin = readFileSync(kotlinSource, "utf8");
   const nativeScript = readFileSync(nativeScriptSource, "utf8");
   const direct = readFileSync(directSource, "utf8");
+  const directActivity = readFileSync(directActivitySource, "utf8");
   const expected = {
     WARMUP_SAMPLES: androidBenchmarkWorkload.warmupSamples,
     MEASURED_SAMPLES: androidBenchmarkWorkload.measuredSamples,
@@ -1096,14 +1126,14 @@ function verifyWorkloadAgreement(): void {
       name === "SETTER_ITERATIONS" ||
       name === "STRING_ARGUMENT_ITERATIONS" ||
       name === "STRING_RESULT_ITERATIONS" ||
+      name === "BYTE_ARRAY_ITERATIONS" ||
+      name === "BYTE_ARRAY_LENGTH" ||
       name === "HANDLE_RESULT_ITERATIONS" ||
       name === "HANDLE_RESULT_CHILDREN"
     ) {
-      const directValue = sourceConstant(
-        direct,
-        "native-typescript-jvm",
-        name,
-      );
+      const directValue = name === "BYTE_ARRAY_LENGTH"
+        ? javaSourceConstant(directActivity, name)
+        : sourceConstant(direct, "native-typescript-jvm", name);
       if (directValue !== value) {
         throw new Error(
           `${name} drifted: project=${value}, native-typescript-jvm=${directValue}`,

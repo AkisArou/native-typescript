@@ -400,6 +400,7 @@ need admission evidence:
 | cache literal Java strings | device workload dominated by repeated literal conversion/allocation |
 | keep Java-origin immutable strings foreign-resident | demonstrated Java-to-native-to-Java round-trip copies |
 | keep exact references in ART in the direct JVM tier | **first slice landed**: [record 0027](records/0027-direct-jvm-reference-values.md) keeps strings and exact `T | null` handles unboxed; string results reached 1.00x Kotlin and nullable handle results 0.56x |
+| keep exact primitive arrays in ART in the direct JVM tier | **first slice landed**: [record 0028](records/0028-direct-jvm-byte-arrays.md) keeps `bytes<u8>` as Java `byte[]`; the 256-byte Base64 workload reached 0.94x Kotlin and ran 2.14x faster than the JNI route |
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
 | ThinLTO/bitcode adapters | measured code-size or call overhead after resource operations are exact |
 | generated call fusion | repeated boundary crossings dominate a real hot region and exception order can be preserved |
@@ -429,6 +430,14 @@ nullable Java reference. The first two unchanged result workloads reached
 Kotlin parity or better with bytecode proving the JNI and wrapper paths are
 absent. [Record 0027](records/0027-direct-jvm-reference-values.md) records the
 representation contract, observers, and five-round measurement.
+
+The same rule now applies to the first primitive-array family. ScriptC
+`bytes<u8>` remains Java `byte[]` across exact `[B` direct arguments and
+results, and length is JVM `arraylength`. The unchanged Base64 workload
+reached 0.94x Kotlin and 0.47x the JNI Native TypeScript median; element
+operations remain refused until unsigned reads and writes are explicit.
+[Record 0028](records/0028-direct-jvm-byte-arrays.md) records the narrow
+contract, bytecode, and matched device evidence.
 
 Strings and buffers must follow platform contracts. `java.lang.String`
 cannot share native storage, while an API accepting a direct `ByteBuffer` can.

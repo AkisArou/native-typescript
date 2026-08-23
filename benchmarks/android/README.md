@@ -13,12 +13,12 @@ applications:
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
 That APK measures `light-object`, `setter`, `string-argument`, `string-result`,
-and `handle-result`: all five hot loops come from checked TypeScript and
-execute as ART bytecode, while a small Java Activity supplies lifecycle,
-timing, logging, its own concrete
-receiver for `setter`, and the distinct runtime string inputs. It is not
-included in application launch or memory comparisons until it can express the
-whole benchmark application.
+`byte-array`, and `handle-result`: all six hot loops come from checked
+TypeScript and execute as ART bytecode, while a small Java Activity supplies
+lifecycle, timing, logging, its own concrete receiver for `setter`, the
+distinct runtime string inputs, and the byte-array input. It is not included
+in application launch or memory comparisons until it can express the whole
+benchmark application.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -48,7 +48,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-five scenarios it implements.
+six scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -182,7 +182,10 @@ from the setter and string loops; their bytecode and matched parity result are
 in [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md). Java
 strings and exact nullable native handles now remain unboxed ART references;
 the two added kernels, bytecode proof, and matched device results are in
-[record 0027](../../docs/records/0027-direct-jvm-reference-values.md). These
+[record 0027](../../docs/records/0027-direct-jvm-reference-values.md). Direct
+`Uint8Array` parameters and results now remain Java `byte[]` references; the
+unchanged Base64 loop, exact bytecode proof, and matched device result are in
+[record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md). These
 are call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend.
 
@@ -220,6 +223,8 @@ recorded in
 [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md).
 Direct-JVM string and nullable-handle representations are recorded in
 [record 0027](../../docs/records/0027-direct-jvm-reference-values.md).
+Direct-JVM byte-array residency is recorded in
+[record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md).
 
 ## Research references
 

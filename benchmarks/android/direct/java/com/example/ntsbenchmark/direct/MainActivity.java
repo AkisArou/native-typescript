@@ -19,6 +19,8 @@ public final class MainActivity extends Activity {
     private static final int SETTER_ITERATIONS = 50000;
     private static final int STRING_ARGUMENT_ITERATIONS = 20000;
     private static final int STRING_RESULT_ITERATIONS = 10000;
+    private static final int BYTE_ARRAY_ITERATIONS = 2000;
+    private static final int BYTE_ARRAY_LENGTH = 256;
     private static final int HANDLE_RESULT_ITERATIONS = 32000;
     private static final int HANDLE_RESULT_CHILDREN = 16;
     private static final String TAG = "nts-benchmark";
@@ -34,11 +36,12 @@ public final class MainActivity extends Activity {
             !"setter".equals(scenario) &&
             !"string-argument".equals(scenario) &&
             !"string-result".equals(scenario) &&
+            !"byte-array".equals(scenario) &&
             !"handle-result".equals(scenario)
         ) {
             throw new IllegalArgumentException(
                 "direct JVM benchmark supports only light-object, setter, " +
-                    "string-argument, string-result, and handle-result"
+                    "string-argument, string-result, byte-array, and handle-result"
             );
         }
 
@@ -103,6 +106,26 @@ public final class MainActivity extends Activity {
                     "string-result",
                     sample,
                     STRING_RESULT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else if ("byte-array".equals(scenario)) {
+            byte[] input = new byte[BYTE_ARRAY_LENGTH];
+            for (int inputIndex = 0; inputIndex < BYTE_ARRAY_LENGTH; inputIndex++) {
+                input[inputIndex] = (byte) (inputIndex & 127);
+            }
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runByteArrays(input);
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runByteArrays(input);
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "byte-array",
+                    sample,
+                    BYTE_ARRAY_ITERATIONS,
                     elapsed,
                     (int) rawChecksum
                 );

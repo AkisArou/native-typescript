@@ -1,4 +1,5 @@
 import {
+  Base64,
   Rect,
   TextUtils,
   TextView,
@@ -16,6 +17,7 @@ const LIGHT_OBJECT_ITERATIONS = 50000;
 const SETTER_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
+const BYTE_ARRAY_ITERATIONS = 2000;
 const HANDLE_RESULT_ITERATIONS = 32000;
 const HANDLE_RESULT_CHILDREN = 16;
 
@@ -65,6 +67,16 @@ export function runStringResults(rectangle: Rect): number {
   let index = 0;
   while (index < STRING_RESULT_ITERATIONS) {
     checksum += rectangle.flattenToString().length;
+    index += 1;
+  }
+  return checksum;
+}
+
+export function runByteArrays(input: Uint8Array): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < BYTE_ARRAY_ITERATIONS) {
+    checksum += Base64.encode(input, 2).length;
     index += 1;
   }
   return checksum;
