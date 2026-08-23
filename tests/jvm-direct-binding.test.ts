@@ -346,6 +346,493 @@ test(
 );
 
 test(
+  "a platform-dispatched TypeScript override stays inside the JVM",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-direct-subclass-"));
+    try {
+      const hostClass = join(fixtureClasses, "fixture/Host.class");
+      const generatedSubclass = generateJvmSubclassSource(
+        ingestJvmClasses(
+          [{
+            logicalPath: "fixtures/jvm/classes/fixture/Host.class",
+            bytes: readFileSync(hostClass),
+          }],
+          {
+            classes: [{
+              binaryName: "fixture/Host",
+              constructors: ["()V"],
+              methods: [{ name: "onNotify", descriptor: "(I)V" }],
+            }],
+          },
+        ),
+        {
+          baseBinaryName: "fixture/Host",
+          overrides: [{ name: "onNotify", descriptor: "(I)V" }],
+          subclassBinaryName: "fixture/DirectHost",
+          anchor: "class",
+        },
+      );
+      const shellSources = join(root, "shell-sources/fixture");
+      const shellClasses = join(root, "shell-classes");
+      mkdirSync(shellSources, { recursive: true });
+      mkdirSync(shellClasses);
+      const shellSource = join(shellSources, "DirectHost.java");
+      writeFileSync(shellSource, generatedSubclass.source);
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        fixtureClasses,
+        "-d",
+        shellClasses,
+        shellSource,
+      ]);
+
+      const snapshot = ingestJvmClasses(
+        [{
+          logicalPath: "fixtures/jvm/classes/fixture/Host.class",
+          bytes: readFileSync(hostClass),
+        }, {
+          logicalPath: "generated/fixture/DirectHost.class",
+          bytes: readFileSync(join(shellClasses, "fixture/DirectHost.class")),
+        }],
+        {
+          classes: [{
+            binaryName: "fixture/Host",
+            constructors: ["()V"],
+            methods: [{ name: "onNotify", descriptor: "(I)V" }],
+          }, {
+            binaryName: generatedSubclass.subclassBinaryName,
+            constructors: ["()V"],
+            methods: generatedSubclass.methods,
+            callbacks: generatedSubclass.callbacks,
+          }],
+        },
+      );
+      const adapter = generateJvmAdapterSource(snapshot, { packageSlug: "fixture" });
+      const generated = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "fixture",
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-fixture",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-fixture",
+          instance: "native-typescript.jvm-fixture@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["fixture"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "fixture.jvm-adapters", output: "jvm-adapters.o" },
+      });
+      const directOverride = generated.directBindings.bindings.find(
+        (binding) => binding.kind === "class-callback",
+      );
+      assert.deepEqual(directOverride, {
+        id: "native-typescript.jvm-fixture@0.0.0#fixture.fixture.directhost.onnotify",
+        kind: "class-callback",
+        ownerBinaryName: "fixture/DirectHost",
+        sourceClassName: "DirectHost",
+        superclassBinaryName: "fixture/Host",
+        interfaceBinaryNames: [],
+        name: "onNotify",
+        descriptor: "(I)V",
+        nativeEntrySymbol: adapter.callbacks[0]!.connectSymbol,
+        baseCall: {
+          bindingId:
+            "native-typescript.jvm-fixture@0.0.0#fixture.fixture.directhost.ntssuperonnotify",
+          name: "ntsSuperOnNotify",
+          descriptor: "(I)V",
+        },
+        terminal: false,
+      });
+      const translated = translateScabiNativeProgram(generated.manifest, {
+        types: ["jvm.fixture.host"],
+        imports: [
+          "fixture.fixture.host.constructor",
+          "fixture.fixture.directhost.onnotify",
+        ],
+        exports: [],
+      });
+      assert.equal(
+        translated.ok,
+        true,
+        translated.ok ? undefined : JSON.stringify(translated.diagnostics),
+      );
+      if (!translated.ok) return;
+
+      const source = join(root, "app.ts");
+      const declarations = join(root, "package.d.ts");
+      writeFileSync(
+        source,
+        'import { Host } from "@native-typescript/jvm-fixture";\n' +
+          "let delivered = 0;\n" +
+          "export default class DirectHost extends Host {\n" +
+          "  override onNotify(value: number): void {\n" +
+          "    super.onNotify(value);\n" +
+          "    delivered += value;\n" +
+          "  }\n" +
+          "}\n" +
+          "export function observed(): number { return delivered; }\n",
+      );
+      writeFileSync(declarations, generated.declarations);
+      const planners = await loadScriptCExecutablePlanners();
+      const planned = planners.planExecutableCompilation(source, {
+        backend: "c",
+        externalFunctionRoots: ["observed"],
+        sourceRoot: root,
+        externalTypes: {
+          [generated.manifest.package.name]: declarations,
+        },
+        native: translated.input,
+      });
+      assert.equal(
+        planned.ok,
+        true,
+        planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+      );
+      if (!planned.ok) return;
+
+      const emitter = await loadScriptCJvmEmitter();
+      const javaSource = emitter.emitJvmSerializedModule(planned.plan.ir, {
+        packageName: "fixture",
+        className: "DirectHost",
+        nativeBindings: generated.directBindings.bindings,
+        functionExports: [{ functionName: "observed", methodName: "observed" }],
+      });
+      assert.match(javaSource, /public final class DirectHost extends fixture\.Host/u);
+      assert.match(javaSource, /@Override\n {2}public void onNotify\(int a0\)/u);
+      assert.match(javaSource, /super\.onNotify\(a0\)/u);
+      assert.doesNotMatch(javaSource, /native /u);
+      assert.doesNotMatch(javaSource, /JNI/u);
+
+      const javaRoot = join(root, "java/fixture");
+      const classes = join(root, "classes");
+      mkdirSync(javaRoot, { recursive: true });
+      mkdirSync(classes);
+      const javaPath = join(javaRoot, "DirectHost.java");
+      const harnessPath = join(javaRoot, "DirectHostHarness.java");
+      writeFileSync(javaPath, javaSource);
+      writeFileSync(
+        harnessPath,
+        "package fixture;\n" +
+          "public final class DirectHostHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          "    new DirectHost().onNotify(42);\n" +
+          "    System.out.println(DirectHost.observed());\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        fixtureClasses,
+        "-d",
+        classes,
+        javaPath,
+        harnessPath,
+      ]);
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", `${classes}:${fixtureClasses}`, "-c", "-p", "fixture.DirectHost"],
+        { encoding: "utf8" },
+      );
+      assert.match(bytecode, /invokespecial .*fixture\/Host\.onNotify:\(I\)V/u);
+      assert.doesNotMatch(bytecode, / native /u);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", `${classes}:${fixtureClasses}`, "fixture.DirectHostHarness"],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "42.0\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a direct platform subclass keeps TypeScript fields on its Java receiver",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-direct-peer-"));
+    try {
+      const baseSources = join(root, "base-sources/fixture");
+      const baseClasses = join(root, "base-classes");
+      mkdirSync(baseSources, { recursive: true });
+      mkdirSync(baseClasses);
+      const baseSource = join(baseSources, "PeerLifecycle.java");
+      writeFileSync(
+        baseSource,
+        "package fixture;\n" +
+          "public class PeerLifecycle {\n" +
+          "  public void onOpen(int seed) {}\n" +
+          "  public void onSettle() {}\n" +
+          "  public void onDestroy() {}\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        baseClasses,
+        baseSource,
+      ]);
+      const baseClass = join(baseClasses, "fixture/PeerLifecycle.class");
+      const baseSelection = {
+        binaryName: "fixture/PeerLifecycle",
+        constructors: ["()V"],
+        methods: [
+          { name: "onOpen", descriptor: "(I)V" },
+          { name: "onSettle", descriptor: "()V" },
+          { name: "onDestroy", descriptor: "()V" },
+        ],
+      } as const;
+      const generatedSubclass = generateJvmSubclassSource(
+        ingestJvmClasses(
+          [{
+            logicalPath: "generated/fixture/PeerLifecycle.class",
+            bytes: readFileSync(baseClass),
+          }],
+          { classes: [baseSelection] },
+        ),
+        {
+          baseBinaryName: "fixture/PeerLifecycle",
+          overrides: [
+            { name: "onOpen", descriptor: "(I)V" },
+            { name: "onSettle", descriptor: "()V" },
+          ],
+          subclassBinaryName: "fixture/DirectPeer",
+          anchor: "class",
+          terminal: { name: "onDestroy", descriptor: "()V" },
+        },
+      );
+      assert.ok(generatedSubclass.peerSlot !== null);
+      const shellSources = join(root, "shell-sources/fixture");
+      const shellClasses = join(root, "shell-classes");
+      mkdirSync(shellSources, { recursive: true });
+      mkdirSync(shellClasses);
+      const shellSource = join(shellSources, "DirectPeer.java");
+      writeFileSync(shellSource, generatedSubclass.source);
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        baseClasses,
+        "-d",
+        shellClasses,
+        shellSource,
+      ]);
+      const snapshot = ingestJvmClasses(
+        [{
+          logicalPath: "generated/fixture/PeerLifecycle.class",
+          bytes: readFileSync(baseClass),
+        }, {
+          logicalPath: "generated/fixture/DirectPeer.class",
+          bytes: readFileSync(join(shellClasses, "fixture/DirectPeer.class")),
+        }],
+        {
+          classes: [baseSelection, {
+            binaryName: generatedSubclass.subclassBinaryName,
+            constructors: ["()V"],
+            methods: generatedSubclass.methods,
+            fields: [generatedSubclass.peerSlot!.field],
+            callbacks: generatedSubclass.callbacks,
+          }],
+        },
+      );
+      const peerSlots = [{
+        className: generatedSubclass.subclassBinaryName,
+        field: generatedSubclass.peerSlot!.field,
+      }];
+      const adapter = generateJvmAdapterSource(snapshot, {
+        packageSlug: "fixture",
+        peerSlots,
+      });
+      const generated = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "fixture",
+        peerSlots,
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-fixture",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-fixture",
+          instance: "native-typescript.jvm-fixture@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["fixture"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "fixture.jvm-adapters", output: "jvm-adapters.o" },
+      });
+      assert.equal(
+        generated.directBindings.bindings.filter(
+          (binding) => binding.kind === "class-callback",
+        ).length,
+        3,
+      );
+      const translated = translateScabiNativeProgram(generated.manifest, {
+        types: ["jvm.fixture.peerlifecycle"],
+        imports: [
+          "fixture.fixture.peerlifecycle.constructor",
+          "fixture.fixture.directpeer.onopen",
+          "fixture.fixture.directpeer.onsettle",
+          "fixture.fixture.directpeer.ondestroy",
+        ],
+        exports: [],
+      });
+      assert.equal(
+        translated.ok,
+        true,
+        translated.ok ? undefined : JSON.stringify(translated.diagnostics),
+      );
+      if (!translated.ok) return;
+
+      const source = join(root, "app.ts");
+      const declarations = join(root, "package.d.ts");
+      writeFileSync(
+        source,
+        'import { PeerLifecycle } from "@native-typescript/jvm-fixture";\n' +
+          "let delivered = -1;\n" +
+          "export default class DirectPeer extends PeerLifecycle {\n" +
+          "  private taps = 0;\n" +
+          "  override onOpen(seed: number): void {\n" +
+          "    super.onOpen(seed);\n" +
+          "    this.taps += seed;\n" +
+          "  }\n" +
+          "  override onSettle(): void {\n" +
+          "    super.onSettle();\n" +
+          "    delivered = this.taps;\n" +
+          "  }\n" +
+          "}\n" +
+          "export function observed(): number { return delivered; }\n",
+      );
+      writeFileSync(declarations, generated.declarations);
+      const planners = await loadScriptCExecutablePlanners();
+      const planned = planners.planExecutableCompilation(source, {
+        backend: "c",
+        externalFunctionRoots: ["observed"],
+        sourceRoot: root,
+        externalTypes: {
+          [generated.manifest.package.name]: declarations,
+        },
+        native: translated.input,
+      });
+      assert.equal(
+        planned.ok,
+        true,
+        planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+      );
+      if (!planned.ok) return;
+
+      const emitter = await loadScriptCJvmEmitter();
+      const javaSource = emitter.emitJvmSerializedModule(planned.plan.ir, {
+        packageName: "fixture",
+        className: "DirectPeer",
+        nativeBindings: generated.directBindings.bindings,
+        functionExports: [{ functionName: "observed", methodName: "observed" }],
+      });
+      assert.match(javaSource, /public final class DirectPeer extends fixture\.PeerLifecycle/u);
+      assert.match(javaSource, /private (?:int|double) d_[0-9a-f]+;/u);
+      assert.match(javaSource, /private DirectPeer ntsPeer\(\)/u);
+      assert.doesNotMatch(javaSource, /private static class c_[0-9a-f]+/u);
+      assert.doesNotMatch(javaSource, /native /u);
+
+      const javaRoot = join(root, "java/fixture");
+      const classes = join(root, "classes");
+      mkdirSync(javaRoot, { recursive: true });
+      mkdirSync(classes);
+      const javaPath = join(javaRoot, "DirectPeer.java");
+      const harnessPath = join(javaRoot, "DirectPeerHarness.java");
+      writeFileSync(javaPath, javaSource);
+      writeFileSync(
+        harnessPath,
+        "package fixture;\n" +
+          "public final class DirectPeerHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          "    DirectPeer peer = new DirectPeer();\n" +
+          "    peer.onOpen(19);\n" +
+          "    peer.onOpen(23);\n" +
+          "    peer.onSettle();\n" +
+          "    peer.onDestroy();\n" +
+          "    System.out.println(DirectPeer.observed());\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        baseClasses,
+        "-d",
+        classes,
+        javaPath,
+        harnessPath,
+      ]);
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", `${classes}:${baseClasses}`, "-c", "-p", "fixture.DirectPeer"],
+        { encoding: "utf8" },
+      );
+      assert.match(bytecode, /getfield .*d_[0-9a-f]+:[ID]/u);
+      assert.match(bytecode, /putfield .*d_[0-9a-f]+:[ID]/u);
+      assert.match(bytecode, /invokespecial .*fixture\/PeerLifecycle\.onOpen:\(I\)V/u);
+      assert.doesNotMatch(bytecode, / native /u);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", `${classes}:${baseClasses}`, "fixture.DirectPeerHarness"],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "42.0\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "a generated interface callback stays inside the JVM",
   { skip: javaHome === null ? "no JDK on this host" : false },
   async () => {

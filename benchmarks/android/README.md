@@ -224,8 +224,12 @@ are joined by ordinary managed TypeScript classes whose fields, inheritance,
 compiler-private and override-family returns now keep an integer JVM
 descriptor; the controlled 36.0% reduction to 1.30 ns per dispatch is in
 [record 0034](../../docs/records/0034-proved-jvm-integer-returns.md). These are
-call-path results, not yet launch, memory, lifecycle, or
-complete-application results for the direct backend. Scenario-selective runs
+joined by direct native subclasses: platform virtual dispatch, exact `super`,
+instance fields on the Java receiver, and terminal lifecycle lowering now
+compile without JNI, with the two-dispatch peer proof recorded in
+[record 0035](../../docs/records/0035-direct-jvm-native-subclasses.md). These
+are still call-path and host-bytecode results, not yet launch, memory,
+lifecycle, or complete-application results for the direct backend. Scenario-selective runs
 and the first rejected managed-method candidate are recorded in
 [record 0033](../../docs/records/0033-selective-android-performance-runs.md).
 

@@ -131,11 +131,38 @@ export type JvmDirectBinding =
         readonly bindingId: string;
         readonly nativeEntrySymbol: string;
       };
+    }
+  | {
+      readonly id: string;
+      readonly kind: "class-callback";
+      /** The generated class whose virtual method the platform dispatches. */
+      readonly ownerBinaryName: string;
+      /** The source declaration identity used by Native IR (`MainActivity`).
+       * It is stated here because a Java binary name is not a TypeScript
+       * declaration name and the compiler must not guess one from the other. */
+      readonly sourceClassName: string;
+      /** The complete Java inheritance clause of the generated class. A
+       * direct backend replaces that generated native shell, so it must
+       * reproduce both coordinates exactly rather than infer the base from
+       * the callback payload or the source `extends` spelling. */
+      readonly superclassBinaryName: string;
+      readonly interfaceBinaryNames: readonly string[];
+      readonly name: string;
+      readonly descriptor: string;
+      readonly nativeEntrySymbol: string;
+      /** The ordinary selected method that reaches `super.name(...)`, when
+       * the override replaced an implementation. */
+      readonly baseCall: {
+        readonly bindingId: string;
+        readonly name: string;
+        readonly descriptor: string;
+      } | null;
+      readonly terminal: boolean;
     };
 
 export interface JvmDirectBindingManifest {
   readonly schema: "native-typescript.jvm-direct-bindings";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly bindings: readonly JvmDirectBinding[];
 }
 
@@ -1603,6 +1630,47 @@ export function generateJvmScabiPackage(
         ...(baseCallBindingId === null ? [] : [baseCallBindingId]),
       ],
     }));
+    /* A class-anchored callback is the generated native override of a class
+     * the platform constructs. A direct JVM backend replaces that shell with
+     * the checked TypeScript implementation itself, so publish the COMPLETE
+     * inheritance clause and the source declaration identity beside the
+     * binding. Neither can be reconstructed safely from a C symbol, a simple
+     * Java name, or the source's declared base (the delivered generated class
+     * is below that base on Android). */
+    if (classAnchored) {
+      const ownerClass = options.snapshot.classes.find(
+        ({ binaryName }) => binaryName === callback.className,
+      );
+      if (ownerClass === undefined || ownerClass.superclass === null) {
+        diagnostics.push(diagnostic(
+          `class/${callback.className}/callback/${callback.name}/direct`,
+          "A direct class override requires the generated class's exact superclass",
+        ));
+      } else {
+        directBindings.push(Object.freeze({
+          id: `${options.package.instance}#${bindingId}`,
+          kind: "class-callback" as const,
+          ownerBinaryName: callback.className,
+          sourceClassName: className,
+          superclassBinaryName: ownerClass.superclass.binaryName,
+          interfaceBinaryNames: Object.freeze(
+            ownerClass.interfaces.map(({ binaryName }) => binaryName),
+          ),
+          name: callback.name,
+          descriptor: callback.descriptor,
+          nativeEntrySymbol: callback.connectSymbol,
+          baseCall: baseCallBindingId === null
+            ? null
+            : Object.freeze({
+                bindingId: `${options.package.instance}#${baseCallBindingId}`,
+                name: callback.baseCall!.name,
+                descriptor: callback.baseCall!.descriptor,
+              }),
+          terminal: callback.terminal,
+        }));
+      }
+    }
+
     /* A direct JVM emitter may replace the behavior-free generated JNI
      * listener shell with a Java implementation that stores the handler
      * directly. The generator states that role and ingestion validates it
@@ -1995,7 +2063,7 @@ export function generateJvmScabiPackage(
   const manifest = parseScabiManifest(manifestSource);
   const directBindingManifest: JvmDirectBindingManifest = Object.freeze({
     schema: "native-typescript.jvm-direct-bindings",
-    schemaVersion: 2,
+    schemaVersion: 3,
     bindings: Object.freeze([...directBindings].sort((left, right) =>
       compareText(left.id, right.id)
     )),

@@ -614,7 +614,7 @@ async function buildDirectJvmApk(input: {
   ) as JvmDirectBindingManifest;
   if (
     directBindings.schema !== "native-typescript.jvm-direct-bindings" ||
-    directBindings.schemaVersion !== 2
+    directBindings.schemaVersion !== 3
   ) {
     throw new Error(`Unsupported direct-JVM binding manifest at ${directBindingsPath}`);
   }
