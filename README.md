@@ -105,6 +105,19 @@ is better.
 | dynamic `TextView` counter update | 424.23 ns/update | 213.81 ns/update | 1,075.23 ns/update | 1.98x | 0.39x |
 | nested programmatic screen build | 83,681 ns/row | 89,156 ns/row | 105,156 ns/row | 0.94x | 0.80x |
 
+The experimental direct-JVM backend now joins the string-argument scenario.
+The same checked TypeScript loop executes as ART bytecode and calls
+`TextUtils.equals(CharSequence, CharSequence)` directly; bytecode inspection
+also proves that no native entry exists and that the harness creates distinct,
+equal strings instead of accidentally taking Java's interned-literal identity
+shortcut. In the first valid five-round run it measured 67.44 ns/comparison,
+versus 36.00 for Kotlin, 462.10 for the current Native TypeScript/JNI route,
+and 1,329.84 for NativeScript. That is 6.85x faster than the JNI route and
+within 1.87x of Kotlin for this first operation. It is not yet a complete
+Android application backend, so it makes no launch or memory claim. The
+compiler seam, falsification, bytecode, and device evidence are in
+[record 0023](docs/records/0023-direct-jvm-android-call.md).
+
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |

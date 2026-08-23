@@ -355,3 +355,14 @@ export const kotlinBenchmarkApplication = Object.freeze({
   minSdk: ANDROID_BENCHMARK_API,
   targetSdk: 36,
 });
+
+/** The first direct-ART Native TypeScript product. Its Activity is a small
+ * measurement harness; the hot loop is compiled from direct/kernel.ts. */
+export const directJvmBenchmarkApplication = Object.freeze({
+  applicationId: "com.example.ntsbenchmark.direct",
+  activityBinaryName:
+    "com/example/ntsbenchmark/direct/MainActivity",
+  label: "NTS Direct JVM Benchmark",
+  minSdk: ANDROID_BENCHMARK_API,
+  targetSdk: 36,
+});

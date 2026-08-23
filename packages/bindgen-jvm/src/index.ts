@@ -27,6 +27,8 @@ export type { JvmAdapterObjectPlan } from "./jvm-adapter-object.ts";
 export { generateJvmClangAbiProbe } from "./jvm-clang.ts";
 export { generateJvmScabiPackage } from "./jvm-scabi.ts";
 export type {
+  JvmDirectBinding,
+  JvmDirectBindingManifest,
   JvmScabiGenerationOptions,
   JvmScabiPackage,
 } from "./jvm-scabi.ts";

@@ -124,6 +124,13 @@ slice stayed target-owned: [record 0021](0021-frame-local-jvm-string-bridge.md)
 removes unconditional native staging allocations without introducing a
 foreign string representation.
 
+The later direct-JVM experiment tests the boundary itself rather than another
+JNI mechanic. [Record 0023](0023-direct-jvm-android-call.md) emits the exact
+checked `TextUtils.equals` call as ART bytecode and measures the valid
+distinct-string shape at 6.85x faster than the JNI route and 1.87x Kotlin. It
+is one operation, not yet evidence for replacing the native backend or for a
+complete Android application product.
+
 ## Findings accepted with modification
 
 ### The foreign-boundary legalizer is in progress, not absent

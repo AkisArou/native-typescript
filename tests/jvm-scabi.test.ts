@@ -165,6 +165,23 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
   assert.match(generated.declarations, /static nameLength\(a0: string \| null\): jint;/u);
   assert.match(generated.declarations, /label\(a0: jint\): string \| null;/u);
   assert.match(generated.declarations, /static greet\(a0: string \| null\): string \| null;/u);
+  assert.deepEqual(
+    generated.directBindings.bindings.find(({ id }) =>
+      id.endsWith("#fixture.fixture.widget.namelength")
+    ),
+    {
+      id: "native-typescript.jvm-fixture@0.0.0#fixture.fixture.widget.namelength",
+      kind: "static-method",
+      ownerBinaryName: "fixture/Widget",
+      name: "nameLength",
+      descriptor: "(Ljava/lang/String;)I",
+      nativeEntrySymbol: "nts_jvm_fixture_call_fixture_Widget_nameLength",
+    },
+  );
+  assert.equal(
+    JSON.parse(generated.directBindingsSource).schema,
+    "native-typescript.jvm-direct-bindings",
+  );
   const lengthBinding =
     generated.manifest.bindings["fixture.fixture.widget.namelength"];
   assert.ok(lengthBinding !== undefined && lengthBinding.kind !== "constant");

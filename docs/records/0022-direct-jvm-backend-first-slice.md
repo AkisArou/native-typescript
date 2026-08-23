@@ -1,6 +1,6 @@
 # 0022 — Admit a direct JVM backend by executable evidence
 
-Status: experimental first slice implemented; existing JNI target remains the shipped path  
+Status: experimental first slice implemented; Android call measured in record 0023  
 Recorded: 2026-08-23
 
 [Record 0021](0021-frame-local-jvm-string-bridge.md) removed avoidable native
@@ -92,3 +92,8 @@ Only after that direct-call slice wins do classes/fields, callback subclasses,
 and the small Looper-integrated Promise scheduler become implementation work.
 This preserves the project's evidence rule while testing the architectural
 hypothesis at the operation responsible for it.
+
+That observer and measurement have now landed in
+[record 0023](0023-direct-jvm-android-call.md). The exact static Android call is
+6.85x faster than the current JNI route and within 1.87x of Kotlin in its first
+valid matched input shape; the existing JNI target remains the shipped path.

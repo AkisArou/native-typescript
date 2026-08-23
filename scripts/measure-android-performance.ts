@@ -14,17 +14,25 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { readZipEntries } from "@native-typescript/bindgen-jvm";
+import type { JvmDirectBindingManifest } from "@native-typescript/bindgen-jvm";
+import { parseScabiManifest } from "@native-typescript/scabi";
 import {
   buildAndroidApk,
   discoverJavaHome,
   generateAndroidManifest,
 } from "@native-typescript/target-jvm";
-import { scriptCCompilerDistribution } from "@native-typescript/scriptc";
+import {
+  loadScriptCExecutablePlanners,
+  loadScriptCJvmEmitter,
+  scriptCCompilerDistribution,
+  translateScabiNativeProgram,
+} from "@native-typescript/scriptc";
 import {
   ANDROID_BENCHMARK_API,
   type AndroidBenchmarkScenario,
   androidBenchmarkScenarios,
   androidBenchmarkWorkload,
+  directJvmBenchmarkApplication,
   kotlinBenchmarkApplication,
   nativeTypescriptBenchmarkProject,
   repeatedAndroidBenchmarkScenarios,
@@ -40,13 +48,29 @@ const kotlinSource = join(
 );
 const nativeScriptRoot = join(benchmarkRoot, "nativescript");
 const nativeScriptSource = join(nativeScriptRoot, "app/app.ts");
+const directRoot = join(benchmarkRoot, "direct");
+const directSource = join(directRoot, "kernel.ts");
+const directActivitySource = join(
+  directRoot,
+  "java/com/example/ntsbenchmark/direct/MainActivity.java",
+);
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const DEVICE_LOCK = "/tmp/native-typescript-android-device.lock";
 const LOG_TAG = "nts-benchmark";
 
-const IMPLEMENTATIONS = ["native-typescript", "kotlin", "nativescript"] as const;
+const IMPLEMENTATIONS = [
+  "native-typescript",
+  "native-typescript-jvm",
+  "kotlin",
+  "nativescript",
+] as const;
 type Implementation = typeof IMPLEMENTATIONS[number];
+const FULL_APPLICATION_IMPLEMENTATIONS = [
+  "native-typescript",
+  "kotlin",
+  "nativescript",
+] as const;
 
 interface Options {
   readonly avd: string | null;
@@ -79,6 +103,17 @@ interface BuiltApplication {
   readonly apkPath: string;
   readonly sha256: string;
   readonly bytes: number;
+}
+
+interface DirectJvmBuiltApplication extends BuiltApplication {
+  readonly evidence: {
+    readonly bindingId: string;
+    readonly ownerBinaryName: string;
+    readonly name: string;
+    readonly descriptor: string;
+    readonly nativeEntrySymbol: string;
+    readonly bytecodePath: string;
+  };
 }
 
 interface LaunchMeasurement {
@@ -505,6 +540,272 @@ async function buildNativeTypescriptApk(input: {
   };
 }
 
+async function buildDirectJvmApk(input: {
+  readonly root: string;
+  readonly bindingPackageRoot: string;
+  readonly tools: AndroidTools;
+  readonly javaHome: string;
+  readonly keystore: string;
+}): Promise<DirectJvmBuiltApplication> {
+  const packageManifestPath = join(input.bindingPackageRoot, "package.scabi.json");
+  const packageDeclarationsPath = join(input.bindingPackageRoot, "package.d.ts");
+  const directBindingsPath = join(
+    input.bindingPackageRoot,
+    "jvm-direct-bindings.json",
+  );
+  for (const path of [
+    packageManifestPath,
+    packageDeclarationsPath,
+    directBindingsPath,
+  ]) {
+    if (!existsSync(path)) {
+      throw new Error(
+        `The Native TypeScript build produced no direct-JVM input at ${path}`,
+      );
+    }
+  }
+  const manifest = parseScabiManifest(
+    readFileSync(packageManifestPath, "utf8"),
+  );
+  const directBindings = JSON.parse(
+    readFileSync(directBindingsPath, "utf8"),
+  ) as JvmDirectBindingManifest;
+  if (
+    directBindings.schema !== "native-typescript.jvm-direct-bindings" ||
+    directBindings.schemaVersion !== 1
+  ) {
+    throw new Error(`Unsupported direct-JVM binding manifest at ${directBindingsPath}`);
+  }
+  const equalsBinding = directBindings.bindings.find((binding) =>
+    binding.kind === "static-method" &&
+    binding.ownerBinaryName === "android/text/TextUtils" &&
+    binding.name === "equals" &&
+    binding.descriptor ===
+      "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z"
+  );
+  if (equalsBinding === undefined) {
+    throw new Error(
+      "The generated JVM binding sidecar carries no exact TextUtils.equals " +
+        "(CharSequence, CharSequence) member",
+    );
+  }
+  const separator = equalsBinding.id.indexOf("#");
+  if (separator < 1) {
+    throw new Error(`Direct binding '${equalsBinding.id}' has no package instance`);
+  }
+  const selectedBinding = equalsBinding.id.slice(separator + 1);
+  const translated = translateScabiNativeProgram(manifest, {
+    imports: [selectedBinding],
+    exports: [],
+  });
+  if (!translated.ok) {
+    throw new Error(
+      "Direct-JVM native translation failed:\n" +
+        translated.diagnostics
+          .map(({ code, path, message }) => `  ${code} ${path}: ${message}`)
+          .join("\n"),
+    );
+  }
+
+  const planners = await loadScriptCExecutablePlanners();
+  const planned = planners.planExecutableCompilation(directSource, {
+    backend: "c",
+    sourceRoot: directRoot,
+    externalTypes: {
+      [manifest.package.name]: packageDeclarationsPath,
+    },
+    native: translated.input,
+  });
+  if (!planned.ok) {
+    throw new Error(
+      "Compiling the direct-JVM benchmark kernel failed:\n" +
+        planned.diagnostics.map(({ message }) => `  ${message}`).join("\n"),
+    );
+  }
+  const emitter = await loadScriptCJvmEmitter();
+  const packageName = "com.example.ntsbenchmark.direct.generated";
+  const className = "NativeTypeScriptKernel";
+  const generatedSource = emitter.emitJvmSerializedModule(planned.plan.ir, {
+    packageName,
+    className,
+    nativeBindings: directBindings.bindings,
+    functionExports: [{
+      functionName: "runStringArguments",
+      methodName: "runStringArguments",
+    }],
+  });
+
+  const generatedRoot = join(input.root, "generated");
+  const generatedPath = join(
+    generatedRoot,
+    ...packageName.split("."),
+    `${className}.java`,
+  );
+  const classes = join(input.root, "classes");
+  const staging = join(input.root, "staging");
+  mkdirSync(dirname(generatedPath), { recursive: true });
+  mkdirSync(classes, { recursive: true });
+  mkdirSync(staging, { recursive: true });
+  writeFileSync(generatedPath, generatedSource);
+  const buildEnvironment = {
+    ...process.env,
+    JAVA_HOME: input.javaHome,
+    PATH: `${join(input.javaHome, "bin")}:${process.env["PATH"] ?? ""}`,
+  };
+  run(
+    join(input.javaHome, "bin/javac"),
+    [
+      "--release",
+      "17",
+      "-classpath",
+      input.tools.androidJar,
+      "-d",
+      classes,
+      generatedPath,
+      directActivitySource,
+    ],
+    { env: buildEnvironment },
+  );
+  const generatedClassName = `${packageName}.${className}`;
+  const bytecode = run(
+    join(input.javaHome, "bin/javap"),
+    ["-classpath", classes, "-c", "-p", generatedClassName],
+    { env: buildEnvironment },
+  );
+  const directInstruction =
+    "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
+    "Ljava/lang/CharSequence;)Z";
+  if (!bytecode.includes(directInstruction)) {
+    throw new Error(
+      `Direct-JVM bytecode does not call the selected member '${directInstruction}':\n` +
+        bytecode,
+    );
+  }
+  if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
+    throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
+  }
+  const activityClassName = directJvmBenchmarkApplication.activityBinaryName
+    .replaceAll("/", ".");
+  const activityBytecode = run(
+    join(input.javaHome, "bin/javap"),
+    ["-classpath", classes, "-c", "-p", activityClassName],
+    { env: buildEnvironment },
+  );
+  const generatedInvocation =
+    "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
+    "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D";
+  if (!activityBytecode.includes(generatedInvocation)) {
+    throw new Error(
+      `Direct-JVM harness does not supply four runtime strings '${generatedInvocation}':\n` +
+        activityBytecode,
+    );
+  }
+  if (activityBytecode.includes(" native ")) {
+    throw new Error(
+      `Direct-JVM harness unexpectedly carries a native call:\n${activityBytecode}`,
+    );
+  }
+  writeFileSync(
+    join(input.root, "bytecode-evidence.txt"),
+    `=== ${generatedClassName} ===\n${bytecode}\n` +
+      `=== ${activityClassName} ===\n${activityBytecode}`,
+  );
+
+  const compiledClasses = classFiles(classes);
+  if (compiledClasses.length === 0) {
+    throw new Error("The direct JVM backend produced no classes");
+  }
+  const androidManifestPath = join(input.root, "AndroidManifest.xml");
+  writeFileSync(
+    androidManifestPath,
+    generateAndroidManifest(directJvmBenchmarkApplication),
+  );
+  const linked = join(input.root, "base.apk");
+  run(input.tools.aapt2, [
+    "link",
+    "--manifest",
+    androidManifestPath,
+    "-I",
+    input.tools.androidJar,
+    "-o",
+    linked,
+  ]);
+  const dex = join(input.root, "classes.zip");
+  run(input.tools.d8, [
+    "--min-api",
+    String(directJvmBenchmarkApplication.minSdk),
+    "--lib",
+    input.tools.androidJar,
+    "--output",
+    dex,
+    ...compiledClasses,
+  ], { env: buildEnvironment });
+  stageZipEntries(linked, staging, ["AndroidManifest.xml", "resources.arsc"]);
+  stageZipEntries(dex, staging, ["classes.dex"]);
+
+  const unaligned = join(input.root, "app-unaligned.apk");
+  run(join(input.javaHome, "bin/jar"), [
+    "--create",
+    "--file",
+    unaligned,
+    "--no-manifest",
+    "--no-compress",
+    "--date",
+    "2000-01-01T00:00:00Z",
+    "-C",
+    staging,
+    "AndroidManifest.xml",
+    "-C",
+    staging,
+    "resources.arsc",
+    "-C",
+    staging,
+    "classes.dex",
+  ]);
+  const aligned = join(input.root, "app-aligned.apk");
+  run(input.tools.zipalign, ["-f", "-P", "16", "4", unaligned, aligned]);
+  const apkPath = join(input.root, "native-typescript-jvm-benchmark.apk");
+  run(input.tools.apksigner, [
+    "sign",
+    "--ks",
+    input.keystore,
+    "--ks-pass",
+    "pass:android",
+    "--key-pass",
+    "pass:android",
+    "--ks-key-alias",
+    "nts",
+    "--v1-signing-enabled",
+    "false",
+    "--v2-signing-enabled",
+    "true",
+    "--v4-signing-enabled",
+    "false",
+    "--out",
+    apkPath,
+    aligned,
+  ], { env: buildEnvironment });
+  return {
+    implementation: "native-typescript-jvm",
+    applicationId: directJvmBenchmarkApplication.applicationId,
+    activity: directJvmBenchmarkApplication.activityBinaryName.replace(/\//gu, "."),
+    apkPath,
+    sha256: sha256(apkPath),
+    bytes: statSync(apkPath).size,
+    evidence: {
+      bindingId: equalsBinding.id,
+      ownerBinaryName: equalsBinding.ownerBinaryName,
+      name: equalsBinding.name,
+      descriptor: equalsBinding.descriptor,
+      nativeEntrySymbol: equalsBinding.nativeEntrySymbol,
+      bytecodePath: relative(
+        input.root,
+        join(input.root, "bytecode-evidence.txt"),
+      ),
+    },
+  };
+}
+
 function buildNativeScriptApk(input: {
   readonly root: string;
   readonly tools: AndroidTools;
@@ -611,6 +912,7 @@ function verifyWorkloadAgreement(): void {
   const nts = readFileSync(nativeSource, "utf8");
   const kotlin = readFileSync(kotlinSource, "utf8");
   const nativeScript = readFileSync(nativeScriptSource, "utf8");
+  const direct = readFileSync(directSource, "utf8");
   const expected = {
     WARMUP_SAMPLES: androidBenchmarkWorkload.warmupSamples,
     MEASURED_SAMPLES: androidBenchmarkWorkload.measuredSamples,
@@ -642,6 +944,18 @@ function verifyWorkloadAgreement(): void {
         `${name} drifted: project=${value}, native-typescript=${ntsValue}, ` +
           `kotlin=${kotlinValue}, nativescript=${nativeScriptValue}`,
       );
+    }
+    if (name === "STRING_ARGUMENT_ITERATIONS") {
+      const directValue = sourceConstant(
+        direct,
+        "native-typescript-jvm",
+        name,
+      );
+      if (directValue !== value) {
+        throw new Error(
+          `${name} drifted: project=${value}, native-typescript-jvm=${directValue}`,
+        );
+      }
     }
   }
 }
@@ -844,7 +1158,7 @@ function parseWorkloadLog(
   processRound: number,
   log: string,
 ): WorkloadMeasurement[] {
-  const pattern = /sample implementation=(native-typescript|kotlin|nativescript) scenario=([a-z-]+) sample=(\d+) iterations=(\d+) elapsedNs=(\d+) checksum=(-?\d+)/u;
+  const pattern = /sample implementation=(native-typescript|native-typescript-jvm|kotlin|nativescript) scenario=([a-z-]+) sample=(\d+) iterations=(\d+) elapsedNs=(\d+) checksum=(-?\d+)/u;
   const measurements: WorkloadMeasurement[] = [];
   for (const line of log.split("\n")) {
     const match = pattern.exec(line);
@@ -933,7 +1247,7 @@ function summarize(
   memory: readonly MemoryMeasurement[],
 ): object {
   const launch = (["process-start", "warm-foreground"] as const).flatMap((kind) =>
-    IMPLEMENTATIONS.map((implementation) => {
+    FULL_APPLICATION_IMPLEMENTATIONS.map((implementation) => {
       /* NativeScriptActivity reports LaunchState UNKNOWN on current ART and
        * therefore omits TotalTime. WaitTime is emitted for every implementation;
        * keep the stronger fields in the raw observation, but compare one shared
@@ -958,28 +1272,36 @@ function summarize(
   );
   const workload = androidBenchmarkScenarios
     .flatMap((scenario) =>
-      IMPLEMENTATIONS.map((implementation) => {
-        const values = workloads
-          .filter((entry) =>
-            entry.scenario === scenario.name &&
-            entry.implementation === implementation
-          )
-          .map(({ nanosecondsPerOperation }) => nanosecondsPerOperation);
-        return {
-          implementation,
-          scenario: scenario.name,
-          layer: scenario.layer,
-          hotspot: scenario.hotspot,
-          operationUnit: scenario.operationUnit,
-          samples: values.length,
-          medianNanosecondsPerOperation: median(values),
-          minNanosecondsPerOperation: values.length === 0 ? null : Math.min(...values),
-          maxNanosecondsPerOperation: values.length === 0 ? null : Math.max(...values),
-        };
-      })
+      IMPLEMENTATIONS
+        .filter((implementation) =>
+          implementation !== "native-typescript-jvm" ||
+          scenario.name === "string-argument"
+        )
+        .map((implementation) => {
+          const values = workloads
+            .filter((entry) =>
+              entry.scenario === scenario.name &&
+              entry.implementation === implementation
+            )
+            .map(({ nanosecondsPerOperation }) => nanosecondsPerOperation);
+          return {
+            implementation,
+            scenario: scenario.name,
+            layer: scenario.layer,
+            hotspot: scenario.hotspot,
+            operationUnit: scenario.operationUnit,
+            samples: values.length,
+            medianNanosecondsPerOperation: median(values),
+            minNanosecondsPerOperation: values.length === 0 ? null : Math.min(...values),
+            maxNanosecondsPerOperation: values.length === 0 ? null : Math.max(...values),
+          };
+        })
     );
   const ratios = ([
     ["native-typescript", "kotlin"],
+    ["native-typescript-jvm", "kotlin"],
+    ["native-typescript-jvm", "native-typescript"],
+    ["native-typescript-jvm", "nativescript"],
     ["nativescript", "kotlin"],
     ["native-typescript", "nativescript"],
   ] as const).flatMap(([implementation, baseline]) =>
@@ -1003,7 +1325,7 @@ function summarize(
       }];
     })
   );
-  const memorySummary = IMPLEMENTATIONS.map(
+  const memorySummary = FULL_APPLICATION_IMPLEMENTATIONS.map(
     (implementation) => {
       const rows = memory.filter((entry) => entry.implementation === implementation);
       return {
@@ -1053,8 +1375,20 @@ async function main(): Promise<void> {
   ]);
 
   console.log("Building the Native TypeScript benchmark APK...");
+  const nativeBuildRoot = join(options.output, "native-typescript");
   const nativeApplication = await buildNativeTypescriptApk({
-    root: join(options.output, "native-typescript"),
+    root: nativeBuildRoot,
+    tools,
+    javaHome,
+    keystore,
+  });
+  console.log("Building the Native TypeScript direct-JVM benchmark APK...");
+  const directApplication = await buildDirectJvmApk({
+    root: join(options.output, "native-typescript-jvm"),
+    bindingPackageRoot: join(
+      nativeBuildRoot,
+      "build/library/generated/android_benchmark",
+    ),
     tools,
     javaHome,
     keystore,
@@ -1075,6 +1409,12 @@ async function main(): Promise<void> {
   });
   const applications = [
     nativeApplication,
+    directApplication,
+    kotlinApplication,
+    nativeScriptApplication,
+  ] as const;
+  const fullApplications = [
+    nativeApplication,
     kotlinApplication,
     nativeScriptApplication,
   ] as const;
@@ -1083,6 +1423,7 @@ async function main(): Promise<void> {
     scriptcCommit: run("git", ["rev-parse", "HEAD"], { cwd: scriptcRoot }).trim(),
     status: run("git", ["status", "--short"], { cwd: workspace }),
     nativeSourceSha256: sha256(nativeSource),
+    directSourceSha256: sha256(directSource),
     kotlinSourceSha256: sha256(kotlinSource),
     nativeScriptSourceSha256: sha256(nativeScriptSource),
   };
@@ -1103,7 +1444,7 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 3,
+    schemaVersion: 4,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,
@@ -1117,11 +1458,18 @@ async function main(): Promise<void> {
       sha256,
       bytes,
     })),
+    directJvmEvidence: {
+      ...directApplication.evidence,
+      bytecodePath: join(
+        "native-typescript-jvm",
+        directApplication.evidence.bytecodePath,
+      ),
+    },
   };
   if (options.buildOnly) {
     const reportPath = join(options.output, "results.json");
     writeFileSync(reportPath, JSON.stringify(baseReport, null, 2) + "\n");
-    console.log(`Built all three APKs; report: ${reportPath}`);
+    console.log(`Built all four APKs; report: ${reportPath}`);
     return;
   }
 
@@ -1170,12 +1518,15 @@ async function main(): Promise<void> {
       ).trim();
     }
 
-    const ordered = (round: number): readonly BuiltApplication[] =>
-      applications.map((_, offset) =>
-        applications[(round + offset) % applications.length]!
+    const ordered = (
+      pool: readonly BuiltApplication[],
+      round: number,
+    ): readonly BuiltApplication[] =>
+      pool.map((_, offset) =>
+        pool[(round + offset) % pool.length]!
       );
     for (let round = 0; round < options.rounds; round++) {
-      for (const application of ordered(round)) {
+      for (const application of ordered(fullApplications, round)) {
         adbRun("logcat", "-c");
         adbRun("shell", "am", "force-stop", application.applicationId);
         const cold = adbRun(
@@ -1254,8 +1605,11 @@ async function main(): Promise<void> {
     }
 
     for (const scenario of repeatedAndroidBenchmarkScenarios) {
+      const scenarioApplications = scenario === "string-argument"
+        ? applications
+        : fullApplications;
       for (let round = 0; round < options.rounds; round++) {
-        for (const application of ordered(round)) {
+        for (const application of ordered(scenarioApplications, round)) {
           adbRun("logcat", "-c");
           adbRun("shell", "am", "force-stop", application.applicationId);
           adbRun(

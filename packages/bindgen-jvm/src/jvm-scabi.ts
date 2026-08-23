@@ -88,6 +88,37 @@ export interface JvmScabiPackage {
   readonly manifest: ScabiManifest;
   readonly manifestSource: string;
   readonly manifestDigest: Sha256Digest;
+  /** Target-specific execution coordinates for a direct JVM backend. SCABI
+   * remains the backend-neutral native contract; this sidecar joins the same
+   * binding id to the classfile identity from which its JNI adapter was
+   * generated, so a JVM emitter never has to parse that identity back out of
+   * a C symbol or a projected declaration name. */
+  readonly directBindings: JvmDirectBindingManifest;
+  readonly directBindingsSource: string;
+}
+
+export type JvmDirectBinding =
+  | {
+      readonly id: string;
+      readonly kind: "constructor";
+      readonly ownerBinaryName: string;
+      readonly name: "<init>";
+      readonly descriptor: string;
+      readonly nativeEntrySymbol: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "static-method" | "instance-method";
+      readonly ownerBinaryName: string;
+      readonly name: string;
+      readonly descriptor: string;
+      readonly nativeEntrySymbol: string;
+    };
+
+export interface JvmDirectBindingManifest {
+  readonly schema: "native-typescript.jvm-direct-bindings";
+  readonly schemaVersion: 1;
+  readonly bindings: readonly JvmDirectBinding[];
 }
 
 function sha256(value: string): Sha256Digest {
@@ -273,6 +304,7 @@ export function generateJvmScabiPackage(
     }),
   };
   const bindings: Record<string, NativeBinding> = {};
+  const directBindings: JvmDirectBinding[] = [];
   function defineBinding(id: string, binding: NativeBinding): void {
     if (bindings[id] !== undefined) {
       diagnostics.push(
@@ -1200,6 +1232,14 @@ export function generateJvmScabiPackage(
         }),
         error: errorContract,
       }));
+      directBindings.push(Object.freeze({
+        id: `${options.package.instance}#${bindingId}`,
+        kind: "constructor" as const,
+        ownerBinaryName: constructor.className,
+        name: "<init>" as const,
+        descriptor: constructor.descriptor,
+        nativeEntrySymbol: constructor.adapterSymbol,
+      }));
       adapterBindings.push(bindingId);
       const parameterList = constructor.parameters
         .map((parameter, position) => `a${position}: ${parameterSourceTypeOf(parameter)}`)
@@ -1698,6 +1738,16 @@ export function generateJvmScabiPackage(
           }),
       error: errorContract,
     }));
+    directBindings.push(Object.freeze({
+      id: `${options.package.instance}#${bindingId}`,
+      kind: method.kind === "static"
+        ? "static-method" as const
+        : "instance-method" as const,
+      ownerBinaryName: method.className,
+      name: method.name,
+      descriptor: method.descriptor,
+      nativeEntrySymbol: method.adapterSymbol,
+    }));
     adapterBindings.push(bindingId);
     const parameterList = method.parameters
       .map((parameter, position) => `a${position}: ${parameterSourceTypeOf(parameter)}`)
@@ -1893,6 +1943,14 @@ export function generateJvmScabiPackage(
   };
   const manifestSource = canonicalizeJson(manifestValue);
   const manifest = parseScabiManifest(manifestSource);
+  const directBindingManifest: JvmDirectBindingManifest = Object.freeze({
+    schema: "native-typescript.jvm-direct-bindings",
+    schemaVersion: 1,
+    bindings: Object.freeze([...directBindings].sort((left, right) =>
+      compareText(left.id, right.id)
+    )),
+  });
+  const directBindingsSource = canonicalizeJson(directBindingManifest);
   return Object.freeze({
     schema: "native-typescript.jvm-scabi-package",
     schemaVersion: 1,
@@ -1901,5 +1959,7 @@ export function generateJvmScabiPackage(
     manifest,
     manifestSource,
     manifestDigest: digestScabiManifest(manifest),
+    directBindings: directBindingManifest,
+    directBindingsSource,
   });
 }

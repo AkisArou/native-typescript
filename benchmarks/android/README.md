@@ -3,12 +3,20 @@
 Status: active measurement instrument  
 Last revised: 2026-08-23
 
-This benchmark compares three equivalent direct-Android applications:
+This benchmark compares three complete, equivalent direct-Android
+applications:
 
 - Native TypeScript compiled through the JVM target;
 - Kotlin compiled directly against `android.jar`;
 - plain NativeScript TypeScript using raw Android APIs, with no React, XML UI,
   or cross-platform widget tree in the measured workload.
+
+It also carries an experimental fourth APK for the first direct-JVM compiler
+slice. That APK measures only `string-argument`: its hot loop comes from
+checked TypeScript and executes as ART bytecode, while a small Java Activity
+supplies lifecycle, timing, logging, and four distinct string inputs. It is not
+included in application launch or memory comparisons until it can express the
+whole benchmark application.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -19,7 +27,7 @@ Run a host-only build first:
 pnpm benchmark:android -- --build-only
 ```
 
-Run all three applications on the one attached, authorized x86-64 device:
+Run all four APKs on the one attached, authorized x86-64 device:
 
 ```bash
 pnpm benchmark:android -- --rounds 5
@@ -34,9 +42,11 @@ ignored `.native-typescript/benchmarks/android/` directory. `TMPDIR` is set to
 host's `/tmp` tmpfs.
 
 The runner uses the same exclusive device lock as the acceptance lane. It
-builds before taking that lock, installs all three packages, asks ART to
+builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
-raw `am start -W` output, and uninstalls them during teardown.
+raw `am start -W` output, and uninstalls them during teardown. The three full
+applications participate in every scenario; the direct-JVM APK joins only the
+one scenario it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -47,12 +57,13 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 
 ## Workloads
 
-All three readable source files contain the same constants. The runner
-compares those constants to `native-project.ts` and refuses to run if they
-drift. That project file also owns a machine-readable scenario catalog. Every
-report records each scenario's layer, hotspot, operation unit, sample count,
-and expected checksum; the runner derives its execution and summaries from
-that catalog rather than from a second handwritten list.
+The three full readable source files contain the same constants. The direct
+kernel also carries the string iteration count. The runner compares those
+constants to `native-project.ts` and refuses to run if they drift. That project
+file also owns a machine-readable scenario catalog. Every report records each
+scenario's layer, hotspot, operation unit, sample count, and expected checksum;
+the runner derives its execution and summaries from that catalog rather than
+from a second handwritten list.
 
 The suite deliberately has both boundary microcases and Android-shaped work.
 A composite score would hide whether a result came from JNI mechanics,
@@ -110,11 +121,14 @@ failure includes Android's crash buffer.
 
 Each run directory contains:
 
-- the three signed APKs and their SHA-256 digests;
+- the four signed APKs and their SHA-256 digests;
+- the direct-JVM generated Java and a `javap` evidence file showing the exact
+  Android descriptor, distinct-string construction, and absence of a native
+  entry;
 - `results.json`, including source revisions and dirty state, toolchain
   versions, device/build identity, the declared hotspot catalog, raw samples,
-  launch/workload/memory summaries, and NTS/Kotlin, NativeScript/Kotlin, and
-  NTS/NativeScript ratios;
+  launch/workload/memory summaries, direct-JVM evidence coordinates, and the
+  applicable cross-implementation ratios;
 - one `dumpsys meminfo` snapshot per application and launch round.
 
 The initial harness does not yet claim first-visible-frame timing, tap-input
@@ -147,6 +161,12 @@ a temporary heap buffer, while returned Java strings borrow JNI's UTF-16 view
 and allocate only their final UTF-8 owner. The exact mechanics and five-round
 measurement are recorded in
 [record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
+The experimental direct-JVM route removes the JNI boundary from that same
+string kernel. Its compiler seam, rejected interned-string falsifier, exact
+bytecode evidence, and first valid device result are recorded in
+[record 0023](../../docs/records/0023-direct-jvm-android-call.md). This is a
+call-path result, not yet a launch, memory, lifecycle, or complete-application
+result for the direct backend.
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -170,6 +190,8 @@ recorded in
 [record 0020](../../docs/records/0020-frame-bounded-callback-payloads.md).
 The frame-local JVM string bridge and its matched three-way result are recorded
 in [record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
+The first direct-JVM Android member and its matched four-way result are recorded
+in [record 0023](../../docs/records/0023-direct-jvm-android-call.md).
 
 ## Research references
 

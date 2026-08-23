@@ -623,6 +623,10 @@ export async function buildJvmApplication(input: {
   });
   writeFileSync(join(generatedRoot, "package.scabi.json"), generated.manifestSource);
   writeFileSync(join(generatedRoot, "package.d.ts"), generated.declarations);
+  writeFileSync(
+    join(generatedRoot, "jvm-direct-bindings.json"),
+    generated.directBindingsSource,
+  );
 
   /* The target's own bootstrap is a binding package like any other. */
   const bootstrapRoot = join(targetPackageRoot, "application");
