@@ -13,6 +13,7 @@ import com.example.ntsbenchmark.direct.generated.NativeTypeScriptKernel;
 public final class MainActivity extends Activity {
     private static final int WARMUP_SAMPLES = 3;
     private static final int MEASURED_SAMPLES = 7;
+    private static final int LIGHT_OBJECT_ITERATIONS = 50000;
     private static final int STRING_ARGUMENT_ITERATIONS = 20000;
     private static final String TAG = "nts-benchmark";
 
@@ -22,38 +23,71 @@ public final class MainActivity extends Activity {
         String scenario = getIntent() == null
             ? null
             : getIntent().getStringExtra("scenario");
-        if (!"string-argument".equals(scenario)) {
+        if (!"light-object".equals(scenario) && !"string-argument".equals(scenario)) {
             throw new IllegalArgumentException(
-                "direct JVM benchmark supports only string-argument"
+                "direct JVM benchmark supports only light-object and string-argument"
             );
         }
 
-        for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
-            runStringArguments();
-        }
-        for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
-            long started = SystemClock.elapsedRealtimeNanos();
-            double rawChecksum = runStringArguments();
-            long elapsed = SystemClock.elapsedRealtimeNanos() - started;
-            int checksum = (int) rawChecksum;
-            Log.i(
-                TAG,
-                "sample implementation=native-typescript-jvm " +
-                    "scenario=string-argument sample=" + sample +
-                    " iterations=" + STRING_ARGUMENT_ITERATIONS +
-                    " elapsedNs=" + elapsed + " checksum=" + checksum
-            );
+        if ("light-object".equals(scenario)) {
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runLightObjects();
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runLightObjects();
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "light-object",
+                    sample,
+                    LIGHT_OBJECT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else {
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                runStringArguments();
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = runStringArguments();
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "string-argument",
+                    sample,
+                    STRING_ARGUMENT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
         }
 
         TextView status = new TextView(this);
-        status.setText("Native TypeScript direct JVM string-argument complete");
+        status.setText("Native TypeScript direct JVM " + scenario + " complete");
         status.setTextColor(Color.BLACK);
         status.setTextSize(20);
         setContentView(status);
         Log.i(
             TAG,
             "complete implementation=native-typescript-jvm " +
-                "scenario=string-argument"
+                "scenario=" + scenario
+        );
+    }
+
+    private static void logSample(
+        String scenario,
+        int sample,
+        int iterations,
+        long elapsed,
+        int checksum
+    ) {
+        Log.i(
+            TAG,
+            "sample implementation=native-typescript-jvm " +
+                "scenario=" + scenario + " sample=" + sample +
+                " iterations=" + iterations +
+                " elapsedNs=" + elapsed + " checksum=" + checksum
         );
     }
 

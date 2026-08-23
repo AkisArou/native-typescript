@@ -105,18 +105,23 @@ is better.
 | dynamic `TextView` counter update | 424.23 ns/update | 213.81 ns/update | 1,075.23 ns/update | 1.98x | 0.39x |
 | nested programmatic screen build | 83,681 ns/row | 89,156 ns/row | 105,156 ns/row | 0.94x | 0.80x |
 
-The experimental direct-JVM backend now joins the string-argument scenario.
-The same checked TypeScript loop executes as ART bytecode and calls
-`TextUtils.equals(CharSequence, CharSequence)` directly; bytecode inspection
-also proves that no native entry exists and that the harness creates distinct,
-equal strings instead of accidentally taking Java's interned-literal identity
-shortcut. In the first valid five-round run it measured 67.44 ns/comparison,
-versus 36.00 for Kotlin, 462.10 for the current Native TypeScript/JNI route,
-and 1,329.84 for NativeScript. That is 6.85x faster than the JNI route and
-within 1.87x of Kotlin for this first operation. It is not yet a complete
-Android application backend, so it makes no launch or memory claim. The
-compiler seam, falsification, bytecode, and device evidence are in
-[record 0023](docs/records/0023-direct-jvm-android-call.md).
+The experimental direct-JVM backend now joins two unchanged scenarios. Their
+checked TypeScript loops execute as ART bytecode and call the exact reached
+Android members directly; bytecode inspection proves there is no native entry.
+The latest matched five-round run measured:
+
+| Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| lightweight `Rect` construction and `width()` | **30.04 ns/op** | 20.18 ns/op | 173.21 ns/op | 3,505.71 ns/op | **1.49x** | **0.17x** |
+| ASCII/Unicode string arguments | **78.22 ns/comparison** | 37.40 ns/comparison | 594.16 ns/comparison | 1,375.93 ns/comparison | **2.09x** | **0.13x** |
+
+The object path is 5.77x faster than current Native TypeScript/JNI and within
+1.49x of Kotlin without a global JNI reference, managed handle cell, or JNI
+crossing. This is still a kernel APK rather than a complete Android application
+backend, so it makes no launch or memory claim. The first static-call proof is
+in [record 0023](docs/records/0023-direct-jvm-android-call.md); constructor,
+instance-call, bytecode, and device evidence are in
+[record 0024](docs/records/0024-direct-jvm-object-calls.md).
 
 The post-warm-foreground median memory and packaged artifact observations were:
 

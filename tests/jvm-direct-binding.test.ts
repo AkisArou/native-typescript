@@ -73,7 +73,7 @@ function evidence(probe: ClangAbiProbe): ClangAbiEvidenceSnapshot {
 }
 
 test(
-  "a checked native call uses authoritative JVM coordinates without JNI",
+  "checked static, constructor, and instance calls use JVM coordinates without JNI",
   { skip: javaHome === null ? "no JDK on this host" : false },
   async () => {
     execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
@@ -85,7 +85,11 @@ test(
       {
         classes: [{
           binaryName: "fixture/Widget",
-          methods: [{ name: "nameLength", descriptor: "(Ljava/lang/String;)I" }],
+          constructors: ["(I)V"],
+          methods: [
+            { name: "depth", descriptor: "()I" },
+            { name: "nameLength", descriptor: "(Ljava/lang/String;)I" },
+          ],
         }],
       },
     );
@@ -123,9 +127,13 @@ test(
       ],
       adapterInput: { id: "fixture.jvm-adapters", output: "jvm-adapters.o" },
     });
-    const selectedBinding = "fixture.fixture.widget.namelength";
     const translated = translateScabiNativeProgram(generated.manifest, {
-      imports: [selectedBinding],
+      imports: [
+        "fixture.object.release",
+        "fixture.fixture.widget.constructor",
+        "fixture.fixture.widget.depth",
+        "fixture.fixture.widget.namelength",
+      ],
       exports: [],
     });
     assert.equal(translated.ok, true);
@@ -141,7 +149,12 @@ test(
           "export function stringLength(): number {\n" +
           '  return Widget.nameLength("direct");\n' +
           "}\n" +
-          "stringLength();\n",
+          "export function objectDepth(): number {\n" +
+          "  const widget = new Widget(7);\n" +
+          "  return widget.depth();\n" +
+          "}\n" +
+          "stringLength();\n" +
+          "objectDepth();\n",
       );
       writeFileSync(declarations, generated.declarations);
       const planners = await loadScriptCExecutablePlanners();
@@ -168,6 +181,9 @@ test(
         functionExports: [{
           functionName: "stringLength",
           methodName: "stringLength",
+        }, {
+          functionName: "objectDepth",
+          methodName: "objectDepth",
         }],
       });
       const javaRoot = join(root, "java/dev/nts/generated");
@@ -183,6 +199,7 @@ test(
           "public final class Harness {\n" +
           "  public static void main(String[] args) {\n" +
           "    System.out.println(DirectBinding.stringLength());\n" +
+          "    System.out.println(DirectBinding.objectDepth());\n" +
           "  }\n" +
           "}\n",
       );
@@ -205,6 +222,8 @@ test(
         bytecode,
         /fixture\/Widget\.nameLength:\(Ljava\/lang\/String;\)I/u,
       );
+      assert.match(bytecode, /fixture\/Widget\."<init>":\(I\)V/u);
+      assert.match(bytecode, /fixture\/Widget\.depth:\(\)I/u);
       assert.doesNotMatch(bytecode, /nts_jvm_fixture/u);
       assert.doesNotMatch(bytecode, / native /u);
       const run = spawnSync(
@@ -213,7 +232,7 @@ test(
         { encoding: "utf8" },
       );
       assert.equal(run.status, 0);
-      assert.equal(run.stdout, "6.0\n");
+      assert.equal(run.stdout, "6.0\n7.0\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

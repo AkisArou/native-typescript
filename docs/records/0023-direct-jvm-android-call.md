@@ -144,3 +144,6 @@ shape as a precise refusal, and retain bytecode plus device evidence. Classes,
 callback adapters, generated platform subclasses, and the small
 Looper-integrated microtask scheduler follow only as their first executable
 programs require them.
+
+That object-reference slice is now implemented and measured in
+[record 0024](0024-direct-jvm-object-calls.md).

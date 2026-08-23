@@ -14,7 +14,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { readZipEntries } from "@native-typescript/bindgen-jvm";
-import type { JvmDirectBindingManifest } from "@native-typescript/bindgen-jvm";
+import type {
+  JvmDirectBinding,
+  JvmDirectBindingManifest,
+} from "@native-typescript/bindgen-jvm";
 import { parseScabiManifest } from "@native-typescript/scabi";
 import {
   buildAndroidApk,
@@ -71,6 +74,16 @@ const FULL_APPLICATION_IMPLEMENTATIONS = [
   "kotlin",
   "nativescript",
 ] as const;
+const DIRECT_JVM_SCENARIOS = [
+  "light-object",
+  "string-argument",
+] as const satisfies readonly AndroidBenchmarkScenario[];
+
+function directJvmSupportsScenario(
+  scenario: AndroidBenchmarkScenario,
+): boolean {
+  return DIRECT_JVM_SCENARIOS.some((candidate) => candidate === scenario);
+}
 
 interface Options {
   readonly avd: string | null;
@@ -107,11 +120,13 @@ interface BuiltApplication {
 
 interface DirectJvmBuiltApplication extends BuiltApplication {
   readonly evidence: {
-    readonly bindingId: string;
-    readonly ownerBinaryName: string;
-    readonly name: string;
-    readonly descriptor: string;
-    readonly nativeEntrySymbol: string;
+    readonly bindings: readonly {
+      readonly bindingId: string;
+      readonly ownerBinaryName: string;
+      readonly name: string;
+      readonly descriptor: string;
+      readonly nativeEntrySymbol: string;
+    }[];
     readonly bytecodePath: string;
   };
 }
@@ -576,26 +591,65 @@ async function buildDirectJvmApk(input: {
   ) {
     throw new Error(`Unsupported direct-JVM binding manifest at ${directBindingsPath}`);
   }
-  const equalsBinding = directBindings.bindings.find((binding) =>
-    binding.kind === "static-method" &&
-    binding.ownerBinaryName === "android/text/TextUtils" &&
-    binding.name === "equals" &&
-    binding.descriptor ===
-      "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z"
+  const findDirectBinding = (
+    kind: JvmDirectBinding["kind"],
+    ownerBinaryName: string,
+    name: string,
+    descriptor: string,
+  ): JvmDirectBinding => {
+    const binding = directBindings.bindings.find((candidate) =>
+      candidate.kind === kind &&
+      candidate.ownerBinaryName === ownerBinaryName &&
+      candidate.name === name &&
+      candidate.descriptor === descriptor
+    );
+    if (binding === undefined) {
+      throw new Error(
+        `The generated JVM binding sidecar carries no exact ${kind} ` +
+          `'${ownerBinaryName}.${name}${descriptor}'`,
+      );
+    }
+    return binding;
+  };
+  const rectConstructorBinding = findDirectBinding(
+    "constructor",
+    "android/graphics/Rect",
+    "<init>",
+    "(IIII)V",
   );
-  if (equalsBinding === undefined) {
+  const rectWidthBinding = findDirectBinding(
+    "instance-method",
+    "android/graphics/Rect",
+    "width",
+    "()I",
+  );
+  const equalsBinding = findDirectBinding(
+    "static-method",
+    "android/text/TextUtils",
+    "equals",
+    "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z",
+  );
+  const selectedBindings = [
+    rectConstructorBinding,
+    rectWidthBinding,
+    equalsBinding,
+  ] as const;
+  const localBindingIds = selectedBindings.map((binding) => {
+    const separator = binding.id.indexOf("#");
+    if (separator < 1) {
+      throw new Error(`Direct binding '${binding.id}' has no package instance`);
+    }
+    return binding.id.slice(separator + 1);
+  });
+  const packageSlugSeparator = localBindingIds[0]!.indexOf(".");
+  if (packageSlugSeparator < 1) {
     throw new Error(
-      "The generated JVM binding sidecar carries no exact TextUtils.equals " +
-        "(CharSequence, CharSequence) member",
+      `Direct binding '${localBindingIds[0]}' has no package slug`,
     );
   }
-  const separator = equalsBinding.id.indexOf("#");
-  if (separator < 1) {
-    throw new Error(`Direct binding '${equalsBinding.id}' has no package instance`);
-  }
-  const selectedBinding = equalsBinding.id.slice(separator + 1);
+  const packageSlug = localBindingIds[0]!.slice(0, packageSlugSeparator);
   const translated = translateScabiNativeProgram(manifest, {
-    imports: [selectedBinding],
+    imports: [`${packageSlug}.object.release`, ...localBindingIds],
     exports: [],
   });
   if (!translated.ok) {
@@ -629,10 +683,16 @@ async function buildDirectJvmApk(input: {
     packageName,
     className,
     nativeBindings: directBindings.bindings,
-    functionExports: [{
-      functionName: "runStringArguments",
-      methodName: "runStringArguments",
-    }],
+    functionExports: [
+      {
+        functionName: "runLightObjects",
+        methodName: "runLightObjects",
+      },
+      {
+        functionName: "runStringArguments",
+        methodName: "runStringArguments",
+      },
+    ],
   });
 
   const generatedRoot = join(input.root, "generated");
@@ -672,14 +732,19 @@ async function buildDirectJvmApk(input: {
     ["-classpath", classes, "-c", "-p", generatedClassName],
     { env: buildEnvironment },
   );
-  const directInstruction =
+  const directInstructions = [
+    'android/graphics/Rect."<init>":(IIII)V',
+    "android/graphics/Rect.width:()I",
     "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
-    "Ljava/lang/CharSequence;)Z";
-  if (!bytecode.includes(directInstruction)) {
-    throw new Error(
-      `Direct-JVM bytecode does not call the selected member '${directInstruction}':\n` +
-        bytecode,
-    );
+      "Ljava/lang/CharSequence;)Z",
+  ];
+  for (const directInstruction of directInstructions) {
+    if (!bytecode.includes(directInstruction)) {
+      throw new Error(
+        `Direct-JVM bytecode does not call the selected member '${directInstruction}':\n` +
+          bytecode,
+      );
+    }
   }
   if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
     throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
@@ -691,14 +756,18 @@ async function buildDirectJvmApk(input: {
     ["-classpath", classes, "-c", "-p", activityClassName],
     { env: buildEnvironment },
   );
-  const generatedInvocation =
+  const generatedInvocations = [
+    "NativeTypeScriptKernel.runLightObjects:()D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
-    "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D";
-  if (!activityBytecode.includes(generatedInvocation)) {
-    throw new Error(
-      `Direct-JVM harness does not supply four runtime strings '${generatedInvocation}':\n` +
-        activityBytecode,
-    );
+      "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
+  ];
+  for (const generatedInvocation of generatedInvocations) {
+    if (!activityBytecode.includes(generatedInvocation)) {
+      throw new Error(
+        `Direct-JVM harness does not call '${generatedInvocation}':\n` +
+          activityBytecode,
+      );
+    }
   }
   if (activityBytecode.includes(" native ")) {
     throw new Error(
@@ -793,11 +862,13 @@ async function buildDirectJvmApk(input: {
     sha256: sha256(apkPath),
     bytes: statSync(apkPath).size,
     evidence: {
-      bindingId: equalsBinding.id,
-      ownerBinaryName: equalsBinding.ownerBinaryName,
-      name: equalsBinding.name,
-      descriptor: equalsBinding.descriptor,
-      nativeEntrySymbol: equalsBinding.nativeEntrySymbol,
+      bindings: selectedBindings.map((binding) => ({
+        bindingId: binding.id,
+        ownerBinaryName: binding.ownerBinaryName,
+        name: binding.name,
+        descriptor: binding.descriptor,
+        nativeEntrySymbol: binding.nativeEntrySymbol,
+      })),
       bytecodePath: relative(
         input.root,
         join(input.root, "bytecode-evidence.txt"),
@@ -945,7 +1016,10 @@ function verifyWorkloadAgreement(): void {
           `kotlin=${kotlinValue}, nativescript=${nativeScriptValue}`,
       );
     }
-    if (name === "STRING_ARGUMENT_ITERATIONS") {
+    if (
+      name === "LIGHT_OBJECT_ITERATIONS" ||
+      name === "STRING_ARGUMENT_ITERATIONS"
+    ) {
       const directValue = sourceConstant(
         direct,
         "native-typescript-jvm",
@@ -1275,7 +1349,7 @@ function summarize(
       IMPLEMENTATIONS
         .filter((implementation) =>
           implementation !== "native-typescript-jvm" ||
-          scenario.name === "string-argument"
+          directJvmSupportsScenario(scenario.name)
         )
         .map((implementation) => {
           const values = workloads
@@ -1444,7 +1518,7 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 4,
+    schemaVersion: 5,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,
@@ -1605,7 +1679,7 @@ async function main(): Promise<void> {
     }
 
     for (const scenario of repeatedAndroidBenchmarkScenarios) {
-      const scenarioApplications = scenario === "string-argument"
+      const scenarioApplications = directJvmSupportsScenario(scenario)
         ? applications
         : fullApplications;
       for (let round = 0; round < options.rounds; round++) {
