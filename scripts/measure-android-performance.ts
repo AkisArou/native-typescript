@@ -79,6 +79,7 @@ const DIRECT_JVM_SCENARIOS = [
   "setter",
   "callback",
   "callback-payload",
+  "callback-capture",
   "string-argument",
   "string-result",
   "byte-array",
@@ -695,6 +696,12 @@ async function buildDirectJvmApk(input: {
     "getId",
     "()I",
   );
+  const viewSetIdBinding = findDirectBinding(
+    "instance-method",
+    "android/view/View",
+    "setId",
+    "(I)V",
+  );
   const viewGroupGetChildAtBinding = findDirectBinding(
     "instance-method",
     "android/view/ViewGroup",
@@ -715,6 +722,7 @@ async function buildDirectJvmApk(input: {
     equalsBinding,
     base64EncodeBinding,
     viewGetIdBinding,
+    viewSetIdBinding,
     viewGroupGetChildAtBinding,
   ] as const;
   const localBindingIds = selectedBindings.map((binding) => {
@@ -758,6 +766,8 @@ async function buildDirectJvmApk(input: {
       "runCallbacks",
       "prepareCallbackPayload",
       "runCallbackPayload",
+      "prepareCallbackCapture",
+      "runCallbackCapture",
       "runStringArguments",
       "runStringResults",
       "runByteArrays",
@@ -806,6 +816,14 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runCallbackPayload",
         methodName: "runCallbackPayload",
+      },
+      {
+        functionName: "prepareCallbackCapture",
+        methodName: "prepareCallbackCapture",
+      },
+      {
+        functionName: "runCallbackCapture",
+        methodName: "runCallbackCapture",
       },
       {
         functionName: "runStringArguments",
@@ -877,6 +895,7 @@ async function buildDirectJvmApk(input: {
     "android/util/Base64.encode:([BI)[B",
     "android/widget/LinearLayout.getChildAt:(I)Landroid/view/View;",
     "android/view/View.getId:()I",
+    "android/widget/Button.setId:(I)V",
   ];
   for (const directInstruction of directInstructions) {
     if (!bytecode.includes(directInstruction)) {
@@ -909,6 +928,15 @@ async function buildDirectJvmApk(input: {
         `View directly in ART:\n${bytecode}`,
     );
   }
+  if (
+    !/private static void [^(]+\(android\.widget\.Button, android\.view\.View\);\n    Code:\n(?:(?!\n  (?:private|public|protected)).)*android\/view\/View\.getId:\(\)I(?:(?!\n  (?:private|public|protected)).)*android\/widget\/Button\.getId:\(\)I/su
+      .test(bytecode)
+  ) {
+    throw new Error(
+      "Direct-JVM captured callback handler did not retain and call its " +
+        `second Android receiver directly in ART:\n${bytecode}`,
+    );
+  }
   const callbackAdapterClassName = `${generatedClassName}$NtsCallbackAdapter0`;
   const callbackBytecode = run(
     join(input.javaHome, "bin/javap"),
@@ -918,7 +946,7 @@ async function buildDirectJvmApk(input: {
   for (const callbackEvidence of [
     "implements android.view.View$OnClickListener",
     "public void onClick(android.view.View)",
-    "NtsCallback0.invoke:(Landroid/view/View;)V",
+    "NativeTypeScriptKernel.f_",
   ]) {
     if (!callbackBytecode.includes(callbackEvidence)) {
       throw new Error(
@@ -929,6 +957,12 @@ async function buildDirectJvmApk(input: {
   if (callbackBytecode.includes("nts_jvm_") || / native /u.test(callbackBytecode)) {
     throw new Error(
       `Direct-JVM callback adapter unexpectedly crosses JNI:\n${callbackBytecode}`,
+    );
+  }
+  if (callbackBytecode.includes("NtsCallback0") || /invokeinterface/u.test(callbackBytecode)) {
+    throw new Error(
+      "Direct-JVM callback adapter retained a generic handler dispatch " +
+        `instead of its reached registration sites:\n${callbackBytecode}`,
     );
   }
   const activityClassName = directJvmBenchmarkApplication.activityBinaryName
@@ -945,6 +979,8 @@ async function buildDirectJvmApk(input: {
     "NativeTypeScriptKernel.runCallbacks:(Landroid/widget/Button;)D",
     "NativeTypeScriptKernel.prepareCallbackPayload:(Landroid/app/Activity;)Landroid/widget/Button;",
     "NativeTypeScriptKernel.runCallbackPayload:(Landroid/widget/Button;)D",
+    "NativeTypeScriptKernel.prepareCallbackCapture:(Landroid/app/Activity;)Landroid/widget/Button;",
+    "NativeTypeScriptKernel.runCallbackCapture:(Landroid/widget/Button;)D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
     "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
@@ -1201,6 +1237,8 @@ function verifyWorkloadAgreement(): void {
     HANDLE_RESULT_CHILDREN: androidBenchmarkWorkload.handleResultChildren,
     CALLBACK_PAYLOAD_ITERATIONS:
       androidBenchmarkWorkload.callbackPayloadIterations,
+    CALLBACK_CAPTURE_ITERATIONS:
+      androidBenchmarkWorkload.callbackCaptureIterations,
     TEXT_UPDATE_ITERATIONS: androidBenchmarkWorkload.textUpdateIterations,
     SCREEN_BUILD_ROWS: androidBenchmarkWorkload.screenBuildRows,
     TREE_CHILDREN: androidBenchmarkWorkload.treeChildren,
@@ -1222,6 +1260,7 @@ function verifyWorkloadAgreement(): void {
       name === "SETTER_ITERATIONS" ||
       name === "CALLBACK_ITERATIONS" ||
       name === "CALLBACK_PAYLOAD_ITERATIONS" ||
+      name === "CALLBACK_CAPTURE_ITERATIONS" ||
       name === "STRING_ARGUMENT_ITERATIONS" ||
       name === "STRING_RESULT_ITERATIONS" ||
       name === "BYTE_ARRAY_ITERATIONS" ||

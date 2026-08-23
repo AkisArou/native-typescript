@@ -13,8 +13,9 @@ applications:
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
 That APK measures `light-object`, `setter`, `callback`, `callback-payload`,
-`string-argument`, `string-result`, `byte-array`, and `handle-result`: all
-eight hot loops come from checked TypeScript and execute as ART bytecode,
+`callback-capture`, `string-argument`, `string-result`, `byte-array`, and
+`handle-result`: all nine hot loops come from checked TypeScript and execute
+as ART bytecode,
 while a small Java Activity supplies lifecycle, timing, logging, its own
 concrete receiver for `setter`, the click sources, the distinct runtime string
 inputs, and the byte-array input. It is not included in application launch or
@@ -48,7 +49,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-eight scenarios it implements.
+nine scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -60,7 +61,7 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries every constant used by its eight scenarios. The
+kernel also carries every constant used by its nine scenarios. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -89,6 +90,7 @@ JavaScript array that would change the operation.
 | Boundary | `byte-array` | Send a 256-byte primitive array through `Base64.encode` and consume the returned array 2,000 times |
 | Boundary | `handle-result` | Call `ViewGroup.getChildAt`, null-check the returned object, then call `getId` 32,000 times |
 | Boundary | `callback-payload` | Deliver 20,000 click callbacks and consume each delivered `View` through `getId` |
+| Boundary | `callback-capture` | Deliver 20,000 clicks while reusing the delivered `View` and a retained captured `Button` through `getId` |
 | Android | `text-update` | Format 10,000 changing counter strings and assign each to one `TextView` |
 | Composite | `screen-build` | Build 32 nested rows with labels, buttons, dynamic text, scalar setters, and hierarchy edges |
 
@@ -100,8 +102,8 @@ incomplete loop a hard failure rather than a faster result. The launch
 
 The matrix covers the currently implemented high-frequency boundary families:
 primitive calls, object construction/results, strings in both directions,
-primitive arrays in both directions, synchronous callbacks with and without
-payload use, widget mutation, and programmatic hierarchy construction. It does
+primitive arrays in both directions, synchronous callbacks with payload use
+and retained state, widget mutation, and programmatic hierarchy construction. It does
 not claim coverage of first-frame rendering, touch latency, asynchronous or
 foreign-thread callbacks, storage/database APIs, networking, image buffers,
 layout/draw passes, or lifecycle teardown; those require different instruments
@@ -188,13 +190,17 @@ the two added kernels, bytecode proof, and matched device results are in
 unchanged Base64 loop, exact bytecode proof, and matched device result are in
 [record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md). Same-thread
 callback delivery now also stays in ART: the generated interface shell is
-replaced by a Java listener holding the zero-capture TypeScript handler, while
-an idempotent Java connection preserves cancellation. Its stated-and-verified
-class contract, bytecode proof, and 3.60 ns device median are in
+replaced by a Java listener whose registration arm calls the reached
+TypeScript handler directly, while an idempotent Java connection preserves
+cancellation. Its stated-and-verified class contract, bytecode proof, and
+3.60 ns device median are in
 [record 0029](../../docs/records/0029-direct-jvm-callbacks.md). The delivered
 object can now be null-checked and used for another Android call
 without leaving ART; the matched payload result is in
-[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md). These
+[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
+Captured values now live in exact Java fields or typed mutable holders owned
+by that registration; the aliasing proof and matched measurement are in
+[record 0031](../../docs/records/0031-direct-jvm-callback-captures.md). These
 are call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend.
 
@@ -238,6 +244,8 @@ Direct same-thread callbacks are recorded in
 [record 0029](../../docs/records/0029-direct-jvm-callbacks.md).
 Direct callback object payloads are recorded in
 [record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
+Direct callback captures are recorded in
+[record 0031](../../docs/records/0031-direct-jvm-callback-captures.md).
 
 ## Research references
 

@@ -20,6 +20,7 @@ const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
 const HANDLE_RESULT_CHILDREN = 16;
 const CALLBACK_PAYLOAD_ITERATIONS = 20000;
+const CALLBACK_CAPTURE_ITERATIONS = 20000;
 const TEXT_UPDATE_ITERATIONS = 10000;
 const SCREEN_BUILD_ROWS = 32;
 const TREE_CHILDREN = 128;
@@ -27,6 +28,7 @@ const TREE_CHILDREN = 128;
 const TAG = "nts-benchmark";
 let callbackCount = 0;
 let callbackPayloadChecksum = 0;
+let callbackCaptureChecksum = 0;
 const retainedListeners: android.view.View.OnClickListener[] = [];
 
 function runConstructors(activity: android.app.Activity): number {
@@ -406,6 +408,49 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
         CALLBACK_PAYLOAD_ITERATIONS,
         elapsed,
         callbackPayloadChecksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "callback-capture") {
+    const captureButton = new android.widget.Button(activity);
+    captureButton.setId(7);
+    const capturedTarget = new android.widget.Button(activity);
+    capturedTarget.setId(11);
+    const captureListener = new android.view.View.OnClickListener({
+      onClick: (view) => {
+        if (view !== null) {
+          callbackCaptureChecksum += view.getId() + capturedTarget.getId();
+        }
+      },
+    });
+    retainedListeners.push(captureListener);
+    captureButton.setOnClickListener(captureListener);
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      callbackCaptureChecksum = 0;
+      let index = 0;
+      while (index < CALLBACK_CAPTURE_ITERATIONS) {
+        captureButton.callOnClick();
+        index += 1;
+      }
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      callbackCaptureChecksum = 0;
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      let index = 0;
+      while (index < CALLBACK_CAPTURE_ITERATIONS) {
+        captureButton.callOnClick();
+        index += 1;
+      }
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "callback-capture",
+        sample,
+        CALLBACK_CAPTURE_ITERATIONS,
+        elapsed,
+        callbackCaptureChecksum,
       );
       sample += 1;
     }

@@ -485,6 +485,7 @@ test(
         {
           classes: [{
             binaryName: "fixture/Widget",
+            constructors: ["(I)V"],
             methods: [{ name: "depth", descriptor: "()I" }],
           }, {
             binaryName: "fixture/Clickable",
@@ -556,6 +557,7 @@ test(
       });
       const localIds = [
         "fixture.object.release",
+        "fixture.fixture.widget.constructor",
         "fixture.fixture.widget.depth",
         "fixture.fixture.button.constructor",
         "fixture.fixture.clickbridge.constructor",
@@ -573,14 +575,16 @@ test(
       const declarations = join(root, "package.d.ts");
       writeFileSync(
         source,
-        'import { Button, CallbackHost, ClickBridge, JvmConnection } from "@native-typescript/jvm-callback-fixture";\n' +
+        'import { Button, CallbackHost, ClickBridge, JvmConnection, Widget } from "@native-typescript/jvm-callback-fixture";\n' +
           "let retained: JvmConnection | null = null;\n" +
-          "let delivered = 0;\n" +
           "export function runCallback(): number {\n" +
-          "  delivered = 0;\n" +
+          "  let delivered = 0;\n" +
+          "  let target = new Widget(5);\n" +
+          "  const stable = new Widget(3);\n" +
           '  const button = new Button("direct");\n' +
           "  const clicks = new ClickBridge();\n" +
-          "  retained = clicks.onClick((source) => { if (source !== null) delivered += source.depth() + 1; });\n" +
+          "  retained = clicks.onClick((source) => { if (source !== null) delivered += target.depth() + stable.depth() + source.depth() + 1; });\n" +
+          "  target = new Widget(9);\n" +
           "  CallbackHost.deliver(clicks, button);\n" +
           "  CallbackHost.deliver(clicks, button);\n" +
           "  return delivered;\n" +
@@ -611,6 +615,14 @@ test(
         nativeBindings: generated.directBindings.bindings,
         functionExports: [{ functionName: "runCallback", methodName: "runCallback" }],
       });
+      assert.match(javaSource, /private static final class NtsDoubleBox/u);
+      assert.match(javaSource, /private static final class NtsReferenceBox/u);
+      assert.match(
+        javaSource,
+        /\.ntsRegister0\(l_[0-9a-f]+, l_[0-9a-f]+, l_[0-9a-f]+\)/u,
+      );
+      assert.match(javaSource, /new NtsCallbackAdapter0\(\)/u);
+      assert.doesNotMatch(javaSource, /private interface NtsCallback/u);
       const javaRoot = join(root, "java/dev/nts/generated");
       const classes = join(root, "classes");
       mkdirSync(javaRoot, { recursive: true });
@@ -659,7 +671,8 @@ test(
       );
       assert.match(callbackBytecode, /implements fixture\.Clickable/u);
       assert.match(callbackBytecode, /public void onClick\(fixture\.Button\)/u);
-      assert.match(callbackBytecode, /NtsCallback0\.invoke:\(Lfixture\/Button;\)V/u);
+      assert.match(callbackBytecode, /DirectCallback\.f_[0-9a-f]+:/u);
+      assert.doesNotMatch(callbackBytecode, /invokeinterface/u);
       assert.doesNotMatch(callbackBytecode, /nts_jvm_fixture/u);
       assert.doesNotMatch(callbackBytecode, / native /u);
       const run = spawnSync(
@@ -668,7 +681,7 @@ test(
         { encoding: "utf8" },
       );
       assert.equal(run.status, 0, run.stderr);
-      assert.equal(run.stdout, "2.0\n");
+      assert.equal(run.stdout, "26.0\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

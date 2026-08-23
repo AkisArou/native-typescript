@@ -28,6 +28,7 @@ private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
 private const val HANDLE_RESULT_CHILDREN = 16
 private const val CALLBACK_PAYLOAD_ITERATIONS = 20000
+private const val CALLBACK_CAPTURE_ITERATIONS = 20000
 private const val TEXT_UPDATE_ITERATIONS = 10000
 private const val SCREEN_BUILD_ROWS = 32
 private const val TREE_CHILDREN = 128
@@ -37,6 +38,7 @@ private const val TAG = "nts-benchmark"
 class MainActivity : Activity() {
     private var callbackCount = 0
     private var callbackPayloadChecksum = 0
+    private var callbackCaptureChecksum = 0
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -260,6 +262,47 @@ class MainActivity : Activity() {
                     CALLBACK_PAYLOAD_ITERATIONS,
                     elapsed,
                     callbackPayloadChecksum,
+                )
+                sample += 1
+            }
+        } else if ("callback-capture".equals(scenario)) {
+            val captureButton = Button(this)
+            captureButton.id = 7
+            val capturedTarget = Button(this)
+            capturedTarget.id = 11
+            captureButton.setOnClickListener(object : View.OnClickListener {
+                override fun onClick(view: View?) {
+                    if (view != null) {
+                        callbackCaptureChecksum += view.id + capturedTarget.id
+                    }
+                }
+            })
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                callbackCaptureChecksum = 0
+                var index = 0
+                while (index < CALLBACK_CAPTURE_ITERATIONS) {
+                    captureButton.callOnClick()
+                    index += 1
+                }
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                callbackCaptureChecksum = 0
+                val started = SystemClock.elapsedRealtimeNanos()
+                var index = 0
+                while (index < CALLBACK_CAPTURE_ITERATIONS) {
+                    captureButton.callOnClick()
+                    index += 1
+                }
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "callback-capture",
+                    sample,
+                    CALLBACK_CAPTURE_ITERATIONS,
+                    elapsed,
+                    callbackCaptureChecksum,
                 )
                 sample += 1
             }

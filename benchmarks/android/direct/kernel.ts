@@ -20,6 +20,7 @@ const LIGHT_OBJECT_ITERATIONS = 50000;
 const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
 const CALLBACK_PAYLOAD_ITERATIONS = 20000;
+const CALLBACK_CAPTURE_ITERATIONS = 20000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
 const BYTE_ARRAY_ITERATIONS = 2000;
@@ -30,6 +31,8 @@ let callbackCount = 0;
 let retainedCallback: JvmConnection | null = null;
 let callbackPayloadChecksum = 0;
 let retainedPayloadCallback: JvmConnection | null = null;
+let callbackCaptureChecksum = 0;
+let retainedCaptureCallback: JvmConnection | null = null;
 
 export function runLightObjects(): number {
   let checksum = 0;
@@ -101,6 +104,34 @@ export function runCallbackPayload(button: Button): number {
     index += 1;
   }
   return callbackPayloadChecksum;
+}
+
+/** A retained listener owns an ordinary Java reference captured from its
+ * creation frame. Both the delivered and captured receivers stay in ART. */
+export function prepareCallbackCapture(activity: Activity): Button {
+  const button = new Button(activity);
+  button.setId(7);
+  const capturedTarget = new Button(activity);
+  capturedTarget.setId(11);
+  const clicks = new ClickBridge();
+  retainedCaptureCallback = clicks.onClick((view) => {
+    if (view !== null) {
+      callbackCaptureChecksum += view.getId() + capturedTarget.getId();
+    }
+  });
+  button.setOnClickListener(clicks);
+  return button;
+}
+
+export function runCallbackCapture(button: Button): number {
+  if (retainedCaptureCallback === null) return -1;
+  callbackCaptureChecksum = 0;
+  let index = 0;
+  while (index < CALLBACK_CAPTURE_ITERATIONS) {
+    button.callOnClick();
+    index += 1;
+  }
+  return callbackCaptureChecksum;
 }
 
 export function runStringArguments(

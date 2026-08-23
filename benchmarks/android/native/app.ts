@@ -34,6 +34,7 @@ const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
 const HANDLE_RESULT_CHILDREN = 16;
 const CALLBACK_PAYLOAD_ITERATIONS = 20000;
+const CALLBACK_CAPTURE_ITERATIONS = 20000;
 const TEXT_UPDATE_ITERATIONS = 10000;
 const SCREEN_BUILD_ROWS = 32;
 const TREE_CHILDREN = 128;
@@ -194,6 +195,7 @@ function logSample(
 export default class MainActivity extends Activity {
   private callbackCount = 0;
   private callbackPayloadChecksum = 0;
+  private callbackCaptureChecksum = 0;
 
   override onCreate(state: Bundle | null): void {
     super.onCreate(state);
@@ -441,6 +443,50 @@ export default class MainActivity extends Activity {
           CALLBACK_PAYLOAD_ITERATIONS,
           elapsed,
           this.callbackPayloadChecksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "callback-capture") {
+      const captureButton = new Button(this);
+      captureButton.setId(7);
+      const capturedTarget = new Button(this);
+      capturedTarget.setId(11);
+      const captureClicks = new ClickBridge();
+      listeners.push(captureClicks);
+      registrations.push(captureClicks.onClick((view) => {
+        if (view !== null) {
+          this.callbackCaptureChecksum += view.getId() + capturedTarget.getId();
+        }
+      }));
+      captureButton.setOnClickListener(captureClicks);
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        this.callbackCaptureChecksum = 0;
+        let index = 0;
+        while (index < CALLBACK_CAPTURE_ITERATIONS) {
+          captureButton.callOnClick();
+          index += 1;
+        }
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        this.callbackCaptureChecksum = 0;
+        const started = SystemClock.elapsedRealtimeNanos();
+        let index = 0;
+        while (index < CALLBACK_CAPTURE_ITERATIONS) {
+          captureButton.callOnClick();
+          index += 1;
+        }
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "callback-capture",
+          sample,
+          CALLBACK_CAPTURE_ITERATIONS,
+          elapsed,
+          this.callbackCaptureChecksum,
         );
         sample += 1;
       }
