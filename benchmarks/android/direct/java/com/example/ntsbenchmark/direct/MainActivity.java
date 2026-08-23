@@ -6,6 +6,7 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.example.ntsbenchmark.direct.generated.NativeTypeScriptKernel;
@@ -17,6 +18,7 @@ public final class MainActivity extends Activity {
     private static final int MEASURED_SAMPLES = 7;
     private static final int LIGHT_OBJECT_ITERATIONS = 50000;
     private static final int SETTER_ITERATIONS = 50000;
+    private static final int CALLBACK_ITERATIONS = 50000;
     private static final int STRING_ARGUMENT_ITERATIONS = 20000;
     private static final int STRING_RESULT_ITERATIONS = 10000;
     private static final int BYTE_ARRAY_ITERATIONS = 2000;
@@ -34,6 +36,7 @@ public final class MainActivity extends Activity {
         if (
             !"light-object".equals(scenario) &&
             !"setter".equals(scenario) &&
+            !"callback".equals(scenario) &&
             !"string-argument".equals(scenario) &&
             !"string-result".equals(scenario) &&
             !"byte-array".equals(scenario) &&
@@ -41,7 +44,7 @@ public final class MainActivity extends Activity {
         ) {
             throw new IllegalArgumentException(
                 "direct JVM benchmark supports only light-object, setter, " +
-                    "string-argument, string-result, byte-array, and handle-result"
+                    "callback, string-argument, string-result, byte-array, and handle-result"
             );
         }
 
@@ -73,6 +76,23 @@ public final class MainActivity extends Activity {
                     "setter",
                     sample,
                     SETTER_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else if ("callback".equals(scenario)) {
+            Button button = NativeTypeScriptKernel.prepareCallbacks(this);
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runCallbacks(button);
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runCallbacks(button);
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "callback",
+                    sample,
+                    CALLBACK_ITERATIONS,
                     elapsed,
                     (int) rawChecksum
                 );

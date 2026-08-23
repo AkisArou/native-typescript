@@ -92,32 +92,33 @@ is better.
 
 | Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128-child view tree | 98,268 ns/child | 62,994 ns/child | 62,742 ns/child | 1.56x | 1.57x |
-| lightweight `Rect` construction and `width()` | 181.49 ns/op | 25.10 ns/op | 3,379.09 ns/op | 7.23x | 0.054x |
-| `TextView` construction and scalar call | 26,327 ns/op | 25,842 ns/op | 29,841 ns/op | 1.02x | 0.88x |
-| repeated `TextView.setTextSize` | 101.27 ns/op | 19.98 ns/op | 315.32 ns/op | 5.07x | 0.32x |
-| payload-free synchronous callback | 218.67 ns/delivery | 2.80 ns/delivery | 1,578.01 ns/delivery | 78.12x | 0.139x |
-| ASCII/Unicode string arguments | 551.88 ns/comparison | 40.39 ns/comparison | 1,302.21 ns/comparison | 13.66x | 0.424x |
-| fresh Java string result | 671.38 ns/result | 249.87 ns/result | 779.45 ns/result | 2.69x | 0.861x |
-| 256-byte array encoding round trip | 1,620.23 ns/encoding | 800.25 ns/encoding | 8,827.93 ns/encoding | 2.02x | 0.184x |
-| nullable object result plus receiver call | 196.90 ns/lookup | 4.22 ns/lookup | 719.49 ns/lookup | 46.69x | 0.274x |
-| callback payload plus receiver call | 292.24 ns/delivery | 4.10 ns/delivery | 2,124.06 ns/delivery | 71.30x | 0.138x |
-| dynamic `TextView` counter update | 565.79 ns/update | 293.34 ns/update | 1,553.25 ns/update | 1.93x | 0.364x |
-| nested programmatic screen build | 143,812 ns/row | 132,620 ns/row | 162,793 ns/row | 1.08x | 0.883x |
+| 128-child view tree | 53,005 ns/child | 49,096 ns/child | 36,314 ns/child | 1.08x | 1.46x |
+| lightweight `Rect` construction and `width()` | 162.44 ns/op | 26.48 ns/op | 3,252.10 ns/op | 6.13x | 0.050x |
+| `TextView` construction and scalar call | 23,714 ns/op | 22,784 ns/op | 25,963 ns/op | 1.04x | 0.913x |
+| repeated `TextView.setTextSize` | 111.48 ns/op | 17.36 ns/op | 236.86 ns/op | 6.42x | 0.471x |
+| payload-free synchronous callback | 167.01 ns/delivery | 2.08 ns/delivery | 1,381.52 ns/delivery | 80.44x | 0.121x |
+| ASCII/Unicode string arguments | 437.08 ns/comparison | 31.35 ns/comparison | 1,228.40 ns/comparison | 13.94x | 0.356x |
+| fresh Java string result | 559.89 ns/result | 218.91 ns/result | 647.50 ns/result | 2.56x | 0.865x |
+| 256-byte array encoding round trip | 1,323.11 ns/encoding | 656.02 ns/encoding | 7,918.92 ns/encoding | 2.02x | 0.167x |
+| nullable object result plus receiver call | 173.90 ns/lookup | 3.62 ns/lookup | 636.32 ns/lookup | 48.03x | 0.273x |
+| callback payload plus receiver call | 240.56 ns/delivery | 3.44 ns/delivery | 1,936.06 ns/delivery | 69.96x | 0.124x |
+| dynamic `TextView` counter update | 461.22 ns/update | 259.44 ns/update | 1,208.59 ns/update | 1.78x | 0.382x |
+| nested programmatic screen build | 112,364 ns/row | 124,397 ns/row | 147,049 ns/row | 0.90x | 0.764x |
 
-The experimental direct-JVM backend now joins six unchanged scenarios. Their
+The experimental direct-JVM backend now joins seven unchanged scenarios. Their
 checked TypeScript loops execute as ART bytecode and call the exact reached
 Android members directly; bytecode inspection proves there is no native entry.
 The latest matched five-round run measured:
 
 | Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| lightweight `Rect` construction and `width()` | 28.85 ns/op | 25.10 ns/op | 181.49 ns/op | 3,379.09 ns/op | 1.15x | 0.159x |
-| stable `TextView.setTextSize` receiver | 42.42 ns/call | 19.98 ns/call | 101.27 ns/call | 315.32 ns/call | 2.12x | 0.419x |
-| ASCII/Unicode string arguments | **40.88 ns/comparison** | 40.39 ns/comparison | 551.88 ns/comparison | 1,302.21 ns/comparison | **1.01x** | **0.074x** |
-| fresh Java string result | **255.39 ns/result** | 249.87 ns/result | 671.38 ns/result | 779.45 ns/result | **1.02x** | **0.380x** |
-| 256-byte array encoding | **756.13 ns/encoding** | 800.25 ns/encoding | 1,620.23 ns/encoding | 8,827.93 ns/encoding | **0.94x** | **0.467x** |
-| nullable object result plus receiver call | **2.33 ns/lookup** | 4.22 ns/lookup | 196.90 ns/lookup | 719.49 ns/lookup | **0.55x** | **0.012x** |
+| lightweight `Rect` construction and `width()` | 28.64 ns/op | 26.48 ns/op | 162.44 ns/op | 3,252.10 ns/op | 1.08x | 0.176x |
+| stable `TextView.setTextSize` receiver | 20.77 ns/call | 17.36 ns/call | 111.48 ns/call | 236.86 ns/call | 1.20x | 0.186x |
+| same-thread callback | **3.60 ns/delivery** | 2.08 ns/delivery | 167.01 ns/delivery | 1,381.52 ns/delivery | **1.73x** | **0.022x** |
+| ASCII/Unicode string arguments | 37.07 ns/comparison | 31.35 ns/comparison | 437.08 ns/comparison | 1,228.40 ns/comparison | 1.18x | 0.085x |
+| fresh Java string result | 225.56 ns/result | 218.91 ns/result | 559.89 ns/result | 647.50 ns/result | 1.03x | 0.403x |
+| 256-byte array encoding | 796.91 ns/encoding | 656.02 ns/encoding | 1,323.11 ns/encoding | 7,918.92 ns/encoding | 1.21x | 0.602x |
+| nullable object result plus receiver call | **1.96 ns/lookup** | 3.62 ns/lookup | 173.90 ns/lookup | 636.32 ns/lookup | **0.54x** | **0.011x** |
 
 The direct JVM tier reuses ScriptC's flow-sensitive number facts to store
 proved signed-32-bit locals and immutable literal globals as Java `int`.
@@ -125,12 +126,17 @@ Overflow, fractions, NaN, infinities, parameters, public returns, mutable
 globals, and observable `-0` remain `double`.
 The reference slices also keep Java strings as `java.lang.String`, exact
 `T | null` native-handle unions as nullable Java references, and
-`Uint8Array` values as Java `byte[]` on the exact direct-call surface. The
+`Uint8Array` values as Java `byte[]` on the exact direct-call surface. A
+structurally empty generated listener also becomes a Java implementation that
+stores and invokes a zero-capture TypeScript handler directly in ART while an
+idempotent connection preserves cancellation semantics. The
 accepted bytecode feeds `Rect.flattenToString()` directly to `String.length()`,
 stores/null-tests `getChildAt()` directly before `getId()`, and feeds
-`Base64.encode([BI)[B` directly to `arraylength`, with no JNI, handle cell,
-tagged union, bytes-copy helper, or numeric-coercion invocation. The latest
-byte-array kernel measures at 0.94x Kotlin. This is still a kernel APK
+`Base64.encode([BI)[B` directly to `arraylength`, and dispatches
+`View.OnClickListener.onClick` through an ordinary handler field, with no JNI,
+handle cell, identity scan, tagged union, bytes-copy helper, or
+numeric-coercion invocation. The callback kernel is 46.4x faster than the JNI
+route and measures at 1.73x Kotlin. This is still a kernel APK
 rather than a complete Android application backend, so it makes no launch or
 memory claim. The first static-call proof is in
 [record 0023](docs/records/0023-direct-jvm-android-call.md); constructor and
@@ -145,14 +151,16 @@ measurement are in
 [record 0027](docs/records/0027-direct-jvm-reference-values.md).
 Direct `byte[]` residency and the latest six-kernel measurement are in
 [record 0028](docs/records/0028-direct-jvm-byte-arrays.md).
+Direct same-thread listener delivery and the latest seven-kernel measurement
+are in [record 0029](docs/records/0029-direct-jvm-callbacks.md).
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 19,429 KiB | 18,762 KiB | 75,945 KiB |
-| Total RSS | 143,988 KiB | 141,720 KiB | 203,132 KiB |
-| APK size | 602,395 bytes | 20,688 bytes | 28,639,616 bytes |
+| Total PSS | 16,832 KiB | 16,119 KiB | 71,901 KiB |
+| Total RSS | 142,948 KiB | 142,056 KiB | 201,976 KiB |
+| APK size | 602,395 bytes | 20,688 bytes | 28,639,604 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are

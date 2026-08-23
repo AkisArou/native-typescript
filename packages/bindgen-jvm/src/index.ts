@@ -36,6 +36,7 @@ export { JvmGenerationError, JvmIngestionError } from "./jvm-model.ts";
 export type {
   JvmCallback,
   JvmCallbackDelivery,
+  JvmDirectCallbackImplementation,
   JvmCallbackSelection,
   JvmClass,
   JvmClassAccess,

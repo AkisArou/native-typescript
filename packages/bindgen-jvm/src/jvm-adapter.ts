@@ -30,6 +30,7 @@ import { JvmGenerationError } from "./jvm-model.ts";
 import type {
   JvmClass,
   JvmDiagnostic,
+  JvmDirectCallbackImplementation,
   JvmMemberReference,
   JvmMethod,
   JvmNullability,
@@ -163,6 +164,9 @@ export interface JvmCallbackAdapter {
    * the pairing along to whatever writes the manifest. Null when there is
    * no base implementation to reach. */
   readonly baseCall: JvmMemberReference | null;
+  /** A generator-stated interface shell, verified against the complete class
+   * during ingestion, that a direct JVM backend may replace. */
+  readonly directImplementation: JvmDirectCallbackImplementation | null;
   readonly terminal: boolean;
 }
 
@@ -198,7 +202,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 24;
+  readonly schemaVersion: 25;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -1713,6 +1717,7 @@ export function generateJvmAdapterSource(
         delivery,
         anchor: classAnchored ? ("class" as const) : ("instance" as const),
         baseCall: callback.baseCall,
+        directImplementation: callback.directImplementation,
         terminal: callback.terminal,
       }));
     }
@@ -2257,7 +2262,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 24,
+    schemaVersion: 25,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,

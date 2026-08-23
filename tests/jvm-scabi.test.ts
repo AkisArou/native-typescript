@@ -182,6 +182,7 @@ test("the JVM manifest validates, is deterministic, and declares its surface", (
     JSON.parse(generated.directBindingsSource).schema,
     "native-typescript.jvm-direct-bindings",
   );
+  assert.equal(generated.directBindings.schemaVersion, 2);
   const lengthBinding =
     generated.manifest.bindings["fixture.fixture.widget.namelength"];
   assert.ok(lengthBinding !== undefined && lengthBinding.kind !== "constant");

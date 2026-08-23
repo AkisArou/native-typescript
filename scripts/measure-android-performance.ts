@@ -77,6 +77,7 @@ const FULL_APPLICATION_IMPLEMENTATIONS = [
 const DIRECT_JVM_SCENARIOS = [
   "light-object",
   "setter",
+  "callback",
   "string-argument",
   "string-result",
   "byte-array",
@@ -591,7 +592,7 @@ async function buildDirectJvmApk(input: {
   ) as JvmDirectBindingManifest;
   if (
     directBindings.schema !== "native-typescript.jvm-direct-bindings" ||
-    directBindings.schemaVersion !== 1
+    directBindings.schemaVersion !== 2
   ) {
     throw new Error(`Unsupported direct-JVM binding manifest at ${directBindingsPath}`);
   }
@@ -645,6 +646,36 @@ async function buildDirectJvmApk(input: {
     "setTextSize",
     "(F)V",
   );
+  const buttonConstructorBinding = findDirectBinding(
+    "constructor",
+    "android/widget/Button",
+    "<init>",
+    "(Landroid/content/Context;)V",
+  );
+  const clickBridgeConstructorBinding = findDirectBinding(
+    "constructor",
+    "com/example/ntsbenchmark/compiled/ClickBridge",
+    "<init>",
+    "()V",
+  );
+  const clickBridgeCallbackBinding = findDirectBinding(
+    "instance-callback",
+    "com/example/ntsbenchmark/compiled/ClickBridge",
+    "onClick",
+    "(Landroid/view/View;)V",
+  );
+  const viewSetOnClickListenerBinding = findDirectBinding(
+    "instance-method",
+    "android/view/View",
+    "setOnClickListener",
+    "(Landroid/view/View$OnClickListener;)V",
+  );
+  const viewCallOnClickBinding = findDirectBinding(
+    "instance-method",
+    "android/view/View",
+    "callOnClick",
+    "()Z",
+  );
   const equalsBinding = findDirectBinding(
     "static-method",
     "android/text/TextUtils",
@@ -675,6 +706,11 @@ async function buildDirectJvmApk(input: {
     rectFlattenToStringBinding,
     textViewConstructorBinding,
     textViewSetTextSizeBinding,
+    buttonConstructorBinding,
+    clickBridgeConstructorBinding,
+    clickBridgeCallbackBinding,
+    viewSetOnClickListenerBinding,
+    viewCallOnClickBinding,
     equalsBinding,
     base64EncodeBinding,
     viewGetIdBinding,
@@ -717,6 +753,8 @@ async function buildDirectJvmApk(input: {
     externalFunctionRoots: [
       "runLightObjects",
       "runSetters",
+      "prepareCallbacks",
+      "runCallbacks",
       "runStringArguments",
       "runStringResults",
       "runByteArrays",
@@ -749,6 +787,14 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runSetters",
         methodName: "runSetters",
+      },
+      {
+        functionName: "prepareCallbacks",
+        methodName: "prepareCallbacks",
+      },
+      {
+        functionName: "runCallbacks",
+        methodName: "runCallbacks",
       },
       {
         functionName: "runStringArguments",
@@ -811,6 +857,9 @@ async function buildDirectJvmApk(input: {
     "android/graphics/Rect.width:()I",
     'android/widget/TextView."<init>":(Landroid/content/Context;)V',
     "android/widget/TextView.setTextSize:(F)V",
+    'android/widget/Button."<init>":(Landroid/content/Context;)V',
+    "android/widget/Button.setOnClickListener:(Landroid/view/View$OnClickListener;)V",
+    "android/widget/Button.callOnClick:()Z",
     "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
       "Ljava/lang/CharSequence;)Z",
     "android/graphics/Rect.flattenToString:()Ljava/lang/String;",
@@ -837,7 +886,29 @@ async function buildDirectJvmApk(input: {
   if (/invokestatic\s+#[0-9]+\s+\/\/ Method ntsTo(?:Int32|Bool):/u.test(bytecode)) {
     throw new Error(
       "Direct-JVM benchmark bytecode retained a numeric coercion helper " +
-        `inside a proved integer kernel:\n${bytecode}`,
+      `inside a proved integer kernel:\n${bytecode}`,
+    );
+  }
+  const callbackAdapterClassName = `${generatedClassName}$NtsCallbackAdapter0`;
+  const callbackBytecode = run(
+    join(input.javaHome, "bin/javap"),
+    ["-classpath", classes, "-c", "-p", callbackAdapterClassName],
+    { env: buildEnvironment },
+  );
+  for (const callbackEvidence of [
+    "implements android.view.View$OnClickListener",
+    "public void onClick(android.view.View)",
+    "NtsCallback0.invoke:(Landroid/view/View;)V",
+  ]) {
+    if (!callbackBytecode.includes(callbackEvidence)) {
+      throw new Error(
+        `Direct-JVM callback adapter lacks '${callbackEvidence}':\n${callbackBytecode}`,
+      );
+    }
+  }
+  if (callbackBytecode.includes("nts_jvm_") || / native /u.test(callbackBytecode)) {
+    throw new Error(
+      `Direct-JVM callback adapter unexpectedly crosses JNI:\n${callbackBytecode}`,
     );
   }
   const activityClassName = directJvmBenchmarkApplication.activityBinaryName
@@ -850,6 +921,8 @@ async function buildDirectJvmApk(input: {
   const generatedInvocations = [
     "NativeTypeScriptKernel.runLightObjects:()D",
     "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
+    "NativeTypeScriptKernel.prepareCallbacks:(Landroid/app/Activity;)Landroid/widget/Button;",
+    "NativeTypeScriptKernel.runCallbacks:(Landroid/widget/Button;)D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
     "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
@@ -872,6 +945,7 @@ async function buildDirectJvmApk(input: {
   writeFileSync(
     join(input.root, "bytecode-evidence.txt"),
     `=== ${generatedClassName} ===\n${bytecode}\n` +
+      `=== ${callbackAdapterClassName} ===\n${callbackBytecode}\n` +
       `=== ${activityClassName} ===\n${activityBytecode}`,
   );
 
@@ -1124,6 +1198,7 @@ function verifyWorkloadAgreement(): void {
     if (
       name === "LIGHT_OBJECT_ITERATIONS" ||
       name === "SETTER_ITERATIONS" ||
+      name === "CALLBACK_ITERATIONS" ||
       name === "STRING_ARGUMENT_ITERATIONS" ||
       name === "STRING_RESULT_ITERATIONS" ||
       name === "BYTE_ARRAY_ITERATIONS" ||

@@ -361,6 +361,23 @@ function normalizeCallbackSelections(
     }
     if (
       typeof selection !== "string" &&
+      selection.directImplementation !== undefined &&
+      (selection.directImplementation.kind !== "generated-interface" ||
+        !isValidBinaryName(
+          selection.directImplementation.interfaceBinaryName,
+        ))
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "NTS6001",
+          `${path}/${selection.name}`,
+          "A callback's directImplementation must name one valid generated " +
+            "interface binary name",
+        ),
+      );
+    }
+    if (
+      typeof selection !== "string" &&
       selection.terminal !== undefined &&
       selection.terminal !== true
     ) {
@@ -1163,6 +1180,47 @@ export function ingestJvmClasses(
             );
           }
         }
+        const directImplementation = stated?.directImplementation;
+        if (directImplementation !== undefined) {
+          /* Selection projects only named members, so absence there proves
+           * nothing. Validate the generator's statement against the complete
+           * class file before it crosses the snapshot boundary. */
+          const constructors = parsed.methods.filter(
+            (candidate) => candidate.name === "<init>",
+          );
+          const ordinaryMethods = parsed.methods.filter(
+            (candidate) =>
+              candidate.name !== "<init>" && candidate.name !== "<clinit>",
+          );
+          const validShell = classKindOf(parsed.accessFlags) === "class" &&
+            (parsed.accessFlags & 0x0010) !== 0 &&
+            parsed.superName === "java/lang/Object" &&
+            parsed.interfaceNames.length === 1 &&
+            parsed.interfaceNames[0] ===
+              directImplementation.interfaceBinaryName &&
+            constructors.length === 1 &&
+            constructors[0]!.descriptor === "()V" &&
+            (constructors[0]!.accessFlags & 0x0001) !== 0 &&
+            ordinaryMethods.length === 1 &&
+            ordinaryMethods[0]!.name === method.name &&
+            ordinaryMethods[0]!.descriptor === method.descriptor &&
+            (ordinaryMethods[0]!.accessFlags & 0x0001) !== 0 &&
+            (ordinaryMethods[0]!.accessFlags & 0x0100) !== 0 &&
+            !parsed.methods.some((candidate) => candidate.name === "<clinit>") &&
+            parsed.fields.length === 0;
+          if (!validShell) {
+            diagnostics.push(
+              diagnostic(
+                "NTS6003",
+                `${path}/callback/${method.name}/directImplementation`,
+                `Callback '${method.name}' states a generated interface ` +
+                  "shell, but the complete class file contains another " +
+                  "constructor, method, field, initializer, superclass, " +
+                  "or interface",
+              ),
+            );
+          }
+        }
         return Object.freeze({
           ...method,
           delivery: stated?.delivery ?? null,
@@ -1172,6 +1230,13 @@ export function ingestJvmClasses(
             : Object.freeze({
                 name: baseCall.name,
                 descriptor: baseCall.descriptor,
+              }),
+          directImplementation: directImplementation === undefined
+            ? null
+            : Object.freeze({
+                kind: directImplementation.kind,
+                interfaceBinaryName:
+                  directImplementation.interfaceBinaryName,
               }),
           terminal: stated?.terminal === true,
         });
@@ -1254,7 +1319,7 @@ export function ingestJvmClasses(
 
   return Object.freeze({
     schema: "native-typescript.jvm-snapshot",
-    schemaVersion: 7,
+    schemaVersion: 8,
     sources: Object.freeze(
       [...digests.entries()]
         .sort((left, right) => compareText(left[0], right[0]))

@@ -107,7 +107,7 @@ const skip = jdk === null ? "no JDK with include/jni.h on this host" : false;
 test("the adapter source is deterministic and carries its member table", () => {
   const first = generate();
   assert.deepEqual(generate(), first);
-  assert.equal(first.schemaVersion, 24);
+  assert.equal(first.schemaVersion, 25);
   assert.match(first.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
 
   assert.deepEqual(

@@ -1,11 +1,14 @@
 import {
   Base64,
+  Button,
+  ClickBridge,
   Rect,
   TextUtils,
   TextView,
 } from "@native-typescript/jvm-android_benchmark";
 import type {
   Activity,
+  JvmConnection,
   LinearLayout,
 } from "@native-typescript/jvm-android_benchmark";
 
@@ -15,11 +18,15 @@ import type {
  * it supplies only Android lifecycle, timing, and log transport. */
 const LIGHT_OBJECT_ITERATIONS = 50000;
 const SETTER_ITERATIONS = 50000;
+const CALLBACK_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const HANDLE_RESULT_ITERATIONS = 32000;
 const HANDLE_RESULT_CHILDREN = 16;
+
+let callbackCount = 0;
+let retainedCallback: JvmConnection | null = null;
 
 export function runLightObjects(): number {
   let checksum = 0;
@@ -42,6 +49,31 @@ export function runSetters(activity: Activity): number {
     index += 1;
   }
   return checksum;
+}
+
+/** Registration is deliberately outside the timed loop. The returned
+ * connection is rooted just as the JNI benchmark roots its registrations;
+ * dropping it would cancel the callback and benchmark absence instead of
+ * delivery. */
+export function prepareCallbacks(activity: Activity): Button {
+  const button = new Button(activity);
+  const clicks = new ClickBridge();
+  retainedCallback = clicks.onClick((_view) => {
+    callbackCount += 1;
+  });
+  button.setOnClickListener(clicks);
+  return button;
+}
+
+export function runCallbacks(button: Button): number {
+  if (retainedCallback === null) return -1;
+  callbackCount = 0;
+  let index = 0;
+  while (index < CALLBACK_ITERATIONS) {
+    button.callOnClick();
+    index += 1;
+  }
+  return callbackCount;
 }
 
 export function runStringArguments(

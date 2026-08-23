@@ -401,6 +401,7 @@ need admission evidence:
 | keep Java-origin immutable strings foreign-resident | demonstrated Java-to-native-to-Java round-trip copies |
 | keep exact references in ART in the direct JVM tier | **first slice landed**: [record 0027](records/0027-direct-jvm-reference-values.md) keeps strings and exact `T | null` handles unboxed; string results reached 1.00x Kotlin and nullable handle results 0.56x |
 | keep exact primitive arrays in ART in the direct JVM tier | **first slice landed**: [record 0028](records/0028-direct-jvm-byte-arrays.md) keeps `bytes<u8>` as Java `byte[]`; the 256-byte Base64 workload reached 0.94x Kotlin and ran 2.14x faster than the JNI route |
+| keep same-thread callbacks in ART in the direct JVM tier | **first slice landed**: [record 0029](records/0029-direct-jvm-callbacks.md) replaces one verified generated interface shell with an ART listener; delivery reached 1.73x Kotlin and ran 46.37x faster than the JNI route |
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
 | ThinLTO/bitcode adapters | measured code-size or call overhead after resource operations are exact |
 | generated call fusion | repeated boundary crossings dominate a real hot region and exception order can be preserved |
@@ -438,6 +439,17 @@ reached 0.94x Kotlin and 0.47x the JNI Native TypeScript median; element
 operations remain refused until unsigned reads and writes are explicit.
 [Record 0028](records/0028-direct-jvm-byte-arrays.md) records the narrow
 contract, bytecode, and matched device evidence.
+
+The first same-thread callback family now stays in ART too. The subclass
+generator explicitly states that it emitted a behavior-free interface shell,
+ingestion verifies that statement against the complete class bytes, and the
+direct backend replaces the JNI trampoline with a Java listener holding the
+zero-capture TypeScript handler. An idempotent Java connection retains the
+existing cancellation behavior. The unchanged delivery loop measured 3.60 ns,
+1.73x Kotlin and 46.37x faster than the JNI route. Captures, callback payload
+use, answered and queued callbacks, and multi-method adapters remain outside
+this first contract. [Record 0029](records/0029-direct-jvm-callbacks.md) records
+the proof and matched measurement.
 
 Strings and buffers must follow platform contracts. `java.lang.String`
 cannot share native storage, while an API accepting a direct `ByteBuffer` can.

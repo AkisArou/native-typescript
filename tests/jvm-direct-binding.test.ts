@@ -14,7 +14,9 @@ import {
   generateJvmAdapterSource,
   generateJvmClangAbiProbe,
   generateJvmScabiPackage,
+  generateJvmSubclassSource,
   ingestJvmClasses,
+  JvmIngestionError,
 } from "@native-typescript/bindgen-jvm";
 import {
   digestClangAbiEvidence,
@@ -337,6 +339,331 @@ test(
         run.stdout,
         "6.0\n7.0\n9.0\n11.0\n-1.0\n5.0\n4.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a generated interface callback stays inside the JVM",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-direct-callback-"));
+    try {
+      const clickableClass = join(fixtureClasses, "fixture/Clickable.class");
+      const buttonClass = join(fixtureClasses, "fixture/Button.class");
+      const bridge = generateJvmSubclassSource(
+        ingestJvmClasses(
+          [{
+            logicalPath: "fixtures/jvm/classes/fixture/Clickable.class",
+            bytes: readFileSync(clickableClass),
+          }],
+          {
+            classes: [{
+              binaryName: "fixture/Clickable",
+              methods: [{ name: "onClick", descriptor: "(Lfixture/Button;)V" }],
+            }],
+          },
+        ),
+        {
+          baseBinaryName: "fixture/Clickable",
+          overrides: [{ name: "onClick", descriptor: "(Lfixture/Button;)V" }],
+          subclassBinaryName: "fixture/ClickBridge",
+        },
+      );
+      assert.deepEqual(bridge.callbacks, [{
+        name: "onClick",
+        descriptor: "(Lfixture/Button;)V",
+        delivery: "synchronous",
+        directImplementation: {
+          kind: "generated-interface",
+          interfaceBinaryName: "fixture/Clickable",
+        },
+      }]);
+      const generatedSources = join(root, "generated-sources");
+      const bridgeSource = join(generatedSources, bridge.logicalPath);
+      const hostSource = join(generatedSources, "fixture/CallbackHost.java");
+      const supportClasses = join(root, "support-classes");
+      mkdirSync(join(generatedSources, "fixture"), { recursive: true });
+      mkdirSync(supportClasses);
+      writeFileSync(bridgeSource, bridge.source);
+      writeFileSync(
+        hostSource,
+        "package fixture;\n" +
+          "public final class CallbackHost {\n" +
+          "  public static void deliver(Clickable listener, Button source) {\n" +
+          "    listener.onClick(source);\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        fixtureClasses,
+        "-d",
+        supportClasses,
+        bridgeSource,
+        hostSource,
+      ]);
+
+      /* A selection is not a complete class. Prove the stated role is
+       * checked against the bytes by adding one UNSELECTED field: inference
+       * from the projected snapshot would miss it and incorrectly admit the
+       * direct replacement. */
+      const falseSources = join(root, "false-shell-sources");
+      const falseClasses = join(root, "false-shell-classes");
+      const falseSource = join(falseSources, bridge.logicalPath);
+      mkdirSync(join(falseSources, "fixture"), { recursive: true });
+      mkdirSync(falseClasses);
+      writeFileSync(
+        falseSource,
+        bridge.source.replace(/\n\}\n$/u, "\n  public int hiddenState;\n}\n"),
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        fixtureClasses,
+        "-d",
+        falseClasses,
+        falseSource,
+      ]);
+      assert.throws(
+        () => ingestJvmClasses(
+          [{
+            logicalPath: "fixtures/jvm/classes/fixture/Clickable.class",
+            bytes: readFileSync(clickableClass),
+          }, {
+            logicalPath: "fixtures/jvm/classes/fixture/Button.class",
+            bytes: readFileSync(buttonClass),
+          }, {
+            logicalPath: "generated/fixture/ClickBridge.class",
+            bytes: readFileSync(
+              join(falseClasses, "fixture/ClickBridge.class"),
+            ),
+          }],
+          {
+            classes: [{ binaryName: "fixture/Clickable" }, {
+              binaryName: "fixture/Button",
+            }, {
+              binaryName: "fixture/ClickBridge",
+              constructors: ["()V"],
+              callbacks: bridge.callbacks,
+            }],
+          },
+        ),
+        (error: unknown) => {
+          assert.ok(error instanceof JvmIngestionError);
+          assert.match(
+            error.diagnostics[0]!.message,
+            /complete class file contains another constructor, method, field/u,
+          );
+          return true;
+        },
+      );
+
+      const snapshot = ingestJvmClasses(
+        [{
+          logicalPath: "fixtures/jvm/classes/fixture/Widget.class",
+          bytes: readFileSync(widgetClass),
+        }, {
+          logicalPath: "fixtures/jvm/classes/fixture/Clickable.class",
+          bytes: readFileSync(clickableClass),
+        }, {
+          logicalPath: "fixtures/jvm/classes/fixture/Button.class",
+          bytes: readFileSync(buttonClass),
+        }, {
+          logicalPath: "generated/fixture/ClickBridge.class",
+          bytes: readFileSync(join(supportClasses, "fixture/ClickBridge.class")),
+        }, {
+          logicalPath: "generated/fixture/CallbackHost.class",
+          bytes: readFileSync(join(supportClasses, "fixture/CallbackHost.class")),
+        }],
+        {
+          classes: [{ binaryName: "fixture/Widget" }, {
+            binaryName: "fixture/Clickable",
+          }, {
+            binaryName: "fixture/Button",
+            constructors: ["(Ljava/lang/String;)V"],
+          }, {
+            binaryName: "fixture/ClickBridge",
+            constructors: ["()V"],
+            callbacks: bridge.callbacks,
+          }, {
+            binaryName: "fixture/CallbackHost",
+            methods: [{
+              name: "deliver",
+              descriptor: "(Lfixture/Clickable;Lfixture/Button;)V",
+            }],
+          }],
+        },
+      );
+      const adapter = generateJvmAdapterSource(snapshot, { packageSlug: "fixture" });
+      const generated = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "fixture",
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-callback-fixture",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-callback-fixture",
+          instance: "native-typescript.jvm-callback-fixture@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["fixture"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: { id: "fixture.jvm-adapters", output: "jvm-adapters.o" },
+      });
+      const callbackDirect = generated.directBindings.bindings.find(
+        ({ kind }) => kind === "instance-callback",
+      );
+      assert.deepEqual(callbackDirect, {
+        id: "native-typescript.jvm-callback-fixture@0.0.0#fixture.fixture.clickbridge.onclick",
+        kind: "instance-callback",
+        ownerBinaryName: "fixture/ClickBridge",
+        name: "onClick",
+        descriptor: "(Lfixture/Button;)V",
+        nativeEntrySymbol: "nts_jvm_fixture_connect_fixture_ClickBridge_onClick",
+        interfaceBinaryName: "fixture/Clickable",
+        cancellation: {
+          bindingId: "native-typescript.jvm-callback-fixture@0.0.0#fixture.connection.disconnect",
+          nativeEntrySymbol: "nts_jvm_fixture_disconnect",
+        },
+      });
+      const localIds = [
+        "fixture.object.release",
+        "fixture.fixture.button.constructor",
+        "fixture.fixture.clickbridge.constructor",
+        "fixture.fixture.clickbridge.onclick",
+        "fixture.fixture.callbackhost.deliver",
+      ];
+      const translated = translateScabiNativeProgram(generated.manifest, {
+        imports: localIds,
+        exports: [],
+      });
+      assert.equal(translated.ok, true);
+      if (!translated.ok) return;
+
+      const source = join(root, "callback.ts");
+      const declarations = join(root, "package.d.ts");
+      writeFileSync(
+        source,
+        'import { Button, CallbackHost, ClickBridge, JvmConnection } from "@native-typescript/jvm-callback-fixture";\n' +
+          "let retained: JvmConnection | null = null;\n" +
+          "let delivered = 0;\n" +
+          "export function runCallback(): number {\n" +
+          "  delivered = 0;\n" +
+          '  const button = new Button("direct");\n' +
+          "  const clicks = new ClickBridge();\n" +
+          "  retained = clicks.onClick((_source) => { delivered += 1; });\n" +
+          "  CallbackHost.deliver(clicks, button);\n" +
+          "  CallbackHost.deliver(clicks, button);\n" +
+          "  return delivered;\n" +
+          "}\n" +
+          "runCallback();\n",
+      );
+      writeFileSync(declarations, generated.declarations);
+      const planners = await loadScriptCExecutablePlanners();
+      const planned = planners.planExecutableCompilation(source, {
+        backend: "c",
+        sourceRoot: root,
+        externalTypes: {
+          [generated.manifest.package.name]: declarations,
+        },
+        native: translated.input,
+      });
+      assert.equal(
+        planned.ok,
+        true,
+        planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+      );
+      if (!planned.ok) return;
+
+      const emitter = await loadScriptCJvmEmitter();
+      const javaSource = emitter.emitJvmSerializedModule(planned.plan.ir, {
+        packageName: "dev.nts.generated",
+        className: "DirectCallback",
+        nativeBindings: generated.directBindings.bindings,
+        functionExports: [{ functionName: "runCallback", methodName: "runCallback" }],
+      });
+      const javaRoot = join(root, "java/dev/nts/generated");
+      const classes = join(root, "classes");
+      mkdirSync(javaRoot, { recursive: true });
+      mkdirSync(classes);
+      const javaPath = join(javaRoot, "DirectCallback.java");
+      const harnessPath = join(javaRoot, "CallbackHarness.java");
+      writeFileSync(javaPath, javaSource);
+      writeFileSync(
+        harnessPath,
+        "package dev.nts.generated;\n" +
+          "public final class CallbackHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          "    System.out.println(DirectCallback.runCallback());\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        `${supportClasses}:${fixtureClasses}`,
+        "-d",
+        classes,
+        javaPath,
+        harnessPath,
+      ]);
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", `${classes}:${supportClasses}:${fixtureClasses}`, "-c", "-p", "dev.nts.generated.DirectCallback"],
+        { encoding: "utf8" },
+      );
+      assert.match(bytecode, /fixture\/CallbackHost\.deliver:\(Lfixture\/Clickable;Lfixture\/Button;\)V/u);
+      assert.doesNotMatch(bytecode, /nts_jvm_fixture/u);
+      assert.doesNotMatch(bytecode, / native /u);
+      const callbackBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        [
+          "-classpath",
+          `${classes}:${supportClasses}:${fixtureClasses}`,
+          "-c",
+          "-p",
+          "dev.nts.generated.DirectCallback$NtsCallbackAdapter0",
+        ],
+        { encoding: "utf8" },
+      );
+      assert.match(callbackBytecode, /implements fixture\.Clickable/u);
+      assert.match(callbackBytecode, /public void onClick\(fixture\.Button\)/u);
+      assert.match(callbackBytecode, /NtsCallback0\.invoke:\(Lfixture\/Button;\)V/u);
+      assert.doesNotMatch(callbackBytecode, /nts_jvm_fixture/u);
+      assert.doesNotMatch(callbackBytecode, / native /u);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", `${classes}:${supportClasses}:${fixtureClasses}`, "dev.nts.generated.CallbackHarness"],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "2.0\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

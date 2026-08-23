@@ -133,7 +133,7 @@ export interface JvmSubclassSelection {
 
 export interface JvmSubclassSource {
   readonly schema: "native-typescript.jvm-subclass-source";
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly baseBinaryName: string;
   readonly subclassBinaryName: string;
   /** The generated Java, compiled against the base's classes. */
@@ -444,14 +444,31 @@ export function generateJvmSubclassSource(
     const baseCall = hasBaseImplementation
       ? Object.freeze({ name: superName, descriptor: method.descriptor })
       : undefined;
+    /* This generator alone knows that the class is a behavior-free listener
+     * shell. A later projection cannot prove absence from selected members,
+     * so state the fact here and let ingestion verify the compiled bytes. A
+     * static initializer is behavior, and multiple callbacks need a wider
+     * direct-registration contract than this first slice. */
+    const directImplementation = implementsInterface && tells &&
+        !anchored && selection.loadLibrary === undefined &&
+        overrideSelections.length === 1
+      ? Object.freeze({
+          kind: "generated-interface" as const,
+          interfaceBinaryName: base.binaryName,
+        })
+      : undefined;
     callbacks.push(
-      tells || anchored || baseCall !== undefined
+      tells || anchored || baseCall !== undefined ||
+          directImplementation !== undefined
         ? Object.freeze({
             name: method.name,
             descriptor: method.descriptor,
             ...(tells ? { delivery: "synchronous" as const } : {}),
             ...(anchored ? { anchor: "class" as const } : {}),
             ...(baseCall === undefined ? {} : { baseCall }),
+            ...(directImplementation === undefined
+              ? {}
+              : { directImplementation }),
             ...(terminal ? { terminal: true as const } : {}),
           })
         : typeof overrideSelection === "string"
@@ -561,7 +578,7 @@ export function generateJvmSubclassSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-subclass-source",
-    schemaVersion: 5,
+    schemaVersion: 6,
     baseBinaryName: base.binaryName,
     subclassBinaryName,
     source,

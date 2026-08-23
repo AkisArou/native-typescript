@@ -113,11 +113,29 @@ export type JvmDirectBinding =
       readonly name: string;
       readonly descriptor: string;
       readonly nativeEntrySymbol: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "instance-callback";
+      readonly ownerBinaryName: string;
+      readonly name: string;
+      /** The Java method the platform calls, not the C registration ABI. */
+      readonly descriptor: string;
+      readonly nativeEntrySymbol: string;
+      /** A behavior-free generated class can be replaced by direct JVM code
+       * because the generator states the role and ingestion proves it against
+       * the complete class file. This coordinate is target evidence; the
+       * compiler must not recover it from a generated class name. */
+      readonly interfaceBinaryName: string;
+      readonly cancellation: {
+        readonly bindingId: string;
+        readonly nativeEntrySymbol: string;
+      };
     };
 
 export interface JvmDirectBindingManifest {
   readonly schema: "native-typescript.jvm-direct-bindings";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly bindings: readonly JvmDirectBinding[];
 }
 
@@ -1585,6 +1603,38 @@ export function generateJvmScabiPackage(
         ...(baseCallBindingId === null ? [] : [baseCallBindingId]),
       ],
     }));
+    /* A direct JVM emitter may replace the behavior-free generated JNI
+     * listener shell with a Java implementation that stores the handler
+     * directly. The generator states that role and ingestion validates it
+     * against the COMPLETE class bytes. SCABI must not infer it from this
+     * selected-member projection: an omitted member would make substitution
+     * observable while looking absent here. */
+    const directInterface = !classAnchored &&
+      callback.delivery === "told" &&
+      callback.baseCall === null &&
+      !callback.terminal &&
+      callback.directImplementation?.kind === "generated-interface"
+      ? callback.directImplementation.interfaceBinaryName
+      : null;
+    if (directInterface !== null) {
+      const support = options.adapter.connectionSupport;
+      if (support === null) {
+        throw new Error("A receiver-anchored JVM callback has no connection support");
+      }
+      directBindings.push(Object.freeze({
+        id: `${options.package.instance}#${bindingId}`,
+        kind: "instance-callback" as const,
+        ownerBinaryName: callback.className,
+        name: callback.name,
+        descriptor: callback.descriptor,
+        nativeEntrySymbol: callback.connectSymbol,
+        interfaceBinaryName: directInterface,
+        cancellation: Object.freeze({
+          bindingId: `${options.package.instance}#${connectionDisconnectId}`,
+          nativeEntrySymbol: support.disconnectSymbol,
+        }),
+      }));
+    }
     adapterBindings.push(bindingId);
     const handlerParameters = [
       /* The queued handler's first argument is its sender. */
@@ -1945,7 +1995,7 @@ export function generateJvmScabiPackage(
   const manifest = parseScabiManifest(manifestSource);
   const directBindingManifest: JvmDirectBindingManifest = Object.freeze({
     schema: "native-typescript.jvm-direct-bindings",
-    schemaVersion: 1,
+    schemaVersion: 2,
     bindings: Object.freeze([...directBindings].sort((left, right) =>
       compareText(left.id, right.id)
     )),

@@ -56,6 +56,18 @@ export interface ScriptCJvmEmitter {
         readonly name: string;
         readonly descriptor: string;
         readonly nativeEntrySymbol: string;
+      } | {
+        readonly id: string;
+        readonly kind: "instance-callback";
+        readonly ownerBinaryName: string;
+        readonly name: string;
+        readonly descriptor: string;
+        readonly nativeEntrySymbol: string;
+        readonly interfaceBinaryName: string;
+        readonly cancellation: {
+          readonly bindingId: string;
+          readonly nativeEntrySymbol: string;
+        };
       })[];
       readonly functionExports?: readonly {
         readonly functionName: string;

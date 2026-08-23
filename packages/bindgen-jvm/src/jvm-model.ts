@@ -112,6 +112,18 @@ export type JvmMemberSelection =
 export type JvmCallbackDelivery = "synchronous" | "queued";
 
 /**
+ * A generated class whose only behavior is implementing one interface
+ * callback. This fact cannot be recovered from a projected snapshot: member
+ * selection may omit methods or fields that still exist in the class file.
+ * The generator therefore states the fact and ingestion checks it against the
+ * complete compiled class before preserving it.
+ */
+export interface JvmDirectCallbackImplementation {
+  readonly kind: "generated-interface";
+  readonly interfaceBinaryName: string;
+}
+
+/**
  * A callback selection. A void native method genuinely has both deliveries
  * and the class file cannot say which, so the selection must: `delivery` is
  * required for a void callback (which forces the exact object form) and
@@ -127,6 +139,7 @@ export type JvmCallbackSelection =
       readonly delivery?: JvmCallbackDelivery;
       readonly anchor?: JvmCallbackAnchor;
       readonly baseCall?: JvmMemberReference;
+      readonly directImplementation?: JvmDirectCallbackImplementation;
       /** This callback ends the platform-owned receiver's lifetime. A class
        * file cannot state that role; the generated subclass selection does. */
       readonly terminal?: true;
@@ -381,12 +394,15 @@ export interface JvmCallback extends JvmMethod {
   /** The member reaching the implementation this override replaced, or
    * null when there is none to reach. See JvmMemberReference. */
   readonly baseCall: JvmMemberReference | null;
+  /** A behavior-free generated interface shell that a direct JVM emitter may
+   * replace, or null. Ingestion has checked this against the complete class. */
+  readonly directImplementation: JvmDirectCallbackImplementation | null;
   readonly terminal: boolean;
 }
 
 export interface JvmSnapshot {
   readonly schema: "native-typescript.jvm-snapshot";
-  readonly schemaVersion: 7;
+  readonly schemaVersion: 8;
   readonly sources: readonly {
     readonly logicalPath: string;
     readonly digest: string;
