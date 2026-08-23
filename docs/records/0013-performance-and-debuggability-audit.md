@@ -198,13 +198,20 @@ valid inherited calls depend on reachability and could reset or invalidate
 state without the platform ending the object. The current peer slice follows
 the settled policy.
 
-### `JNIEnv *` propagation is not admitted on performance grounds
+### `JNIEnv *` propagation landed at the narrower owning boundary
 
-The audit orders it after resource domains, which is correct. The existing
-[open-work entry](../open-work.md) goes further: it bounds the likely win below
-the measured promotion tax, names a cheaper thread-local alternative and its
-correctness cost, and requires a fourth falsifier case with a threshold stated
-before measurement. No implementation should begin until that test admits it.
+The audit orders it after resource domains, which was correct. The earlier
+open-work analysis bounded the likely per-lookup win, named a cheaper
+thread-local alternative and its detach hazard, and required a fourth
+falsifier case before implementation.
+
+That instrument now measures lookup, scoped TLS, and an explicit operand. The
+scoped carrier matches the explicit operand's 1.1 ns host result, eliminates
+one exact `GetEnv`, and improves the targeted ART cases by 12.8–34.1%.
+[Record 0019](0019-scoped-jni-environment-capability.md) therefore lands the
+smaller callback/owner-turn scope while continuing to reject an unmeasured
+compiler-wide hidden capability ABI. Save/install/restore confines the pointer
+to a turn an embedder cannot detach underneath.
 
 ### Call fusion, foreign-resident strings, direct buffers, ThinLTO, and PGO wait
 

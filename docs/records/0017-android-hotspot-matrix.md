@@ -155,6 +155,13 @@ directions, arrays, object results, and both callback cases would all expose a
 claimed general boundary improvement, while the constructor and composite
 cases would say whether it matters to an Android application.
 
+That counter was subsequently expanded to compare lookup, scoped TLS, and an
+explicit operand. The smaller target-owned scope matched the explicit
+operand's host lower bound and improved the targeted ART cases by 12.8–34.1%.
+[Record 0019](0019-scoped-jni-environment-capability.md) records why this
+evidence admits the narrow carrier without admitting a compiler-wide context
+ABI.
+
 The matrix intentionally stops here. Async/foreign-thread callbacks,
 first-frame rendering, touch latency, lifecycle teardown, databases,
 networking, image buffers, and layout/draw work need their own instruments;

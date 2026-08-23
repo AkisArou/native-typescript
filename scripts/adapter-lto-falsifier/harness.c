@@ -23,13 +23,18 @@ jmethodID g_mid_make;
 jmethodID g_mid_checked_add;
 jmethodID g_mid_get_message;
 jfieldID g_fid_value;
+JavaVM *g_vm;
+_Thread_local JNIEnv *g_scoped_env;
 
 static JNIEnv *g_real_env;
+static JavaVM *g_real_vm;
 static volatile jlong g_sink;
 
 /* ---- counting env ------------------------------------------------------ */
 
 enum {
+  OP_GetEnv,
+  OP_GetVersion,
   OP_PushLocalFrame,
   OP_PopLocalFrame,
   OP_NewGlobalRef,
@@ -51,7 +56,8 @@ enum {
 };
 
 static const char *const OP_NAMES[OP__COUNT] = {
-    "PushLocalFrame",   "PopLocalFrame",     "NewGlobalRef",
+    "GetEnv",           "GetVersion",        "PushLocalFrame",
+    "PopLocalFrame",    "NewGlobalRef",
     "DeleteGlobalRef",  "DeleteLocalRef",    "NewLocalRef",
     "EnsureLocalCapacity", "ExceptionCheck", "ExceptionOccurred",
     "ExceptionClear",   "CallStaticObjectMethod", "CallStaticIntMethod",
@@ -60,6 +66,12 @@ static const char *const OP_NAMES[OP__COUNT] = {
 };
 
 static uint64_t g_counts[OP__COUNT];
+
+static jint W_GetVersion(JNIEnv *env) {
+  (void)env;
+  g_counts[OP_GetVersion]++;
+  return (*g_real_env)->GetVersion(g_real_env);
+}
 
 /* Wrappers forward to the real env: HotSpot derives the thread from the env
  * pointer, so the interposed pointer itself must never reach the VM. */
@@ -172,12 +184,25 @@ static void nt_unwrapped_slot(void) {
 static struct JNINativeInterface_ g_counted_table;
 static JNIEnv g_counted_env;
 
+static jint W_GetEnv(JavaVM *vm, void **out, jint version) {
+  (void)vm;
+  g_counts[OP_GetEnv]++;
+  JNIEnv *real = NULL;
+  jint result = (*g_real_vm)->GetEnv(g_real_vm, (void **)&real, version);
+  if (result == JNI_OK) *out = &g_counted_env;
+  return result;
+}
+
+static struct JNIInvokeInterface_ g_counted_vm_table;
+static JavaVM g_counted_vm;
+
 static void nt_setup_counted_env(void) {
   /* Every slot traps unless explicitly wrapped, so a kernel cannot silently
    * hand the interposed env pointer to the real VM. */
   void **raw = (void **)&g_counted_table;
   size_t slots = sizeof g_counted_table / sizeof(void *);
   for (size_t i = 0; i < slots; i++) raw[i] = (void *)&nt_unwrapped_slot;
+  g_counted_table.GetVersion = W_GetVersion;
   g_counted_table.PushLocalFrame = W_PushLocalFrame;
   g_counted_table.PopLocalFrame = W_PopLocalFrame;
   g_counted_table.NewGlobalRef = W_NewGlobalRef;
@@ -196,6 +221,12 @@ static void nt_setup_counted_env(void) {
   g_counted_table.GetStringUTFChars = W_GetStringUTFChars;
   g_counted_table.ReleaseStringUTFChars = W_ReleaseStringUTFChars;
   g_counted_env = &g_counted_table;
+
+  void **vm_raw = (void **)&g_counted_vm_table;
+  size_t vm_slots = sizeof g_counted_vm_table / sizeof(void *);
+  for (size_t i = 0; i < vm_slots; i++) vm_raw[i] = (void *)&nt_unwrapped_slot;
+  g_counted_vm_table.GetEnv = W_GetEnv;
+  g_counted_vm = &g_counted_vm_table;
 }
 
 /* ---- setup ------------------------------------------------------------- */
@@ -250,6 +281,9 @@ static const struct {
     {"b_stored", nt_kernel_b_stored},
     {"a_fallible", nt_kernel_a_fallible},
     {"b_fallible", nt_kernel_b_fallible},
+    {"env_lookup", nt_kernel_env_lookup},
+    {"env_scoped", nt_kernel_env_scoped},
+    {"env_passed", nt_kernel_env_passed},
 };
 enum { KERNEL_COUNT = sizeof KERNELS / sizeof KERNELS[0] };
 
@@ -299,6 +333,9 @@ int main(int argc, char **argv) {
   JNIEnv *env;
   if (JNI_CreateJavaVM(&vm, (void **)&env, &vmargs) != JNI_OK)
     die("JNI_CreateJavaVM failed");
+  g_real_vm = vm;
+  g_vm = vm;
+  g_scoped_env = env;
   g_real_env = env;
   resolve_binding(env);
 
@@ -323,10 +360,17 @@ int main(int argc, char **argv) {
     jlong bf = nt_kernel_b_fallible(env, VER_ITERS);
     jlong expect = (jlong)VER_ITERS * (VER_ITERS + 1) / 2;
     bad += verify(tag, "fallible_sums", af == expect && bf == expect);
+    jlong lookup = nt_kernel_env_lookup(env, VER_ITERS);
+    jlong scoped = nt_kernel_env_scoped(env, VER_ITERS);
+    jlong passed = nt_kernel_env_passed(env, VER_ITERS);
+    bad += verify(tag, "env_sums",
+                  lookup != -1 && lookup == scoped && lookup == passed);
   }
 
   /* Exact dynamic operation counts through the interposed table. */
   nt_setup_counted_env();
+  g_vm = &g_counted_vm;
+  g_scoped_env = &g_counted_env;
   for (int k = 0; k < KERNEL_COUNT; k++) {
     memset(g_counts, 0, sizeof g_counts);
     jlong r = KERNELS[k].fn(&g_counted_env, (jint)count_iters);
@@ -337,6 +381,8 @@ int main(int argc, char **argv) {
       printf(" %s=%llu", OP_NAMES[op], (unsigned long long)g_counts[op]);
     printf("\n");
   }
+  g_vm = vm;
+  g_scoped_env = env;
 
   /* Steady state: one long warmup drives the Java methods hot, then timed
    * repetitions; the analyzer takes the median. */

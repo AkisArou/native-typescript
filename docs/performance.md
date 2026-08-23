@@ -1,7 +1,7 @@
 # Performance program
 
 Status: proposal  
-Last revised: 2026-08-22
+Last revised: 2026-08-23
 
 This document turns the performance half of
 [record 0013](records/0013-performance-and-debuggability-audit.md) into an
@@ -388,13 +388,14 @@ ThinLTO should then be measured for code size and adapter-call overhead. It
 must not be credited with removing JNI resource operations that remain visible
 through the JVM function table; record 0008 already falsified that claim.
 
-## Candidate optimizations after resource specialization
+## Optimizations after resource specialization
 
-The following are candidates, not scheduled work:
+The table distinguishes the landed JVM carrier from candidates that still
+need admission evidence:
 
 | Candidate | Admission evidence |
 | --- | --- |
-| propagate `JNIEnv *` as an execution capability | measured post-promotion cost above the predeclared noise threshold |
+| scope `JNIEnv *` across a JVM callback/owner turn | **landed**: [record 0019](records/0019-scoped-jni-environment-capability.md) measured exact `GetEnv` removal and 12.8–34.1% gains in the targeted ART cases |
 | cache literal Java strings | device workload dominated by repeated literal conversion/allocation |
 | keep Java-origin immutable strings foreign-resident | demonstrated Java-to-native-to-Java round-trip copies |
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
@@ -403,11 +404,14 @@ The following are candidates, not scheduled work:
 | integer specialization | a numeric workload demonstrates boxed/double representation cost |
 | `@FastNative` or platform-specific JNI annotations | supported public toolchain contract plus on-device evidence |
 
-`GetEnv` remains deliberately behind local/stable selection. The existing
-bound places its likely cost in the low single-digit nanoseconds and gives it
-a hard ceiling far below the measured promotion tax. If measured later, the
-test must compare otherwise identical kernels with per-call acquisition and a
-passed capability. Under roughly 5 ns/op, the performance case is dead.
+`GetEnv` has now been measured behind local/stable selection. Otherwise
+identical real-JVM kernels measure 4.3 ns for per-call acquisition and 1.1 ns
+for both the scoped TLS carrier and an explicit operand. The narrow target
+mechanism therefore captures the measured lower bound without changing SCABI,
+Native IR, or both compiler backends. ART then showed targeted improvements of
+12.8–34.1%. [Record 0019](records/0019-scoped-jni-environment-capability.md)
+records why the earlier 5 ns threshold remains evidence against a broad hidden
+ABI, but not against this smaller cumulative optimization.
 
 Strings and buffers must follow platform contracts. `java.lang.String`
 cannot share native storage, while an API accepting a direct `ByteBuffer` can.

@@ -103,7 +103,9 @@ attributed to this optimization.
 ## Next question
 
 The largest isolated remaining seams are callback delivery/payload handling
-and outbound strings. Before propagating `JNIEnv *`, the project still needs
-an exact `GetEnv` counter: removing one capability lookup is worth doing only
-if the measured boundary families show that lookup materially survives beside
-argument conversion, callback dispatch, and JNI calls themselves.
+and outbound strings. The exact `GetEnv` counter was subsequently expanded
+with the scoped TLS carrier actually available to the JVM target. That carrier
+matched the explicit-operand host lower bound and reduced this handle-result
+ART median again, from 211.57 to 139.33 ns/lookup.
+[Record 0019](0019-scoped-jni-environment-capability.md) records the mechanism
+and keeps a broader compiler execution-context ABI uncommitted.

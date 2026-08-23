@@ -43,7 +43,7 @@ printf '%s\n' "${INCLUDES[@]}" >compile_flags.txt
 $CC "${CFLAGS[@]}" probe_offsets.c -o "$OUT/probe_offsets"
 "$OUT/probe_offsets" >"$OUT/jni-offsets.txt"
 
-SRC=(adapter.c kernels_a.c kernels_b.c harness.c)
+SRC=(adapter.c kernels_a.c kernels_b.c kernels_env.c harness.c)
 $CC "${CFLAGS[@]}" "${SRC[@]}" -o "$OUT/falsifier-nolto" "${LDFLAGS[@]}"
 $CC "${CFLAGS[@]}" "${LTOFLAGS[@]}" "${SRC[@]}" -o "$OUT/falsifier-lto" \
   "${LDFLAGS[@]}"

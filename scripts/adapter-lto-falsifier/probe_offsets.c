@@ -10,8 +10,11 @@
 
 #define P(name) \
   printf("%s %zu\n", #name, offsetof(struct JNINativeInterface_, name))
+#define V(name) \
+  printf("VM_%s %zu\n", #name, offsetof(struct JNIInvokeInterface_, name))
 
 int main(void) {
+  P(GetVersion);
   P(PushLocalFrame);
   P(PopLocalFrame);
   P(NewGlobalRef);
@@ -29,5 +32,6 @@ int main(void) {
   P(GetObjectClass);
   P(GetStringUTFChars);
   P(ReleaseStringUTFChars);
+  V(GetEnv);
   return 0;
 }

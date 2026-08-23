@@ -136,3 +136,10 @@ acquisition counters and rerun the unchanged three-way instrument before any
 claim. Callback token dispatch is a separate later slice: its Kotlin ratio is
 large, but Native TypeScript's absolute callback median is still only 0.332
 microseconds.
+
+The requested matched counter was later expanded to compare lookup, scoped
+TLS, and an explicit operand. The scoped carrier reached the explicit
+operand's host lower bound without changing the compiler ABI and improved this
+light-object ART median from 221.70 to 159.09 ns/op. The mechanism and why the
+earlier threshold was re-evaluated are in
+[record 0019](0019-scoped-jni-environment-capability.md).

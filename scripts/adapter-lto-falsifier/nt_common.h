@@ -13,6 +13,8 @@ extern jmethodID g_mid_make;
 extern jmethodID g_mid_checked_add;
 extern jmethodID g_mid_get_message;
 extern jfieldID g_fid_value;
+extern JavaVM *g_vm;
+extern _Thread_local JNIEnv *g_scoped_env;
 
 /* The neutral algebra's managed handle: a stable reference plus its
  * destructor carried as data. This is the shape the contingency's adapter
@@ -58,6 +60,13 @@ jlong nt_kernel_b_nonescaping(JNIEnv *env, jint iters);
 jlong nt_kernel_b_stored(JNIEnv *env, jint iters);
 jlong nt_kernel_b_fallible(JNIEnv *env, jint iters);
 jlong nt_kernel_b2_nonescaping_batched(JNIEnv *env, jint iters);
+
+/* Thread-capability shapes. All read the same JNI version: lookup asks the
+ * cached VM on every iteration, scoped reads the reentrant TLS carrier the
+ * JVM target actually uses, and passed is the explicit-operand lower bound. */
+jlong nt_kernel_env_lookup(JNIEnv *env, jint iters);
+jlong nt_kernel_env_scoped(JNIEnv *env, jint iters);
+jlong nt_kernel_env_passed(JNIEnv *env, jint iters);
 
 /* One-shot failure-path checks; 0 means the detailed message arrived. */
 int nt_check_a_failure(JNIEnv *env);

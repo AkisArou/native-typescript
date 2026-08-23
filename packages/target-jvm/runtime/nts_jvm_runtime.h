@@ -19,6 +19,13 @@
 
 void nts_jvm_runtime_register(jint (*bind)(JavaVM *, char **));
 
+/* The current synchronous JVM capability. Generated adapters provide a weak
+ * standalone definition; this runtime's strong definition unifies every
+ * package in the image. It is non-NULL only while the current thread is in a
+ * Java callback/owner turn, or for the lifetime of a runtime-attached owner
+ * thread. */
+extern _Thread_local JNIEnv *nts_jvm_thread_env;
+
 void nts_jvm_application_start(char **error);
 void nts_jvm_application_stop(void);
 void nts_jvm_application_complete(int code);

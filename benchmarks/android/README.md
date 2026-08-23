@@ -137,10 +137,11 @@ whether a real widget application notices.
 
 The scalar, string, byte-array, returned-handle, and callback cases prevent one
 resource improvement from being misreported as a general JNI improvement.
-They identify separate costs that need their own evidence before `JNIEnv *`
-propagation, string residency, callback-token changes, or call fusion is
-admitted. The Android and composite cases then say whether an isolated cost is
-visible once framework work surrounds it.
+They identify separate costs that need their own evidence before string
+residency, callback-token changes, or call fusion is admitted. A scoped
+`JNIEnv *` carrier now removes repeated acquisition inside one callback or
+owner turn; the Android and composite cases remain the check that an isolated
+boundary saving is visible once framework work surrounds it.
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -155,6 +156,10 @@ are recorded in
 The nullable returned-handle optimization and its unchanged-workload
 remeasurement are recorded in
 [record 0018](../../docs/records/0018-nullable-frame-bounded-results.md).
+The exact `GetEnv`/TLS/explicit-operand carrier measurement, the decision to
+keep the implementation target-owned, and its ART before/after result are
+recorded in
+[record 0019](../../docs/records/0019-scoped-jni-environment-capability.md).
 
 ## Research references
 

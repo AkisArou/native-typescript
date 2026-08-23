@@ -17,6 +17,37 @@ static jint (*nts_jvm_binds[NTS_JVM_MAX_PACKAGES])(JavaVM *, char **);
 static size_t nts_jvm_bind_count;
 static JavaVM *nts_jvm_vm;
 
+/* One capability per attached thread, shared with every generated adapter.
+ * Callback trampolines scope their JNI-supplied env themselves. The runtime
+ * scopes native-origin turns and keeps the value for owner threads it
+ * attached and therefore knows will not detach behind its back. */
+_Thread_local JNIEnv *nts_jvm_thread_env;
+
+static JNIEnv *nts_jvm_env_enter(JNIEnv *env) {
+  JNIEnv *previous = nts_jvm_thread_env;
+  nts_jvm_thread_env = env;
+  return previous;
+}
+
+static JNIEnv *nts_jvm_env_enter_current(const char *operation) {
+  JNIEnv *previous = nts_jvm_thread_env;
+  if (previous != NULL) return previous;
+  JNIEnv *env = NULL;
+  if (nts_jvm_vm == NULL ||
+      (*nts_jvm_vm)->GetEnv(nts_jvm_vm, (void **)&env,
+                            JNI_VERSION_1_6) != JNI_OK) {
+    fprintf(stderr, "nts_jvm_runtime: %s on an unattached thread\n",
+            operation);
+    abort();
+  }
+  nts_jvm_thread_env = env;
+  return NULL;
+}
+
+static void nts_jvm_env_leave(JNIEnv *previous) {
+  nts_jvm_thread_env = previous;
+}
+
 static char *nts_jvm_owned_message(const char *text) {
   char *owned = strdup(text);
   if (owned == NULL) {
@@ -101,6 +132,11 @@ static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
   nts_jvm_loop.woken = false;
   pthread_mutex_unlock(&nts_jvm_loop.mutex);
 
+  /* A native-origin owner turn has no JNI trampoline to hand the capability
+   * in. Acquire it once for the whole dispatch/checkpoint pair; every nested
+   * adapter call then consumes the shared scope. */
+  JNIEnv *previous_env = nts_jvm_env_enter_current("owner poll");
+
   /* One host turn: at most one delivery, then the checkpoint the attached
    * contract requires after each delivered callback. An exception out of a
    * queued handler has no emitting call to answer to, so it is reported
@@ -126,6 +162,7 @@ static ScrAttachedLoopPollResult nts_jvm_runtime_poll(void *context,
     fprintf(stderr, "nts_jvm_runtime: unhandled promise rejection\n");
     nts_jvm_runtime_note_failure();
   }
+  nts_jvm_env_leave(previous_env);
   return SCR_ATTACHED_LOOP_POLL_COMPLETE;
 }
 
@@ -248,6 +285,10 @@ static void *nts_jvm_owner_main(void *opaque) {
     nts_jvm_boot_signal(true);
     return NULL;
   }
+  /* This runtime attached the owner and never detaches it during its
+   * lifetime, so the capability remains valid for every native-origin turn
+   * on this thread. */
+  (void)nts_jvm_env_enter(env);
   for (size_t index = 0; index < nts_jvm_bind_count; index++) {
     char *error = NULL;
     if (nts_jvm_binds[index](nts_jvm_vm, &error) != 0) {
@@ -325,12 +366,14 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     nts_jvm_vm = NULL;
     return JNI_ERR;
   }
+  JNIEnv *previous_env = nts_jvm_env_enter(env);
   for (size_t index = 0; index < nts_jvm_bind_count; index++) {
     char *error = NULL;
     if (nts_jvm_binds[index](nts_jvm_vm, &error) != 0) {
       fprintf(stderr, "nts_jvm_runtime: bind failed: %s\n",
               error == NULL ? "(no message)" : error);
       free(error);
+      nts_jvm_env_leave(previous_env);
       nts_jvm_vm = NULL;
       return JNI_ERR;
     }
@@ -338,12 +381,14 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
   const char *failure = nts_jvm_start_services();
   if (failure != NULL) {
     fprintf(stderr, "nts_jvm_runtime: %s\n", failure);
+    nts_jvm_env_leave(previous_env);
     nts_jvm_vm = NULL;
     return JNI_ERR;
   }
   if (nts_jvm_hosted_init != NULL) {
     nts_jvm_hosted_init();
   }
+  nts_jvm_env_leave(previous_env);
   return JNI_VERSION_1_6;
 #else
   pthread_t owner;
@@ -427,10 +472,14 @@ void nts_jvm_application_start(char **error) {
     *error = nts_jvm_owned_message("JNI_CreateJavaVM failed");
     return;
   }
+  /* This runtime created the VM on the owner thread and destroys it only in
+   * application_stop, so no external detachment can invalidate the slot. */
+  (void)nts_jvm_env_enter(env);
   for (size_t index = 0; index < nts_jvm_bind_count; index++) {
     if (nts_jvm_binds[index](nts_jvm_vm, error) != 0) {
       /* The bind's own message names the failing package; starting half
        * bound would leave calls that trap later, so the VM goes down. */
+      nts_jvm_thread_env = NULL;
       (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
       nts_jvm_vm = NULL;
       return;
@@ -439,6 +488,7 @@ void nts_jvm_application_start(char **error) {
   /* The service links on this target's say-so (requires.compiler), so it
    * is configured whether or not the program connects anything. */
   if (!scr_retained_callbacks_configure(nts_jvm_runtime_wake, NULL)) {
+    nts_jvm_thread_env = NULL;
     (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
     nts_jvm_vm = NULL;
     *error = nts_jvm_owned_message(
@@ -448,6 +498,7 @@ void nts_jvm_application_start(char **error) {
   if (!scr_loop_set_attached(nts_jvm_runtime_pending, nts_jvm_runtime_poll,
                              &nts_jvm_loop)) {
     (void)scr_retained_callbacks_destroy();
+    nts_jvm_thread_env = NULL;
     (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
     nts_jvm_vm = NULL;
     *error = nts_jvm_owned_message("attaching the pump to the loop failed");
@@ -481,6 +532,7 @@ void nts_jvm_application_stop(void) {
   }
   (void)scr_retained_callbacks_destroy();
   (void)scr_loop_clear_attached(&nts_jvm_loop);
+  nts_jvm_thread_env = NULL;
   (*nts_jvm_vm)->DestroyJavaVM(nts_jvm_vm);
   nts_jvm_vm = NULL;
 }

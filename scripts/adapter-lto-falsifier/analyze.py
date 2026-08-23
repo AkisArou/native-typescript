@@ -26,6 +26,9 @@ KERNELS = [
     "b_stored",
     "a_fallible",
     "b_fallible",
+    "env_lookup",
+    "env_scoped",
+    "env_passed",
 ]
 CASES = [
     ("nonescaping", "a_nonescaping", "b_nonescaping"),
@@ -92,6 +95,14 @@ def parse_disasm(path, offsets):
         if len(parts) >= 2 and parts[-1].strip():
             insns.append(parts[-1].strip())
 
+    def slot_label(off):
+        slot = offsets.get(off)
+        if slot is None:
+            return f"indirect(+0x{off:x})"
+        if slot.startswith("VM_"):
+            return f"vm->{slot.removeprefix('VM_')}"
+        return f"env->{slot}"
+
     result = {}
     for name, body in funcs.items():
         calls = {}
@@ -109,8 +120,7 @@ def parse_disasm(path, offsets):
             m = CALL_TABLE_RE.search(insn)
             if m:
                 off = int(m.group(1), 16)
-                slot = offsets.get(off)
-                add(f"env->{slot}" if slot else f"indirect(+0x{off:x})")
+                add(slot_label(off))
                 continue
             m = CALL_REG_RE.search(insn)
             if m:
@@ -120,10 +130,7 @@ def parse_disasm(path, offsets):
                     mm = MOV_TABLE_RE.search(body[back])
                     if mm and mm.group(2) == reg:
                         off = int(mm.group(1), 16)
-                        slot = offsets.get(off)
-                        label = (
-                            f"env->{slot}" if slot else f"indirect(+0x{off:x})"
-                        )
+                        label = slot_label(off)
                         break
                 add(label)
                 continue
@@ -153,6 +160,27 @@ def main():
     }
 
     print("# Adapter-plus-LTO falsifier — results")
+    print()
+
+    print("## Thread-capability carrier measurement")
+    print()
+    print("All kernels call `JNIEnv->GetVersion`. `env_lookup` also calls")
+    print("`JavaVM->GetEnv` on every iteration; `env_scoped` reads the")
+    print("reentrant TLS carrier used by the JVM target; `env_passed` is the")
+    print("explicit-operand lower bound.")
+    print()
+    print("| binary | per-call lookup | scoped TLS | explicit operand | TLS saving |")
+    print("| --- | --- | --- | --- | --- |")
+    for tag, (_, _, times) in runs.items():
+        lookup = med(times.get("env_lookup", []))
+        scoped = med(times.get("env_scoped", []))
+        passed = med(times.get("env_passed", []))
+        print(
+            f"| {tag} | {fmt_ns(times.get('env_lookup', []))} "
+            f"| {fmt_ns(times.get('env_scoped', []))} "
+            f"| {fmt_ns(times.get('env_passed', []))} "
+            f"| {lookup - scoped:.1f} ns/op |"
+        )
     print()
     print("Instrument: `scripts/adapter-lto-falsifier`. Specified by")
     print('`docs/foreign-boundary.md`, "The contingency".')
@@ -221,6 +249,8 @@ def main():
     print("## Dynamic JNI operations per iteration (interposed table, exact)")
     print()
     ops_of_interest = [
+        "GetEnv",
+        "GetVersion",
         "PushLocalFrame",
         "PopLocalFrame",
         "NewGlobalRef",
@@ -239,9 +269,9 @@ def main():
         print(f"| {kernel} | " + " | ".join(cells) + " |")
     print()
     print("(Counts are identical between the two builds by construction; the")
-    print("LTO build's are shown. Non-listed operations were zero on the hot")
-    print("paths except the per-call Java invocation and field read, which are")
-    print("1/iteration everywhere.)")
+    print("LTO build's are shown. The three original kernels additionally")
+    print("perform their stated Java invocation/field operations; the env trio")
+    print("performs only the two operations named by its rows.)")
     print()
 
     print("## Final assembly (call sites inside each kernel)")

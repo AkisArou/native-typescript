@@ -8,10 +8,11 @@
  * with an exact release for each. Which resource domain a call uses remains
  * the compiler's decision.
  *
- * `JNIEnv *` is a thread capability the runtime owns. The current ABI
- * reacquires it from the JavaVM cached at bind time; carrying that capability
- * through a legalized foreign-call region is a separate compiler/runtime
- * optimization, not something an individual member adapter may infer.
+ * `JNIEnv *` is a thread capability the runtime owns. Java callback ingress
+ * already receives it, so the generated trampoline scopes it across the
+ * synchronous TypeScript turn and nested outbound calls consume that exact
+ * capability. Native-origin turns are scoped by the target runtime. Calls
+ * outside either scope retain the checked JavaVM fallback.
  *
  * The algebra is deliberately bounded and refuses precisely: JNI primitive
  * scalars and void, selected-class handles, java/lang/String through an
@@ -111,9 +112,9 @@ export interface JvmBindAdapter {
 }
 
 /**
- * The generated env acquisition every other family calls through: the
- * JavaVM cached at bind time answers GetEnv for the current thread. This is
- * the package's one declared GAP — see its classification.
+ * The generated env acquisition every other family calls through. A scoped
+ * capability supplied by callback ingress or the owner runtime is the hot
+ * path; the JavaVM cached at bind time remains the checked fallback.
  *
  * Every generated GetEnv speaks JNI_VERSION_1_6: nothing the adapter emits
  * is newer than JNI 1.2, 1_6 is the floor both HotSpot and ART accept, and
@@ -267,26 +268,25 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
       "so a host driving bind directly links without the runtime",
   },
   envSupport: {
-    kind: "gap",
-    missing:
-      "a thread-capability position in the boundary contract, so a call " +
-      "could receive the JNIEnv the compiler knows it holds",
-    cost:
-      "one GetEnv table lookup per adapter call, and every call is legal " +
-      "only from a thread already attached to the JVM - the first JNI " +
-      "slice's stated constraint. No lifetime or executor is decided here: " +
-      "GetEnv answers which env the CURRENT thread already has.",
+    kind: "translation",
+    custom:
+      "JNI supplies JNIEnv at every Java-to-native callback boundary, and " +
+      "the target runtime obtains it once for native-origin owner turns; a " +
+      "shared reentrant thread-local scope carries that capability across " +
+      "the synchronous TypeScript turn. The JavaVM lookup remains only as " +
+      "a checked fallback outside a declared scope. No lifetime, executor, " +
+      "or attachment policy is inferred by an individual member adapter.",
   },
   release: {
     kind: "translation",
     custom:
       "JNI spells releasing one stable reference DeleteGlobalRef(env, ref); " +
-      "the current thread's env is looked up through the declared gap so " +
-      "the release is unary, which is what destructor-as-data needs. One " +
-      "spelling serves every class because DeleteGlobalRef is class-blind " +
-      "and a destructor may consume any identity-upcast target, so the " +
-      "release is typed at the root handle. Owner-confined destruction " +
-      "already guarantees an attached thread; an unattached one traps.",
+      "the scoped current-thread capability keeps the release unary, which " +
+      "is what destructor-as-data needs, with a checked JavaVM fallback " +
+      "outside a scope. One spelling serves every class because " +
+      "DeleteGlobalRef is class-blind and a destructor may consume any " +
+      "identity-upcast target. Owner-confined destruction already " +
+      "guarantees an attached thread; an unattached one traps.",
   },
   errorSupport: {
     kind: "translation",
@@ -923,25 +923,13 @@ export function generateJvmAdapterSource(
         bodies.push(
           `/* Managed peer association for ${class_.binaryName}. */`,
           `void *${readSymbol}(void *self) {`,
-          "  JNIEnv *env = NULL;",
-          `  if (${prefix}_vm == NULL ||`,
-          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-          "                              JNI_VERSION_1_6) != JNI_OK) {",
-          `    fprintf(stderr, "${prefix}: peer read on an unattached thread\\n");`,
-          "    abort();",
-          "  }",
+          `  JNIEnv *env = ${prefix}_env_required("peer read");`,
           `  jlong value = (*env)->GetLongField(env, (jobject)self, ${fidVar});`,
           "  return (void *)(uintptr_t)(uint64_t)value;",
           "}",
           "",
           `void ${writeSymbol}(void *self, void *peer) {`,
-          "  JNIEnv *env = NULL;",
-          `  if (${prefix}_vm == NULL ||`,
-          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-          "                              JNI_VERSION_1_6) != JNI_OK) {",
-          `    fprintf(stderr, "${prefix}: peer write on an unattached thread\\n");`,
-          "    abort();",
-          "  }",
+          `  JNIEnv *env = ${prefix}_env_required("peer write");`,
           `  (*env)->SetLongField(env, (jobject)self, ${fidVar},`,
           "                       (jlong)(uint64_t)(uintptr_t)peer);",
           "}",
@@ -1653,14 +1641,23 @@ export function generateJvmAdapterSource(
               "      }",
             ]
           : []),
-        `      ${answers ? "return " : ""}((${callbackPointer})connection->callback)(${[
+        /* JNI has already proved this capability belongs to the current
+         * thread. Scope it only across the synchronous TypeScript turn: a
+         * nested Java callback saves/restores the same value, and leaving
+         * the trampoline cannot retain a pointer an embedder may later
+         * detach. Every outbound adapter called by the handler sees this
+         * fast path instead of asking the JavaVM again. */
+        "      JNIEnv *previous_env = nts_jvm_thread_env;",
+        "      nts_jvm_thread_env = env;",
+        `      ${answers ? "jboolean answer = " : ""}((${callbackPointer})connection->callback)(${[
           ...(classAnchored ? ["receiver"] : []),
           ...parameters.map((parameter, index) =>
             parameter.kind === "handle" ? `payload${index}` : `a${index}`
           ),
           "connection->context",
         ].join(", ")});`,
-        ...(answers ? [] : ["      return;"]),
+        "      nts_jvm_thread_env = previous_env;",
+        ...(answers ? ["      return answer;"] : ["      return;"]),
         "    }",
         "  }",
         `  (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
@@ -1847,12 +1844,19 @@ export function generateJvmAdapterSource(
     "",
     `static JavaVM *${prefix}_vm;`,
     "",
-    "/* The declared gap: the boundary contract has no thread-capability",
-    " * position yet, so the env the compiler knows the thread holds is",
-    " * looked up here instead of being passed. GetEnv answers which env the",
-    " * CURRENT thread already has - nothing is decided - and the first JNI",
-    " * slice admits already-attached threads only. */",
+    "/* One reentrant current-thread capability shared by every generated",
+    " * package in this image. The target runtime supplies the strong",
+    " * definition; weak keeps a standalone adapter linkable and multiple",
+    " * standalone packages coalesce to one slot. A trampoline saves and",
+    " * restores it around the synchronous TypeScript turn, so no pointer",
+    " * survives a boundary an embedder may later detach. */",
+    "_Thread_local JNIEnv *nts_jvm_thread_env __attribute__((weak));",
+    "",
+    "/* Hot path: callback ingress or the owner runtime already supplied the",
+    " * current thread's capability. Calls made outside such a scope retain",
+    " * the precise checked fallback rather than assuming attachment. */",
     `static JNIEnv *${envHelperSymbol}(char **error) {`,
+    "  if (nts_jvm_thread_env != NULL) return nts_jvm_thread_env;",
     "  JNIEnv *env = NULL;",
     `  if (${prefix}_vm == NULL ||`,
     `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
@@ -1860,6 +1864,21 @@ export function generateJvmAdapterSource(
     `    *error = ${prefix}_message(`,
     `        "calling thread is not attached to the JVM, or bind has not run");`,
     "    return NULL;",
+    "  }",
+    "  return env;",
+    "}",
+    "",
+    "/* Destructor and peer-slot entries have no recoverable error channel.",
+    " * They consume the same scoped capability, then preserve the existing",
+    " * attached-owner trap on the fallback path. */",
+    `static inline JNIEnv *${prefix}_env_required(const char *operation) {`,
+    "  if (nts_jvm_thread_env != NULL) return nts_jvm_thread_env;",
+    "  JNIEnv *env = NULL;",
+    `  if (${prefix}_vm == NULL ||`,
+    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
+    "                              JNI_VERSION_1_6) != JNI_OK) {",
+    `    fprintf(stderr, "${prefix}: %s on an unattached thread\\n", operation);`,
+    "    abort();",
     "  }",
     "  return env;",
     "}",
@@ -2053,13 +2072,7 @@ export function generateJvmAdapterSource(
           `void ${disconnectSymbol}(void *opaque) {`,
           `  ${prefix}_connection *connection = opaque;`,
           "  if (connection == NULL || !connection->live) return;",
-          "  JNIEnv *env = NULL;",
-          `  if (${prefix}_vm == NULL ||`,
-          `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-          "                              JNI_VERSION_1_6) != JNI_OK) {",
-          `    fprintf(stderr, "${prefix}: disconnect on an unattached thread\\n");`,
-          "    abort();",
-          "  }",
+          `  JNIEnv *env = ${prefix}_env_required("disconnect");`,
           `  for (${prefix}_connection **cursor = connection->slot;`,
           "       *cursor != NULL; cursor = &(*cursor)->next) {",
           "    if (*cursor == connection) {",
@@ -2090,15 +2103,7 @@ export function generateJvmAdapterSource(
     " * serves every stable reference this package hands out, typed at the",
     " * root handle every class identity-upcasts to. */",
     `void ${releaseSymbol}(void *ref) {`,
-    "  JNIEnv *env = NULL;",
-    `  if (${prefix}_vm == NULL ||`,
-    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-    "                              JNI_VERSION_1_6) != JNI_OK) {",
-    "    /* Owner-confined destruction guarantees an attached thread; an",
-    "     * unattached one here is a runtime bug, not a recoverable state. */",
-    `    fprintf(stderr, "${prefix}: release on an unattached thread\\n");`,
-    "    abort();",
-    "  }",
+    `  JNIEnv *env = ${prefix}_env_required("release");`,
     "  (*env)->DeleteGlobalRef(env, (jobject)ref);",
     "}",
     "",
@@ -2107,13 +2112,7 @@ export function generateJvmAdapterSource(
     " * ends; no managed handle cell or global-reference edge exists. */",
     `void ${frameReleaseSymbol}(void *ref) {`,
     "  if (ref == NULL) return;",
-    "  JNIEnv *env = NULL;",
-    `  if (${prefix}_vm == NULL ||`,
-    `      (*${prefix}_vm)->GetEnv(${prefix}_vm, (void **)&env,`,
-    "                              JNI_VERSION_1_6) != JNI_OK) {",
-    `    fprintf(stderr, "${prefix}: frame release on an unattached thread\\n");`,
-    "    abort();",
-    "  }",
+    `  JNIEnv *env = ${prefix}_env_required("frame release");`,
     "  (*env)->DeleteLocalRef(env, (jobject)ref);",
     "}",
     "",
@@ -2200,15 +2199,12 @@ export function generateJvmAdapterSource(
     "}",
     "",
     "/* The VM-first bind a target runtime calls after creating or adopting",
-    " * the JavaVM: caches it, takes the current thread's env, resolves. */",
+    " * the JavaVM: caches it, consumes the owner scope when present, and",
+    " * otherwise takes the current thread's env before resolving. */",
     `jint ${bindVmSymbol}(JavaVM *vm, char **error) {`,
-    "  JNIEnv *env = NULL;",
     `  ${prefix}_vm = vm;`,
-    "  if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {",
-    `    *error = ${prefix}_message(`,
-    '        "binding thread is not attached to the JVM");',
-    "    return -1;",
-    "  }",
+    `  JNIEnv *env = ${envHelperSymbol}(error);`,
+    "  if (env == NULL) return -1;",
     `  return ${bindSymbol}(env, error);`,
     "}",
     "",

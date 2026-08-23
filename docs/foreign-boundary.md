@@ -323,6 +323,14 @@ rules, and conditional cleanup — only a thread the native runtime attached
 should be detached by it. Regions and capabilities are different concepts and
 the contract keeps them apart.
 
+The JVM target has landed one mechanics-level slice: callback ingress and
+native-origin owner turns save/install/restore a reentrant current-thread
+environment, generated adapters consume it, and calls outside a declared scope
+retain checked `JavaVM->GetEnv` fallback behavior. This does not yet make an
+execution context a neutral compiler value;
+[record 0019](records/0019-scoped-jni-environment-capability.md) records why
+the narrower carrier was sufficient for the measured JVM cost.
+
 Call effects are first-class because a resource can be live and correctly
 counted yet illegal to use at a given point. COM STA calls can pump messages
 and re-enter application code mid-call; a JNI local reference must not cross
@@ -444,8 +452,9 @@ from "expand the compiler for platforms" to something much smaller.
 
 ## What the falsifier measured
 
-`scripts/adapter-lto-falsifier` builds the three named cases against a real
-JVM through the invocation API. **Variant A** is the contingency adapter
+`scripts/adapter-lto-falsifier` builds the three lifetime/outcome cases and one
+thread-capability carrier trio against a real JVM through the invocation API.
+**Variant A** is the contingency adapter
 described above, verbatim: a per-call wrapper in its own translation unit that
 cannot see escape or liveness, so it opens a local frame and promotes every
 returned object to a global reference, handing back the neutral algebra's
@@ -466,6 +475,14 @@ Corretto 21, clang 22, x86-64. Median nanoseconds per operation:
 | non-escaping returned object | 144.1 | 145.5 | 60.9 |
 | object stored beyond the call | 157.5 | 157.7 | parity |
 | useful result, detailed failure channel | 51.6 | 52.7 | 51.7 |
+
+The later thread-capability trio holds useful JNI work constant. Lookup plus
+`JNIEnv->GetVersion` measured 4.3 ns with and without LTO; both the scoped-TLS
+carrier used by the JVM target and an explicit-operand lower bound measured
+1.1 ns. Exact counts and assembly show one `GetEnv` only in lookup. The narrow
+carrier then produced 12.8–34.1% improvements in the targeted ART cases, so
+[record 0019](records/0019-scoped-jni-environment-capability.md) admits it
+without growing the neutral compiler ABI.
 
 ## What it settled: LTO refunds nothing structural
 

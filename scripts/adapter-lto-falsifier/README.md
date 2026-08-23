@@ -8,14 +8,15 @@ compiler need not absorb.
 
 ## What is compared
 
-Three programs, each in two shapes, over a real JVM embedded through the
-invocation API:
+Three programs in two shapes, plus one capability program in three carrier
+shapes, over a real JVM embedded through the invocation API:
 
 | case | the program | where the shapes differ |
 | --- | --- | --- |
 | `nonescaping` | call returns an object, one field is read, the value dies inside the iteration | A promotes to a global reference and frames every call; B deletes the local ref at last use |
 | `stored` | the returned object outlives the call (ring of 256) | promotion is genuinely required, so both promote; the delta isolates A's per-call frame and handle bookkeeping |
 | `fallible` | a useful `int` result with a detailed failure channel (message captured, owned, released) | both detect with one `ExceptionCheck`; capture is a cold path in both — expected to be fully refunded |
+| `env` | read the JNI version through the current thread's `JNIEnv*` | lookup reacquires it from the cached `JavaVM` per iteration; scoped reads the reentrant TLS carrier used by the JVM target; passed is the explicit-operand lower bound |
 
 **Variant A** is the contingency adapter: a per-call wrapper in its own
 translation unit that cannot see liveness or escape, so it opens a local
@@ -27,6 +28,13 @@ adapter baseline) and with `-flto=full` (what the linker refunds).
 the same programs — the code the foreign-boundary design says only the
 compiler can choose. `b2` bounds what a batched region could add; it is an
 appendix, not a claim.
+
+The `env` trio separates the operation from its carrier. Every arm calls
+`JNIEnv->GetVersion`; only lookup calls `JavaVM->GetEnv`. Scoped measures the
+narrow target-owned implementation, including its TLS read, while passed
+bounds what an invasive explicit ABI operand could achieve. The host result
+does not stand in for ART: the Android suite is the admission measurement for
+the shipped carrier.
 
 ## What is measured
 

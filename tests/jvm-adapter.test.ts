@@ -184,6 +184,27 @@ test("the adapter source is deterministic and carries its member table", () => {
   );
   assert.ok(first.connectionSupport !== null);
   assert.ok(first.source.includes("RegisterNatives"));
+  /* JNI hands every native callback its current thread capability. The
+   * trampoline scopes that capability across the TypeScript handler, so
+   * nested outbound calls do not ask the JavaVM for the same answer again.
+   * The weak definition keeps a generated adapter linkable without the
+   * target runtime; a linked runtime supplies the one strong cross-package
+   * slot. */
+  assert.ok(
+    first.source.includes(
+      "_Thread_local JNIEnv *nts_jvm_thread_env __attribute__((weak));",
+    ),
+  );
+  assert.ok(
+    first.source.includes(
+      "if (nts_jvm_thread_env != NULL) return nts_jvm_thread_env;",
+    ),
+  );
+  assert.ok(
+    first.source.includes("JNIEnv *previous_env = nts_jvm_thread_env;"),
+  );
+  assert.ok(first.source.includes("nts_jvm_thread_env = env;"));
+  assert.ok(first.source.includes("nts_jvm_thread_env = previous_env;"));
   const resizeSymbols = first.instanceMethods
     .filter(({ name }) => name === "resize")
     .map(({ adapterSymbol }) => adapterSymbol);
@@ -238,13 +259,14 @@ test("every generated-C family carries a classification", () => {
       "stringVectorSupport",
     ],
   );
-  // The env lookup is the package's one declared gap; everything else is a
-  // translation. A new gap appearing here is a review event by design.
-  assert.equal(JVM_ADAPTER_FAMILIES.envSupport.kind, "gap");
+  // Callback and owner-turn scopes now carry the thread capability; a call
+  // outside either scope retains the precise attached-thread fallback. A new
+  // gap appearing here is a review event by design.
+  assert.equal(JVM_ADAPTER_FAMILIES.envSupport.kind, "translation");
   const gapCount = Object.values(JVM_ADAPTER_FAMILIES).filter(
     ({ kind }) => kind === "gap",
   ).length;
-  assert.equal(gapCount, 1);
+  assert.equal(gapCount, 0);
 });
 
 test("a peer slot role cannot disappear outside the selected classes", () => {
@@ -637,12 +659,16 @@ test(
         "#include <stdlib.h>",
         "#include <string.h>",
         `#include "adapter.h"`,
+        "extern _Thread_local JNIEnv *nts_jvm_thread_env;",
         "static int nts_seen_depth;",
         "static int nts_seen_calls;",
+        "static int nts_seen_scoped_env;",
         "/* The receiver arrives promoted and owned: usable for a call",
-        " * back into Java, and released by whoever was handed it. */",
+        " * back into Java, and released by whoever was handed it. Both",
+        " * operations consume the callback's scoped JNIEnv capability. */",
         "static void nts_on_tick(void *receiver, jint value, void *context) {",
         "  char *error = NULL;",
+        "  if (nts_jvm_thread_env != NULL) nts_seen_scoped_env += 1;",
         `  nts_seen_depth += ${depth}(receiver, &error);`,
         "  if (error != NULL) { nts_seen_depth = -1000; }",
         "  nts_seen_calls += 1;",
@@ -686,6 +712,10 @@ test(
         "   * receiver could not tell 7 from 9 at all. */",
         "  if (nts_seen_calls != 3) return 18;",
         "  if (nts_seen_depth != 23) return 19;",
+        "  if (nts_seen_scoped_env != 3) return 21;",
+        "  /* The JNI-owned capability ends with each callback. Keeping it",
+        "   * here could leave a stale pointer if an embedder detached. */",
+        "  if (nts_jvm_thread_env != NULL) return 22;",
         '  printf("OK\\n");',
         "  return 0;",
         "}",
