@@ -10,10 +10,11 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 2,
+  version: 3,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
+  managedClassIterations: 100_000,
   constructorIterations: 2_000,
   setterIterations: 50_000,
   callbackIterations: 50_000,
@@ -39,6 +40,16 @@ function oneBasedCycleChecksum(iterations: number, width: number): number {
   const remainder = iterations % width;
   return completeCycles * ((width * (width + 1)) / 2) +
     ((remainder * (remainder + 1)) / 2);
+}
+
+function managedClassChecksum(iterations: number): number {
+  let value = 7;
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    value = ((value << 5) ^ (value >>> 2) ^ 17) & 1023;
+    checksum += value + 1;
+  }
+  return checksum;
 }
 
 function numberedTextChecksum(
@@ -81,6 +92,16 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: workload.lightObjectIterations,
+  },
+  {
+    name: "managed-class",
+    layer: "language-runtime",
+    hotspot: "managed field access, inheritance, super call, and virtual dispatch",
+    operationUnit: "method dispatch",
+    iterations: workload.managedClassIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: managedClassChecksum(workload.managedClassIterations),
   },
   {
     name: "constructor",

@@ -17,6 +17,7 @@ import type {
  * binding sidecar generated from android.jar, while the Java Activity beside
  * it supplies only Android lifecycle, timing, and log transport. */
 const LIGHT_OBJECT_ITERATIONS = 50000;
+const MANAGED_CLASS_ITERATIONS = 100000;
 const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
 const CALLBACK_PAYLOAD_ITERATIONS = 20000;
@@ -34,12 +35,40 @@ let retainedPayloadCallback: JvmConnection | null = null;
 let callbackCaptureChecksum = 0;
 let retainedCaptureCallback: JvmConnection | null = null;
 
+class ManagedCounterBase {
+  protected value = 7;
+
+  step(): number {
+    this.value = ((this.value << 5) ^ (this.value >>> 2) ^ 17) & 1023;
+    return this.value;
+  }
+}
+
+class ManagedCounter extends ManagedCounterBase {
+  private bonus = 1;
+
+  override step(): number {
+    return super.step() + this.bonus;
+  }
+}
+
 export function runLightObjects(): number {
   let checksum = 0;
   let index = 0;
   while (index < LIGHT_OBJECT_ITERATIONS) {
     const rectangle = new Rect(0, 0, 1, 1);
     checksum += rectangle.width();
+    index += 1;
+  }
+  return checksum;
+}
+
+export function runManagedClasses(): number {
+  const counter: ManagedCounterBase = new ManagedCounter();
+  let checksum = 0;
+  let index = 0;
+  while (index < MANAGED_CLASS_ITERATIONS) {
+    checksum += counter.step();
     index += 1;
   }
   return checksum;

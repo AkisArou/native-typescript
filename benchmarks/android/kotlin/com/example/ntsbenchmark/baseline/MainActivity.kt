@@ -18,6 +18,7 @@ import android.widget.TextView
 private const val WARMUP_SAMPLES = 3
 private const val MEASURED_SAMPLES = 7
 private const val LIGHT_OBJECT_ITERATIONS = 50000
+private const val MANAGED_CLASS_ITERATIONS = 100000
 private const val CONSTRUCTOR_ITERATIONS = 2000
 private const val SETTER_ITERATIONS = 50000
 private const val CALLBACK_ITERATIONS = 50000
@@ -34,6 +35,23 @@ private const val SCREEN_BUILD_ROWS = 32
 private const val TREE_CHILDREN = 128
 
 private const val TAG = "nts-benchmark"
+
+private open class ManagedCounterBase {
+    protected var value = 7
+
+    open fun step(): Int {
+        value = ((value shl 5) xor (value ushr 2) xor 17) and 1023
+        return value
+    }
+}
+
+private class ManagedCounter : ManagedCounterBase() {
+    private val bonus = 1
+
+    override fun step(): Int {
+        return super.step() + bonus
+    }
+}
 
 class MainActivity : Activity() {
     private var callbackCount = 0
@@ -71,6 +89,26 @@ class MainActivity : Activity() {
                     "light-object",
                     sample,
                     LIGHT_OBJECT_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("managed-class".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runManagedClasses()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runManagedClasses()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "managed-class",
+                    sample,
+                    MANAGED_CLASS_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -396,6 +434,17 @@ class MainActivity : Activity() {
         while (index < LIGHT_OBJECT_ITERATIONS) {
             val rectangle = Rect(0, 0, 1, 1)
             checksum += rectangle.width()
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runManagedClasses(): Int {
+        val counter: ManagedCounterBase = ManagedCounter()
+        var checksum = 0
+        var index = 0
+        while (index < MANAGED_CLASS_ITERATIONS) {
+            checksum += counter.step()
             index += 1
         }
         return checksum

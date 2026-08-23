@@ -24,6 +24,7 @@ import { applicationStart } from "@native-typescript/jvm-application";
 const WARMUP_SAMPLES = 3;
 const MEASURED_SAMPLES = 7;
 const LIGHT_OBJECT_ITERATIONS = 50000;
+const MANAGED_CLASS_ITERATIONS = 100000;
 const CONSTRUCTOR_ITERATIONS = 2000;
 const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
@@ -45,6 +46,23 @@ const listeners: ClickBridge[] = [];
 
 applicationStart();
 
+class ManagedCounterBase {
+  protected value = 7;
+
+  step(): number {
+    this.value = ((this.value << 5) ^ (this.value >>> 2) ^ 17) & 1023;
+    return this.value;
+  }
+}
+
+class ManagedCounter extends ManagedCounterBase {
+  private bonus = 1;
+
+  override step(): number {
+    return super.step() + this.bonus;
+  }
+}
+
 function runConstructors(activity: Activity): number {
   let checksum = 0;
   let index = 0;
@@ -63,6 +81,17 @@ function runLightObjects(): number {
   while (index < LIGHT_OBJECT_ITERATIONS) {
     const rectangle = new Rect(0, 0, 1, 1);
     checksum += rectangle.width();
+    index += 1;
+  }
+  return checksum;
+}
+
+function runManagedClasses(): number {
+  const counter: ManagedCounterBase = new ManagedCounter();
+  let checksum = 0;
+  let index = 0;
+  while (index < MANAGED_CLASS_ITERATIONS) {
+    checksum += counter.step();
     index += 1;
   }
   return checksum;
@@ -235,6 +264,28 @@ export default class MainActivity extends Activity {
           "light-object",
           sample,
           LIGHT_OBJECT_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "managed-class") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runManagedClasses();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runManagedClasses();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "managed-class",
+          sample,
+          MANAGED_CLASS_ITERATIONS,
           elapsed,
           checksum,
         );

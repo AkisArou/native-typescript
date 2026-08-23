@@ -76,6 +76,7 @@ const FULL_APPLICATION_IMPLEMENTATIONS = [
 ] as const;
 const DIRECT_JVM_SCENARIOS = [
   "light-object",
+  "managed-class",
   "setter",
   "callback",
   "callback-payload",
@@ -761,6 +762,7 @@ async function buildDirectJvmApk(input: {
     backend: "c",
     externalFunctionRoots: [
       "runLightObjects",
+      "runManagedClasses",
       "runSetters",
       "prepareCallbacks",
       "runCallbacks",
@@ -796,6 +798,10 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runLightObjects",
         methodName: "runLightObjects",
+      },
+      {
+        functionName: "runManagedClasses",
+        methodName: "runManagedClasses",
       },
       {
         functionName: "runSetters",
@@ -905,6 +911,18 @@ async function buildDirectJvmApk(input: {
       );
     }
   }
+  if (!/invokevirtual .*\.m_[0-9a-f]+:\(\)D/u.test(bytecode)) {
+    throw new Error(
+      "Direct-JVM managed class kernel did not use ART virtual dispatch:\n" +
+        bytecode,
+    );
+  }
+  if (!/putfield .*\.d_[0-9a-f]+:I/u.test(bytecode)) {
+    throw new Error(
+      "Direct-JVM managed class kernel did not use a proved integer field:\n" +
+        bytecode,
+    );
+  }
   if (!bytecode.includes("arraylength")) {
     throw new Error(
       `Direct-JVM bytecode did not consume the byte[] result in ART:\n${bytecode}`,
@@ -913,10 +931,13 @@ async function buildDirectJvmApk(input: {
   if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
     throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
   }
-  if (/invokestatic\s+#[0-9]+\s+\/\/ Method ntsTo(?:Int32|Bool):/u.test(bytecode)) {
+  const numericCoercionCalls = bytecode.match(
+    /invokestatic\s+#[0-9]+\s+\/\/ Method ntsTo(?:Int32|Bool):/gu,
+  ) ?? [];
+  if (numericCoercionCalls.length !== 0) {
     throw new Error(
       "Direct-JVM benchmark bytecode retained a numeric coercion helper " +
-      `inside a proved integer kernel:\n${bytecode}`,
+        `inside a proved integer kernel:\n${bytecode}`,
     );
   }
   if (
@@ -974,6 +995,7 @@ async function buildDirectJvmApk(input: {
   );
   const generatedInvocations = [
     "NativeTypeScriptKernel.runLightObjects:()D",
+    "NativeTypeScriptKernel.runManagedClasses:()D",
     "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
     "NativeTypeScriptKernel.prepareCallbacks:(Landroid/app/Activity;)Landroid/widget/Button;",
     "NativeTypeScriptKernel.runCallbacks:(Landroid/widget/Button;)D",
@@ -1225,6 +1247,7 @@ function verifyWorkloadAgreement(): void {
     WARMUP_SAMPLES: androidBenchmarkWorkload.warmupSamples,
     MEASURED_SAMPLES: androidBenchmarkWorkload.measuredSamples,
     LIGHT_OBJECT_ITERATIONS: androidBenchmarkWorkload.lightObjectIterations,
+    MANAGED_CLASS_ITERATIONS: androidBenchmarkWorkload.managedClassIterations,
     CONSTRUCTOR_ITERATIONS: androidBenchmarkWorkload.constructorIterations,
     SETTER_ITERATIONS: androidBenchmarkWorkload.setterIterations,
     CALLBACK_ITERATIONS: androidBenchmarkWorkload.callbackIterations,
@@ -1257,6 +1280,7 @@ function verifyWorkloadAgreement(): void {
     }
     if (
       name === "LIGHT_OBJECT_ITERATIONS" ||
+      name === "MANAGED_CLASS_ITERATIONS" ||
       name === "SETTER_ITERATIONS" ||
       name === "CALLBACK_ITERATIONS" ||
       name === "CALLBACK_PAYLOAD_ITERATIONS" ||

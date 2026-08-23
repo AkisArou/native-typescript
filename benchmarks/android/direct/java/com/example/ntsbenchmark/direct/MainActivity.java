@@ -17,6 +17,7 @@ public final class MainActivity extends Activity {
     private static final int WARMUP_SAMPLES = 3;
     private static final int MEASURED_SAMPLES = 7;
     private static final int LIGHT_OBJECT_ITERATIONS = 50000;
+    private static final int MANAGED_CLASS_ITERATIONS = 100000;
     private static final int SETTER_ITERATIONS = 50000;
     private static final int CALLBACK_ITERATIONS = 50000;
     private static final int CALLBACK_PAYLOAD_ITERATIONS = 20000;
@@ -37,6 +38,7 @@ public final class MainActivity extends Activity {
             : getIntent().getStringExtra("scenario");
         if (
             !"light-object".equals(scenario) &&
+            !"managed-class".equals(scenario) &&
             !"setter".equals(scenario) &&
             !"callback".equals(scenario) &&
             !"callback-payload".equals(scenario) &&
@@ -47,7 +49,7 @@ public final class MainActivity extends Activity {
             !"handle-result".equals(scenario)
         ) {
             throw new IllegalArgumentException(
-                "direct JVM benchmark supports only light-object, setter, " +
+                "direct JVM benchmark supports only light-object, managed-class, setter, " +
                     "callback, callback-payload, callback-capture, string-argument, string-result, " +
                     "byte-array, and handle-result"
             );
@@ -65,6 +67,22 @@ public final class MainActivity extends Activity {
                     "light-object",
                     sample,
                     LIGHT_OBJECT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else if ("managed-class".equals(scenario)) {
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runManagedClasses();
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runManagedClasses();
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "managed-class",
+                    sample,
+                    MANAGED_CLASS_ITERATIONS,
                     elapsed,
                     (int) rawChecksum
                 );

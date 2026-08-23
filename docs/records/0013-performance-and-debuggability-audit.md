@@ -127,12 +127,14 @@ foreign string representation.
 The later direct-JVM experiment tests the boundary itself rather than another
 JNI mechanic. Its first checked `TextUtils.equals` call is recorded in
 [record 0023](0023-direct-jvm-android-call.md). The experiment has since grown
-to nine independently checked kernels covering objects, stable receivers,
-strings, byte arrays, nullable handles, and same-thread callbacks. Captured
+to ten independently checked kernels covering objects, managed classes,
+stable receivers, strings, byte arrays, nullable handles, and same-thread callbacks. Captured
 callback state now remains in generated Java fields or typed mutable holders,
 and the listener calls the reached TypeScript body without JNI or a generic
 handler interface; its latest measurement is in
-[record 0031](0031-direct-jvm-callback-captures.md). It remains a kernel APK,
+[record 0031](0031-direct-jvm-callback-captures.md). Managed fields,
+inheritance, `super`, and virtual dispatch now stay in ART too; their matched
+measurement is in [record 0032](0032-direct-jvm-managed-classes.md). It remains a kernel APK,
 not yet evidence for replacing the native backend wholesale or for a complete
 Android application product.
 
@@ -259,8 +261,8 @@ This list records the audit's original dependency argument. The maintainer
 subsequently deferred debugger work and admitted performance slices by their
 own disagreeing observers and device measurements. The peer, exact and nullable
 frame-bounded results, scoped JVM environment, frame-bounded callback payloads,
-frame-local strings, and the first nine direct-JVM kernels are now implemented;
-records 0014 through 0031 supersede the forecast where measurements refined it.
+frame-local strings, and the first ten direct-JVM kernels are now implemented;
+records 0014 through 0032 supersede the forecast where measurements refined it.
 
 1. **Finish the native peer now.** Its design is settled, its disagreeing
    observer is already red for the intended reason, and no implementation edit

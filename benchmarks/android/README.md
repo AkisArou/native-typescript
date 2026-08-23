@@ -12,9 +12,9 @@ applications:
   or cross-platform widget tree in the measured workload.
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
-That APK measures `light-object`, `setter`, `callback`, `callback-payload`,
+That APK measures `light-object`, `managed-class`, `setter`, `callback`, `callback-payload`,
 `callback-capture`, `string-argument`, `string-result`, `byte-array`, and
-`handle-result`: all nine hot loops come from checked TypeScript and execute
+`handle-result`: all ten hot loops come from checked TypeScript and execute
 as ART bytecode,
 while a small Java Activity supplies lifecycle, timing, logging, its own
 concrete receiver for `setter`, the click sources, the distinct runtime string
@@ -49,7 +49,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-nine scenarios it implements.
+ten scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -61,7 +61,7 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries every constant used by its nine scenarios. The
+kernel also carries every constant used by its ten scenarios. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -82,6 +82,7 @@ JavaScript array that would change the operation.
 | --- | --- | --- |
 | Android | `view-tree` | Build and attach 128 `TextView` children; also supplies the process-launch screen |
 | Boundary | `light-object` | Construct 50,000 `Rect`s, immediately call `width()`, and let each non-escaping result die |
+| Language | `managed-class` | Make 100,000 virtual calls through a base-typed object; each override calls `super`, advances a stateful integer recurrence in a field, and reads a derived field |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |
@@ -201,7 +202,11 @@ without leaving ART; the matched payload result is in
 Captured values now live in exact Java fields or typed mutable holders owned
 by that registration; the aliasing proof and matched measurement are in
 [record 0031](../../docs/records/0031-direct-jvm-callback-captures.md). These
-are call-path results, not yet launch, memory, lifecycle, or
+are joined by ordinary managed TypeScript classes whose fields, inheritance,
+`super`, and virtual calls stay in ART; the disagreeing recurrence and matched
+2.17 ns device median are in
+[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md). These are
+call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend.
 
 The original two-way observation is preserved in
@@ -246,6 +251,8 @@ Direct callback object payloads are recorded in
 [record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
 Direct callback captures are recorded in
 [record 0031](../../docs/records/0031-direct-jvm-callback-captures.md).
+Direct managed classes are recorded in
+[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md).
 
 ## Research references
 

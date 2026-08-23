@@ -20,6 +20,10 @@ import { discoverJavaHome } from "@native-typescript/target-jvm";
 const workspace = join(import.meta.dirname, "..");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const fixture = join(scriptcRoot, "tests/corpus/001-hello.ts");
+const classFixture = join(
+  scriptcRoot,
+  "tests/corpus/111-jvm-class-fields.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -120,6 +124,92 @@ test(
       assert.doesNotMatch(bytecode, /JNI/u);
     } finally {
       rmSync(built.root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "managed class fields, inheritance, and virtual dispatch stay inside ART",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const planners = await loadScriptCExecutablePlanners();
+    const emitter = await loadScriptCJvmEmitter();
+    const planned = planners.planExecutableCompilation(classFixture, {
+      backend: "c",
+      externalFunctionRoots: ["classFields", "integerFieldBitwise"],
+    });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "ClassFields";
+    const className = `${packageName}.${simpleName}`;
+    const source = emitter.emitJvmSerializedModule(planned.plan.ir, {
+      packageName,
+      className: simpleName,
+      functionExports: [{
+        functionName: "classFields",
+        methodName: "classFields",
+      }, {
+        functionName: "integerFieldBitwise",
+        methodName: "integerFieldBitwise",
+      }],
+    });
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-class-fields-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "ClassFieldsHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class ClassFieldsHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.classFields());\n` +
+          `    System.out.println(${simpleName}.integerFieldBitwise());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.ClassFieldsHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "42.0\n240.0\n");
+
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", className],
+        { encoding: "utf8" },
+      );
+      assert.match(bytecode, /invokevirtual .*\.m_[0-9a-f]+:\(D\)D/u);
+      assert.match(bytecode, /putfield .*\.d_[0-9a-f]+:I/u);
+      assert.doesNotMatch(
+        bytecode,
+        /invokestatic\s+#[0-9]+\s+\/\/ Method ntsToInt32:/u,
+      );
+      assert.doesNotMatch(bytecode, / native /u);
+      assert.doesNotMatch(bytecode, /JNI/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   },
 );
