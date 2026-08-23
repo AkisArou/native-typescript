@@ -175,7 +175,10 @@ binding. Its first static-call proof is recorded in
 representation, exact bytecode evidence, and matched device result are in
 [record 0024](../../docs/records/0024-direct-jvm-object-calls.md); the
 host-supplied receiver and stable-setter result are in
-[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md). These
+[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md). Proved
+signed-integer locals now remove the remaining `ToInt32` and truthiness calls
+from the setter and string loops; their bytecode and matched parity result are
+in [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md). These
 are call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend.
 
@@ -208,6 +211,9 @@ recorded in [record 0024](../../docs/records/0024-direct-jvm-object-calls.md).
 Direct-JVM host-supplied objects, checked handle upcasts, and the stable setter
 measurement are recorded in
 [record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md).
+Proved JVM integer locals and the first Kotlin-parity direct setter result are
+recorded in
+[record 0026](../../docs/records/0026-proved-jvm-integer-locals.md).
 
 ## Research references
 

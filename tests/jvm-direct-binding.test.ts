@@ -156,6 +156,39 @@ test(
           "export function suppliedDepth(widget: Widget): number {\n" +
           "  return widget.depth();\n" +
           "}\n" +
+          "const LOOP_LIMIT = 50000;\n" +
+          "export function integerLoop(): number {\n" +
+          "  let index = 0;\n" +
+          "  let checksum = 0;\n" +
+          "  while (index < LOOP_LIMIT) {\n" +
+          "    checksum = checksum + (index & 1);\n" +
+          "    index = index + 1;\n" +
+          "  }\n" +
+          "  return checksum;\n" +
+          "}\n" +
+          "export function integerLoopAcrossNative(widget: Widget): number {\n" +
+          "  let index = 0;\n" +
+          "  let checksum = 0;\n" +
+          "  while (index < LOOP_LIMIT) {\n" +
+          "    checksum = checksum + (widget.depth() & 1);\n" +
+          "    index = index + 1;\n" +
+          "  }\n" +
+          "  return checksum;\n" +
+          "}\n" +
+          "export function overflowingNumber(): number {\n" +
+          "  let value = 2147483647;\n" +
+          "  value = value + 1;\n" +
+          "  return value;\n" +
+          "}\n" +
+          "export function fractionalNumber(): number {\n" +
+          "  let value = 0.5;\n" +
+          "  value = value + 1;\n" +
+          "  return value;\n" +
+          "}\n" +
+          "export function negativeZeroNumber(): number {\n" +
+          "  let value = -0;\n" +
+          "  return 1 / value;\n" +
+          "}\n" +
           "stringLength();\n" +
           "objectDepth();\n",
       );
@@ -163,7 +196,14 @@ test(
       const planners = await loadScriptCExecutablePlanners();
       const planned = planners.planExecutableCompilation(source, {
         backend: "c",
-        externalFunctionRoots: ["suppliedDepth"],
+        externalFunctionRoots: [
+          "suppliedDepth",
+          "integerLoop",
+          "integerLoopAcrossNative",
+          "overflowingNumber",
+          "fractionalNumber",
+          "negativeZeroNumber",
+        ],
         sourceRoot: root,
         externalTypes: {
           [generated.manifest.package.name]: declarations,
@@ -191,8 +231,24 @@ test(
         }, {
           functionName: "suppliedDepth",
           methodName: "suppliedDepth",
+        }, {
+          functionName: "integerLoop",
+          methodName: "integerLoop",
+        }, {
+          functionName: "integerLoopAcrossNative",
+          methodName: "integerLoopAcrossNative",
+        }, {
+          functionName: "overflowingNumber",
+          methodName: "overflowingNumber",
+        }, {
+          functionName: "fractionalNumber",
+          methodName: "fractionalNumber",
+        }, {
+          functionName: "negativeZeroNumber",
+          methodName: "negativeZeroNumber",
         }],
       });
+      assert.equal(javaSource.match(/\bint l_[0-9a-f]+ = 0;/gu)?.length, 2);
       const javaRoot = join(root, "java/dev/nts/generated");
       const classes = join(root, "classes");
       mkdirSync(javaRoot, { recursive: true });
@@ -208,6 +264,11 @@ test(
           "    System.out.println(DirectBinding.stringLength());\n" +
           "    System.out.println(DirectBinding.objectDepth());\n" +
           "    System.out.println(DirectBinding.suppliedDepth(new fixture.Widget(9)));\n" +
+          "    System.out.println(DirectBinding.integerLoop());\n" +
+          "    System.out.println(DirectBinding.integerLoopAcrossNative(new fixture.Widget(9)));\n" +
+          "    System.out.println(DirectBinding.overflowingNumber());\n" +
+          "    System.out.println(DirectBinding.fractionalNumber());\n" +
+          "    System.out.println(DirectBinding.negativeZeroNumber());\n" +
           "  }\n" +
           "}\n",
       );
@@ -240,7 +301,10 @@ test(
         { encoding: "utf8" },
       );
       assert.equal(run.status, 0);
-      assert.equal(run.stdout, "6.0\n7.0\n9.0\n");
+      assert.equal(
+        run.stdout,
+        "6.0\n7.0\n9.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

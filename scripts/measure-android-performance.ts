@@ -776,6 +776,12 @@ async function buildDirectJvmApk(input: {
   if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
     throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
   }
+  if (/invokestatic\s+#[0-9]+\s+\/\/ Method ntsTo(?:Int32|Bool):/u.test(bytecode)) {
+    throw new Error(
+      "Direct-JVM benchmark bytecode retained a numeric coercion helper " +
+        `inside a proved integer kernel:\n${bytecode}`,
+    );
+  }
   const activityClassName = directJvmBenchmarkApplication.activityBinaryName
     .replaceAll("/", ".");
   const activityBytecode = run(

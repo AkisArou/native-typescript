@@ -174,13 +174,16 @@ such as `sender.setContentWidth(width)` inside a resize handler costs nothing,
 and a provably failing crossing is a diagnostic rather than a call that can
 only throw.
 
-What remains on this side is machine-integer specialization: representing a
-provably-integer value as a machine integer inside compiled code, for the
-shapes where it pays — loop inductions, and guarded add/sub/mul through the
-overflow intrinsics with an f64 fallback. That is a Layer-1 optimization with
-no semantic content: `number` stays f64, byte-exact to Node. It needs a
-benchmark harness before it needs an implementation, because its whole
-justification is a measurement.
+The first machine-integer specialization now exists in the direct JVM tier.
+The shared analysis identifies locals whose every reachable write is a whole,
+non-NaN signed int32 and cannot produce observable `-0`; Java emits those
+locals and their proved add/sub/mul and bitwise expressions as `int`, while
+overflow and every unproved value stay `double`. The unchanged Android setter
+kernel moved from 4.40x Kotlin to 0.94x in its matched run. C/LLVM machine
+storage, wider profitable shapes, and guarded overflow/f64 fallback remain
+future work, admitted only by a workload that reaches them. The first JVM
+slice and its bytecode/device evidence are in
+[record 0026](records/0026-proved-jvm-integer-locals.md).
 
 *The exact family that remains.* [Language profile](language-profile.md)
 specifies a whole numeric contract for it, and all of it is implemented except

@@ -112,25 +112,29 @@ The latest matched five-round run measured:
 
 | Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| lightweight `Rect` construction and `width()` | **26.46 ns/op** | 22.32 ns/op | 157.61 ns/op | 3,324.89 ns/op | **1.19x** | **0.17x** |
-| stable `TextView.setTextSize` receiver | **59.00 ns/call** | 13.41 ns/call | 75.04 ns/call | 235.98 ns/call | **4.40x** | **0.79x** |
-| ASCII/Unicode string arguments | **61.36 ns/comparison** | 33.15 ns/comparison | 452.23 ns/comparison | 1,030.85 ns/comparison | **1.85x** | **0.14x** |
+| lightweight `Rect` construction and `width()` | **1.25 ns/op** | 24.03 ns/op | 164.70 ns/op | 3,821.59 ns/op | **0.05x** | **0.008x** |
+| stable `TextView.setTextSize` receiver | **14.30 ns/call** | 15.26 ns/call | 76.52 ns/call | 291.36 ns/call | **0.94x** | **0.19x** |
+| ASCII/Unicode string arguments | **38.89 ns/comparison** | 36.51 ns/comparison | 659.73 ns/comparison | 1,557.24 ns/comparison | **1.07x** | **0.06x** |
 
-The lightweight-object path is 5.96x faster than current Native TypeScript/JNI
-and within 1.19x of Kotlin without a global JNI reference, managed handle cell,
-or JNI crossing. A platform-created `Activity` can now enter a generated
-TypeScript function as its concrete Java reference; constructing one
-`TextView` and repeatedly calling it is 21.4% faster than JNI and 4.0x faster
-than NativeScript. Its remaining 4.40x Kotlin gap includes repeated JavaScript
-`number` coercions visible in the emitted bytecode, making numeric
-specialization the next compiler target. This is still a kernel APK rather
-than a complete Android application backend, so it makes no launch or memory
+The direct JVM tier now reuses ScriptC's flow-sensitive number facts to store
+only proved signed-32-bit locals as Java `int`. Overflow, fractions, NaN,
+infinities, parameters, public returns, and observable `-0` remain `double`.
+The setter bytecode consequently uses `iload`, `iand`, and `iadd` around one
+ordinary `invokevirtual`, with no `ntsToInt32` or truthiness call. Its matched
+median is at Kotlin parity and 20.4x faster than NativeScript; the string loop
+is within 1.07x of Kotlin. The exceptionally small `Rect` result is stable
+across all five process rounds and is consistent with ART scalar-replacing or
+folding the now-integer loop, so it describes this whole kernel rather than an
+irreducible object-allocation latency. This is still a kernel APK rather than
+a complete Android application backend, so it makes no launch or memory
 claim. The first static-call proof is in
 [record 0023](docs/records/0023-direct-jvm-android-call.md); constructor and
 local instance-call evidence is in
 [record 0024](docs/records/0024-direct-jvm-object-calls.md); host-supplied
 receivers and the stable setter measurement are in
-[record 0025](docs/records/0025-direct-jvm-stable-receiver.md).
+[record 0025](docs/records/0025-direct-jvm-stable-receiver.md); proved integer
+storage and the parity measurement are in
+[record 0026](docs/records/0026-proved-jvm-integer-locals.md).
 
 The post-warm-foreground median memory and packaged artifact observations were:
 

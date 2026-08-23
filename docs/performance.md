@@ -402,7 +402,7 @@ need admission evidence:
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
 | ThinLTO/bitcode adapters | measured code-size or call overhead after resource operations are exact |
 | generated call fusion | repeated boundary crossings dominate a real hot region and exception order can be preserved |
-| integer specialization | a numeric workload demonstrates boxed/double representation cost |
+| integer specialization | **first JVM tier landed**: [record 0026](records/0026-proved-jvm-integer-locals.md) removes repeated coercions from proved int32 locals; setter median moved from 4.40x Kotlin to 0.94x in the matched run |
 | `@FastNative` or platform-specific JNI annotations | supported public toolchain contract plus on-device evidence |
 
 `GetEnv` has now been measured behind local/stable selection. Otherwise
