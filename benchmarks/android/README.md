@@ -12,13 +12,13 @@ applications:
   or cross-platform widget tree in the measured workload.
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
-That APK measures `light-object`, `setter`, `callback`, `string-argument`,
-`string-result`, `byte-array`, and `handle-result`: all seven hot loops come
-from checked TypeScript and execute as ART bytecode, while a small Java
-Activity supplies lifecycle, timing, logging, its own concrete receiver for
-`setter`, the click source, the distinct runtime string inputs, and the
-byte-array input. It is not included in application launch or memory
-comparisons until it can express the whole benchmark application.
+That APK measures `light-object`, `setter`, `callback`, `callback-payload`,
+`string-argument`, `string-result`, `byte-array`, and `handle-result`: all
+eight hot loops come from checked TypeScript and execute as ART bytecode,
+while a small Java Activity supplies lifecycle, timing, logging, its own
+concrete receiver for `setter`, the click sources, the distinct runtime string
+inputs, and the byte-array input. It is not included in application launch or
+memory comparisons until it can express the whole benchmark application.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -48,7 +48,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-seven scenarios it implements.
+eight scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -60,7 +60,7 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries every constant used by its seven scenarios. The
+kernel also carries every constant used by its eight scenarios. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -191,9 +191,12 @@ callback delivery now also stays in ART: the generated interface shell is
 replaced by a Java listener holding the zero-capture TypeScript handler, while
 an idempotent Java connection preserves cancellation. Its stated-and-verified
 class contract, bytecode proof, and 3.60 ns device median are in
-[record 0029](../../docs/records/0029-direct-jvm-callbacks.md). These are
-call-path results, not yet launch, memory, lifecycle, or complete-application
-results for the direct backend.
+[record 0029](../../docs/records/0029-direct-jvm-callbacks.md). The delivered
+object can now be null-checked and used for another Android call
+without leaving ART; the matched payload result is in
+[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md). These
+are call-path results, not yet launch, memory, lifecycle, or
+complete-application results for the direct backend.
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -233,6 +236,8 @@ Direct-JVM byte-array residency is recorded in
 [record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md).
 Direct same-thread callbacks are recorded in
 [record 0029](../../docs/records/0029-direct-jvm-callbacks.md).
+Direct callback object payloads are recorded in
+[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
 
 ## Research references
 

@@ -78,6 +78,7 @@ const DIRECT_JVM_SCENARIOS = [
   "light-object",
   "setter",
   "callback",
+  "callback-payload",
   "string-argument",
   "string-result",
   "byte-array",
@@ -755,6 +756,8 @@ async function buildDirectJvmApk(input: {
       "runSetters",
       "prepareCallbacks",
       "runCallbacks",
+      "prepareCallbackPayload",
+      "runCallbackPayload",
       "runStringArguments",
       "runStringResults",
       "runByteArrays",
@@ -795,6 +798,14 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runCallbacks",
         methodName: "runCallbacks",
+      },
+      {
+        functionName: "prepareCallbackPayload",
+        methodName: "prepareCallbackPayload",
+      },
+      {
+        functionName: "runCallbackPayload",
+        methodName: "runCallbackPayload",
       },
       {
         functionName: "runStringArguments",
@@ -889,6 +900,15 @@ async function buildDirectJvmApk(input: {
       `inside a proved integer kernel:\n${bytecode}`,
     );
   }
+  if (
+    !/private static void [^(]+\(android\.view\.View\);\n    Code:\n(?:(?!\n  (?:private|public|protected)).)*android\/view\/View\.getId:\(\)I/su
+      .test(bytecode)
+  ) {
+    throw new Error(
+      "Direct-JVM callback payload handler did not consume its delivered " +
+        `View directly in ART:\n${bytecode}`,
+    );
+  }
   const callbackAdapterClassName = `${generatedClassName}$NtsCallbackAdapter0`;
   const callbackBytecode = run(
     join(input.javaHome, "bin/javap"),
@@ -923,6 +943,8 @@ async function buildDirectJvmApk(input: {
     "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
     "NativeTypeScriptKernel.prepareCallbacks:(Landroid/app/Activity;)Landroid/widget/Button;",
     "NativeTypeScriptKernel.runCallbacks:(Landroid/widget/Button;)D",
+    "NativeTypeScriptKernel.prepareCallbackPayload:(Landroid/app/Activity;)Landroid/widget/Button;",
+    "NativeTypeScriptKernel.runCallbackPayload:(Landroid/widget/Button;)D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
     "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
@@ -1199,6 +1221,7 @@ function verifyWorkloadAgreement(): void {
       name === "LIGHT_OBJECT_ITERATIONS" ||
       name === "SETTER_ITERATIONS" ||
       name === "CALLBACK_ITERATIONS" ||
+      name === "CALLBACK_PAYLOAD_ITERATIONS" ||
       name === "STRING_ARGUMENT_ITERATIONS" ||
       name === "STRING_RESULT_ITERATIONS" ||
       name === "BYTE_ARRAY_ITERATIONS" ||

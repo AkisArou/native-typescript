@@ -19,6 +19,7 @@ import type {
 const LIGHT_OBJECT_ITERATIONS = 50000;
 const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
+const CALLBACK_PAYLOAD_ITERATIONS = 20000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
 const BYTE_ARRAY_ITERATIONS = 2000;
@@ -27,6 +28,8 @@ const HANDLE_RESULT_CHILDREN = 16;
 
 let callbackCount = 0;
 let retainedCallback: JvmConnection | null = null;
+let callbackPayloadChecksum = 0;
+let retainedPayloadCallback: JvmConnection | null = null;
 
 export function runLightObjects(): number {
   let checksum = 0;
@@ -74,6 +77,30 @@ export function runCallbacks(button: Button): number {
     index += 1;
   }
   return callbackCount;
+}
+
+/** The delivered View stays an ordinary Java reference. Calling getId here
+ * proves the payload is usable by TypeScript rather than merely forwarded to
+ * an otherwise-empty handler. */
+export function prepareCallbackPayload(activity: Activity): Button {
+  const button = new Button(activity);
+  const clicks = new ClickBridge();
+  retainedPayloadCallback = clicks.onClick((view) => {
+    if (view !== null) callbackPayloadChecksum += view.getId();
+  });
+  button.setOnClickListener(clicks);
+  return button;
+}
+
+export function runCallbackPayload(button: Button): number {
+  if (retainedPayloadCallback === null) return -1;
+  callbackPayloadChecksum = 0;
+  let index = 0;
+  while (index < CALLBACK_PAYLOAD_ITERATIONS) {
+    button.callOnClick();
+    index += 1;
+  }
+  return callbackPayloadChecksum;
 }
 
 export function runStringArguments(

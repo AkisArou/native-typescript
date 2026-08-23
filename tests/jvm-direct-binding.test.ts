@@ -483,7 +483,10 @@ test(
           bytes: readFileSync(join(supportClasses, "fixture/CallbackHost.class")),
         }],
         {
-          classes: [{ binaryName: "fixture/Widget" }, {
+          classes: [{
+            binaryName: "fixture/Widget",
+            methods: [{ name: "depth", descriptor: "()I" }],
+          }, {
             binaryName: "fixture/Clickable",
           }, {
             binaryName: "fixture/Button",
@@ -553,6 +556,7 @@ test(
       });
       const localIds = [
         "fixture.object.release",
+        "fixture.fixture.widget.depth",
         "fixture.fixture.button.constructor",
         "fixture.fixture.clickbridge.constructor",
         "fixture.fixture.clickbridge.onclick",
@@ -576,7 +580,7 @@ test(
           "  delivered = 0;\n" +
           '  const button = new Button("direct");\n' +
           "  const clicks = new ClickBridge();\n" +
-          "  retained = clicks.onClick((_source) => { delivered += 1; });\n" +
+          "  retained = clicks.onClick((source) => { if (source !== null) delivered += source.depth() + 1; });\n" +
           "  CallbackHost.deliver(clicks, button);\n" +
           "  CallbackHost.deliver(clicks, button);\n" +
           "  return delivered;\n" +
@@ -639,6 +643,7 @@ test(
         { encoding: "utf8" },
       );
       assert.match(bytecode, /fixture\/CallbackHost\.deliver:\(Lfixture\/Clickable;Lfixture\/Button;\)V/u);
+      assert.match(bytecode, /fixture\/Button\.depth:\(\)I/u);
       assert.doesNotMatch(bytecode, /nts_jvm_fixture/u);
       assert.doesNotMatch(bytecode, / native /u);
       const callbackBytecode = execFileSync(
