@@ -150,6 +150,10 @@ const NO_NATIVE_FAILURE = Object.freeze({
  * reached native declarations called by TypeScript. Exports pair one SCABI
  * ABI contract with the entry-module function that implements it. */
 export interface ScriptCNativeProgramSelection {
+  /** Source-visible native types supplied by an embedder rather than produced
+   * by a selected call. Their representation and transitive upcast closure
+   * enter Native IR without making an unrelated binding reachable. */
+  readonly types?: readonly string[];
   readonly imports: readonly string[];
   readonly exports: readonly {
     readonly bindingId: string;
@@ -2257,6 +2261,7 @@ export function translateScabiNativeProgram(
     }
     return changed;
   };
+  for (const typeId of selection.types ?? []) reachPeerSlotsOf(typeId);
   let expanded = true;
   while (expanded) {
     expanded = false;
@@ -2320,6 +2325,10 @@ export function translateScabiNativeProgram(
         }
       }
     }
+  }
+
+  for (const typeId of [...new Set(selection.types ?? [])].sort(compareText)) {
+    lowerType(typeId, `/types/${typeId}`);
   }
 
   /* Every binding a destructor position names, plus every one a handle type

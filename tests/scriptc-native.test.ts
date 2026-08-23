@@ -40,6 +40,24 @@ function selectImports(imports: readonly string[]) {
   return { imports, exports: [] } as const;
 }
 
+test("a host-supplied native type enters without making a binding reachable", () => {
+  const translated = translateScabiNativeProgram(manifest, {
+    types: ["counter_middle"],
+    imports: [],
+    exports: [],
+  });
+  assert.equal(translated.ok, true);
+  if (!translated.ok) return;
+  assert.equal(translated.input.bindings.length, 0);
+  assert.deepEqual(
+    translated.input.types.map(({ id }) => id),
+    [
+      "scriptc.fixture.c-v1@0.0.0#type:counter_base",
+      "scriptc.fixture.c-v1@0.0.0#type:counter_middle",
+    ],
+  );
+});
+
 /** The conversions the translator synthesizes for one exact scalar, in the
  * identity order it sorts them into. Arithmetic contributes nothing: it is an
  * operator expression inside a construction. */

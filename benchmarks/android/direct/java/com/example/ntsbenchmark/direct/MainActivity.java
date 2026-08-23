@@ -14,6 +14,7 @@ public final class MainActivity extends Activity {
     private static final int WARMUP_SAMPLES = 3;
     private static final int MEASURED_SAMPLES = 7;
     private static final int LIGHT_OBJECT_ITERATIONS = 50000;
+    private static final int SETTER_ITERATIONS = 50000;
     private static final int STRING_ARGUMENT_ITERATIONS = 20000;
     private static final String TAG = "nts-benchmark";
 
@@ -23,9 +24,13 @@ public final class MainActivity extends Activity {
         String scenario = getIntent() == null
             ? null
             : getIntent().getStringExtra("scenario");
-        if (!"light-object".equals(scenario) && !"string-argument".equals(scenario)) {
+        if (
+            !"light-object".equals(scenario) &&
+            !"setter".equals(scenario) &&
+            !"string-argument".equals(scenario)
+        ) {
             throw new IllegalArgumentException(
-                "direct JVM benchmark supports only light-object and string-argument"
+                "direct JVM benchmark supports only light-object, setter, and string-argument"
             );
         }
 
@@ -41,6 +46,22 @@ public final class MainActivity extends Activity {
                     "light-object",
                     sample,
                     LIGHT_OBJECT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else if ("setter".equals(scenario)) {
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runSetters(this);
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runSetters(this);
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "setter",
+                    sample,
+                    SETTER_ITERATIONS,
                     elapsed,
                     (int) rawChecksum
                 );

@@ -76,6 +76,7 @@ const FULL_APPLICATION_IMPLEMENTATIONS = [
 ] as const;
 const DIRECT_JVM_SCENARIOS = [
   "light-object",
+  "setter",
   "string-argument",
 ] as const satisfies readonly AndroidBenchmarkScenario[];
 
@@ -623,6 +624,18 @@ async function buildDirectJvmApk(input: {
     "width",
     "()I",
   );
+  const textViewConstructorBinding = findDirectBinding(
+    "constructor",
+    "android/widget/TextView",
+    "<init>",
+    "(Landroid/content/Context;)V",
+  );
+  const textViewSetTextSizeBinding = findDirectBinding(
+    "instance-method",
+    "android/widget/TextView",
+    "setTextSize",
+    "(F)V",
+  );
   const equalsBinding = findDirectBinding(
     "static-method",
     "android/text/TextUtils",
@@ -632,6 +645,8 @@ async function buildDirectJvmApk(input: {
   const selectedBindings = [
     rectConstructorBinding,
     rectWidthBinding,
+    textViewConstructorBinding,
+    textViewSetTextSizeBinding,
     equalsBinding,
   ] as const;
   const localBindingIds = selectedBindings.map((binding) => {
@@ -649,6 +664,7 @@ async function buildDirectJvmApk(input: {
   }
   const packageSlug = localBindingIds[0]!.slice(0, packageSlugSeparator);
   const translated = translateScabiNativeProgram(manifest, {
+    types: ["jvm.android.app.activity"],
     imports: [`${packageSlug}.object.release`, ...localBindingIds],
     exports: [],
   });
@@ -664,6 +680,11 @@ async function buildDirectJvmApk(input: {
   const planners = await loadScriptCExecutablePlanners();
   const planned = planners.planExecutableCompilation(directSource, {
     backend: "c",
+    externalFunctionRoots: [
+      "runLightObjects",
+      "runSetters",
+      "runStringArguments",
+    ],
     sourceRoot: directRoot,
     externalTypes: {
       [manifest.package.name]: packageDeclarationsPath,
@@ -687,6 +708,10 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runLightObjects",
         methodName: "runLightObjects",
+      },
+      {
+        functionName: "runSetters",
+        methodName: "runSetters",
       },
       {
         functionName: "runStringArguments",
@@ -735,6 +760,8 @@ async function buildDirectJvmApk(input: {
   const directInstructions = [
     'android/graphics/Rect."<init>":(IIII)V',
     "android/graphics/Rect.width:()I",
+    'android/widget/TextView."<init>":(Landroid/content/Context;)V',
+    "android/widget/TextView.setTextSize:(F)V",
     "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
       "Ljava/lang/CharSequence;)Z",
   ];
@@ -758,6 +785,7 @@ async function buildDirectJvmApk(input: {
   );
   const generatedInvocations = [
     "NativeTypeScriptKernel.runLightObjects:()D",
+    "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
   ];
@@ -1018,6 +1046,7 @@ function verifyWorkloadAgreement(): void {
     }
     if (
       name === "LIGHT_OBJECT_ITERATIONS" ||
+      name === "SETTER_ITERATIONS" ||
       name === "STRING_ARGUMENT_ITERATIONS"
     ) {
       const directValue = sourceConstant(
@@ -1518,7 +1547,7 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 5,
+    schemaVersion: 6,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,

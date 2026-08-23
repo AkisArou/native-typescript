@@ -132,3 +132,8 @@ into the generated JVM entry point or generating more of the Activity itself;
 the former is the smaller falsifier. It should preserve exact class
 coordinates, reject unsupported escaping storage, and join the unchanged
 benchmark before broader class, callback, or lifecycle work is claimed.
+
+[Record 0025](0025-direct-jvm-stable-receiver.md) completes that smaller
+falsifier: a host-supplied `Activity` enters checked TypeScript as a concrete
+Java reference, constructs one `TextView`, and remains on ART for repeated
+instance calls.

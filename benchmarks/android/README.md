@@ -12,11 +12,12 @@ applications:
   or cross-platform widget tree in the measured workload.
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
-That APK measures `light-object` and `string-argument`: both hot loops come
-from checked TypeScript and execute as ART bytecode, while a small Java
-Activity supplies lifecycle, timing, logging, and the distinct runtime string
-inputs. It is not included in application launch or memory comparisons until
-it can express the whole benchmark application.
+That APK measures `light-object`, `setter`, and `string-argument`: all three
+hot loops come from checked TypeScript and execute as ART bytecode, while a
+small Java Activity supplies lifecycle, timing, logging, its own concrete
+receiver for `setter`, and the distinct runtime string inputs. It is not
+included in application launch or memory comparisons until it can express the
+whole benchmark application.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -46,7 +47,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-two scenarios it implements.
+three scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -58,9 +59,9 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries the light-object and string iteration counts. The runner
-compares those constants to `native-project.ts` and refuses to run if they
-drift. That project file also owns a machine-readable scenario catalog. Every
+kernel also carries the light-object, setter, and string iteration counts. The
+runner compares those constants to `native-project.ts` and refuses to run if
+they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
 and expected checksum; the runner derives its execution and summaries from
 that catalog rather than from a second handwritten list.
@@ -163,12 +164,20 @@ measurement are recorded in
 [record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
 The experimental direct-JVM route removes the JNI boundary from the string
 kernel and now keeps `Rect` construction plus immediate instance reuse on ART
-as an ordinary Java reference. Its first static-call proof is recorded in
+as an ordinary Java reference. It also accepts the platform-created Activity
+as a concrete externally supplied Java parameter, uses its checked identity
+upcast to construct a `TextView`, and invokes repeated setters directly on
+that stable receiver. Externally called TypeScript bodies are explicit
+executable roots rather than fake module-initializer calls, and host-supplied
+native types enter the native type closure without selecting an unrelated
+binding. Its first static-call proof is recorded in
 [record 0023](../../docs/records/0023-direct-jvm-android-call.md); the object
 representation, exact bytecode evidence, and matched device result are in
-[record 0024](../../docs/records/0024-direct-jvm-object-calls.md). These are
-call-path results, not yet launch, memory, lifecycle, or complete-application
-results for the direct backend.
+[record 0024](../../docs/records/0024-direct-jvm-object-calls.md); the
+host-supplied receiver and stable-setter result are in
+[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md). These
+are call-path results, not yet launch, memory, lifecycle, or
+complete-application results for the direct backend.
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -196,6 +205,9 @@ The first direct-JVM Android member and its matched four-way result are recorded
 in [record 0023](../../docs/records/0023-direct-jvm-android-call.md).
 Direct-JVM constructor and instance calls over concrete Java references are
 recorded in [record 0024](../../docs/records/0024-direct-jvm-object-calls.md).
+Direct-JVM host-supplied objects, checked handle upcasts, and the stable setter
+measurement are recorded in
+[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md).
 
 ## Research references
 

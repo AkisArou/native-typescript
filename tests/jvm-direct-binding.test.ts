@@ -153,6 +153,9 @@ test(
           "  const widget = new Widget(7);\n" +
           "  return widget.depth();\n" +
           "}\n" +
+          "export function suppliedDepth(widget: Widget): number {\n" +
+          "  return widget.depth();\n" +
+          "}\n" +
           "stringLength();\n" +
           "objectDepth();\n",
       );
@@ -160,6 +163,7 @@ test(
       const planners = await loadScriptCExecutablePlanners();
       const planned = planners.planExecutableCompilation(source, {
         backend: "c",
+        externalFunctionRoots: ["suppliedDepth"],
         sourceRoot: root,
         externalTypes: {
           [generated.manifest.package.name]: declarations,
@@ -184,6 +188,9 @@ test(
         }, {
           functionName: "objectDepth",
           methodName: "objectDepth",
+        }, {
+          functionName: "suppliedDepth",
+          methodName: "suppliedDepth",
         }],
       });
       const javaRoot = join(root, "java/dev/nts/generated");
@@ -200,6 +207,7 @@ test(
           "  public static void main(String[] args) {\n" +
           "    System.out.println(DirectBinding.stringLength());\n" +
           "    System.out.println(DirectBinding.objectDepth());\n" +
+          "    System.out.println(DirectBinding.suppliedDepth(new fixture.Widget(9)));\n" +
           "  }\n" +
           "}\n",
       );
@@ -232,7 +240,7 @@ test(
         { encoding: "utf8" },
       );
       assert.equal(run.status, 0);
-      assert.equal(run.stdout, "6.0\n7.0\n");
+      assert.equal(run.stdout, "6.0\n7.0\n9.0\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -1,10 +1,16 @@
-import { Rect, TextUtils } from "@native-typescript/jvm-android_benchmark";
+import {
+  Rect,
+  TextUtils,
+  TextView,
+} from "@native-typescript/jvm-android_benchmark";
+import type { Activity } from "@native-typescript/jvm-android_benchmark";
 
 /* This is the same boundary kernel as native/app.ts. It remains a checked
  * TypeScript input: the direct JVM backend consumes its ScriptC IR and the
  * binding sidecar generated from android.jar, while the Java Activity beside
  * it supplies only Android lifecycle, timing, and log transport. */
 const LIGHT_OBJECT_ITERATIONS = 50000;
+const SETTER_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 
 export function runLightObjects(): number {
@@ -13,6 +19,18 @@ export function runLightObjects(): number {
   while (index < LIGHT_OBJECT_ITERATIONS) {
     const rectangle = new Rect(0, 0, 1, 1);
     checksum += rectangle.width();
+    index += 1;
+  }
+  return checksum;
+}
+
+export function runSetters(activity: Activity): number {
+  const view = new TextView(activity);
+  let checksum = 0;
+  let index = 0;
+  while (index < SETTER_ITERATIONS) {
+    view.setTextSize(index & 1 ? 12 : 13);
+    checksum += index & 1;
     index += 1;
   }
   return checksum;
@@ -36,13 +54,6 @@ export function runStringArguments(
   return checksum;
 }
 
-/* Executable compilation retains reached functions. Module evaluation pays
- * one unmeasured call; the Activity performs the declared warmups before any
- * sample, so it cannot enter the result. */
-runStringArguments(
-  "settings/profile/42",
-  "settings/profile/42",
-  "Καλημέρα 👩‍💻 e\u0301",
-  "Καλημέρα 👩‍💻 e\u0301",
-);
-runLightObjects();
+/* The Java Activity is the external caller. The executable plan names these
+ * functions as explicit roots, so no fake module-evaluation calls are needed
+ * to keep them alive. */

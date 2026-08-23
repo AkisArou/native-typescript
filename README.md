@@ -105,23 +105,32 @@ is better.
 | dynamic `TextView` counter update | 424.23 ns/update | 213.81 ns/update | 1,075.23 ns/update | 1.98x | 0.39x |
 | nested programmatic screen build | 83,681 ns/row | 89,156 ns/row | 105,156 ns/row | 0.94x | 0.80x |
 
-The experimental direct-JVM backend now joins two unchanged scenarios. Their
+The experimental direct-JVM backend now joins three unchanged scenarios. Their
 checked TypeScript loops execute as ART bytecode and call the exact reached
 Android members directly; bytecode inspection proves there is no native entry.
 The latest matched five-round run measured:
 
 | Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| lightweight `Rect` construction and `width()` | **30.04 ns/op** | 20.18 ns/op | 173.21 ns/op | 3,505.71 ns/op | **1.49x** | **0.17x** |
-| ASCII/Unicode string arguments | **78.22 ns/comparison** | 37.40 ns/comparison | 594.16 ns/comparison | 1,375.93 ns/comparison | **2.09x** | **0.13x** |
+| lightweight `Rect` construction and `width()` | **26.46 ns/op** | 22.32 ns/op | 157.61 ns/op | 3,324.89 ns/op | **1.19x** | **0.17x** |
+| stable `TextView.setTextSize` receiver | **59.00 ns/call** | 13.41 ns/call | 75.04 ns/call | 235.98 ns/call | **4.40x** | **0.79x** |
+| ASCII/Unicode string arguments | **61.36 ns/comparison** | 33.15 ns/comparison | 452.23 ns/comparison | 1,030.85 ns/comparison | **1.85x** | **0.14x** |
 
-The object path is 5.77x faster than current Native TypeScript/JNI and within
-1.49x of Kotlin without a global JNI reference, managed handle cell, or JNI
-crossing. This is still a kernel APK rather than a complete Android application
-backend, so it makes no launch or memory claim. The first static-call proof is
-in [record 0023](docs/records/0023-direct-jvm-android-call.md); constructor,
-instance-call, bytecode, and device evidence are in
-[record 0024](docs/records/0024-direct-jvm-object-calls.md).
+The lightweight-object path is 5.96x faster than current Native TypeScript/JNI
+and within 1.19x of Kotlin without a global JNI reference, managed handle cell,
+or JNI crossing. A platform-created `Activity` can now enter a generated
+TypeScript function as its concrete Java reference; constructing one
+`TextView` and repeatedly calling it is 21.4% faster than JNI and 4.0x faster
+than NativeScript. Its remaining 4.40x Kotlin gap includes repeated JavaScript
+`number` coercions visible in the emitted bytecode, making numeric
+specialization the next compiler target. This is still a kernel APK rather
+than a complete Android application backend, so it makes no launch or memory
+claim. The first static-call proof is in
+[record 0023](docs/records/0023-direct-jvm-android-call.md); constructor and
+local instance-call evidence is in
+[record 0024](docs/records/0024-direct-jvm-object-calls.md); host-supplied
+receivers and the stable setter measurement are in
+[record 0025](docs/records/0025-direct-jvm-stable-receiver.md).
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
