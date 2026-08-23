@@ -437,7 +437,8 @@ export interface AbiResult extends AbiValue {
    * is proven to stay inside the current foreign frame. The package names the
    * entry and exact release; whole-program analysis alone decides whether a
    * call may use them. Absent for values and for packages that expose only a
-   * stable representation. */
+   * stable representation. The release entry must accept a null resource so
+   * failure and a nullable result's absent arm can use the same cleanup edge. */
   readonly frameBounded?: {
     readonly entry: string;
     readonly release: string;

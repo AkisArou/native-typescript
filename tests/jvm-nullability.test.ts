@@ -250,7 +250,7 @@ test("the manifest slot carries the promise, not just the declaration", () => {
   assert.equal(
     unstated.signature.result.frameBounded,
     undefined,
-    "a successful null cannot inhabit the first frame-bounded handle slice",
+    "a Java string is not a native handle resource",
   );
 });
 

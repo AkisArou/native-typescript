@@ -124,15 +124,16 @@ completion rather than being renamed to the stronger first-frame claim.
 
 ## Interpretation
 
-The lightweight-object and constructor scenarios were the first
-resource-domain targets. Native TypeScript now keeps an exact, non-null object
-result frame-bounded when an immutable local is used only by synchronous
-borrowed native calls. The value remains a JNI local reference, receives one
-lexical `DeleteLocalRef`, and never enters a managed handle cell. Any storage,
+The lightweight-object, constructor, and returned-handle scenarios are the
+first resource-domain targets. Native TypeScript now keeps both exact non-null
+results and nullable results guarded by null tests frame-bounded when an
+immutable local is used only by synchronous borrowed native calls. The value
+remains a JNI local reference, receives one lexical `DeleteLocalRef`, and never
+enters a managed handle cell or managed nullable-union box. Any storage,
 capture, suspension, callback ownership, or other unsupported use stays on the
-stable global-reference path. `light-object` exposes the optimized mechanism
-with little platform work around it; `constructor` and `view-tree` say whether
-a real widget application notices.
+stable global-reference path. `light-object` exposes the non-null mechanism;
+`handle-result` exposes its nullable sibling; `constructor` and `view-tree` say
+whether a real widget application notices.
 
 The scalar, string, byte-array, returned-handle, and callback cases prevent one
 resource improvement from being misreported as a general JNI improvement.
@@ -151,6 +152,9 @@ remeasurement are recorded in
 The expanded hotspot matrix, its research basis, and first five-round result
 are recorded in
 [record 0017](../../docs/records/0017-android-hotspot-matrix.md).
+The nullable returned-handle optimization and its unchanged-workload
+remeasurement are recorded in
+[record 0018](../../docs/records/0018-nullable-frame-bounded-results.md).
 
 ## Research references
 

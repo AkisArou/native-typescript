@@ -688,8 +688,11 @@ test("each ownership shape translates through the neutral compiler input", () =>
   const resizedManifest =
     generated.manifest.bindings["fixture.fixture.widget.resized"];
   assert.ok(resizedManifest !== undefined && resizedManifest.kind !== "constant");
-  assert.equal(resizedManifest.signature.result.frameBounded, undefined);
-  assert.equal(resized.result.frameBounded, undefined);
+  assert.ok(resizedManifest.signature.result.frameBounded !== undefined);
+  assert.deepEqual(resized.result.frameBounded, {
+    entry: { symbol: resizedManifest.signature.result.frameBounded!.entry },
+    release: { symbol: resizedManifest.signature.result.frameBounded!.release },
+  });
   const compare = binding("fixture.fixture.widget.comparedepth");
   assert.ok(compare !== undefined);
 

@@ -92,37 +92,40 @@ is better.
 
 | Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128-child view tree | 65,158 ns/child | 35,563 ns/child | 38,312 ns/child | 1.83x | 1.70x |
-| lightweight `Rect` construction and `width()` | 223.32 ns/op | 24.20 ns/op | 3,469.82 ns/op | 9.23x | 0.064x |
-| `TextView` construction and scalar call | 23,627 ns/op | 22,263 ns/op | 29,137 ns/op | 1.06x | 0.81x |
-| repeated `TextView.setTextSize` | 86.90 ns/op | 13.67 ns/op | 225.66 ns/op | 6.36x | 0.39x |
-| payload-free synchronous callback | 303.10 ns/delivery | 1.91 ns/delivery | 1,500.75 ns/delivery | 158.92x | 0.20x |
-| ASCII/Unicode string arguments | 497.21 ns/comparison | 29.77 ns/comparison | 1,027.01 ns/comparison | 16.70x | 0.48x |
-| fresh Java string result | 516.17 ns/result | 182.14 ns/result | 496.26 ns/result | 2.83x | 1.04x |
-| 256-byte array encoding round trip | 1,423.68 ns/encoding | 753.10 ns/encoding | 6,585.08 ns/encoding | 1.89x | 0.22x |
-| nullable object result plus receiver call | 366.31 ns/lookup | 2.82 ns/lookup | 509.41 ns/lookup | 129.78x | 0.72x |
-| callback payload plus receiver call | 378.83 ns/delivery | 3.19 ns/delivery | 1,713.54 ns/delivery | 118.59x | 0.22x |
-| dynamic `TextView` counter update | 457.82 ns/update | 297.50 ns/update | 1,108.54 ns/update | 1.54x | 0.41x |
-| nested programmatic screen build | 91,002 ns/row | 97,839 ns/row | 118,677 ns/row | 0.93x | 0.77x |
+| 128-child view tree | 33,533 ns/child | 77,597 ns/child | 36,117 ns/child | 0.43x | 0.93x |
+| lightweight `Rect` construction and `width()` | 221.70 ns/op | 24.86 ns/op | 3,401.58 ns/op | 8.92x | 0.065x |
+| `TextView` construction and scalar call | 24,312 ns/op | 22,745 ns/op | 29,196 ns/op | 1.07x | 0.83x |
+| repeated `TextView.setTextSize` | 84.45 ns/op | 14.98 ns/op | 233.00 ns/op | 5.64x | 0.36x |
+| payload-free synchronous callback | 292.48 ns/delivery | 2.16 ns/delivery | 1,372.04 ns/delivery | 135.25x | 0.21x |
+| ASCII/Unicode string arguments | 511.93 ns/comparison | 28.76 ns/comparison | 1,012.78 ns/comparison | 17.80x | 0.51x |
+| fresh Java string result | 507.95 ns/result | 199.38 ns/result | 516.88 ns/result | 2.55x | 0.98x |
+| 256-byte array encoding round trip | 1,229.41 ns/encoding | 810.55 ns/encoding | 6,891.20 ns/encoding | 1.52x | 0.18x |
+| nullable object result plus receiver call | 211.57 ns/lookup | 2.81 ns/lookup | 524.55 ns/lookup | 75.16x | 0.40x |
+| callback payload plus receiver call | 390.57 ns/delivery | 3.15 ns/delivery | 1,710.65 ns/delivery | 124.14x | 0.23x |
+| dynamic `TextView` counter update | 484.78 ns/update | 259.30 ns/update | 1,078.21 ns/update | 1.87x | 0.45x |
+| nested programmatic screen build | 109,590 ns/row | 95,579 ns/row | 117,218 ns/row | 1.15x | 0.93x |
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 19,046 KiB | 19,218 KiB | 75,343 KiB |
-| Total RSS | 143,316 KiB | 142,216 KiB | 201,712 KiB |
+| Total PSS | 19,632 KiB | 19,366 KiB | 74,016 KiB |
+| Total RSS | 142,940 KiB | 141,936 KiB | 200,116 KiB |
 | APK size | 602,395 bytes | 20,688 bytes | 28,639,616 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are
 recorded observations rather than general platform rankings. The suite now
 separates boundary microcases from Android operations and a composite screen:
-widget construction and the screen build are near Kotlin parity, while
-nullable object results, callbacks, and outbound strings expose distinct
-remaining costs. The first escape-selected JNI resource optimization and its
-before/after evidence remain in
+widget construction and the screen build are near Kotlin parity in the
+repeated cases, while callbacks and outbound strings expose distinct remaining
+costs. Nullable returned objects now stay in the JNI local-reference domain
+when their use does not escape, reducing the targeted median by 42.2%; its
+mechanism and before/after evidence are in
+[record 0018](docs/records/0018-nullable-frame-bounded-results.md). The first
+escape-selected JNI resource optimization and its before/after evidence remain in
 [record 0016](docs/records/0016-frame-bounded-native-results.md). The expanded
-hotspot matrix, exact inputs, source hashes, caveats, and current results are in
+hotspot matrix, exact inputs, source hashes, and caveats are in
 [record 0017](docs/records/0017-android-hotspot-matrix.md). The original
 three-way baseline remains in
 [record 0015](docs/records/0015-first-android-nativescript-baseline.md); the

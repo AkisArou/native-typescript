@@ -1666,17 +1666,15 @@ export function generateJvmScabiPackage(
             passMode: "pointer" as const,
             /* Java references are nullable unless metadata promises
              * otherwise. The adapter checks a non-null promise before the
-             * value crosses, so the manifest may spend that promise too. */
+             * value crosses. Nullability changes the source projection, not
+             * whether the alternate entry can preserve a JNI local: NULL is
+             * simply the nullable frame representation's absent arm. */
             nullable: !statedNonNull(method.result),
             ownership: Object.freeze({ kind: "owned" as const, transfer: "to-runtime" as const }),
-            ...(statedNonNull(method.result)
-              ? {
-                  frameBounded: Object.freeze({
-                    entry: method.frameBoundedSymbol!,
-                    release: options.adapter.release.frameBoundedSymbol,
-                  }),
-                }
-              : {}),
+            frameBounded: Object.freeze({
+              entry: method.frameBoundedSymbol!,
+              release: options.adapter.release.frameBoundedSymbol,
+            }),
           })
         : Object.freeze({
             type: method.result.kind === "void"
