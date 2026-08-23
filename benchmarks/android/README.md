@@ -219,8 +219,11 @@ by that registration; the aliasing proof and matched measurement are in
 [record 0031](../../docs/records/0031-direct-jvm-callback-captures.md). These
 are joined by ordinary managed TypeScript classes whose fields, inheritance,
 `super`, and virtual calls stay in ART; the disagreeing recurrence and matched
-2.17 ns device median are in
-[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md). These are
+2.17 ns first device median are in
+[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md). Proved
+compiler-private and override-family returns now keep an integer JVM
+descriptor; the controlled 36.0% reduction to 1.30 ns per dispatch is in
+[record 0034](../../docs/records/0034-proved-jvm-integer-returns.md). These are
 call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend. Scenario-selective runs
 and the first rejected managed-method candidate are recorded in
@@ -270,6 +273,8 @@ Direct callback captures are recorded in
 [record 0031](../../docs/records/0031-direct-jvm-callback-captures.md).
 Direct managed classes are recorded in
 [record 0032](../../docs/records/0032-direct-jvm-managed-classes.md).
+Proved internal JVM integer returns are recorded in
+[record 0034](../../docs/records/0034-proved-jvm-integer-returns.md).
 
 ## Research references
 

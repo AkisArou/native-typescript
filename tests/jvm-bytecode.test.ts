@@ -200,8 +200,26 @@ test(
         ["-classpath", classes, "-c", "-p", className],
         { encoding: "utf8" },
       );
+      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$`) && entry.endsWith(".class"))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-c",
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
       assert.match(bytecode, /invokevirtual .*\.m_[0-9a-f]+:\(D\)D/u);
       assert.match(bytecode, /putfield .*\.d_[0-9a-f]+:I/u);
+      assert.match(nestedBytecode, /\bint m_[0-9a-f]+\(\);/u);
+      assert.match(nestedBytecode, /\bireturn\b/u);
       assert.doesNotMatch(
         bytecode,
         /invokestatic\s+#[0-9]+\s+\/\/ Method ntsToInt32:/u,

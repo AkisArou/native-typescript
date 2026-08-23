@@ -930,9 +930,10 @@ async function buildDirectJvmApk(input: {
       );
     }
   }
-  if (!/invokevirtual .*\.m_[0-9a-f]+:\(\)D/u.test(bytecode)) {
+  if (!/invokevirtual .*\.m_[0-9a-f]+:\(\)I/u.test(bytecode)) {
     throw new Error(
-      "Direct-JVM managed class kernel did not use ART virtual dispatch:\n" +
+      "Direct-JVM managed class kernel did not use an integer-returning " +
+        "ART virtual dispatch:\n" +
         bytecode,
     );
   }

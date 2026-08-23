@@ -115,7 +115,7 @@ The latest matched five-round run measured:
 | Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | lightweight `Rect` construction and `width()` | **0.62 ns/op** | 0.30 ns/op | 222.71 ns/op | 4,615.52 ns/op | 2.05x | **0.003x** |
-| managed field, inheritance, `super`, and virtual call | **2.17 ns/dispatch** | 1.33 ns/dispatch | 76.38 ns/dispatch | 1.96 ns/dispatch | 1.63x | **0.028x** |
+| managed field, inheritance, `super`, and virtual call | **1.30 ns/dispatch** | 1.20 ns/dispatch | 67.04 ns/dispatch | 1.88 ns/dispatch | 1.08x | **0.019x** |
 | stable `TextView.setTextSize` receiver | **15.67 ns/call** | 18.53 ns/call | 73.74 ns/call | 257.65 ns/call | **0.85x** | 0.212x |
 | same-thread callback | **3.86 ns/delivery** | 21.81 ns/delivery | 212.35 ns/delivery | 1,418.76 ns/delivery | **0.18x** | **0.018x** |
 | callback payload plus receiver call | **4.46 ns/delivery** | 4.12 ns/delivery | 297.20 ns/delivery | 2,195.23 ns/delivery | 1.08x | **0.015x** |
@@ -126,10 +126,12 @@ The latest matched five-round run measured:
 | nullable object result plus receiver call | **2.30 ns/lookup** | 3.90 ns/lookup | 172.27 ns/lookup | 691.53 ns/lookup | **0.59x** | **0.013x** |
 
 The direct JVM tier reuses ScriptC's flow-sensitive number facts to store
-proved signed-32-bit locals, immutable literal globals, and managed instance
-fields as Java `int`.
-Overflow, fractions, NaN, infinities, parameters, public returns, mutable
-globals, and observable `-0` remain `double`.
+proved signed-32-bit locals, immutable literal globals, managed instance
+fields, and compiler-private return values as Java `int`. A virtual method
+descriptor specializes only when its complete override family agrees, while
+public TypeScript `number` returns remain Java `double`.
+Overflow, fractions, NaN, infinities, parameters, mutable globals, and
+observable `-0` remain `double`.
 Ordinary TypeScript classes now become Java classes too: their fields,
 inheritance, `super`, object casts, and virtual calls remain in ART without a
 native handle or managed peer.
@@ -175,6 +177,9 @@ nine-kernel measurement are in
 Managed class representation, integer fields, and the latest ten-kernel
 measurement are in
 [record 0032](docs/records/0032-direct-jvm-managed-classes.md).
+The controlled integer-return descriptor optimization and its 1.30 ns
+managed-class result are in
+[record 0034](docs/records/0034-proved-jvm-integer-returns.md).
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
