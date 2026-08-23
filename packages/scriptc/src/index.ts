@@ -47,6 +47,7 @@ export { locateScriptCCheckout } from "./checkout.ts";
 export type { ScriptCCheckout } from "./checkout.ts";
 export {
   loadScriptCExecutablePlanners,
+  loadScriptCJvmEmitter,
   loadScriptCLibraryPlanners,
   scriptCCompilerDistribution,
   verifyScriptCEmbedderProtocol,
@@ -54,6 +55,7 @@ export {
 export type {
   ScriptCExecutableCompilationResult,
   ScriptCExecutablePlanners,
+  ScriptCJvmEmitter,
   ScriptCLibraryCompilationResult,
   ScriptCLibraryPlanners,
   ScriptCEmbedderProtocol,

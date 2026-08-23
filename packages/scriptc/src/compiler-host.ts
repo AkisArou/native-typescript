@@ -36,6 +36,16 @@ export interface ScriptCExecutablePlanners {
   ) => Promise<ScriptCExternalBuild>;
 }
 
+export interface ScriptCJvmEmitter {
+  readonly emitJvmSerializedModule: (
+    serializedIr: string,
+    options: {
+      readonly className: string;
+      readonly packageName?: string;
+    },
+  ) => string;
+}
+
 /**
  * The compiler contract this workspace was written against.
  *
@@ -146,6 +156,37 @@ export async function loadScriptCExecutablePlanners(): Promise<ScriptCExecutable
     planExecutableCompilation,
     planExecutableExternalCBuild,
   });
+}
+
+/**
+ * Loads the experimental JVM code generator independently of the native
+ * executable planners. Its semantic input is the same versioned IR payload
+ * those planners publish; javac and D8 remain target build mechanics.
+ *
+ * Keeping this loader separate means adding the JVM tier does not widen the
+ * established C/LLVM planner contract or make existing consumers require a
+ * Java-capable compiler distribution.
+ */
+export async function loadScriptCJvmEmitter(): Promise<ScriptCJvmEmitter> {
+  const distribution = scriptCCompilerDistribution();
+  const entry = join(distribution, "index.js");
+  if (!existsSync(entry)) {
+    throw new Error(
+      `The pinned ScriptC compiler is not built at ${distribution}.\n` +
+        "Run: pnpm scriptc:build",
+    );
+  }
+  const module_ = (await import(pathToFileURL(entry).href)) as
+    Partial<ScriptCJvmEmitter> & Record<string, unknown>;
+  handshake(distribution, module_);
+  const { emitJvmSerializedModule } = module_;
+  if (typeof emitJvmSerializedModule !== "function") {
+    throw new Error(
+      `The ScriptC compiler at ${distribution} publishes no JVM emitter.\n` +
+        "Run: pnpm scriptc:build",
+    );
+  }
+  return Object.freeze({ emitJvmSerializedModule });
 }
 
 export type ScriptCLibraryCompilationResult =
