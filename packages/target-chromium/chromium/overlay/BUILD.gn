@@ -1,0 +1,86 @@
+# Copyright 2026
+# Native TypeScript direct-Blink bridge. This file is overlaid into
+# //third_party/blink/renderer/native_typescript by apply-chromium.ts.
+
+# Portable C runtime state used by generated/native Web API calls. Keeping this
+# separate prevents Blink's C++ PCH/configuration from becoming part of the C
+# contract we eventually expect ScriptC-generated output to link against.
+source_set("nts_web_runtime") {
+  sources = [
+    "runtime/nts_handle_table.c",
+    "runtime/nts_handle_table.h",
+    "runtime/nts_web_exception.c",
+  ]
+
+  include_dirs = [ "." ]
+}
+
+source_set("nts_blink_bridge") {
+  sources = [
+    "nts_blink_dom.cc",
+    "nts_blink_events.cc",
+    "nts_blink_event_listener.cc",
+    "nts_blink_event_listener.h",
+    "nts_blink_node_registry.cc",
+    "nts_blink_node_registry.h",
+    "nts_blink_realm.cc",
+    "nts_blink_realm.h",
+    "nts_blink_subscription_registry.cc",
+    "nts_blink_subscription_registry.h",
+  ]
+
+  include_dirs = [ "." ]
+
+  configs += [
+    "//third_party/blink/renderer:config",
+    "//third_party/blink/renderer:non_test_config",
+    "//third_party/blink/renderer:inside_blink",
+    "//third_party/blink/renderer/core:blink_core_pch",
+  ]
+
+  deps = [
+    ":nts_web_runtime",
+    "//base",
+    "//third_party/blink/renderer/core",
+    "//third_party/blink/renderer/platform",
+  ]
+}
+
+# The acceptance application remains plain C. It is the source shape ScriptC's
+# C backend will eventually replace; no C++ rewrite is used for the Chromium
+# harness.
+source_set("nts_counter_example") {
+  sources = [
+    "counter/app.c",
+    "counter/app.h",
+  ]
+
+  include_dirs = [ "." ]
+  deps = [ ":nts_blink_bridge" ]
+}
+
+# Adapter from content's public WebLocalFrame seam into Blink's internal
+# LocalFrame/Document world. Keeping this inside Blink avoids exposing core DOM
+# implementation types to the content embedder.
+source_set("nts_counter_host") {
+  sources = [
+    "nts_blink_counter_host.cc",
+    "nts_blink_counter_host.h",
+  ]
+
+  include_dirs = [ "." ]
+
+  configs += [
+    "//third_party/blink/renderer:config",
+    "//third_party/blink/renderer:non_test_config",
+    "//third_party/blink/renderer:inside_blink",
+    "//third_party/blink/renderer/core:blink_core_pch",
+  ]
+
+  deps = [
+    ":nts_blink_bridge",
+    ":nts_counter_example",
+    "//third_party/blink/public:blink_headers",
+    "//third_party/blink/renderer/core",
+  ]
+}

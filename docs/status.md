@@ -39,7 +39,8 @@ The repository is not yet an application framework or a production compiler.
 | JNI adapters, native subclassing, `super` dispatch, managed peers | implemented on the desktop JDK and Android |
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
-| Terminal, iOS, macOS, Windows, React, partitions, DOM | not started |
+| Terminal, iOS, macOS, Windows, React, partitions | not started |
+| DOM/Chromium | portable feasibility specimen migrated; target not implemented |
 
 ## Compiler and runtime
 
@@ -1248,6 +1249,31 @@ instance fields survive from `onCreate` to `onStart`, a real `super.onCreate`
 runs, and a tap reaches a retained TypeScript handler. Rotation takes the
 saved-state arm and constructs a new peer rather than carrying the old
 Activity's fields across the platform terminal event.
+
+## Chromium feasibility specimen
+
+The direct-Blink research specimen from the temporary `electron-like`
+repository is migrated under `packages/target-chromium`. The default suite
+compiles and executes its generation-checked handle-table test and its plain-C
+counter contract, compiles the create-element/DOMException probe, scans the
+handwritten bridge for forbidden V8/source-evaluation carriers, validates the
+Chromium revision record, and parses every patch in the committed series.
+
+The imported ABI was narrowed to symbols the Blink overlay defines. During
+migration the event and content-shell patch hunk counts were repaired; the
+explicit networked verifier now applies all three patches to the exact pinned
+Chromium sources.
+
+`packages/bindgen-webidl` currently implements only deterministic validation
+and serialization of the Chromium database and TypeScript-library provenance
+pair. It does not yet ingest Chromium's normalized database or emit
+declarations, SCABI, or Blink capsules.
+
+No Chromium GN/Ninja compilation, renderer-hosted ScriptC instance, rendered
+counter, real click delivery, or browser teardown has passed in this
+repository. The imported slot table, UTF-8 ABI, handwritten DOM members,
+callback token, and counter host remain prototype evidence. There is no
+Chromium target/provider definition and no DOM compatibility claim.
 
 ## Building an application
 

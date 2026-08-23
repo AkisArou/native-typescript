@@ -63,6 +63,9 @@ importers:
       '@native-typescript/bindgen-jvm':
         specifier: workspace:*
         version: link:packages/bindgen-jvm
+      '@native-typescript/bindgen-webidl':
+        specifier: workspace:*
+        version: link:packages/bindgen-webidl
       '@native-typescript/cli':
         specifier: workspace:*
         version: link:packages/cli
@@ -78,6 +81,9 @@ importers:
       '@native-typescript/target-api':
         specifier: workspace:*
         version: link:packages/target-api
+      '@native-typescript/target-chromium':
+        specifier: workspace:*
+        version: link:packages/target-chromium
       '@native-typescript/target-gtk':
         specifier: workspace:*
         version: link:packages/target-gtk
@@ -159,6 +165,12 @@ importers:
         specifier: workspace:*
         version: link:../scabi
 
+  packages/bindgen-webidl:
+    dependencies:
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
+
   packages/cli:
     dependencies:
       '@native-typescript/core':
@@ -190,6 +202,8 @@ importers:
         version: link:../scabi
 
   packages/target-api: {}
+
+  packages/target-chromium: {}
 
   packages/target-gtk:
     dependencies:

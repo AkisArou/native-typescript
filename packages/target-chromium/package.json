@@ -1,0 +1,15 @@
+{
+  "name": "@native-typescript/target-chromium",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "apply:prototype": "node scripts/apply-chromium.ts",
+    "build:counter": "node scripts/build-chromium-counter.ts",
+    "check:no-v8": "node scripts/check-no-v8-bridge.ts",
+    "verify:patches": "node scripts/verify-chromium-patches.ts"
+  }
+}

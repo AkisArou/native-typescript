@@ -9,10 +9,12 @@
     { "path": "../packages/bindgen-c" },
     { "path": "../packages/bindgen-gir" },
     { "path": "../packages/bindgen-jvm" },
+    { "path": "../packages/bindgen-webidl" },
     { "path": "../packages/core" },
     { "path": "../packages/scabi" },
     { "path": "../packages/scriptc" },
     { "path": "../packages/target-api" },
+    { "path": "../packages/target-chromium" },
     { "path": "../packages/target-gtk" },
     { "path": "../packages/target-jvm" }
   ]

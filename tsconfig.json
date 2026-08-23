@@ -12,7 +12,13 @@
       "path": "./packages/bindgen-jvm"
     },
     {
+      "path": "./packages/bindgen-webidl"
+    },
+    {
       "path": "./packages/target-api"
+    },
+    {
+      "path": "./packages/target-chromium"
     },
     {
       "path": "./packages/target-gtk"

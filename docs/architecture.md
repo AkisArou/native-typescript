@@ -493,9 +493,21 @@ declared supported. React is not required to validate the base ABI.
 ### DOM and Chromium
 
 Direct Blink access remains an intended research direction, not a committed
-foundation dependency. A feasibility program must first demonstrate execution
-contexts, wrapper identity, lifetime, exceptions, events, promises, and task
-ordering with no application JavaScript. The core architecture must remain
+foundation dependency. The migrated feasibility specimen and the binding
+design are described in [Chromium and direct Blink feasibility](chromium.md).
+
+Chromium composes as a browser application environment over an ordinary OS/ABI
+target; it does not create a new compiler backend or target identity. The
+pinned normalized Blink WebIDL database is authoritative generator input, but
+the generator projects into declarations, SCABI, verified typed capsules, and
+the existing closed Native IR. It does not establish a second compiler-facing
+Web vocabulary. Product object and callback lifetime extends the existing
+ScriptC handle, retained-callback, and owner-executor contracts rather than
+promoting the spike's parallel tables.
+
+The feasibility program must still demonstrate execution contexts, wrapper
+identity, realm invalidation, exceptions, events, promises, and task ordering
+with no application JavaScript or V8 carrier. The core architecture must remain
 useful if this research concludes that direct Blink maintenance is not viable.
 
 ## Performance principles

@@ -1,0 +1,85 @@
+diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/shell/renderer/shell_content_renderer_client.cc
+--- a/content/shell/renderer/shell_content_renderer_client.cc
++++ b/content/shell/renderer/shell_content_renderer_client.cc
+@@ -29,6 +29,7 @@
+ #include "content/public/common/pseudonymization_util.h"
+ #include "content/public/common/web_identity.h"
+ #include "content/public/renderer/render_frame.h"
++#include "content/public/renderer/render_frame_observer.h"
+ #include "content/public/renderer/render_thread.h"
+ #include "content/public/test/test_service.mojom.h"
+ #include "content/shell/common/main_frame_counter_test_impl.h"
+@@ -45,6 +46,7 @@
+ #include "third_party/blink/public/web/web_local_frame.h"
+ #include "third_party/blink/public/web/web_testing_support.h"
+ #include "third_party/blink/public/web/web_view.h"
++#include "third_party/blink/renderer/native_typescript/nts_blink_counter_host.h"
+ #include "v8/include/v8-initialization.h"
+ #include "v8/include/v8.h"
+ 
+@@ -244,6 +246,43 @@ void CreateRendererTestService(
+   new TestRendererServiceImpl(std::move(receiver));
+ }
+ 
++class NativeTypeScriptCounterObserver final : public RenderFrameObserver {
++ public:
++  explicit NativeTypeScriptCounterObserver(RenderFrame* render_frame)
++      : RenderFrameObserver(render_frame) {}
++
++  NativeTypeScriptCounterObserver(const NativeTypeScriptCounterObserver&) =
++      delete;
++  NativeTypeScriptCounterObserver& operator=(
++      const NativeTypeScriptCounterObserver&) = delete;
++
++  void DidCreateNewDocument() override { Reset(); }
++
++  void DidDispatchDOMContentLoadedEvent() override {
++    Reset();
++    RenderFrame* frame = render_frame();
++    if (!frame || !frame->IsMainFrame())
++      return;
++    counter_host_ =
++        nts::blink_bridge::StartCounterHost(frame->GetWebFrame());
++  }
++
++  void OnDestruct() override {
++    Reset();
++    delete this;
++  }
++
++ private:
++  void Reset() {
++    if (!counter_host_)
++      return;
++    nts::blink_bridge::DestroyCounterHost(counter_host_);
++    counter_host_ = nullptr;
++  }
++
++  nts::blink_bridge::BlinkCounterHost* counter_host_ = nullptr;
++};
++
+ }  // namespace
+ 
+ ShellContentRendererClient::ShellContentRendererClient(bool is_browsertest) {
+@@ -342,6 +381,10 @@ void ShellContentRendererClient::RenderFrameCreated(RenderFrame* render_frame) {
+   // browser tests. If we only create that for browser tests then the override
+   // of this method in WebTestContentRendererClient would not be needed.
+   new ShellRenderFrameObserver(render_frame);
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "native-typescript-counter")) {
++    new NativeTypeScriptCounterObserver(render_frame);
++  }
+ }
+ 
+ bool ShellContentRendererClient::OverrideCreatePlugin(
+diff --git a/content/shell/BUILD.gn b/content/shell/BUILD.gn
+--- a/content/shell/BUILD.gn
++++ b/content/shell/BUILD.gn
+@@ -356,6 +356,7 @@ static_library("content_shell_lib") {
+     "//third_party/blink/public:image_resources",
+     "//third_party/blink/public:resources",
+     "//third_party/blink/public/strings",
++    "//third_party/blink/renderer/native_typescript:nts_counter_host",
+     "//third_party/inspector_protocol:crdtp",
+     "//ui/base",
+     "//ui/base/clipboard",

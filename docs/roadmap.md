@@ -1058,6 +1058,11 @@ behavior are correct for the initial surface.
 
 This is an explicit research gate with production-quality fixtures. It does not
 change the core architecture unless a generally reusable primitive is proven.
+The migrated direct-Blink C specimen under `packages/target-chromium` is
+pre-stage evidence: its portable contracts and pinned patch application pass,
+but no Chromium compile or browser behavior is claimed. The detailed,
+SCABI-aligned research design is in [Chromium and direct Blink
+feasibility](chromium.md).
 
 ### Stage A: embedding
 

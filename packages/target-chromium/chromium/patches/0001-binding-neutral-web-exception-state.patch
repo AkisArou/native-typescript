@@ -1,0 +1,181 @@
+diff --git a/third_party/blink/renderer/platform/bindings/web_exception_state.h b/third_party/blink/renderer/platform/bindings/web_exception_state.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/platform/bindings/web_exception_state.h
+@@ -0,0 +1,89 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_STATE_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_STATE_H_
++
++#include <cstdint>
++
++#include "third_party/blink/renderer/platform/bindings/exception_code.h"
++#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++
++namespace blink {
++
++// Binding-neutral representation of a Web-observable exception. This type
++// deliberately contains no v8::Isolate, v8::Value, ScriptState, or exception
++// propagation policy. Binding runtimes translate it into their own exception
++// representation after the DOM operation returns.
++class WebExceptionState final {
++  STACK_ALLOCATED();
++
++ public:
++  enum class Kind : uint8_t {
++    kNone,
++    kDOMException,
++    kSecurityError,
++    kRangeError,
++    kTypeError,
++    kSyntaxError,
++  };
++
++  WebExceptionState() = default;
++  WebExceptionState(const WebExceptionState&) = delete;
++  WebExceptionState& operator=(const WebExceptionState&) = delete;
++
++  void ThrowDOMException(DOMExceptionCode code, const String& message) {
++    if (HadException())
++      return;
++    kind_ = Kind::kDOMException;
++    dom_code_ = code;
++    message_ = message;
++  }
++
++  void ThrowSecurityError(const String& sanitized_message,
++                          const String& unsanitized_message = String()) {
++    if (HadException())
++      return;
++    kind_ = Kind::kSecurityError;
++    dom_code_ = DOMExceptionCode::kSecurityError;
++    message_ = sanitized_message;
++    unsanitized_message_ = unsanitized_message;
++  }
++
++  void ThrowRangeError(const String& message) {
++    SetError(Kind::kRangeError, message);
++  }
++
++  void ThrowTypeError(const String& message) {
++    SetError(Kind::kTypeError, message);
++  }
++
++  void ThrowSyntaxError(const String& message) {
++    SetError(Kind::kSyntaxError, message);
++  }
++
++  bool HadException() const { return kind_ != Kind::kNone; }
++  Kind GetKind() const { return kind_; }
++  DOMExceptionCode DOMCode() const { return dom_code_; }
++  const String& Message() const { return message_; }
++  const String& UnsanitizedMessage() const { return unsanitized_message_; }
++
++ private:
++  void SetError(Kind kind, const String& message) {
++    if (HadException())
++      return;
++    kind_ = kind;
++    message_ = message;
++  }
++
++  Kind kind_ = Kind::kNone;
++  DOMExceptionCode dom_code_ = DOMExceptionCode::kNoError;
++  String message_;
++  String unsanitized_message_;
++};
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_STATE_H_
+diff --git a/third_party/blink/renderer/platform/bindings/web_exception_to_v8.h b/third_party/blink/renderer/platform/bindings/web_exception_to_v8.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/platform/bindings/web_exception_to_v8.h
+@@ -0,0 +1,40 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_TO_V8_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_TO_V8_H_
++
++#include "third_party/blink/renderer/platform/bindings/exception_state.h"
++#include "third_party/blink/renderer/platform/bindings/web_exception_state.h"
++
++namespace blink {
++
++// V8 is one consumer of the binding-neutral result. Native TypeScript uses a
++// separate adapter and never calls this function.
++inline void PropagateWebExceptionToV8(const WebExceptionState& source,
++                                      ExceptionState& target) {
++  switch (source.GetKind()) {
++    case WebExceptionState::Kind::kNone:
++      return;
++    case WebExceptionState::Kind::kDOMException:
++      target.ThrowDOMException(source.DOMCode(), source.Message());
++      return;
++    case WebExceptionState::Kind::kSecurityError:
++      target.ThrowSecurityError(source.Message(), source.UnsanitizedMessage());
++      return;
++    case WebExceptionState::Kind::kRangeError:
++      target.ThrowRangeError(source.Message());
++      return;
++    case WebExceptionState::Kind::kTypeError:
++      target.ThrowTypeError(source.Message());
++      return;
++    case WebExceptionState::Kind::kSyntaxError:
++      target.ThrowSyntaxError(source.Message());
++      return;
++  }
++}
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_WEB_EXCEPTION_TO_V8_H_
+diff --git a/third_party/blink/renderer/core/dom/document.h b/third_party/blink/renderer/core/dom/document.h
+--- a/third_party/blink/renderer/core/dom/document.h
++++ b/third_party/blink/renderer/core/dom/document.h
+@@ -190,5 +190,6 @@
+ class Event;
+ class EventFactoryBase;
+ class EventListener;
+ class ExceptionState;
++class WebExceptionState;
+ class FocusOptions;
+@@ -500,4 +501,6 @@
+   Element* CreateElementForBinding(const AtomicString& local_name,
+                                    ExceptionState& = ASSERT_NO_EXCEPTION);
++  Element* CreateElementForBinding(const AtomicString& local_name,
++                                   WebExceptionState& exception_state);
+   Element* CreateElementForBinding(
+       const AtomicString& local_name,
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -388,5 +388,7 @@
+ #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
++#include "third_party/blink/renderer/platform/bindings/web_exception_state.h"
++#include "third_party/blink/renderer/platform/bindings/web_exception_to_v8.h"
+ #include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
+@@ -1413,4 +1415,13 @@
+ Element* Document::CreateElementForBinding(const AtomicString& name,
+                                            ExceptionState& exception_state) {
++  WebExceptionState web_exception_state;
++  Element* element = CreateElementForBinding(name, web_exception_state);
++  PropagateWebExceptionToV8(web_exception_state, exception_state);
++  return element;
++}
++
++Element* Document::CreateElementForBinding(
++    const AtomicString& name,
++    WebExceptionState& exception_state) {
+   if (!IsValidElementName(name)) {
+     exception_state.ThrowDOMException(

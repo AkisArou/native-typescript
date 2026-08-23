@@ -1,0 +1,6 @@
+{
+  "repository": "https://chromium.googlesource.com/chromium/src",
+  "revision": "96324a4012fe62f48b9463a67486eeb645bc5c78",
+  "observedAt": "2026-08-23",
+  "purpose": "Initial direct-Blink Native TypeScript integration baseline"
+}

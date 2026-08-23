@@ -1,0 +1,290 @@
+# Chromium and direct Blink feasibility
+
+Status: Phase 8 design and migrated feasibility evidence
+
+This document specializes the system rules in [Architecture](architecture.md)
+for the DOM/Chromium research program. The root architecture remains
+authoritative if the documents disagree. Current proof is recorded in
+[Implementation status](status.md), and the acceptance sequence remains in
+[the roadmap](roadmap.md).
+
+## Position in the system
+
+Chromium is a browser application environment and product host over an ordinary
+OS/ABI target. A Linux Chromium build remains a Linux target; macOS and Windows
+builds retain their own target identities. Chromium adds a sandboxed renderer,
+Blink bindings, browser-process capabilities, resources, and product assembly.
+It does not introduce a Chromium object format or a platform-specific compiler
+backend.
+
+The research objective is to host a ScriptC runtime in a Chromium renderer and
+call Blink directly from statically compiled TypeScript:
+
+```text
+ordinary TypeScript + lib.dom.d.ts
+                |
+                v
+       ScriptC frontend/checker
+                |
+     reachability + existing Native IR
+                |
+          C or LLVM lowering
+                |
+                v
+       generated native application
+                |
+          typed extern "C" ABI
+                |
+                v
+ generated Native TypeScript Blink capsules
+                |
+     binding-neutral Blink implementation seams
+                |
+                v
+       real Blink DOM / Web APIs
+```
+
+The Native TypeScript binding path must not use V8 values, V8 DOM wrappers,
+JavaScript functions, source evaluation, dynamic property lookup, or a generic
+command bridge. Stock Chromium may still host ordinary JavaScript realms; that
+is separate from the compiled application's binding path.
+
+Synchronous Web APIs stay renderer-local and synchronous. Browser-process
+authority crosses the existing security boundary only through finite typed
+asynchronous capabilities.
+
+## Semantic authorities
+
+Three inputs have different owners.
+
+### TypeScript standard libraries
+
+`lib.dom.d.ts` and related libraries define what application source can say
+and how the TypeScript checker resolves interfaces, members, overloads, and
+source types. They are source declarations, not the Blink ABI.
+
+### Blink WebIDL
+
+Chromium's normalized `web_idl_database` from the exact pinned revision
+defines Blink inheritance, overloads, dictionaries, unions, callbacks,
+extended attributes, exposure, implementation names, and runtime conditions.
+It is the implementation-semantic input for Chromium binding generation.
+
+The digest of that database and the Chromium commit are mandatory provenance.
+The WebIDL compiler is used from the pinned checkout rather than copied or
+forked here.
+
+### SCABI and Native IR
+
+The WebIDL generator projects the reached supported surface into ordinary
+TypeScript declarations, SCABI, and verified adapter capsules. SCABI may carry
+versioned Blink extensions for facts such as exposure, implementation call
+plans, and execution-context requirements. Extensions cannot override common
+ownership, thread, type, or outcome semantics.
+
+ScriptC consumes declarations and SCABI through its existing binding path.
+Native IR remains closed, target-independent, and compiler-owned. A
+deterministic normalized WebIDL snapshot or coverage report may exist inside
+`bindgen-webidl`, but it is not a parallel compiler-facing “Native Web IR”.
+When Blink exposes a genuinely new semantic category, the owning general
+vocabulary is extended and validated first.
+
+## Binding generator
+
+Native TypeScript is a sibling output of Chromium's existing normalized WebIDL
+pipeline, not an independent raw-IDL compiler:
+
+```text
+Blink *.idl
+    |
+    v
+Chromium web_idl compiler
+    |
+    v
+normalized web_idl_database
+    |
+    +-----------------------------+
+    |                             |
+    v                             v
+Blink bind_gen                 nts_bind_gen
+    |                             |
+    v                             +-- declarations
+V8 bindings                      +-- SCABI + Blink extensions
+                                 +-- typed C declarations
+                                 +-- direct Blink C++ capsules
+                                 +-- coverage/refusal report
+```
+
+The generator computes stable interface, member, overload, callback,
+dictionary, union, and enum identities. It emits precise refusal diagnostics
+for unsupported reached semantics. It never falls back to a dynamic
+`invoke(handle, name, values)` operation.
+
+Whole-program reachability remains ScriptC's responsibility. Reached SCABI
+binding IDs select the generated capsules and their closed dependencies.
+Unreached Web APIs need not enter an application artifact.
+
+## Realm and owner executor
+
+One `NtsWebRealm` binds one ScriptC runtime instance to one Blink
+`ExecutionContext`. The realm is confined to the Chromium sequence that owns
+the context. Only that executor may:
+
+- enter the ScriptC heap;
+- resolve or mutate Blink-backed handles;
+- call thread-affine Blink implementations;
+- deliver callbacks and promise settlements;
+- alter subscriptions or Oilpan roots;
+- invalidate or destroy the realm.
+
+Wrong-sequence synchronous access fails. It is never repaired by silently
+posting an asynchronous task.
+
+Chromium remains the scheduler. ScriptC participates in declared task and
+microtask checkpoints; it does not run a competing browser event loop.
+
+Navigation, frame detachment, or context destruction closes admission,
+cancels registrations and pending async work where permitted, invalidates all
+realm-backed managed handles, releases Oilpan roots on the owner sequence,
+stops the ScriptC instance, and then destroys the realm.
+
+## Object identity and ownership
+
+Blink/Oilpan owns Blink objects. Native TypeScript owns only the strong GC edges
+required by live managed references.
+
+Product work uses ScriptC's existing native-handle cells, aliasing, disposal,
+retained callbacks, and owner-executor contracts. A Blink-side registry backs
+those cells with Oilpan roots and generated type descriptors. It must provide:
+
+- realm affinity and context-wide invalidation;
+- stable identity interning for repeated acquisition;
+- generated exact-type checks and WebIDL upcasts;
+- release of the corresponding Oilpan edge at the final managed release;
+- deterministic teardown on the owner sequence.
+
+The imported prototype's independent slot/generation table is retained only as
+an executable oracle. Its values do not encode a realm, so two realms can issue
+colliding values. That makes it unsuitable as the product managed-handle
+representation.
+
+## Typed ABI and capsules
+
+Generated entry points use statically identified C symbols. A capsule may:
+
+- validate realm and executor state;
+- resolve a typed receiver through the Blink backing registry;
+- perform exact WebIDL conversions and defaults;
+- check exposure and runtime feature state;
+- create binding-neutral exception, realm, callback, or promise adapters;
+- call the exact Blink implementation method;
+- intern returned interfaces;
+- translate success or failure into the compiler-owned boundary algebra.
+
+A capsule may not decide reachability, closure escape, ScriptC heap ownership,
+application partitioning, or generic scheduling semantics.
+
+WebIDL values map through existing native types where their semantics match.
+`DOMString` requires a code-unit-preserving representation, `USVString`
+requires scalar-value normalization, and `ByteString` requires checked byte
+semantics. The prototype's universal UTF-8 view is scaffolding only.
+
+No C++ exception unwinds through C or ScriptC frames. DOMException, TypeError,
+RangeError, SyntaxError, security failure, disabled operation, and internal
+target failure remain distinguishable through the common outcome model.
+
+## Horizontal Blink seams
+
+Scalability depends on a few binding-neutral mechanisms rather than one manual
+Blink overload per member:
+
+- an exception sink that preserves existing V8 behavior and can also record a
+  ScriptC-visible failure without creating V8 values;
+- a binding realm/context abstraction that supplies execution context, owner
+  task runner, realm identity, exception construction, and promise settlement;
+- a binding-neutral async resolver that can settle either a V8 promise or a
+  ScriptC promise directly;
+- Oilpan-aware native callback implementations that enter the realm gateway.
+
+An API that genuinely consumes or produces arbitrary JavaScript values remains
+unsupported until its semantics exist in the native value algebra.
+
+## Events and promises
+
+An event registration connects a reached compiled closure to a typed generated
+callback stub and a native Blink `EventListener`. Delivery occurs on the realm
+sequence and materializes only the reached event payload.
+
+The connection is an owned resource. Removal must match Web listener identity
+and options, unregister the exact Blink listener, and then release the retained
+callback. Realm shutdown cancels every connection before callback storage is
+destroyed. The prototype's one-new-listener-per-registration subscription token
+does not yet prove duplicate-listener or `removeEventListener` semantics.
+
+Blink promises settle ScriptC promises directly through a binding-neutral
+resolver. Compatibility evidence must pin observable ordering between the
+current turn, Blink tasks, callback/promise ingress, ScriptC microtasks,
+subsequent Chromium tasks, and rendering.
+
+## Process and capability boundary
+
+The sandboxed renderer owns Blink, the realm, generated capsules, the ScriptC
+runtime, and compiled application code. Privileged application features stay
+in the trusted browser process unless Chromium already exposes them safely in
+the renderer.
+
+Filesystem access, process execution, application windows, menus, dialogs,
+updates, and unrestricted OS integration use finite typed asynchronous
+capabilities over Mojo or an equivalent generated transport. DOM objects, Blink
+pointers, and ScriptC closures never cross the process boundary.
+
+## Build and provenance
+
+The final build is an artifact graph rooted in the Native TypeScript checkout:
+
+```text
+pinned Chromium checkout + WebIDL database
+        |
+        +-- bindgen-webidl -> declarations + SCABI + capsules + report
+        |
+TypeScript application
+        +-- ScriptC -> C/LLVM object + reached binding IDs
+        |
+Chromium runtime/host/patch inputs
+        |
+        v
+declared GN/Ninja actions -> sandboxed renderer product
+```
+
+Every result identifies the Native TypeScript commit, ScriptC submodule commit,
+Chromium commit, GN arguments, toolchain versions, WebIDL database digest,
+TypeScript library digest, SCABI manifest digest, reached binding set, runtime
+contract version, build target, command, and exit status.
+
+A disposable Chromium checkout is build input. Durable patches, generator
+sources, runtime code, and host code live in this repository. Product actions
+must not mutate an unknown user checkout or discover decisive tools
+incidentally from `PATH`.
+
+## Current specimen and acceptance gates
+
+The migrated specimen is under
+[`packages/target-chromium`](../packages/target-chromium/README.md). Its
+portable C tests and source-level patch/V8 gates pass. The repaired patch series
+also applies to the pinned remote sources.
+
+There is not yet evidence for a full Chromium compile or browser execution.
+Stage A and Stage B remain open until this repository can:
+
+1. validate and stage the pinned Chromium input reproducibly;
+2. compile the overlay inside Chromium's GN configuration;
+3. run the script-free counter and deliver real click events;
+4. attach a real ScriptC runtime and compile the counter from TypeScript;
+5. generate the reached declarations, SCABI, and Blink capsules;
+6. prove stable identity, realm invalidation, and teardown;
+7. prove DOMException conversion and event cancellation;
+8. prove one Blink promise and ScriptC microtask ordering;
+9. reproduce all evidence without the temporary `electron-like` checkout.
+
+Only then does the coexistence stage decide whether direct Blink remains a
+maintained target, a system WebView bridge is preferred, or both are supported.
