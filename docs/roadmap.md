@@ -185,6 +185,14 @@ future work, admitted only by a workload that reaches them. The first JVM
 slice and its bytecode/device evidence are in
 [record 0026](records/0026-proved-jvm-integer-locals.md).
 
+The same tier now retains exact reference representations too: strings remain
+`java.lang.String`, and a concrete native handle unioned only with `null`
+remains one nullable Java reference. The unchanged Android string-result and
+handle-result kernels reached 1.00x and 0.56x Kotlin in their matched run,
+with bytecode proving no JNI entry, handle cell, or tagged union. The evidence
+and the associated immutable-global/string-length fact fixes are in
+[record 0027](records/0027-direct-jvm-reference-values.md).
+
 *The exact family that remains.* [Language profile](language-profile.md)
 specifies a whole numeric contract for it, and all of it is implemented except
 the helper families: same-type wrapping `+`, `-`, `*`, the three bitwise

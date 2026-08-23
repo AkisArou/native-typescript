@@ -12,9 +12,10 @@ applications:
   or cross-platform widget tree in the measured workload.
 
 It also carries an experimental fourth APK for the direct-JVM compiler slice.
-That APK measures `light-object`, `setter`, and `string-argument`: all three
-hot loops come from checked TypeScript and execute as ART bytecode, while a
-small Java Activity supplies lifecycle, timing, logging, its own concrete
+That APK measures `light-object`, `setter`, `string-argument`, `string-result`,
+and `handle-result`: all five hot loops come from checked TypeScript and
+execute as ART bytecode, while a small Java Activity supplies lifecycle,
+timing, logging, its own concrete
 receiver for `setter`, and the distinct runtime string inputs. It is not
 included in application launch or memory comparisons until it can express the
 whole benchmark application.
@@ -47,7 +48,7 @@ builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
 applications participate in every scenario; the direct-JVM APK joins only the
-three scenarios it implements.
+five scenarios it implements.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -59,7 +60,7 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries the light-object, setter, and string iteration counts. The
+kernel also carries every constant used by its five scenarios. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -178,7 +179,10 @@ host-supplied receiver and stable-setter result are in
 [record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md). Proved
 signed-integer locals now remove the remaining `ToInt32` and truthiness calls
 from the setter and string loops; their bytecode and matched parity result are
-in [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md). These
+in [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md). Java
+strings and exact nullable native handles now remain unboxed ART references;
+the two added kernels, bytecode proof, and matched device results are in
+[record 0027](../../docs/records/0027-direct-jvm-reference-values.md). These
 are call-path results, not yet launch, memory, lifecycle, or
 complete-application results for the direct backend.
 
@@ -214,6 +218,8 @@ measurement are recorded in
 Proved JVM integer locals and the first Kotlin-parity direct setter result are
 recorded in
 [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md).
+Direct-JVM string and nullable-handle representations are recorded in
+[record 0027](../../docs/records/0027-direct-jvm-reference-values.md).
 
 ## Research references
 

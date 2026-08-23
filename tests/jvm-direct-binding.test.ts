@@ -156,6 +156,14 @@ test(
           "export function suppliedDepth(widget: Widget): number {\n" +
           "  return widget.depth();\n" +
           "}\n" +
+          "export function nullableDepth(widget: Widget, present: boolean): number {\n" +
+          "  const candidate: Widget | null = present ? widget : null;\n" +
+          "  if (candidate === null) return -1;\n" +
+          "  return candidate.depth();\n" +
+          "}\n" +
+          "export function utf16Length(value: string): number {\n" +
+          "  return value.length;\n" +
+          "}\n" +
           "const LOOP_LIMIT = 50000;\n" +
           "export function integerLoop(): number {\n" +
           "  let index = 0;\n" +
@@ -198,6 +206,8 @@ test(
         backend: "c",
         externalFunctionRoots: [
           "suppliedDepth",
+          "nullableDepth",
+          "utf16Length",
           "integerLoop",
           "integerLoopAcrossNative",
           "overflowingNumber",
@@ -232,6 +242,12 @@ test(
           functionName: "suppliedDepth",
           methodName: "suppliedDepth",
         }, {
+          functionName: "nullableDepth",
+          methodName: "nullableDepth",
+        }, {
+          functionName: "utf16Length",
+          methodName: "utf16Length",
+        }, {
           functionName: "integerLoop",
           methodName: "integerLoop",
         }, {
@@ -264,6 +280,9 @@ test(
           "    System.out.println(DirectBinding.stringLength());\n" +
           "    System.out.println(DirectBinding.objectDepth());\n" +
           "    System.out.println(DirectBinding.suppliedDepth(new fixture.Widget(9)));\n" +
+          "    System.out.println(DirectBinding.nullableDepth(new fixture.Widget(11), true));\n" +
+          "    System.out.println(DirectBinding.nullableDepth(new fixture.Widget(11), false));\n" +
+          "    System.out.println(DirectBinding.utf16Length(\"👩‍💻\"));\n" +
           "    System.out.println(DirectBinding.integerLoop());\n" +
           "    System.out.println(DirectBinding.integerLoopAcrossNative(new fixture.Widget(9)));\n" +
           "    System.out.println(DirectBinding.overflowingNumber());\n" +
@@ -293,6 +312,7 @@ test(
       );
       assert.match(bytecode, /fixture\/Widget\."<init>":\(I\)V/u);
       assert.match(bytecode, /fixture\/Widget\.depth:\(\)I/u);
+      assert.match(bytecode, /java\/lang\/String\.length:\(\)I/u);
       assert.doesNotMatch(bytecode, /nts_jvm_fixture/u);
       assert.doesNotMatch(bytecode, / native /u);
       const run = spawnSync(
@@ -303,7 +323,7 @@ test(
       assert.equal(run.status, 0);
       assert.equal(
         run.stdout,
-        "6.0\n7.0\n9.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
+        "6.0\n7.0\n9.0\n11.0\n-1.0\n5.0\n25000.0\n50000.0\n2.147483648E9\n1.5\n-Infinity\n",
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -78,6 +78,8 @@ const DIRECT_JVM_SCENARIOS = [
   "light-object",
   "setter",
   "string-argument",
+  "string-result",
+  "handle-result",
 ] as const satisfies readonly AndroidBenchmarkScenario[];
 
 function directJvmSupportsScenario(
@@ -624,6 +626,12 @@ async function buildDirectJvmApk(input: {
     "width",
     "()I",
   );
+  const rectFlattenToStringBinding = findDirectBinding(
+    "instance-method",
+    "android/graphics/Rect",
+    "flattenToString",
+    "()Ljava/lang/String;",
+  );
   const textViewConstructorBinding = findDirectBinding(
     "constructor",
     "android/widget/TextView",
@@ -642,12 +650,27 @@ async function buildDirectJvmApk(input: {
     "equals",
     "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z",
   );
+  const viewGetIdBinding = findDirectBinding(
+    "instance-method",
+    "android/view/View",
+    "getId",
+    "()I",
+  );
+  const viewGroupGetChildAtBinding = findDirectBinding(
+    "instance-method",
+    "android/view/ViewGroup",
+    "getChildAt",
+    "(I)Landroid/view/View;",
+  );
   const selectedBindings = [
     rectConstructorBinding,
     rectWidthBinding,
+    rectFlattenToStringBinding,
     textViewConstructorBinding,
     textViewSetTextSizeBinding,
     equalsBinding,
+    viewGetIdBinding,
+    viewGroupGetChildAtBinding,
   ] as const;
   const localBindingIds = selectedBindings.map((binding) => {
     const separator = binding.id.indexOf("#");
@@ -664,7 +687,10 @@ async function buildDirectJvmApk(input: {
   }
   const packageSlug = localBindingIds[0]!.slice(0, packageSlugSeparator);
   const translated = translateScabiNativeProgram(manifest, {
-    types: ["jvm.android.app.activity"],
+    types: [
+      "jvm.android.app.activity",
+      "jvm.android.widget.linearlayout",
+    ],
     imports: [`${packageSlug}.object.release`, ...localBindingIds],
     exports: [],
   });
@@ -684,6 +710,8 @@ async function buildDirectJvmApk(input: {
       "runLightObjects",
       "runSetters",
       "runStringArguments",
+      "runStringResults",
+      "runHandleResults",
     ],
     sourceRoot: directRoot,
     externalTypes: {
@@ -716,6 +744,14 @@ async function buildDirectJvmApk(input: {
       {
         functionName: "runStringArguments",
         methodName: "runStringArguments",
+      },
+      {
+        functionName: "runStringResults",
+        methodName: "runStringResults",
+      },
+      {
+        functionName: "runHandleResults",
+        methodName: "runHandleResults",
       },
     ],
   });
@@ -764,6 +800,9 @@ async function buildDirectJvmApk(input: {
     "android/widget/TextView.setTextSize:(F)V",
     "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
       "Ljava/lang/CharSequence;)Z",
+    "android/graphics/Rect.flattenToString:()Ljava/lang/String;",
+    "android/widget/LinearLayout.getChildAt:(I)Landroid/view/View;",
+    "android/view/View.getId:()I",
   ];
   for (const directInstruction of directInstructions) {
     if (!bytecode.includes(directInstruction)) {
@@ -794,6 +833,8 @@ async function buildDirectJvmApk(input: {
     "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
     "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
       "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
+    "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
+    "NativeTypeScriptKernel.runHandleResults:(Landroid/widget/LinearLayout;)D",
   ];
   for (const generatedInvocation of generatedInvocations) {
     if (!activityBytecode.includes(generatedInvocation)) {
@@ -1053,7 +1094,10 @@ function verifyWorkloadAgreement(): void {
     if (
       name === "LIGHT_OBJECT_ITERATIONS" ||
       name === "SETTER_ITERATIONS" ||
-      name === "STRING_ARGUMENT_ITERATIONS"
+      name === "STRING_ARGUMENT_ITERATIONS" ||
+      name === "STRING_RESULT_ITERATIONS" ||
+      name === "HANDLE_RESULT_ITERATIONS" ||
+      name === "HANDLE_RESULT_CHILDREN"
     ) {
       const directValue = sourceConstant(
         direct,

@@ -399,6 +399,7 @@ need admission evidence:
 | keep temporary JVM string staging frame-local | **landed**: [record 0021](records/0021-frame-local-jvm-string-bridge.md) removes the unconditional outbound heap allocation and the inbound native UTF-16 allocation; isolated ART medians fell 26.8–35.8% raw and Kotlin-normalized ratios improved 10.6–16.0% |
 | cache literal Java strings | device workload dominated by repeated literal conversion/allocation |
 | keep Java-origin immutable strings foreign-resident | demonstrated Java-to-native-to-Java round-trip copies |
+| keep exact references in ART in the direct JVM tier | **first slice landed**: [record 0027](records/0027-direct-jvm-reference-values.md) keeps strings and exact `T | null` handles unboxed; string results reached 1.00x Kotlin and nullable handle results 0.56x |
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
 | ThinLTO/bitcode adapters | measured code-size or call overhead after resource operations are exact |
 | generated call fusion | repeated boundary crossings dominate a real hot region and exception order can be preserved |
@@ -420,6 +421,14 @@ JNI's UTF-16 view while allocating only their final UTF-8 owner. This does not
 introduce foreign-resident language strings or an adapter content cache;
 [record 0021](records/0021-frame-local-jvm-string-bridge.md) records the exact
 mechanics, long-input fallback, and matched ART controls.
+
+The direct JVM route answers the broader residency question differently when
+the program itself runs on ART: no bridge is needed. ScriptC strings remain
+`java.lang.String`, and an exact concrete-handle-plus-null union remains one
+nullable Java reference. The first two unchanged result workloads reached
+Kotlin parity or better with bytecode proving the JNI and wrapper paths are
+absent. [Record 0027](records/0027-direct-jvm-reference-values.md) records the
+representation contract, observers, and five-round measurement.
 
 Strings and buffers must follow platform contracts. `java.lang.String`
 cannot share native storage, while an API accepting a direct `ByteBuffer` can.

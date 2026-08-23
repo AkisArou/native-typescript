@@ -2,9 +2,11 @@ package com.example.ntsbenchmark.direct;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.example.ntsbenchmark.direct.generated.NativeTypeScriptKernel;
 
@@ -16,6 +18,9 @@ public final class MainActivity extends Activity {
     private static final int LIGHT_OBJECT_ITERATIONS = 50000;
     private static final int SETTER_ITERATIONS = 50000;
     private static final int STRING_ARGUMENT_ITERATIONS = 20000;
+    private static final int STRING_RESULT_ITERATIONS = 10000;
+    private static final int HANDLE_RESULT_ITERATIONS = 32000;
+    private static final int HANDLE_RESULT_CHILDREN = 16;
     private static final String TAG = "nts-benchmark";
 
     @Override
@@ -27,10 +32,13 @@ public final class MainActivity extends Activity {
         if (
             !"light-object".equals(scenario) &&
             !"setter".equals(scenario) &&
-            !"string-argument".equals(scenario)
+            !"string-argument".equals(scenario) &&
+            !"string-result".equals(scenario) &&
+            !"handle-result".equals(scenario)
         ) {
             throw new IllegalArgumentException(
-                "direct JVM benchmark supports only light-object, setter, and string-argument"
+                "direct JVM benchmark supports only light-object, setter, " +
+                    "string-argument, string-result, and handle-result"
             );
         }
 
@@ -66,7 +74,7 @@ public final class MainActivity extends Activity {
                     (int) rawChecksum
                 );
             }
-        } else {
+        } else if ("string-argument".equals(scenario)) {
             for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
                 runStringArguments();
             }
@@ -78,6 +86,40 @@ public final class MainActivity extends Activity {
                     "string-argument",
                     sample,
                     STRING_ARGUMENT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else if ("string-result".equals(scenario)) {
+            Rect rectangle = new Rect(1, 2, 11, 22);
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runStringResults(rectangle);
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runStringResults(rectangle);
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "string-result",
+                    sample,
+                    STRING_RESULT_ITERATIONS,
+                    elapsed,
+                    (int) rawChecksum
+                );
+            }
+        } else {
+            LinearLayout container = buildHandleResultContainer();
+            for (int warmup = 0; warmup < WARMUP_SAMPLES; warmup++) {
+                NativeTypeScriptKernel.runHandleResults(container);
+            }
+            for (int sample = 0; sample < MEASURED_SAMPLES; sample++) {
+                long started = SystemClock.elapsedRealtimeNanos();
+                double rawChecksum = NativeTypeScriptKernel.runHandleResults(container);
+                long elapsed = SystemClock.elapsedRealtimeNanos() - started;
+                logSample(
+                    "handle-result",
+                    sample,
+                    HANDLE_RESULT_ITERATIONS,
                     elapsed,
                     (int) rawChecksum
                 );
@@ -134,5 +176,15 @@ public final class MainActivity extends Activity {
             unicodeLeft,
             unicodeRight
         );
+    }
+
+    private LinearLayout buildHandleResultContainer() {
+        LinearLayout container = new LinearLayout(this);
+        for (int index = 0; index < HANDLE_RESULT_CHILDREN; index++) {
+            TextView child = new TextView(this);
+            child.setId(index + 1);
+            container.addView(child);
+        }
+        return container;
     }
 }
