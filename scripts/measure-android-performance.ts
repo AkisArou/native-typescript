@@ -97,6 +97,7 @@ interface Options {
   readonly avd: string | null;
   readonly buildOnly: boolean;
   readonly rounds: number;
+  readonly scenarios: readonly AndroidBenchmarkScenario[] | null;
   readonly serial: string | null;
   readonly output: string;
 }
@@ -174,6 +175,7 @@ function parseOptions(argv: readonly string[]): Options {
   let buildOnly = false;
   let avd: string | null = null;
   let rounds = 3;
+  const scenarios: AndroidBenchmarkScenario[] = [];
   let serial: string | null = null;
   let output: string | null = null;
   for (let index = 0; index < argv.length; index++) {
@@ -187,7 +189,7 @@ function parseOptions(argv: readonly string[]): Options {
     }
     if (
       argument === "--avd" || argument === "--rounds" ||
-      argument === "--serial" || argument === "--output"
+      argument === "--scenario" || argument === "--serial" || argument === "--output"
     ) {
       const value = argv[++index];
       if (value === undefined) throw new Error(`${argument} needs a value`);
@@ -200,6 +202,21 @@ function parseOptions(argv: readonly string[]): Options {
         avd = value;
       } else if (argument === "--serial") {
         serial = value;
+      } else if (argument === "--scenario") {
+        const definition = androidBenchmarkScenarios.find(
+          (candidate) => candidate.name === value,
+        );
+        if (definition === undefined) {
+          throw new Error(
+            `--scenario must name one of ${
+              androidBenchmarkScenarios.map(({ name }) => name).join(", ")
+            }, got '${value}'`,
+          );
+        }
+        if (scenarios.includes(definition.name)) {
+          throw new Error(`--scenario '${value}' was selected twice`);
+        }
+        scenarios.push(definition.name);
       } else {
         output = resolve(value);
       }
@@ -208,7 +225,8 @@ function parseOptions(argv: readonly string[]): Options {
     if (argument === "--help") {
       console.log(
         "Usage: pnpm benchmark:android -- [--build-only] [--rounds N] " +
-          "[--serial SERIAL | --avd NAME] [--output DIRECTORY]",
+          "[--scenario NAME]... [--serial SERIAL | --avd NAME] " +
+          "[--output DIRECTORY]",
       );
       process.exit(0);
     }
@@ -222,6 +240,7 @@ function parseOptions(argv: readonly string[]): Options {
     avd,
     buildOnly,
     rounds,
+    scenarios: scenarios.length === 0 ? null : Object.freeze(scenarios),
     serial,
     output: output ?? join(workspace, ".native-typescript/benchmarks/android", stamp),
   };
@@ -1589,32 +1608,34 @@ function summarize(
   launches: readonly LaunchMeasurement[],
   workloads: readonly WorkloadMeasurement[],
   memory: readonly MemoryMeasurement[],
+  scenarios: typeof androidBenchmarkScenarios,
 ): object {
-  const launch = (["process-start", "warm-foreground"] as const).flatMap((kind) =>
-    FULL_APPLICATION_IMPLEMENTATIONS.map((implementation) => {
-      /* NativeScriptActivity reports LaunchState UNKNOWN on current ART and
-       * therefore omits TotalTime. WaitTime is emitted for every implementation;
-       * keep the stronger fields in the raw observation, but compare one shared
-       * command-completion metric rather than silently dropping NativeScript. */
-      const sourceMetric = "WaitTime";
-      const values = launches
-        .filter((entry) => entry.kind === kind && entry.implementation === implementation)
-        .flatMap((entry) => {
-          const value = entry.waitTimeMs;
-          return value === null ? [] : [value];
-        });
-      return {
-        implementation,
-        kind,
-        sourceMetric,
-        samples: values.length,
-        medianMs: median(values),
-        minMs: values.length === 0 ? null : Math.min(...values),
-        maxMs: values.length === 0 ? null : Math.max(...values),
-      };
-    })
-  );
-  const workload = androidBenchmarkScenarios
+  const launch = launches.length === 0 ? [] :
+    (["process-start", "warm-foreground"] as const).flatMap((kind) =>
+      FULL_APPLICATION_IMPLEMENTATIONS.map((implementation) => {
+        /* NativeScriptActivity reports LaunchState UNKNOWN on current ART and
+         * therefore omits TotalTime. WaitTime is emitted for every implementation;
+         * keep the stronger fields in the raw observation, but compare one shared
+         * command-completion metric rather than silently dropping NativeScript. */
+        const sourceMetric = "WaitTime";
+        const values = launches
+          .filter((entry) => entry.kind === kind && entry.implementation === implementation)
+          .flatMap((entry) => {
+            const value = entry.waitTimeMs;
+            return value === null ? [] : [value];
+          });
+        return {
+          implementation,
+          kind,
+          sourceMetric,
+          samples: values.length,
+          medianMs: median(values),
+          minMs: values.length === 0 ? null : Math.min(...values),
+          maxMs: values.length === 0 ? null : Math.max(...values),
+        };
+      })
+    );
+  const workload = scenarios
     .flatMap((scenario) =>
       IMPLEMENTATIONS
         .filter((implementation) =>
@@ -1669,7 +1690,7 @@ function summarize(
       }];
     })
   );
-  const memorySummary = FULL_APPLICATION_IMPLEMENTATIONS.map(
+  const memorySummary = memory.length === 0 ? [] : FULL_APPLICATION_IMPLEMENTATIONS.map(
     (implementation) => {
       const rows = memory.filter((entry) => entry.implementation === implementation);
       return {
@@ -1685,6 +1706,19 @@ function summarize(
 
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
+  const selectedScenarios = Object.freeze(
+    options.scenarios === null
+      ? [...androidBenchmarkScenarios]
+      : androidBenchmarkScenarios.filter(({ name }) =>
+        options.scenarios!.includes(name)
+      ),
+  );
+  const selectedRepeatedScenarios = repeatedAndroidBenchmarkScenarios.filter(
+    (scenario) => selectedScenarios.some(({ name }) => name === scenario),
+  );
+  const measureApplicationShape = selectedScenarios.some(
+    ({ name }) => name === "view-tree",
+  );
   if (existsSync(options.output)) {
     throw new Error(`output directory already exists: ${options.output}`);
   }
@@ -1788,12 +1822,12 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 6,
+    schemaVersion: 7,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,
     workload: androidBenchmarkWorkload,
-    scenarios: androidBenchmarkScenarios,
+    scenarios: selectedScenarios,
     sourceState,
     toolchains,
     artifacts: applications.map(({ implementation, apkPath, sha256, bytes }) => ({
@@ -1869,86 +1903,88 @@ async function main(): Promise<void> {
       pool.map((_, offset) =>
         pool[(round + offset) % pool.length]!
       );
-    for (let round = 0; round < options.rounds; round++) {
-      for (const application of ordered(fullApplications, round)) {
-        adbRun("logcat", "-c");
-        adbRun("shell", "am", "force-stop", application.applicationId);
-        const cold = adbRun(
-          "shell",
-          "am",
-          "start",
-          "-W",
-          "-n",
-          `${application.applicationId}/${application.activity}`,
-        );
-        const coldLaunch = parseAmStart(
-          application.implementation,
-          round,
-          "process-start",
-          cold,
-        );
-        if (coldLaunch.status !== "ok") {
-          throw new Error(
-            `${application.implementation} process launch failed:\n${cold}`,
+    if (measureApplicationShape) {
+      for (let round = 0; round < options.rounds; round++) {
+        for (const application of ordered(fullApplications, round)) {
+          adbRun("logcat", "-c");
+          adbRun("shell", "am", "force-stop", application.applicationId);
+          const cold = adbRun(
+            "shell",
+            "am",
+            "start",
+            "-W",
+            "-n",
+            `${application.applicationId}/${application.activity}`,
           );
-        }
-        launches.push(coldLaunch);
-        const log = awaitBenchmarkLog(
-          adbRun,
-          application.implementation,
-          "view-tree",
-        );
-        assertProcessAlive(adbRun, application, "view-tree completion");
-        workloads.push(
-          ...parseWorkloadLog(
+          const coldLaunch = parseAmStart(
+            application.implementation,
+            round,
+            "process-start",
+            cold,
+          );
+          if (coldLaunch.status !== "ok") {
+            throw new Error(
+              `${application.implementation} process launch failed:\n${cold}`,
+            );
+          }
+          launches.push(coldLaunch);
+          const log = awaitBenchmarkLog(
+            adbRun,
             application.implementation,
             "view-tree",
-            round,
-            log,
-          ),
-        );
-        adbRun("shell", "input", "keyevent", "KEYCODE_HOME");
-        const warm = adbRun(
-          "shell",
-          "am",
-          "start",
-          "-W",
-          "-n",
-          `${application.applicationId}/${application.activity}`,
-        );
-        const warmLaunch = parseAmStart(
-          application.implementation,
-          round,
-          "warm-foreground",
-          warm,
-        );
-        if (warmLaunch.status !== "ok") {
-          throw new Error(
-            `${application.implementation} warm launch failed:\n${warm}`,
           );
-        }
-        launches.push(warmLaunch);
-        assertProcessAlive(adbRun, application, "warm foreground launch");
-        const meminfoName = `${application.implementation}-meminfo-${round}.txt`;
-        const meminfo = adbRun(
-          "shell",
-          "dumpsys",
-          "meminfo",
-          application.applicationId,
-        );
-        writeFileSync(join(options.output, meminfoName), meminfo);
-        memory.push(
-          parseMeminfo(
+          assertProcessAlive(adbRun, application, "view-tree completion");
+          workloads.push(
+            ...parseWorkloadLog(
+              application.implementation,
+              "view-tree",
+              round,
+              log,
+            ),
+          );
+          adbRun("shell", "input", "keyevent", "KEYCODE_HOME");
+          const warm = adbRun(
+            "shell",
+            "am",
+            "start",
+            "-W",
+            "-n",
+            `${application.applicationId}/${application.activity}`,
+          );
+          const warmLaunch = parseAmStart(
             application.implementation,
             round,
-            meminfoName,
-            meminfo,
-          ),
-        );
+            "warm-foreground",
+            warm,
+          );
+          if (warmLaunch.status !== "ok") {
+            throw new Error(
+              `${application.implementation} warm launch failed:\n${warm}`,
+            );
+          }
+          launches.push(warmLaunch);
+          assertProcessAlive(adbRun, application, "warm foreground launch");
+          const meminfoName = `${application.implementation}-meminfo-${round}.txt`;
+          const meminfo = adbRun(
+            "shell",
+            "dumpsys",
+            "meminfo",
+            application.applicationId,
+          );
+          writeFileSync(join(options.output, meminfoName), meminfo);
+          memory.push(
+            parseMeminfo(
+              application.implementation,
+              round,
+              meminfoName,
+              meminfo,
+            ),
+          );
+        }
       }
     }
 
-    for (const scenario of repeatedAndroidBenchmarkScenarios) {
+    for (const scenario of selectedRepeatedScenarios) {
       const scenarioApplications = directJvmSupportsScenario(scenario)
         ? applications
         : fullApplications;
@@ -2006,7 +2042,7 @@ async function main(): Promise<void> {
       launches,
       workloads,
       memory,
-      summary: summarize(launches, workloads, memory),
+      summary: summarize(launches, workloads, memory, selectedScenarios),
     };
     const reportPath = join(options.output, "results.json");
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");

@@ -1,7 +1,7 @@
 # Android performance comparison
 
 Status: active measurement instrument  
-Last revised: 2026-08-23
+Last revised: 2026-08-24
 
 This benchmark compares three complete, equivalent direct-Android
 applications:
@@ -35,6 +35,21 @@ Run all four APKs on the one attached, authorized x86-64 device:
 ```bash
 pnpm benchmark:android -- --rounds 5
 ```
+
+For an optimization loop, select one or more workload contracts without
+changing their inputs, warmups, samples, comparison implementations, or
+checksum validation:
+
+```bash
+pnpm benchmark:android -- --scenario managed-class --rounds 5
+pnpm benchmark:android -- --scenario string-argument --scenario string-result --rounds 5
+```
+
+Repeating `--scenario NAME` is allowed; selecting the same name twice or an
+unknown name is an error. A selected run records only those scenarios in its
+versioned report. Process launch and memory are measured only when `view-tree`
+is selected, because the other kernels do not exercise or claim application
+shape. Omitting `--scenario` preserves the complete matrix.
 
 Use `--serial SERIAL` when more than one device is attached and `--output DIR`
 to choose the result directory. With no attached device, `--avd NAME` boots a
@@ -207,7 +222,9 @@ are joined by ordinary managed TypeScript classes whose fields, inheritance,
 2.17 ns device median are in
 [record 0032](../../docs/records/0032-direct-jvm-managed-classes.md). These are
 call-path results, not yet launch, memory, lifecycle, or
-complete-application results for the direct backend.
+complete-application results for the direct backend. Scenario-selective runs
+and the first rejected managed-method candidate are recorded in
+[record 0033](../../docs/records/0033-selective-android-performance-runs.md).
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
