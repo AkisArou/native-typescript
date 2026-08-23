@@ -218,6 +218,9 @@ test("the adapter source is deterministic and carries its member table", () => {
   assert.ok(
     first.source.includes(`void ${first.release.frameBoundedSymbol}(void *ref)`),
   );
+  assert.ok(
+    first.source.includes(`void *${first.release.framePromoteSymbol}(void *ref)`),
+  );
   assert.ok(first.source.includes("->DeleteLocalRef(env, (jobject)ref)"));
   assert.equal(
     (first.source.match(/->DeleteGlobalRef/gu) ?? []).length,
@@ -425,13 +428,13 @@ test("a class-anchored registration answers for instances it never named", () =>
     ),
     generated.header,
   );
-  // The receiver is promoted like any other object payload: the local
-  // reference dies with the trampoline's frame.
-  assert.ok(
-    generated.source.includes(
-      "jobject receiver = (*env)->NewGlobalRef(env, self);",
-    ),
+  // The adapter preserves the local reference so whole-program analysis can
+  // choose local release or exact promotion in the ScriptC trampoline.
+  assert.equal(
+    generated.source.includes("jobject receiver = (*env)->NewGlobalRef(env, self);"),
+    false,
   );
+  assert.ok(generated.source.includes("connection->callback)(self, a0,"));
   // Any live registration is the second one — a class-anchored
   // registration cannot accumulate any more than a per-instance one can.
   assert.ok(generated.source.includes("already has a handler"));
@@ -650,6 +653,7 @@ test(
       )!.adapterSymbol;
       const connect = adapter.callbacks[0]!.connectSymbol;
       const release = adapter.release.adapterSymbol;
+      const promote = adapter.release.framePromoteSymbol;
       const message = adapter.errorSupport.messageSymbol;
       const releaseError = adapter.errorSupport.releaseSymbol;
       const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
@@ -663,12 +667,14 @@ test(
         "static int nts_seen_depth;",
         "static int nts_seen_calls;",
         "static int nts_seen_scoped_env;",
-        "/* The receiver arrives promoted and owned: usable for a call",
-        " * back into Java, and released by whoever was handed it. Both",
-        " * operations consume the callback's scoped JNIEnv capability. */",
+        "/* This fake compiler callback selects the escaping arm explicitly:",
+        " * promote the local receiver, call back into Java, then release the",
+        " * stable reference. All three consume the scoped JNIEnv capability. */",
         "static void nts_on_tick(void *receiver, jint value, void *context) {",
         "  char *error = NULL;",
         "  if (nts_jvm_thread_env != NULL) nts_seen_scoped_env += 1;",
+        `  receiver = ${promote}(receiver);`,
+        "  if (receiver == NULL) { nts_seen_depth = -2000; return; }",
         `  nts_seen_depth += ${depth}(receiver, &error);`,
         "  if (error != NULL) { nts_seen_depth = -1000; }",
         "  nts_seen_calls += 1;",
@@ -840,6 +846,7 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
     const disconnectSymbol = adapter.connectionSupport!.disconnectSymbol;
     const connectionFreeSymbol = adapter.connectionSupport!.releaseSymbol;
     const releaseWidget = adapter.release.adapterSymbol;
+    const promoteFrame = adapter.release.framePromoteSymbol;
     const releaseFrame = adapter.release.frameBoundedSymbol;
     const classpath = resolve(repositoryRoot, "fixtures/jvm/classes");
     const messageSymbol = adapter.errorSupport.messageSymbol;
@@ -873,6 +880,12 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (local == NULL || error != NULL) return 56;",
       `  if (${depthSymbol}(local, &error) != 9 || error != NULL) return 57;`,
       `  ${releaseFrame}(local);`,
+      `  local = ${frameConstructorSymbol}(10, &error);`,
+      "  if (local == NULL || error != NULL) return 60;",
+      `  void *promoted = ${promoteFrame}(local);`,
+      "  if (promoted == NULL) return 61;",
+      `  if (${depthSymbol}(promoted, &error) != 10 || error != NULL) return 62;`,
+      `  ${releaseWidget}(promoted);`,
       `  void *w = ${constructorSymbol}(7, &error);`,
       "  if (w == NULL || error != NULL) return 12;",
       `  if (${depthSymbol}(w, &error) != 7 || error != NULL) return 13;`,

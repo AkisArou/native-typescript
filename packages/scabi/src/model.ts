@@ -485,6 +485,14 @@ export type CallbackSourceArgumentContract =
   | {
       readonly kind: "callback-parameter";
       readonly parameter: string;
+      /** Alternate mechanics when the physical callback payload is bounded
+       * by the current foreign frame. The target names HOW to promote or end
+       * that resource; whole-program analysis decides whether the handler
+       * keeps it local or promotes it into the ordinary stable domain. */
+      readonly frameBounded?: {
+        readonly promote: string;
+        readonly release: string;
+      };
     }
   | { readonly kind: "registration-owner" };
 
@@ -724,7 +732,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 12;
+export const SCABI_SCHEMA_VERSION = 13;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";

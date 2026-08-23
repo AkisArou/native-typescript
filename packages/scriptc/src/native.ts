@@ -885,6 +885,12 @@ type SupportedCallbackPair = {
           | "number";
         /** The binding that gives the reference back, for an owned handle. */
         readonly destructor?: string;
+        /** Mechanics for the physical callback-frame form. Policy is absent:
+         * the fork's whole-program pass chooses local release or promotion. */
+        readonly frameBounded?: {
+          readonly promote: string;
+          readonly release: string;
+        };
       }
     | {
         readonly kind: "registration-owner";
@@ -914,6 +920,9 @@ function supportedCallbackSourceArguments(
   const result: Array<SupportedCallbackPair["sourceArguments"][number]> = [];
   for (const argument of sourceArguments) {
     if (argument.kind === "callback-parameter") {
+      const frameBounded = "frameBounded" in argument
+        ? argument.frameBounded
+        : undefined;
       const parameter = physicalIndexByName.get(argument.parameter);
       if (parameter === undefined || projectedPhysical.has(parameter)) {
         return "callback source arguments must project each physical parameter exactly once";
@@ -925,6 +934,9 @@ function supportedCallbackSourceArguments(
       const owned = positionTypeKind(manifest, physical.type) === "handle"
         ? ownedDestructor(manifest, physical.type, physical.ownership) ?? undefined
         : undefined;
+      if (frameBounded !== undefined && owned === undefined) {
+        return "a frame-bounded callback resource must be an owned handle payload";
+      }
       result.push(Object.freeze({
         kind: "callback-parameter",
         parameter,
@@ -937,6 +949,9 @@ function supportedCallbackSourceArguments(
               ? "direct"
               : "utf8CString",
         ...(owned === undefined ? {} : { destructor: owned }),
+        ...(frameBounded === undefined
+          ? {}
+          : { frameBounded: Object.freeze({ ...frameBounded }) }),
       }));
       continue;
     }
@@ -1083,6 +1098,14 @@ function supportedCallScopedCallbackPair(
               ...(argument.destructor === undefined
                 ? {}
                 : { destructor: argument.destructor }),
+              ...(argument.frameBounded === undefined
+                ? {}
+                : {
+                    frameBounded: Object.freeze({
+                      promote: Object.freeze({ symbol: argument.frameBounded.promote }),
+                      release: Object.freeze({ symbol: argument.frameBounded.release }),
+                    }),
+                  }),
             })
           : Object.freeze({ kind: "registration-owner" as const })
       )),
@@ -1223,9 +1246,10 @@ function supportedRetainedCallbackPair(
       (!("callback" in position) || position.callback === undefined) &&
       (type?.kind === "integer" || (type?.kind === "float" && type.bits === 64));
   };
-  /* The emitter took a reference before queueing, so the invocation owns one
-   * and the destructor gives it back whether the delivery runs or is
-   * dropped. */
+  /* The invocation owns one stable reference before queueing. A target may
+   * physically deliver a frame-bounded form; the compiler promotes it before
+   * the invocation record exists, and the destructor gives the stable form
+   * back whether delivery runs or is dropped. */
   function handlePayloadPosition(position: AbiParameter, nullable: boolean): boolean {
     return manifest.types[position.type]?.kind === "handle" &&
       position.passMode === "pointer" &&
@@ -1284,10 +1308,10 @@ function supportedRetainedCallbackPair(
        * destructor the handle type names gives it back. What differs is only
        * WHEN the handler runs.
        *
-       * Where a toolkit merely lends an object for the frame, promotion is
-       * the adapter's job rather than a second contract. A JNI local
-       * reference dies with the native frame, so the adapter promotes before
-       * the payload crosses and the cell's destructor releases the promotion. */
+       * Where a toolkit supplies a frame-bounded object, the source argument
+       * names exact promotion and release mechanics. Whole-program analysis
+       * keeps a proven local use raw or promotes before building the managed
+       * cell; the adapter does not decide lifetime policy. */
       callbackType.signature.parameters.some(
         (position) =>
           !supportedScalarPosition(position) && !ownedHandlePosition(position) &&
@@ -1401,6 +1425,14 @@ function supportedRetainedCallbackPair(
           ...(argument.destructor === undefined
             ? {}
             : { destructor: argument.destructor }),
+          ...(argument.frameBounded === undefined
+            ? {}
+            : {
+                frameBounded: Object.freeze({
+                  promote: Object.freeze({ symbol: argument.frameBounded.promote }),
+                  release: Object.freeze({ symbol: argument.frameBounded.release }),
+                }),
+              }),
         })
       : Object.freeze({ kind: "registration-owner" as const })
   ));

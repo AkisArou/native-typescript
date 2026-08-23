@@ -94,6 +94,12 @@ export function generateJvmClangAbiProbe(
       "void",
       ["void*"],
     ),
+    candidate(
+      `jvm.promote.${adapter.release.framePromoteSymbol}`,
+      adapter.release.framePromoteSymbol,
+      "void*",
+      ["void*"],
+    ),
     ...(adapter.stringVectorSupport === null
       ? []
       : [

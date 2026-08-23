@@ -16,8 +16,9 @@
  * void override it emits. (The void-synchronous arm arrived with fork
  * 3c33818a, with fixture/Lifecycle as its committed evidence; the handle
  * payload arm with fork 0309d850.) Payloads are exact scalars and
- * objects: an object crosses as an owned handle the adapter promotes,
- * and whether its class projects is the adapter's refusal, made where
+ * objects: an object crosses as an owned handle whose local JNI mechanics
+ * the adapter declares and whose promotion the compiler selects, and whether
+ * its class projects is the adapter's refusal, made where
  * the selection is known — generation admits any object javac can spell.
  *
  * Each override also carries its native super binding: an ordinary
@@ -371,8 +372,9 @@ export function generateJvmSubclassSource(
         return;
       }
       /* An object payload crosses as an owned handle (fork 0309d850): the
-       * adapter promotes the frame-scoped reference and the cell's
-       * destructor gives it back. Generation admits any object javac can
+       * adapter supplies the frame-scoped reference plus promotion/release
+       * mechanics, and compiler escape analysis chooses whether a stable
+       * cell is needed. Generation admits any object javac can
        * spell — whether the payload's class projects is the adapter's
        * fact, refused there where the selection is known. The source
        * spelling is the binary name with dots, `$` included: a member

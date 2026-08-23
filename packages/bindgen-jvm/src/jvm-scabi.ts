@@ -1284,13 +1284,14 @@ export function generateJvmScabiPackage(
     }));
     adapterBindings.push(connectionDisconnectId, connectionReleaseId);
   }
-  /* A callback payload handle is OWNED with transfer to-runtime: the
-   * adapter promoted the frame-scoped local reference, and the managed
-   * cell's destructor — derived from the handle type's declared release —
-   * gives the promotion back. `transport: "borrow"` sits beside that and
-   * is not a contradiction: transport describes what the DELIVERY FRAME
-   * does, while the reference's fate rides on this ownership and the
-   * handle type's destructor.
+  /* A callback payload handle is OWNED with transfer to-runtime, while its
+   * physical JNI representation begins frame-bounded. SCABI names both
+   * mechanics: promotion to a global reference and exact local-reference
+   * release. ScriptC decides whether a synchronous handler can stay local;
+   * queued or escaping delivery promotes before a managed cell exists.
+   * `transport: "borrow"` sits beside that and is not a contradiction:
+   * transport describes what the DELIVERY FRAME does, while the reference's
+   * fate rides on ownership and the frame-bounded capability.
    *
    * Whether it may be WITHHELD is the DELIVERY's business, and only
    * that: who owns the registration never bore on whether the emitter
@@ -1487,6 +1488,14 @@ export function generateJvmScabiPackage(
                 Object.freeze({
                   kind: "callback-parameter" as const,
                   parameter: parameter.name,
+                  ...(types[parameter.type]?.kind === "handle"
+                    ? {
+                        frameBounded: Object.freeze({
+                          promote: options.adapter.release.framePromoteSymbol,
+                          release: options.adapter.release.frameBoundedSymbol,
+                        }),
+                      }
+                    : {}),
                 })
               ),
             ]),

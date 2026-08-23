@@ -92,26 +92,26 @@ is better.
 
 | Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128-child view tree | 46,761 ns/child | 39,001 ns/child | 38,759 ns/child | 1.20x | 1.21x |
-| lightweight `Rect` construction and `width()` | 159.09 ns/op | 32.26 ns/op | 3,360.94 ns/op | 4.93x | 0.047x |
-| `TextView` construction and scalar call | 23,775 ns/op | 23,163 ns/op | 29,618 ns/op | 1.03x | 0.80x |
-| repeated `TextView.setTextSize` | 64.72 ns/op | 13.74 ns/op | 230.10 ns/op | 4.71x | 0.28x |
-| payload-free synchronous callback | 255.13 ns/delivery | 2.48 ns/delivery | 1,361.23 ns/delivery | 102.81x | 0.19x |
-| ASCII/Unicode string arguments | 518.90 ns/comparison | 29.30 ns/comparison | 1,040.67 ns/comparison | 17.71x | 0.50x |
-| fresh Java string result | 530.92 ns/result | 194.75 ns/result | 524.45 ns/result | 2.73x | 1.01x |
-| 256-byte array encoding round trip | 1,268.41 ns/encoding | 649.47 ns/encoding | 6,675.36 ns/encoding | 1.95x | 0.19x |
-| nullable object result plus receiver call | 139.33 ns/lookup | 2.89 ns/lookup | 508.13 ns/lookup | 48.16x | 0.27x |
-| callback payload plus receiver call | 337.21 ns/delivery | 3.30 ns/delivery | 1,758.16 ns/delivery | 102.07x | 0.19x |
-| dynamic `TextView` counter update | 519.07 ns/update | 271.11 ns/update | 1,080.57 ns/update | 1.91x | 0.48x |
-| nested programmatic screen build | 130,030 ns/row | 91,926 ns/row | 115,909 ns/row | 1.41x | 1.12x |
+| 128-child view tree | 63,415 ns/child | 62,722 ns/child | 46,295 ns/child | 1.01x | 1.37x |
+| lightweight `Rect` construction and `width()` | 196.84 ns/op | 35.70 ns/op | 4,578.21 ns/op | 5.51x | 0.043x |
+| `TextView` construction and scalar call | 27,656 ns/op | 27,452 ns/op | 29,255 ns/op | 1.01x | 0.95x |
+| repeated `TextView.setTextSize` | 84.05 ns/op | 22.81 ns/op | 320.66 ns/op | 3.69x | 0.26x |
+| payload-free synchronous callback | 180.90 ns/delivery | 2.30 ns/delivery | 1,618.53 ns/delivery | 78.62x | 0.11x |
+| ASCII/Unicode string arguments | 662.17 ns/comparison | 39.33 ns/comparison | 1,366.78 ns/comparison | 16.83x | 0.48x |
+| fresh Java string result | 674.25 ns/result | 248.39 ns/result | 794.99 ns/result | 2.71x | 0.85x |
+| 256-byte array encoding round trip | 2,141.74 ns/encoding | 799.09 ns/encoding | 9,242.05 ns/encoding | 2.68x | 0.23x |
+| nullable object result plus receiver call | 212.56 ns/lookup | 3.40 ns/lookup | 754.96 ns/lookup | 62.58x | 0.28x |
+| callback payload plus receiver call | 246.32 ns/delivery | 3.96 ns/delivery | 2,039.18 ns/delivery | 62.18x | 0.12x |
+| dynamic `TextView` counter update | 547.37 ns/update | 283.81 ns/update | 1,392.12 ns/update | 1.93x | 0.39x |
+| nested programmatic screen build | 129,447 ns/row | 110,966 ns/row | 158,898 ns/row | 1.17x | 0.81x |
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 18,304 KiB | 17,921 KiB | 75,942 KiB |
-| Total RSS | 142,916 KiB | 142,044 KiB | 202,372 KiB |
-| APK size | 602,395 bytes | 20,688 bytes | 28,639,612 bytes |
+| Total PSS | 18,239 KiB | 17,564 KiB | 74,055 KiB |
+| Total RSS | 143,388 KiB | 141,520 KiB | 202,048 KiB |
+| APK size | 602,395 bytes | 20,688 bytes | 28,639,196 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are
@@ -121,7 +121,11 @@ widget construction remains near Kotlin parity, while callbacks and outbound
 strings expose distinct remaining costs. JNI callback and owner turns now
 scope the environment they already hold across nested adapter calls; the
 targeted setter, light-object, handle-result, and callback medians improved by
-12.8–34.1%. Its mechanism, falsifier, and before/after evidence are in
+12.8–34.1%. Synchronous callback objects now stay in their JNI frame when
+whole-program analysis proves they do not escape, reducing the two callback
+medians by 27.0–29.1%; its structural proof and matched measurement are in
+[record 0020](docs/records/0020-frame-bounded-callback-payloads.md). The scoped
+environment mechanism, falsifier, and before/after evidence are in
 [record 0019](docs/records/0019-scoped-jni-environment-capability.md). Nullable
 returned objects stay in the JNI local-reference domain when their use does
 not escape; that mechanism and before/after evidence are in

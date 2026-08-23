@@ -306,12 +306,13 @@ payloads, copied UTF-8 strings, and owned handles. Generated C and LLVM thunks
 admit opaque tokens from same or foreign threads without touching the ScriptC
 heap, and the owner invokes the rooted closure.
 
-An owned handle payload is the one case where the thunk allocates: the pointer
-arrives already referenced, and the thunk either finds the object's existing
-cell in the identity map and gives that reference back, or builds a cell for
-it. The invocation's slot is cleared once the reference moves into the cell, so
-a delivery dropped at shutdown releases exactly the references that never
-reached one.
+An owned handle payload begins in the resource form the package declares. A
+queued or escaping payload is promoted before the thunk either finds the
+object's existing cell in the identity map and gives the surplus reference
+back, or builds a cell for it. A proven synchronous non-escaping payload stays
+frame-bounded and allocates no cell. A queued invocation's slot is cleared once
+its stable reference moves into a cell, so a delivery dropped at shutdown
+releases exactly the references that never reached one.
 
 **Synchronous** delivery — the handler runs inside the emitting call's frame —
 is implemented for exact scalars, owned handles, and an owned handle the

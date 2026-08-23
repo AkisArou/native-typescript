@@ -393,7 +393,8 @@ test("the telling arm: synchronous void, borrowed payloads, no sender", () => {
       ],
     },
   );
-  const generated = generateJvmScabiPackage(options(selected));
+  const generation = options(selected);
+  const generated = generateJvmScabiPackage(generation);
   assert.match(
     generated.declarations,
     /onTick\(callback: \(a0: jint\) => void\): JvmConnection;/u,
@@ -555,7 +556,8 @@ test("a class-anchored registration is owned by the process", () => {
       ],
     },
   );
-  const generated = generateJvmScabiPackage(options(selected));
+  const generation = options(selected);
+  const generated = generateJvmScabiPackage(generation);
   // The receiver is the handler's first argument, because one
   // registration answers for every instance and nothing else could say
   // which one called.
@@ -590,6 +592,14 @@ test("a class-anchored registration is owned by the process", () => {
       ({ kind }) => kind === "callback-parameter",
     ),
   );
+  assert.deepEqual(contract.sourceArguments?.[0], {
+    kind: "callback-parameter",
+    parameter: "a0",
+    frameBounded: {
+      promote: generation.adapter.release.framePromoteSymbol,
+      release: generation.adapter.release.frameBoundedSymbol,
+    },
+  });
   /* The manifest is not the claim — reaching the arm is. This shape was
    * unreachable in two directions at once: SCABI had no word for a
    * registration nothing owns, and once it had one, the owner gate ahead
@@ -611,6 +621,17 @@ test("a class-anchored registration is owned by the process", () => {
       id === `${instance}#fixture.fixture.widget.ontick`
     );
     assert.ok(lowered !== undefined);
+    const source = lowered?.arguments.find(({ callback }) => callback !== undefined)
+      ?.callback?.sourceArguments[0];
+    assert.deepEqual(source, {
+      kind: "callback-parameter",
+      parameter: 0,
+      destructor: `${instance}#fixture.object.release`,
+      frameBounded: {
+        promote: { symbol: generation.adapter.release.framePromoteSymbol },
+        release: { symbol: generation.adapter.release.frameBoundedSymbol },
+      },
+    });
   }
 
   // The receiver crosses as the payload arm's owned handle.

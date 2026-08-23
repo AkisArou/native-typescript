@@ -421,8 +421,10 @@ program could name one: registration attaches to the CLASS, answers for every
 instance, and the receiver arrives as the handler's first argument. The
 contract is process-owned — nothing owns the registration, so it returns
 nothing and cancels through nothing — and the receiver crosses as an owned
-handle the adapter promotes from the frame-scoped JNI local, with the managed
-cell's destructor giving the promotion back. Storing it is therefore
+handle whose physical form begins as the frame-scoped JNI local. The adapter
+names exact promotion and local-release mechanics; compiler escape analysis
+selects promotion when the peer or program retains the receiver, and the
+managed cell's destructor gives that promotion back. Storing it is therefore
 memory-safe; keeping it past `onDestroy` is the ordinary Android leak, which is
 the program's business.
 

@@ -131,6 +131,9 @@ export interface JvmReleaseAdapter {
    * identity-upcast target, so the one release lives on the root handle
    * every class upcasts to. */
   readonly adapterSymbol: string;
+  /** Promotes one callback-frame local reference into the stable domain,
+   * consuming the local reference whether promotion succeeds or fails. */
+  readonly framePromoteSymbol: string;
   /** Releases one compiler-selected frame-bounded JNI local reference. */
   readonly frameBoundedSymbol: string;
 }
@@ -195,7 +198,7 @@ export interface JvmErrorSupportAdapter {
 
 export interface JvmAdapterSource {
   readonly schema: "native-typescript.jvm-adapter-source";
-  readonly schemaVersion: 22;
+  readonly schemaVersion: 23;
   readonly source: string;
   readonly sourceDigest: string;
   /** Declarations for every public adapter symbol. The ABI probe compiles
@@ -280,7 +283,9 @@ export const JVM_ADAPTER_FAMILIES: Readonly<
   release: {
     kind: "translation",
     custom:
-      "JNI spells releasing one stable reference DeleteGlobalRef(env, ref); " +
+      "JNI spells stable release as DeleteGlobalRef, callback-frame release " +
+      "as DeleteLocalRef, and explicit promotion as NewGlobalRef followed " +
+      "by consuming the local. The compiler selects between those mechanics; " +
       "the scoped current-thread capability keeps the release unary, which " +
       "is what destructor-as-data needs, with a checked JavaVM fallback " +
       "outside a scope. One spelling serves every class because " +
@@ -1358,13 +1363,13 @@ export function generateJvmAdapterSource(
           parameters.push({ kind: "primitive", primitive: scalar });
           return;
         }
-        /* An object payload crosses as an OWNED handle: the jobject the
-         * trampoline receives is a local reference that dies with the
-         * native frame — JNI's only lending form — so the adapter
-         * promotes it (NewGlobalRef) after the registration match and the
-         * managed cell's destructor gives the promotion back through the
-         * class-blind release. Same admission rule as every other object
-         * position: the class must be selected to project. */
+        /* An object payload crosses as a handle whose stable ABI remains
+         * OWNED, but whose callback arrival begins as the local reference
+         * JNI lends to this native frame. SCABI names the exact promotion
+         * and release mechanics; whole-program analysis selects whether
+         * this delivery stays frame-bounded or becomes stable. Same
+         * admission rule as every other object position: the class must
+         * be selected to project. */
         if (
           parameter.kind === "object" &&
           parameter.binaryName !== "java/lang/String"
@@ -1600,47 +1605,10 @@ export function generateJvmAdapterSource(
               "    if (connection->live &&",
               "        (*env)->IsSameObject(env, connection->instance, self)) {",
             ]),
-        /* Promotion happens AFTER the registration match: a jobject is a
-         * local reference that dies with this frame, so the thunk must be
-         * handed something it may intern — and a failed later promotion
-         * releases the earlier ones, because a reference handed over on a
-         * bail path is exactly where a leak hides. */
-        ...handleIndices.flatMap((index, order) => [
-          /* Absence is not a failure to promote: there is no object, so
-           * there is no reference to take and none to give back. The cell
-           * is built only when there IS one. */
-          `      jobject payload${index} = a${index} == NULL`,
-          "          ? NULL",
-          `          : (*env)->NewGlobalRef(env, a${index});`,
-          `      if (payload${index} == NULL && a${index} != NULL) {`,
-          ...handleIndices.slice(0, order).map((prior) =>
-            `        if (payload${prior} != NULL) {`
-          ),
-          ...handleIndices.slice(0, order).map((prior) =>
-            `          (*env)->DeleteGlobalRef(env, payload${prior});`
-          ),
-          ...handleIndices.slice(0, order).map(() => "        }"),
-          `        (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
-          `            "promoting a payload for ${class_.binaryName}.${callback.name} failed");`,
-          ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
-          "      }",
-        ]),
-        /* The receiver crosses as payload zero, promoted like any other
-         * object: the local reference the trampoline holds dies with this
-         * frame, and the handler is handed a cell that owns its object. */
-        ...(classAnchored
-          ? [
-              "      jobject receiver = (*env)->NewGlobalRef(env, self);",
-              "      if (receiver == NULL) {",
-              ...handleIndices.map((prior) =>
-                `        (*env)->DeleteGlobalRef(env, payload${prior});`
-              ),
-              `        (*env)->ThrowNew(env, ${prefix}_cls_illegal_state,`,
-              `            "promoting the receiver for ${class_.binaryName}.${callback.name} failed");`,
-              ...(answers ? ["        return JNI_FALSE;"] : ["        return;"]),
-              "      }",
-            ]
-          : []),
+        /* JNI object payloads remain local references here. The SCABI
+         * callback capability tells ScriptC HOW to promote or release them;
+         * whole-program analysis decides WHICH. This adapter therefore does
+         * not erase escape information before the compiler can use it. */
         /* JNI has already proved this capability belongs to the current
          * thread. Scope it only across the synchronous TypeScript turn: a
          * nested Java callback saves/restores the same value, and leaving
@@ -1650,10 +1618,8 @@ export function generateJvmAdapterSource(
         "      JNIEnv *previous_env = nts_jvm_thread_env;",
         "      nts_jvm_thread_env = env;",
         `      ${answers ? "jboolean answer = " : ""}((${callbackPointer})connection->callback)(${[
-          ...(classAnchored ? ["receiver"] : []),
-          ...parameters.map((parameter, index) =>
-            parameter.kind === "handle" ? `payload${index}` : `a${index}`
-          ),
+          ...(classAnchored ? ["self"] : []),
+          ...parameters.map((_, index) => `a${index}`),
           "connection->context",
         ].join(", ")});`,
         "      nts_jvm_thread_env = previous_env;",
@@ -1765,6 +1731,7 @@ export function generateJvmAdapterSource(
   const envHelperSymbol = `${prefix}_env`;
   const bindVmSymbol = `${prefix}_bind_vm`;
   const releaseSymbol = `${prefix}_release`;
+  const framePromoteSymbol = `${prefix}_promote_frame`;
   const frameReleaseSymbol = `${prefix}_release_frame`;
   const strvFreeSymbol = `${prefix}_strv_free`;
   const disconnectSymbol = `${prefix}_disconnect`;
@@ -2107,6 +2074,22 @@ export function generateJvmAdapterSource(
     "  (*env)->DeleteGlobalRef(env, (jobject)ref);",
     "}",
     "",
+    "/* A callback object begins as a JNI local reference. Promotion is an",
+    " * explicit compiler-selected edge: take one global reference, consume",
+    " * the local reference on both outcomes, and leave a pending JNI failure",
+    " * for the callback boundary to carry back to Java. */",
+    `void *${framePromoteSymbol}(void *ref) {`,
+    "  if (ref == NULL) return NULL;",
+    `  JNIEnv *env = ${prefix}_env_required("frame promotion");`,
+    "  jobject stable = (*env)->NewGlobalRef(env, (jobject)ref);",
+    "  (*env)->DeleteLocalRef(env, (jobject)ref);",
+    "  if (stable == NULL && !(*env)->ExceptionCheck(env)) {",
+    `    fprintf(stderr, "${prefix}: JNI frame promotion returned NULL without an exception\\n");`,
+    "    abort();",
+    "  }",
+    "  return stable;",
+    "}",
+    "",
     "/* A frame-bounded result stays a JNI local reference. Its lexical",
     " * owner calls this exact release before the surrounding native frame",
     " * ends; no managed handle cell or global-reference edge exists. */",
@@ -2237,6 +2220,7 @@ export function generateJvmAdapterSource(
     `jint ${bindSymbol}(JNIEnv *env, char **error);`,
     `jint ${bindVmSymbol}(JavaVM *vm, char **error);`,
     `void ${releaseSymbol}(void *ref);`,
+    `void *${framePromoteSymbol}(void *ref);`,
     `void ${frameReleaseSymbol}(void *ref);`,
     ...(usesStringVectors ? [`void ${strvFreeSymbol}(char **vector);`] : []),
     ...(usesCallbacks
@@ -2254,7 +2238,7 @@ export function generateJvmAdapterSource(
   ].join("\n");
   return Object.freeze({
     schema: "native-typescript.jvm-adapter-source",
-    schemaVersion: 22,
+    schemaVersion: 23,
     header,
     headerFileName: `nts_jvm_${slug}_adapter.h`,
     source,
@@ -2263,6 +2247,7 @@ export function generateJvmAdapterSource(
     envSupport: Object.freeze({ helperSymbol: envHelperSymbol }),
     release: Object.freeze({
       adapterSymbol: releaseSymbol,
+      framePromoteSymbol,
       frameBoundedSymbol: frameReleaseSymbol,
     }),
     errorSupport: Object.freeze({

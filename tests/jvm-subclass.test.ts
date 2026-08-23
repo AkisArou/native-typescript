@@ -513,15 +513,14 @@ test(
           },
         ],
       );
-      /* The payload trampoline: promotion happens only AFTER the
-       * registration match, so the no-match path never takes a reference
-       * there is nothing to give back on — and only when there IS an
-       * object, because a synchronous payload may be withheld and absence
-       * is not a failure to promote. */
-      assert.ok(adapter.source.includes("jobject payload1 = a1 == NULL"));
+      /* The payload trampoline preserves JNI's local reference through the
+       * synchronous ScriptC turn. It must not erase escape information with
+       * an unconditional global promotion: SCABI names that mechanic and
+       * the compiler inserts it only when the handler actually escapes. */
       assert.ok(adapter.source.includes(
-        "          : (*env)->NewGlobalRef(env, a1);",
+        "a0, a1, connection->context",
       ));
+      assert.ok(!adapter.source.includes("jobject payload1 = a1 == NULL"));
       /* AND THE MANIFEST'S CROSS-REFERENCE RESOLVES. The id is the thing
        * a compiler will follow to find `super.m()`'s target, so it is
        * asserted to name a binding that EXISTS rather than merely to look

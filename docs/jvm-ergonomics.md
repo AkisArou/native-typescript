@@ -700,8 +700,9 @@ bits in every language that has the spelling, so admitting it agrees with
 the source rather than converting behind the program's back. The decimal
 spelling of the same number still refuses, which is where the line is.
 
-**No per-dispatch cost that Java would not pay.** One payload promotion
-per callback is a global reference Java does not allocate; that cost is
-known, measured, and its optimisation — JNI resource domains — is already
-recorded as the measured improvement of a working crossing rather than a
-prerequisite for one.
+**No per-dispatch cost that Java would not pay.** A synchronous payload that
+does not escape now stays in JNI's local-reference frame: no global promotion
+and no managed handle cell. A queued or escaping handler promotes exactly once.
+The target publishes those mechanics and whole-program analysis chooses the
+edge, as measured in
+[record 0020](records/0020-frame-bounded-callback-payloads.md).

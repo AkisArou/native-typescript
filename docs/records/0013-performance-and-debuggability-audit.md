@@ -1,8 +1,7 @@
 # 0013 — What the performance and debuggability audit changes
 
-Status: evaluated proposal; implementation order recommended below, pending
-maintainer decision
-Last revised: 2026-08-22
+Status: accepted as an evidence policy; implementation is tracked by later records  
+Last revised: 2026-08-23
 
 An external audit reviewed the current parent, the ScriptC fork, the JVM
 generator and target, the Android acceptance application, and the project's
@@ -114,9 +113,13 @@ Kotlin and plain-NativeScript harness began in
 resource optimization in [record 0016](0016-frame-bounded-native-results.md),
 and now declares strings, primitive arrays, returned handles, callback
 payloads, real text mutation, and a composite screen separately in
-[record 0017](0017-android-hotspot-matrix.md). Structural JNI counters remain
-the missing half; device ratios still do not prove which resource operation
-caused them.
+[record 0017](0017-android-hotspot-matrix.md). A general checked/profile counter
+surface remains open, but targeted disagreeing fixtures now count exact
+promotion, frame-release, and managed-cell operations for returned objects and
+callback payloads. Their device ratios are paired with those structural proofs
+in [records 0016](0016-frame-bounded-native-results.md),
+[0018](0018-nullable-frame-bounded-results.md), and
+[0020](0020-frame-bounded-callback-payloads.md).
 
 ## Findings accepted with modification
 
@@ -232,6 +235,13 @@ debug-map structure should not be frozen before the first two consumers can
 contradict it.
 
 ## Recommended implementation order
+
+This list records the audit's original dependency argument. The maintainer
+subsequently deferred debugger work and admitted performance slices by their
+own disagreeing observers and device measurements. The peer, exact and nullable
+frame-bounded results, scoped JVM environment, and synchronous frame-bounded
+callback payloads are now implemented; records 0014 through 0020 supersede the
+forecast where measurements refined it.
 
 1. **Finish the native peer now.** Its design is settled, its disagreeing
    observer is already red for the intended reason, and no implementation edit

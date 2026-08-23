@@ -211,7 +211,7 @@ export default class MainActivity extends Activity {
     button.setText("Benchmark callback");
     const clicks = new ClickBridge();
     listeners.push(clicks);
-    registrations.push(clicks.onClick(() => {
+    registrations.push(clicks.onClick((_view) => {
       this.callbackCount += 1;
     }));
     button.setOnClickListener(clicks);
