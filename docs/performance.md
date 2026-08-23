@@ -396,6 +396,7 @@ need admission evidence:
 | Candidate | Admission evidence |
 | --- | --- |
 | scope `JNIEnv *` across a JVM callback/owner turn | **landed**: [record 0019](records/0019-scoped-jni-environment-capability.md) measured exact `GetEnv` removal and 12.8–34.1% gains in the targeted ART cases |
+| keep temporary JVM string staging frame-local | **landed**: [record 0021](records/0021-frame-local-jvm-string-bridge.md) removes the unconditional outbound heap allocation and the inbound native UTF-16 allocation; isolated ART medians fell 26.8–35.8% raw and Kotlin-normalized ratios improved 10.6–16.0% |
 | cache literal Java strings | device workload dominated by repeated literal conversion/allocation |
 | keep Java-origin immutable strings foreign-resident | demonstrated Java-to-native-to-Java round-trip copies |
 | direct `ByteBuffer` paths | a reached API accepts direct buffers and copied bytes are material |
@@ -412,6 +413,13 @@ Native IR, or both compiler backends. ART then showed targeted improvements of
 12.8–34.1%. [Record 0019](records/0019-scoped-jni-environment-capability.md)
 records why the earlier 5 ns threshold remains evidence against a broad hidden
 ABI, but not against this smaller cumulative optimization.
+
+The string bridge then supplied the next smaller target-owned win. Short
+outbound strings stage UTF-16 in the native frame, and inbound strings borrow
+JNI's UTF-16 view while allocating only their final UTF-8 owner. This does not
+introduce foreign-resident language strings or an adapter content cache;
+[record 0021](records/0021-frame-local-jvm-string-bridge.md) records the exact
+mechanics, long-input fallback, and matched ART controls.
 
 Strings and buffers must follow platform contracts. `java.lang.String`
 cannot share native storage, while an API accepting a direct `ByteBuffer` can.

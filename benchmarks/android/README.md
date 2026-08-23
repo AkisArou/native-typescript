@@ -141,7 +141,12 @@ They identify separate costs that need their own evidence before string
 residency, callback-token changes, or call fusion is admitted. A scoped
 `JNIEnv *` carrier now removes repeated acquisition inside one callback or
 owner turn; the Android and composite cases remain the check that an isolated
-boundary saving is visible once framework work surrounds it.
+boundary saving is visible once framework work surrounds it. Ordinary short
+string arguments now stage UTF-16 in their native frame instead of allocating
+a temporary heap buffer, while returned Java strings borrow JNI's UTF-16 view
+and allocate only their final UTF-8 owner. The exact mechanics and five-round
+measurement are recorded in
+[record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
 
 The original two-way observation is preserved in
 [record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
@@ -160,6 +165,11 @@ The exact `GetEnv`/TLS/explicit-operand carrier measurement, the decision to
 keep the implementation target-owned, and its ART before/after result are
 recorded in
 [record 0019](../../docs/records/0019-scoped-jni-environment-capability.md).
+The frame-bounded callback-payload selection and its matched result are
+recorded in
+[record 0020](../../docs/records/0020-frame-bounded-callback-payloads.md).
+The frame-local JVM string bridge and its matched three-way result are recorded
+in [record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
 
 ## Research references
 

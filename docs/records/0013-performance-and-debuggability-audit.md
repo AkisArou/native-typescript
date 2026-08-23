@@ -119,7 +119,10 @@ promotion, frame-release, and managed-cell operations for returned objects and
 callback payloads. Their device ratios are paired with those structural proofs
 in [records 0016](0016-frame-bounded-native-results.md),
 [0018](0018-nullable-frame-bounded-results.md), and
-[0020](0020-frame-bounded-callback-payloads.md).
+[0020](0020-frame-bounded-callback-payloads.md). The first measured string
+slice stayed target-owned: [record 0021](0021-frame-local-jvm-string-bridge.md)
+removes unconditional native staging allocations without introducing a
+foreign string representation.
 
 ## Findings accepted with modification
 
@@ -218,11 +221,15 @@ to a turn an embedder cannot detach underneath.
 
 ### Call fusion, foreign-resident strings, direct buffers, ThinLTO, and PGO wait
 
-Each has a plausible mechanism. None except reference promotion has a current
-application-level measurement. Direct buffers are additionally an API-family
-choice rather than a replacement for Java arrays, and foreign-resident strings
-need a language/runtime representation whose memory cost must be measured.
-They remain candidates, not roadmap stages with implied commitment.
+Each has a plausible mechanism. None yet has the structural trigger needed for
+its architectural cost. Direct buffers are additionally an API-family choice
+rather than a replacement for Java arrays, and foreign-resident strings need a
+language/runtime representation whose memory cost must be measured. The
+measured string staging win in
+[record 0021](0021-frame-local-jvm-string-bridge.md) deliberately changes only
+target mechanics; it does not admit residency, caching, or a new source value.
+These broader ideas remain candidates, not roadmap stages with implied
+commitment.
 
 ### A debugger is an end-to-end product, not the first source-location patch
 

@@ -107,6 +107,7 @@ const skip = jdk === null ? "no JDK with include/jni.h on this host" : false;
 test("the adapter source is deterministic and carries its member table", () => {
   const first = generate();
   assert.deepEqual(generate(), first);
+  assert.equal(first.schemaVersion, 24);
   assert.match(first.sourceDigest, /^sha256:[0-9a-f]{64}$/u);
 
   assert.deepEqual(
@@ -152,6 +153,24 @@ test("the adapter source is deterministic and carries its member table", () => {
     ],
   );
   assert.deepEqual(first.stringSupport, { bridge: "utf-16" });
+  /* Short strings are the ordinary UI path. Their UTF-16 staging storage is
+   * part of the native frame rather than a heap resource, while a long input
+   * retains one exact fallback allocation. In the other direction JNI owns
+   * the UTF-16 view and the adapter allocates only the final UTF-8 result. */
+  assert.match(first.source, /inline_utf16_units = 256/u);
+  assert.match(first.source, /jchar inlineUnits\[[^\]]+inline_utf16_units\]/u);
+  assert.ok(first.source.includes("jchar *units = inlineUnits;"));
+  assert.ok(
+    first.source.includes("units = (jchar *)malloc(byteLength * sizeof(jchar));"),
+  );
+  assert.ok(!first.source.includes("malloc((byteLength + 1) * sizeof(jchar))"));
+  assert.ok(
+    first.source.includes(
+      "const jchar *units = (*env)->GetStringChars(env, string, NULL);",
+    ),
+  );
+  assert.ok(first.source.includes("->ReleaseStringChars(env, string, units)"));
+  assert.ok(!first.source.includes("->GetStringRegion"));
   assert.deepEqual(first.spanSupport, { region: "copy" });
   // One release frees the vector and its elements; its symbol is what the
   // manifest's string-vector marshal names.
@@ -924,6 +943,28 @@ test("the generated adapter compiles and calls a live JVM", { skip }, () => {
       "  if (text == NULL || error != NULL || textLength != 8) return 23;",
       '  if (strcmp(text, "hi \\xf0\\x9f\\x8e\\x89!") != 0) return 24;',
       "  free(text);",
+      /* This is larger than the generated bridge's inline storage. It makes
+       * the fallback disagree with the short emoji path while checking both
+       * directions on a live JVM. */
+      "  char longName[320];",
+      "  memset(longName, 'x', sizeof longName - 1);",
+      "  longName[sizeof longName - 1] = 0;",
+      `  text = ${greetSymbol}(longName, &textLength, &error);`,
+      "  if (text == NULL || error != NULL || textLength != 323) return 63;",
+      '  if (memcmp(text, "hi ", 3) != 0 || text[322] != \'!\') return 64;',
+      "  free(text);",
+      /* Malformed input must release neither the inline array nor miss the
+       * long-path heap owner. A bad overlong encoding reaches the first arm;
+       * a truncated sequence after 318 ASCII bytes reaches the second. */
+      "  char malformedShort[3] = {(char)0xc0, (char)0x80, 0};",
+      `  text = ${greetSymbol}(malformedShort, &textLength, &error);`,
+      "  if (text != NULL || error == NULL) return 65;",
+      `  ${releaseSymbol}(error); error = NULL;`,
+      "  memset(longName, 'x', sizeof longName - 1);",
+      "  longName[sizeof longName - 2] = (char)0xc0;",
+      `  text = ${greetSymbol}(longName, &textLength, &error);`,
+      "  if (text != NULL || error == NULL) return 66;",
+      `  ${releaseSymbol}(error); error = NULL;`,
       /* A successful null writes the (NULL, 0) pair whole: the poison
        * proves the adapter wrote the zero rather than inheriting it. */
       "  textLength = 99;",

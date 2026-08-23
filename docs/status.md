@@ -1,7 +1,7 @@
 # Implementation Status
 
 Status: current implementation state  
-Last revised: 2026-08-22
+Last revised: 2026-08-23
 
 This document records what is **built and proven**, and by which gate. The
 normative specifications say what must be true; this says how far the
@@ -1220,6 +1220,11 @@ so an adapter shape nobody has classified cannot be emitted silently. A
 `String[]` argument crosses as a borrowed terminated vector, a `byte[]` result
 as an owned copy with a compiler-supplied length slot, and refused array
 elements name the carrier each is missing rather than failing as a class.
+Ordinary short string arguments stage their UTF-16 units in the native frame;
+a larger value retains one heap fallback. A Java string result lends its JNI
+UTF-16 view to the converter and allocates only the final owned UTF-8 value.
+The generated-source observer pins both resource shapes, and the live JVM lane
+crosses non-BMP short text plus the long fallback.
 
 **Native subclassing runs on the desktop JDK.** A generated Java subclass
 stores the peer association for a host-constructed object and dispatches the

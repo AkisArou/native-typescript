@@ -92,26 +92,26 @@ is better.
 
 | Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128-child view tree | 63,415 ns/child | 62,722 ns/child | 46,295 ns/child | 1.01x | 1.37x |
-| lightweight `Rect` construction and `width()` | 196.84 ns/op | 35.70 ns/op | 4,578.21 ns/op | 5.51x | 0.043x |
-| `TextView` construction and scalar call | 27,656 ns/op | 27,452 ns/op | 29,255 ns/op | 1.01x | 0.95x |
-| repeated `TextView.setTextSize` | 84.05 ns/op | 22.81 ns/op | 320.66 ns/op | 3.69x | 0.26x |
-| payload-free synchronous callback | 180.90 ns/delivery | 2.30 ns/delivery | 1,618.53 ns/delivery | 78.62x | 0.11x |
-| ASCII/Unicode string arguments | 662.17 ns/comparison | 39.33 ns/comparison | 1,366.78 ns/comparison | 16.83x | 0.48x |
-| fresh Java string result | 674.25 ns/result | 248.39 ns/result | 794.99 ns/result | 2.71x | 0.85x |
-| 256-byte array encoding round trip | 2,141.74 ns/encoding | 799.09 ns/encoding | 9,242.05 ns/encoding | 2.68x | 0.23x |
-| nullable object result plus receiver call | 212.56 ns/lookup | 3.40 ns/lookup | 754.96 ns/lookup | 62.58x | 0.28x |
-| callback payload plus receiver call | 246.32 ns/delivery | 3.96 ns/delivery | 2,039.18 ns/delivery | 62.18x | 0.12x |
-| dynamic `TextView` counter update | 547.37 ns/update | 283.81 ns/update | 1,392.12 ns/update | 1.93x | 0.39x |
-| nested programmatic screen build | 129,447 ns/row | 110,966 ns/row | 158,898 ns/row | 1.17x | 0.81x |
+| 128-child view tree | 46,885 ns/child | 28,391 ns/child | 41,852 ns/child | 1.65x | 1.12x |
+| lightweight `Rect` construction and `width()` | 151.65 ns/op | 21.06 ns/op | 3,420.57 ns/op | 7.20x | 0.044x |
+| `TextView` construction and scalar call | 22,402 ns/op | 21,986 ns/op | 27,126 ns/op | 1.02x | 0.83x |
+| repeated `TextView.setTextSize` | 71.05 ns/op | 17.56 ns/op | 233.29 ns/op | 4.05x | 0.30x |
+| payload-free synchronous callback | 163.24 ns/delivery | 2.15 ns/delivery | 1,481.83 ns/delivery | 76.07x | 0.11x |
+| ASCII/Unicode string arguments | 425.27 ns/comparison | 30.07 ns/comparison | 1,040.01 ns/comparison | 14.14x | 0.41x |
+| fresh Java string result | 493.48 ns/result | 203.44 ns/result | 553.49 ns/result | 2.43x | 0.89x |
+| 256-byte array encoding round trip | 1,086.54 ns/encoding | 499.03 ns/encoding | 6,880.55 ns/encoding | 2.18x | 0.16x |
+| nullable object result plus receiver call | 158.53 ns/lookup | 2.81 ns/lookup | 546.93 ns/lookup | 56.35x | 0.29x |
+| callback payload plus receiver call | 236.98 ns/delivery | 3.37 ns/delivery | 1,823.94 ns/delivery | 70.39x | 0.13x |
+| dynamic `TextView` counter update | 424.23 ns/update | 213.81 ns/update | 1,075.23 ns/update | 1.98x | 0.39x |
+| nested programmatic screen build | 83,681 ns/row | 89,156 ns/row | 105,156 ns/row | 0.94x | 0.80x |
 
 The post-warm-foreground median memory and packaged artifact observations were:
 
 | Measurement | Native TypeScript | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: |
-| Total PSS | 18,239 KiB | 17,564 KiB | 74,055 KiB |
-| Total RSS | 143,388 KiB | 141,520 KiB | 202,048 KiB |
-| APK size | 602,395 bytes | 20,688 bytes | 28,639,196 bytes |
+| Total PSS | 19,096 KiB | 18,707 KiB | 74,811 KiB |
+| Total RSS | 143,124 KiB | 142,108 KiB | 202,036 KiB |
+| APK size | 602,395 bytes | 20,688 bytes | 28,639,620 bytes |
 
 The view-tree result has only five high-variance emulator observations, and
 the artifact sizes reflect deliberately different product shapes. They are
@@ -124,7 +124,12 @@ targeted setter, light-object, handle-result, and callback medians improved by
 12.8–34.1%. Synchronous callback objects now stay in their JNI frame when
 whole-program analysis proves they do not escape, reducing the two callback
 medians by 27.0–29.1%; its structural proof and matched measurement are in
-[record 0020](docs/records/0020-frame-bounded-callback-payloads.md). The scoped
+[record 0020](docs/records/0020-frame-bounded-callback-payloads.md). Short
+outbound strings now stage UTF-16 in their native frame, and Java results
+borrow JNI's UTF-16 view while allocating only the final UTF-8 owner. The two
+isolated string medians fell by 26.8–35.8% raw and their Kotlin-normalized
+ratios improved by 10.6–16.0%; the exact mechanics and emulator caveats are in
+[record 0021](docs/records/0021-frame-local-jvm-string-bridge.md). The scoped
 environment mechanism, falsifier, and before/after evidence are in
 [record 0019](docs/records/0019-scoped-jni-environment-capability.md). Nullable
 returned objects stay in the JNI local-reference domain when their use does
