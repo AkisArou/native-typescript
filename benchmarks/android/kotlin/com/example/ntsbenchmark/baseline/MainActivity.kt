@@ -12,6 +12,12 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.truncate
 
 /* The runner compares these literals to the Native TypeScript source before
  * building either APK. Keep the program shapes readable on both sides; do not
@@ -32,6 +38,7 @@ private const val RECORD_OBJECT_ITERATIONS = 50000
 private const val OPTIONAL_VALUE_ITERATIONS = 50000
 private const val MAP_OPERATION_ITERATIONS = 50000
 private const val SET_OPERATION_ITERATIONS = 50000
+private const val MATH_OPERATION_ITERATIONS = 100000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -369,6 +376,26 @@ class MainActivity : Activity() {
                     "set-operations",
                     sample,
                     SET_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("math-operations".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runMathOperations()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runMathOperations()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "math-operations",
+                    sample,
+                    MATH_OPERATION_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -803,6 +830,33 @@ class MainActivity : Activity() {
             index += 1
         }
         return checksum
+    }
+
+    private fun jsRound(value: Double): Double {
+        if (value.isNaN() || value.isInfinite() || value == 0.0) return value
+        val lower = floor(value)
+        val result = if (value - lower < 0.5) lower else lower + 1.0
+        return if (result == 0.0 && value < 0.0) -0.0 else result
+    }
+
+    private fun runMathOperations(): Int {
+        var checksum = 0.0
+        var index = 0
+        while (index < MATH_OPERATION_ITERATIONS) {
+            val value = ((index and 1023) - 512) / 8.0 +
+                (if (index and 1 != 0) 0.25 else -0.25)
+            val minimum = min(value, -value)
+            val maximum = max(value, -value)
+            checksum += floor(value)
+            checksum += ceil(value)
+            checksum += truncate(value)
+            checksum += jsRound(value)
+            checksum += truncate(abs(value))
+            checksum += truncate(minimum)
+            checksum += truncate(maximum)
+            index += 1
+        }
+        return checksum.toInt()
     }
 
     private fun runByteArrays(input: ByteArray): Int {

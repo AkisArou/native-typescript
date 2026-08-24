@@ -16,6 +16,7 @@ import { runHandleResultWorkload } from "./handle-result.js";
 import { runLightObjectWorkload } from "./light-object.js";
 import { runManagedClassWorkload } from "./managed-class.js";
 import { runMapOperationWorkload } from "./map-operations.js";
+import { runMathOperationWorkload } from "./math-operations.js";
 import { runOptionalValueWorkload } from "./optional-values.js";
 import { runRecordObjectWorkload } from "./record-objects.js";
 import { runSetOperationWorkload } from "./set-operations.js";
@@ -40,6 +41,7 @@ const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
 const MAP_OPERATION_ITERATIONS = 50000;
 const SET_OPERATION_ITERATIONS = 50000;
+const MATH_OPERATION_ITERATIONS = 100000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -523,6 +525,35 @@ export default class MainActivity extends Activity {
       Log.i(
         TAG,
         "complete implementation=native-typescript-jvm scenario=set-operations",
+      );
+    } else if (scenario === "math-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runMathOperationWorkload(MATH_OPERATION_ITERATIONS);
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runMathOperationWorkload(MATH_OPERATION_ITERATIONS);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "math-operations",
+          MATH_OPERATION_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        "complete implementation=native-typescript-jvm scenario=math-operations",
       );
     } else if (scenario === "byte-array") {
       const input = new Uint8Array(BYTE_ARRAY_LENGTH);

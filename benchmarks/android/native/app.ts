@@ -37,6 +37,7 @@ const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
 const MAP_OPERATION_ITERATIONS = 50000;
 const SET_OPERATION_ITERATIONS = 50000;
+const MATH_OPERATION_ITERATIONS = 100000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -289,6 +290,26 @@ function runSetOperations(): number {
       for (const member of active) checksum += member.length;
     }
     checksum += active.size;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runMathOperations(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < MATH_OPERATION_ITERATIONS) {
+    const value = ((index & 1_023) - 512) / 8 +
+      (index & 1 ? 0.25 : -0.25);
+    const minimum = Math.min(value, -value);
+    const maximum = Math.max(value, -value);
+    checksum += Math.floor(value);
+    checksum += Math.ceil(value);
+    checksum += Math.trunc(value);
+    checksum += Math.round(value);
+    checksum += Math.trunc(Math.abs(value));
+    checksum += Math.trunc(minimum);
+    checksum += Math.trunc(maximum);
     index += 1;
   }
   return checksum;
@@ -714,6 +735,28 @@ export default class MainActivity extends Activity {
           "set-operations",
           sample,
           SET_OPERATION_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "math-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runMathOperations();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runMathOperations();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "math-operations",
+          sample,
+          MATH_OPERATION_ITERATIONS,
           elapsed,
           checksum,
         );

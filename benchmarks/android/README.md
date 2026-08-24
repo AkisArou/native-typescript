@@ -101,6 +101,7 @@ JavaScript array that would change the operation.
 | Language | `optional-values` | Consume 50,000 scalar and reference optional-result pairs across helper calls, with mixed present/missing arms |
 | Language | `map-operations` | Run 50,000 bounded string-key cache updates with `get`, `set`, `has`, `delete`, reinsertion, and optional numeric results |
 | Language | `set-operations` | Run 50,000 bounded string membership updates with `add`, `has`, `delete`, reinsertion, `size`, and periodic insertion-order iteration |
+| Language | `math-operations` | Run 100,000 deterministic numeric transforms through `floor`, `ceil`, `trunc`, JavaScript `round`, `abs`, `min`, and `max` |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |

@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 10,
+  version: 11,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -27,6 +27,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   optionalValueIterations: 50_000,
   mapOperationIterations: 50_000,
   setOperationIterations: 50_000,
+  mathOperationIterations: 100_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -154,6 +155,24 @@ function setOperationChecksum(iterations: number): number {
       for (const member of active) checksum += member.length;
     }
     checksum += active.size;
+  }
+  return checksum;
+}
+
+function mathOperationChecksum(iterations: number): number {
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const value = ((index & 1_023) - 512) / 8 +
+      (index & 1 ? 0.25 : -0.25);
+    const minimum = Math.min(value, -value);
+    const maximum = Math.max(value, -value);
+    checksum += Math.floor(value);
+    checksum += Math.ceil(value);
+    checksum += Math.trunc(value);
+    checksum += Math.round(value);
+    checksum += Math.trunc(Math.abs(value));
+    checksum += Math.trunc(minimum);
+    checksum += Math.trunc(maximum);
   }
   return checksum;
 }
@@ -336,6 +355,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: setOperationChecksum(workload.setOperationIterations),
+  },
+  {
+    name: "math-operations",
+    layer: "language-runtime",
+    hotspot:
+      "floor, ceil, truncation, JavaScript rounding, absolute value, minimum, and maximum",
+    operationUnit: "numeric transform",
+    iterations: workload.mathOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: mathOperationChecksum(workload.mathOperationIterations),
   },
   {
     name: "byte-array",

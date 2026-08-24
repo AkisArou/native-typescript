@@ -56,6 +56,10 @@ const setFixture = join(
   scriptcRoot,
   "tests/corpus/119-jvm-set-values.ts",
 );
+const mathFixture = join(
+  scriptcRoot,
+  "tests/corpus/120-jvm-math-values.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -1100,6 +1104,125 @@ test(
         )
         .join("\n");
       assert.match(arrayBytecode, /java\/lang\/System\.arraycopy/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM math preserves JavaScript edge cases as primitive bytecode",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "mathTransforms",
+      "mathEdges",
+      "extremaArity",
+      "spreadExtrema",
+      "variadicMathOrder",
+      "randomInvariant",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(mathFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "MathValues";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-math-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "MathValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class MathValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.mathTransforms(2.6d));\n` +
+          `    System.out.println(${simpleName}.mathEdges());\n` +
+          `    System.out.println(${simpleName}.extremaArity());\n` +
+          `    System.out.println(${simpleName}.spreadExtrema());\n` +
+          `    System.out.println(${simpleName}.variadicMathOrder());\n` +
+          `    System.out.println(${simpleName}.randomInvariant(4096.0d));\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.MathValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "8.6\n1023.0\n63.0\n897.0\n1233.0\n4096.0\n",
+      );
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.match(ownerBytecode, /java\/lang\/Math\.floor:\(D\)D/u);
+      assert.match(ownerBytecode, /java\/lang\/Math\.ceil:\(D\)D/u);
+      assert.match(ownerBytecode, /java\/lang\/Math\.abs:\(D\)D/u);
+      assert.match(ownerBytecode, /java\/lang\/Math\.random:\(\)D/u);
+      assert.match(ownerBytecode, /Method ntsMathRound:\(D\)D/u);
+      assert.match(ownerBytecode, /Method ntsMathMaxArray:/u);
+      assert.doesNotMatch(
+        ownerBytecode,
+        /java\/lang\/(?:Double|Number)\.valueOf|java\/util\/|JNI/u,
+      );
+
+      const arrayBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsArray`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(arrayBytecode, /double\[\] data;/u);
+      assert.doesNotMatch(arrayBytecode, /java\.lang\.Object\[\]/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

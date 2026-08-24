@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const workspace = join(import.meta.dirname, "..");
 
-interface AndroidCollectionContract {
+interface AndroidLanguageContract {
   readonly version: number;
   readonly scenarioCount: number;
   readonly uniqueScenarioCount: number;
@@ -19,9 +19,13 @@ interface AndroidCollectionContract {
   readonly setExpectedChecksum: number;
   readonly setActualChecksum: number;
   readonly setRepeated: boolean;
+  readonly mathIterations: number;
+  readonly mathExpectedChecksum: number;
+  readonly mathActualChecksum: number;
+  readonly mathRepeated: boolean;
 }
 
-function readAndroidCollectionContract(): AndroidCollectionContract {
+function readAndroidLanguageContract(): AndroidLanguageContract {
   const projectUrl = pathToFileURL(
     join(workspace, "benchmarks/android/native-project.ts"),
   ).href;
@@ -31,6 +35,9 @@ function readAndroidCollectionContract(): AndroidCollectionContract {
   const setWorkloadUrl = pathToFileURL(
     join(workspace, "benchmarks/android/direct/set-operations.ts"),
   ).href;
+  const mathWorkloadUrl = pathToFileURL(
+    join(workspace, "benchmarks/android/direct/math-operations.ts"),
+  ).href;
   const program = `
     import {
       androidBenchmarkScenarios,
@@ -39,6 +46,7 @@ function readAndroidCollectionContract(): AndroidCollectionContract {
     } from ${JSON.stringify(projectUrl)};
     import { runMapOperationWorkload } from ${JSON.stringify(workloadUrl)};
     import { runSetOperationWorkload } from ${JSON.stringify(setWorkloadUrl)};
+    import { runMathOperationWorkload } from ${JSON.stringify(mathWorkloadUrl)};
     const scenario = androidBenchmarkScenarios.find(
       ({ name }) => name === "map-operations",
     );
@@ -47,6 +55,10 @@ function readAndroidCollectionContract(): AndroidCollectionContract {
       ({ name }) => name === "set-operations",
     );
     if (setScenario === undefined) throw new Error("set scenario is absent");
+    const mathScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "math-operations",
+    );
+    if (mathScenario === undefined) throw new Error("math scenario is absent");
     process.stdout.write(JSON.stringify({
       version: androidBenchmarkWorkload.version,
       scenarioCount: androidBenchmarkScenarios.length,
@@ -61,6 +73,10 @@ function readAndroidCollectionContract(): AndroidCollectionContract {
       setExpectedChecksum: setScenario.expectedChecksum,
       setActualChecksum: runSetOperationWorkload(setScenario.iterations),
       setRepeated: repeatedAndroidBenchmarkScenarios.includes("set-operations"),
+      mathIterations: mathScenario.iterations,
+      mathExpectedChecksum: mathScenario.expectedChecksum,
+      mathActualChecksum: runMathOperationWorkload(mathScenario.iterations),
+      mathRepeated: repeatedAndroidBenchmarkScenarios.includes("math-operations"),
     }));
   `;
   return JSON.parse(execFileSync(process.execPath, [
@@ -69,13 +85,13 @@ function readAndroidCollectionContract(): AndroidCollectionContract {
     "--input-type=module",
     "--eval",
     program,
-  ], { encoding: "utf8" })) as AndroidCollectionContract;
+  ], { encoding: "utf8" })) as AndroidLanguageContract;
 }
 
-test("the Android collection benchmarks are one matched four-application contract", () => {
-  const contract = readAndroidCollectionContract();
-  assert.equal(contract.version, 10);
-  assert.equal(contract.scenarioCount, 21);
+test("the Android language benchmarks are one matched four-application contract", () => {
+  const contract = readAndroidLanguageContract();
+  assert.equal(contract.version, 11);
+  assert.equal(contract.scenarioCount, 22);
   assert.equal(contract.uniqueScenarioCount, contract.scenarioCount);
   assert.equal(contract.iterations, 50_000);
   assert.equal(contract.expectedChecksum, 83_989_039);
@@ -85,36 +101,51 @@ test("the Android collection benchmarks are one matched four-application contrac
   assert.equal(contract.setExpectedChecksum, 825_665);
   assert.equal(contract.setActualChecksum, contract.setExpectedChecksum);
   assert.equal(contract.setRepeated, true);
+  assert.equal(contract.mathIterations, 100_000);
+  assert.equal(contract.mathExpectedChecksum, 3_075_216);
+  assert.equal(contract.mathActualChecksum, contract.mathExpectedChecksum);
+  assert.equal(contract.mathRepeated, true);
 
-  for (const [implementation, relativePath, mapConstant, setConstant] of [
+  for (const [
+    implementation,
+    relativePath,
+    mapConstant,
+    setConstant,
+    mathConstant,
+  ] of [
     [
       "native-typescript",
       "benchmarks/android/native/app.ts",
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
+      /const MATH_OPERATION_ITERATIONS = 100000;/u,
     ],
     [
       "native-typescript-jvm",
       "benchmarks/android/direct/activity.ts",
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
+      /const MATH_OPERATION_ITERATIONS = 100000;/u,
     ],
     [
       "kotlin",
       "benchmarks/android/kotlin/com/example/ntsbenchmark/baseline/MainActivity.kt",
       /private const val MAP_OPERATION_ITERATIONS = 50000/u,
       /private const val SET_OPERATION_ITERATIONS = 50000/u,
+      /private const val MATH_OPERATION_ITERATIONS = 100000/u,
     ],
     [
       "nativescript",
       "benchmarks/android/nativescript/app/app.ts",
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
+      /const MATH_OPERATION_ITERATIONS = 100000;/u,
     ],
   ] as const) {
     const source = readFileSync(join(workspace, relativePath), "utf8");
     assert.match(source, mapConstant, `${implementation} map iteration count drifted`);
     assert.match(source, setConstant, `${implementation} set iteration count drifted`);
+    assert.match(source, mathConstant, `${implementation} math iteration count drifted`);
     assert.match(
       source,
       /map-operations/u,
@@ -124,6 +155,11 @@ test("the Android collection benchmarks are one matched four-application contrac
       source,
       /set-operations/u,
       `${implementation} does not route the set scenario`,
+    );
+    assert.match(
+      source,
+      /math-operations/u,
+      `${implementation} does not route the math scenario`,
     );
   }
 });
