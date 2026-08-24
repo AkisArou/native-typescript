@@ -624,6 +624,11 @@ test(
       assert.match(nestedBytecode, /double\[\] data;/u);
       assert.match(nestedBytecode, /boolean\[\] data;/u);
       assert.match(nestedBytecode, /java\.lang\.String\[\] data;/u);
+      assert.match(nestedBytecode, /private int length\(\);/u);
+      assert.match(nestedBytecode, /private double get\(int\);/u);
+      assert.match(nestedBytecode, /private double get\(double\);/u);
+      assert.match(nestedBytecode, /private int push\(double\);/u);
+      assert.match(nestedBytecode, /private int push\(double\.\.\.\);/u);
       assert.doesNotMatch(nestedBytecode, /java\.lang\.Object\[\]/u);
       assert.doesNotMatch(nestedBytecode, /ArrayList/u);
 
@@ -634,6 +639,8 @@ test(
       );
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf/u);
       assert.match(ownerBytecode, /InvokeDynamic/u);
+      assert.match(ownerBytecode, /NtsArray\d+\.get:\(I\)D/u);
+      assert.match(ownerBytecode, /NtsArray\d+\.push:\(D\)I/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

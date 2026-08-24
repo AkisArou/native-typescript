@@ -150,7 +150,17 @@ specialization and required no handle-specific representation. The exact
 encoding, semantic observers, and five-round device reports are in
 [record 0046](docs/records/0046-direct-jvm-primitive-number-unions.md).
 
-The same run measured application shape:
+The next focused optimization declares the Direct JVM array representation's
+existing signed-int length bound to shared integer inference and removes the
+one-element Java varargs allocation from `push(value)`. The idiomatic
+map → filter → reduce workload improved from 647.30 ns to **234.96 ns**
+(1.58x Kotlin to **0.82x**) in a repeated five-round run. The ordinary dynamic
+array lifecycle improved from 233.52 ns to 162.65 ns in raw time, although its
+Kotlin-normalized ratio did not improve across the noisier cross-run baseline.
+The target boundary, bytecode proof, and both device reports are in
+[record 0047](docs/records/0047-direct-jvm-int-bounded-arrays.md).
+
+The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: | ---: |
