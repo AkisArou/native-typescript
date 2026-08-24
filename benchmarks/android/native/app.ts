@@ -385,6 +385,48 @@ function runNumberParsing(): number {
   return checksum;
 }
 
+function runParseInt(): number {
+  const inputs = [
+    "0", "7", "42", "-17", "255", "1024", "6553", "-3276",
+    "12345", "-7654", "2147", "-9999", "73", "8080", "-4096", "3141",
+  ];
+  let checksum = 0;
+  let index = 0;
+  while (index < NUMBER_PARSING_ITERATIONS) {
+    checksum += parseInt(inputs[index & 15]!, 10);
+    index += 1;
+  }
+  return checksum;
+}
+
+function runParseFloat(): number {
+  const inputs = [
+    "0.5", "-2.25", "3.125", "1e3", "-0.03125", "42.75", "512.5", "-128.125",
+    "0.125", "64.875", "-16.5", "2048.25", "-4096.75", "7.5", "0e0", "123.375",
+  ];
+  let checksum = 0;
+  let index = 0;
+  while (index < NUMBER_PARSING_ITERATIONS) {
+    checksum += parseFloat(inputs[index & 15]!) * 32;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runNumberFromString(): number {
+  const inputs = [
+    "1.25", "-3.5", "6.125", "2.5e2", "-0.0625", "18.75", "256.25", "-64.5",
+    "0.375", "32.625", "-8.25", "1024.5", "-2048.125", "15.875", "0.0", "61.25",
+  ];
+  let checksum = 0;
+  let index = 0;
+  while (index < NUMBER_PARSING_ITERATIONS) {
+    checksum += Number(inputs[index & 15]!) * 32;
+    index += 1;
+  }
+  return checksum;
+}
+
 function runByteArrays(input: Uint8Array): number {
   let checksum = 0;
   let index = 0;
@@ -878,21 +920,43 @@ export default class MainActivity extends Activity {
         );
         sample += 1;
       }
-    } else if (scenario === "number-parsing") {
+    } else if (
+      scenario === "number-parsing" ||
+      scenario === "parse-int" ||
+      scenario === "parse-float" ||
+      scenario === "number-from-string"
+    ) {
       let warmup = 0;
       while (warmup < WARMUP_SAMPLES) {
-        runNumberParsing();
+        if (scenario === "number-parsing") {
+          runNumberParsing();
+        } else if (scenario === "parse-int") {
+          runParseInt();
+        } else if (scenario === "parse-float") {
+          runParseFloat();
+        } else {
+          runNumberFromString();
+        }
         warmup += 1;
       }
       let sample = 0;
       while (sample < MEASURED_SAMPLES) {
         const started = SystemClock.elapsedRealtimeNanos();
-        const checksum = runNumberParsing();
+        let checksum = 0;
+        if (scenario === "number-parsing") {
+          checksum = runNumberParsing();
+        } else if (scenario === "parse-int") {
+          checksum = runParseInt();
+        } else if (scenario === "parse-float") {
+          checksum = runParseFloat();
+        } else {
+          checksum = runNumberFromString();
+        }
         const elapsed = jlong.toNumber(
           (SystemClock.elapsedRealtimeNanos() - started) as jlong,
         );
         logSample(
-          "number-parsing",
+          scenario,
           sample,
           NUMBER_PARSING_ITERATIONS,
           elapsed,

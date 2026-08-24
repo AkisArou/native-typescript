@@ -215,6 +215,13 @@ in repeated runs (2.50x Kotlin to **1.05x/1.35x**), while the unchanged
 aggregate string workload reaches 1.03x Kotlin. See
 [record 0053](docs/records/0053-direct-jvm-single-builder-padding.md).
 
+The three numeric grammars now also have separate Android probes. `parseInt`
+already measures at 0.91x Kotlin; `parseFloat` and `Number(string)` are close
+enough that a proposed direct-ART decimal path required adjacent A/B/A runs.
+Those runs did not repeat a win, so the compiler change was rejected while the
+probes and Java-vs-JavaScript grammar cases were retained. See
+[record 0054](docs/records/0054-direct-jvm-numeric-parser-probes.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

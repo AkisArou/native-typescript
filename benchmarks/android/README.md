@@ -109,6 +109,9 @@ JavaScript array that would change the operation.
 | Language | `set-operations` | Run 50,000 bounded string membership updates with `add`, `has`, `delete`, reinsertion, `size`, and periodic insertion-order iteration |
 | Language | `math-operations` | Run 100,000 deterministic numeric transforms through `floor`, `ceil`, `trunc`, JavaScript `round`, `abs`, `min`, and `max` |
 | Language | `number-parsing` | Parse 50,000 bounded triples of base-10 integers, signed fractions, and exponent text through `parseInt`, `parseFloat`, and number conversion |
+| Language | `parse-int` | Isolate 50,000 base-10 JavaScript integer-prefix scans and conversions |
+| Language | `parse-float` | Isolate 50,000 JavaScript decimal-prefix scans and conversions |
+| Language | `number-from-string` | Isolate 50,000 whole-string JavaScript numeric grammar checks and conversions |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |
@@ -260,6 +263,13 @@ across repeated runs and moves it from 2.50x Kotlin to 1.05x/1.35x; the
 unchanged aggregate reaches 1.03x Kotlin in the repeat. The instrument and
 implementation are recorded in
 [record 0053](../../docs/records/0053-direct-jvm-single-builder-padding.md).
+The numeric aggregate is now split into `parse-int`, `parse-float`, and
+`number-from-string` probes. They showed that `parseInt` already beats Kotlin
+and prevented a plausible Direct JVM decimal fast path from being accepted on
+one favorable run: adjacent A/B/A measurements did not repeat the win, so the
+exact parser remains. The instrument, semantic counterexamples, and rejected
+optimization are recorded in
+[record 0054](../../docs/records/0054-direct-jvm-numeric-parser-probes.md).
 
 ## Research references
 

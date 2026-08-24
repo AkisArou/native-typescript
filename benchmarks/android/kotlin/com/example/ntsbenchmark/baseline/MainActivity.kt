@@ -445,19 +445,40 @@ class MainActivity : Activity() {
                 )
                 sample += 1
             }
-        } else if ("number-parsing".equals(scenario)) {
+        } else if (
+            "number-parsing".equals(scenario) ||
+            "parse-int".equals(scenario) ||
+            "parse-float".equals(scenario) ||
+            "number-from-string".equals(scenario)
+        ) {
             var warmup = 0
             while (warmup < WARMUP_SAMPLES) {
-                runNumberParsing()
+                if ("number-parsing".equals(scenario)) {
+                    runNumberParsing()
+                } else if ("parse-int".equals(scenario)) {
+                    runParseInt()
+                } else if ("parse-float".equals(scenario)) {
+                    runParseFloat()
+                } else {
+                    runNumberFromString()
+                }
                 warmup += 1
             }
             var sample = 0
             while (sample < MEASURED_SAMPLES) {
                 val started = SystemClock.elapsedRealtimeNanos()
-                val checksum = runNumberParsing()
+                val checksum = if ("number-parsing".equals(scenario)) {
+                    runNumberParsing()
+                } else if ("parse-int".equals(scenario)) {
+                    runParseInt()
+                } else if ("parse-float".equals(scenario)) {
+                    runParseFloat()
+                } else {
+                    runNumberFromString()
+                }
                 val elapsed = SystemClock.elapsedRealtimeNanos() - started
                 logSample(
-                    "number-parsing",
+                    scenario!!,
                     sample,
                     NUMBER_PARSING_ITERATIONS,
                     elapsed,
@@ -987,6 +1008,48 @@ class MainActivity : Activity() {
             checksum += integerInputs[slot].toInt()
             checksum += floatInputs[slot].toDouble() * 32.0
             checksum += numberInputs[slot].toDouble() * 32.0
+            index += 1
+        }
+        return checksum.toInt()
+    }
+
+    private fun runParseInt(): Int {
+        val inputs = arrayOf(
+            "0", "7", "42", "-17", "255", "1024", "6553", "-3276",
+            "12345", "-7654", "2147", "-9999", "73", "8080", "-4096", "3141",
+        )
+        var checksum = 0
+        var index = 0
+        while (index < NUMBER_PARSING_ITERATIONS) {
+            checksum += inputs[index and 15].toInt()
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runParseFloat(): Int {
+        val inputs = arrayOf(
+            "0.5", "-2.25", "3.125", "1e3", "-0.03125", "42.75", "512.5", "-128.125",
+            "0.125", "64.875", "-16.5", "2048.25", "-4096.75", "7.5", "0e0", "123.375",
+        )
+        var checksum = 0.0
+        var index = 0
+        while (index < NUMBER_PARSING_ITERATIONS) {
+            checksum += inputs[index and 15].toDouble() * 32.0
+            index += 1
+        }
+        return checksum.toInt()
+    }
+
+    private fun runNumberFromString(): Int {
+        val inputs = arrayOf(
+            "1.25", "-3.5", "6.125", "2.5e2", "-0.0625", "18.75", "256.25", "-64.5",
+            "0.375", "32.625", "-8.25", "1024.5", "-2048.125", "15.875", "0.0", "61.25",
+        )
+        var checksum = 0.0
+        var index = 0
+        while (index < NUMBER_PARSING_ITERATIONS) {
+            checksum += inputs[index and 15].toDouble() * 32.0
             index += 1
         }
         return checksum.toInt()

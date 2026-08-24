@@ -17,7 +17,12 @@ import { runLightObjectWorkload } from "./light-object.js";
 import { runManagedClassWorkload } from "./managed-class.js";
 import { runMapOperationWorkload } from "./map-operations.js";
 import { runMathOperationWorkload } from "./math-operations.js";
-import { runNumberParsingWorkload } from "./number-parsing.js";
+import {
+  runNumberFromStringWorkload,
+  runNumberParsingWorkload,
+  runParseFloatWorkload,
+  runParseIntWorkload,
+} from "./number-parsing.js";
 import { runOptionalValueWorkload } from "./optional-values.js";
 import { runRecordObjectWorkload } from "./record-objects.js";
 import { runSetOperationWorkload } from "./set-operations.js";
@@ -625,22 +630,44 @@ export default class MainActivity extends Activity {
         TAG,
         "complete implementation=native-typescript-jvm scenario=math-operations",
       );
-    } else if (scenario === "number-parsing") {
+    } else if (
+      scenario === "number-parsing" ||
+      scenario === "parse-int" ||
+      scenario === "parse-float" ||
+      scenario === "number-from-string"
+    ) {
       let warmup = 0;
       while (warmup < WARMUP_SAMPLES) {
-        runNumberParsingWorkload(NUMBER_PARSING_ITERATIONS);
+        if (scenario === "number-parsing") {
+          runNumberParsingWorkload(NUMBER_PARSING_ITERATIONS);
+        } else if (scenario === "parse-int") {
+          runParseIntWorkload(NUMBER_PARSING_ITERATIONS);
+        } else if (scenario === "parse-float") {
+          runParseFloatWorkload(NUMBER_PARSING_ITERATIONS);
+        } else {
+          runNumberFromStringWorkload(NUMBER_PARSING_ITERATIONS);
+        }
         warmup += 1;
       }
 
       let sample = 0;
       while (sample < MEASURED_SAMPLES) {
         const started = SystemClock.elapsedRealtimeNanos();
-        const checksum = runNumberParsingWorkload(NUMBER_PARSING_ITERATIONS);
+        let checksum = 0;
+        if (scenario === "number-parsing") {
+          checksum = runNumberParsingWorkload(NUMBER_PARSING_ITERATIONS);
+        } else if (scenario === "parse-int") {
+          checksum = runParseIntWorkload(NUMBER_PARSING_ITERATIONS);
+        } else if (scenario === "parse-float") {
+          checksum = runParseFloatWorkload(NUMBER_PARSING_ITERATIONS);
+        } else {
+          checksum = runNumberFromStringWorkload(NUMBER_PARSING_ITERATIONS);
+        }
         const elapsed = jlong.toNumber(
           (SystemClock.elapsedRealtimeNanos() - started) as jlong,
         );
         logSample(
-          "number-parsing",
+          scenario,
           NUMBER_PARSING_ITERATIONS,
           sample,
           elapsed,
@@ -652,7 +679,7 @@ export default class MainActivity extends Activity {
 
       Log.i(
         TAG,
-        "complete implementation=native-typescript-jvm scenario=number-parsing",
+        `complete implementation=native-typescript-jvm scenario=${scenario}`,
       );
     } else if (scenario === "byte-array") {
       const input = new Uint8Array(BYTE_ARRAY_LENGTH);

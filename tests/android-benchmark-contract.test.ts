@@ -27,6 +27,15 @@ interface AndroidLanguageContract {
   readonly numberParsingExpectedChecksum: number;
   readonly numberParsingActualChecksum: number;
   readonly numberParsingRepeated: boolean;
+  readonly parseIntExpectedChecksum: number;
+  readonly parseIntActualChecksum: number;
+  readonly parseIntRepeated: boolean;
+  readonly parseFloatExpectedChecksum: number;
+  readonly parseFloatActualChecksum: number;
+  readonly parseFloatRepeated: boolean;
+  readonly numberFromStringExpectedChecksum: number;
+  readonly numberFromStringActualChecksum: number;
+  readonly numberFromStringRepeated: boolean;
   readonly stringNormalizeExpectedChecksum: number;
   readonly stringNormalizeActualChecksum: number;
   readonly stringNormalizeRepeated: boolean;
@@ -76,7 +85,12 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
     import { runMapOperationWorkload } from ${JSON.stringify(workloadUrl)};
     import { runSetOperationWorkload } from ${JSON.stringify(setWorkloadUrl)};
     import { runMathOperationWorkload } from ${JSON.stringify(mathWorkloadUrl)};
-    import { runNumberParsingWorkload } from ${JSON.stringify(numberParsingWorkloadUrl)};
+    import {
+      runNumberFromStringWorkload,
+      runNumberParsingWorkload,
+      runParseFloatWorkload,
+      runParseIntWorkload,
+    } from ${JSON.stringify(numberParsingWorkloadUrl)};
     import {
       runStringNormalizeWorkload,
       runStringPadWorkload,
@@ -99,6 +113,18 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       ({ name }) => name === "number-parsing",
     );
     if (numberParsingScenario === undefined) throw new Error("number parsing scenario is absent");
+    const parseIntScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "parse-int",
+    );
+    if (parseIntScenario === undefined) throw new Error("parseInt scenario is absent");
+    const parseFloatScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "parse-float",
+    );
+    if (parseFloatScenario === undefined) throw new Error("parseFloat scenario is absent");
+    const numberFromStringScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "number-from-string",
+    );
+    if (numberFromStringScenario === undefined) throw new Error("Number(string) scenario is absent");
     const stringNormalizeScenario = androidBenchmarkScenarios.find(
       ({ name }) => name === "string-normalize",
     );
@@ -137,6 +163,15 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       numberParsingExpectedChecksum: numberParsingScenario.expectedChecksum,
       numberParsingActualChecksum: runNumberParsingWorkload(numberParsingScenario.iterations),
       numberParsingRepeated: repeatedAndroidBenchmarkScenarios.includes("number-parsing"),
+      parseIntExpectedChecksum: parseIntScenario.expectedChecksum,
+      parseIntActualChecksum: runParseIntWorkload(parseIntScenario.iterations),
+      parseIntRepeated: repeatedAndroidBenchmarkScenarios.includes("parse-int"),
+      parseFloatExpectedChecksum: parseFloatScenario.expectedChecksum,
+      parseFloatActualChecksum: runParseFloatWorkload(parseFloatScenario.iterations),
+      parseFloatRepeated: repeatedAndroidBenchmarkScenarios.includes("parse-float"),
+      numberFromStringExpectedChecksum: numberFromStringScenario.expectedChecksum,
+      numberFromStringActualChecksum: runNumberFromStringWorkload(numberFromStringScenario.iterations),
+      numberFromStringRepeated: repeatedAndroidBenchmarkScenarios.includes("number-from-string"),
       stringNormalizeExpectedChecksum: stringNormalizeScenario.expectedChecksum,
       stringNormalizeActualChecksum: runStringNormalizeWorkload(
         "  Native TypeScript Καλημέρα 👩‍💻 e\\u0301  ",
@@ -178,8 +213,8 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
 
 test("the Android language benchmarks are one matched four-application contract", () => {
   const contract = readAndroidLanguageContract();
-  assert.equal(contract.version, 13);
-  assert.equal(contract.scenarioCount, 27);
+  assert.equal(contract.version, 14);
+  assert.equal(contract.scenarioCount, 30);
   assert.equal(contract.uniqueScenarioCount, contract.scenarioCount);
   assert.equal(contract.iterations, 50_000);
   assert.equal(contract.expectedChecksum, 83_989_039);
@@ -200,6 +235,21 @@ test("the Android language benchmarks are one matched four-application contract"
     contract.numberParsingExpectedChecksum,
   );
   assert.equal(contract.numberParsingRepeated, true);
+  assert.equal(contract.parseIntExpectedChecksum, 26_953_125);
+  assert.equal(contract.parseIntActualChecksum, contract.parseIntExpectedChecksum);
+  assert.equal(contract.parseIntRepeated, true);
+  assert.equal(contract.parseFloatExpectedChecksum, -44_065_625);
+  assert.equal(
+    contract.parseFloatActualChecksum,
+    contract.parseFloatExpectedChecksum,
+  );
+  assert.equal(contract.parseFloatRepeated, true);
+  assert.equal(contract.numberFromStringExpectedChecksum, -45_743_750);
+  assert.equal(
+    contract.numberFromStringActualChecksum,
+    contract.numberFromStringExpectedChecksum,
+  );
+  assert.equal(contract.numberFromStringRepeated, true);
   assert.equal(
     contract.stringNormalizeActualChecksum,
     contract.stringNormalizeExpectedChecksum,
@@ -315,6 +365,21 @@ test("the Android language benchmarks are one matched four-application contract"
       source,
       /number-parsing/u,
       `${implementation} does not route the number parsing scenario`,
+    );
+    assert.match(
+      source,
+      /parse-int/u,
+      `${implementation} does not route the parseInt probe`,
+    );
+    assert.match(
+      source,
+      /parse-float/u,
+      `${implementation} does not route the parseFloat probe`,
+    );
+    assert.match(
+      source,
+      /number-from-string/u,
+      `${implementation} does not route the Number(string) probe`,
     );
     assert.match(
       source,

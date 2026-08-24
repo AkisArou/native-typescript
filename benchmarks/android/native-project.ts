@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 13,
+  version: 14,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -197,6 +197,42 @@ function numberParsingChecksum(iterations: number): number {
     checksum += parseInt(integerInputs[slot]!, 10);
     checksum += parseFloat(floatInputs[slot]!) * 32;
     checksum += Number(numberInputs[slot]!) * 32;
+  }
+  return checksum;
+}
+
+function parseIntChecksum(iterations: number): number {
+  const inputs = [
+    "0", "7", "42", "-17", "255", "1024", "6553", "-3276",
+    "12345", "-7654", "2147", "-9999", "73", "8080", "-4096", "3141",
+  ];
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    checksum += parseInt(inputs[index & 15]!, 10);
+  }
+  return checksum;
+}
+
+function parseFloatChecksum(iterations: number): number {
+  const inputs = [
+    "0.5", "-2.25", "3.125", "1e3", "-0.03125", "42.75", "512.5", "-128.125",
+    "0.125", "64.875", "-16.5", "2048.25", "-4096.75", "7.5", "0e0", "123.375",
+  ];
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    checksum += parseFloat(inputs[index & 15]!) * 32;
+  }
+  return checksum;
+}
+
+function numberFromStringChecksum(iterations: number): number {
+  const inputs = [
+    "1.25", "-3.5", "6.125", "2.5e2", "-0.0625", "18.75", "256.25", "-64.5",
+    "0.375", "32.625", "-8.25", "1024.5", "-2048.125", "15.875", "0.0", "61.25",
+  ];
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    checksum += Number(inputs[index & 15]!) * 32;
   }
   return checksum;
 }
@@ -460,6 +496,36 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: numberParsingChecksum(workload.numberParsingIterations),
+  },
+  {
+    name: "parse-int",
+    layer: "language-runtime",
+    hotspot: "base-10 JavaScript integer-prefix scanning and conversion",
+    operationUnit: "integer parse",
+    iterations: workload.numberParsingIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: parseIntChecksum(workload.numberParsingIterations),
+  },
+  {
+    name: "parse-float",
+    layer: "language-runtime",
+    hotspot: "JavaScript decimal-prefix scanning and conversion",
+    operationUnit: "floating-point parse",
+    iterations: workload.numberParsingIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: parseFloatChecksum(workload.numberParsingIterations),
+  },
+  {
+    name: "number-from-string",
+    layer: "language-runtime",
+    hotspot: "whole-string JavaScript numeric grammar and decimal conversion",
+    operationUnit: "number conversion",
+    iterations: workload.numberParsingIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: numberFromStringChecksum(workload.numberParsingIterations),
   },
   {
     name: "byte-array",
