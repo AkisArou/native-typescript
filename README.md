@@ -129,6 +129,16 @@ string arguments (2.07x), arrays (1.56–1.82x), and number parsing (1.55x).
 NativeScript's mature V8 runtime wins several pure JavaScript kernels, while
 Direct JVM is far faster on the measured Android boundary and callback paths.
 
+The first compiler optimization selected from that matrix is now measured in
+a focused five-round run. Closed helpers whose every caller supplies a proved
+signed integer use an internal Java `int` parameter while public TypeScript
+`number` entry points remain `double`. Fixed records improved from 69.32 ns to
+3.13 ns (48.90x Kotlin to 1.56x), sets from 101.07 ns to 23.41 ns (8.04x to
+1.67x), and Math from 75.62 ns to 32.86 ns (2.88x to 1.27x). The proof,
+safety boundary, complete focused table, and raw report are in
+[record 0045](docs/records/0045-direct-jvm-integer-parameters.md); the table
+above remains the last complete 23-scenario application matrix.
+
 The same run measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

@@ -182,6 +182,16 @@ inspection order; they are not assumed causes. Each optimization still needs
 a disagreeing semantic observer, host JVM/classfile proof, and unchanged
 on-device workload before it is accepted.
 
+The first such inspection found a general closed-calling-convention barrier,
+not an expensive record representation. A focused five-round run after
+specializing proved integer helper parameters reduced fixed records from
+48.90x to 1.56x Kotlin, optional values from 9.20x to 3.12x, sets from 8.04x
+to 1.67x, and Math from 2.88x to 1.27x. Public `number` ABI remains `double`.
+[Record 0045](../../docs/records/0045-direct-jvm-integer-parameters.md)
+contains the complete nine-scenario before/after table and safety proof; the
+complete 23-scenario matrix above remains the regression baseline until the
+next full run.
+
 NativeScript's mature V8 runtime wins several pure-language kernels, while
 Direct JVM is far faster on the measured Android boundary and callback paths.
 That complementary result supports specialization of reached TypeScript
@@ -197,7 +207,9 @@ native subclasses in
 in [record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md),
 records in [record 0038](../../docs/records/0038-direct-jvm-fixed-records.md),
 and JavaScript-exact number parsing in
-[record 0043](../../docs/records/0043-direct-jvm-number-parsing.md).
+[record 0043](../../docs/records/0043-direct-jvm-number-parsing.md). The first
+matrix-selected optimization is recorded in
+[record 0045](../../docs/records/0045-direct-jvm-integer-parameters.md).
 
 ## Research references
 

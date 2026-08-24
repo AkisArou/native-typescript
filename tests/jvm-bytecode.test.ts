@@ -64,6 +64,10 @@ const numberParsingFixture = join(
   scriptcRoot,
   "tests/corpus/121-jvm-number-parsing.ts",
 );
+const integerParameterFixture = join(
+  scriptcRoot,
+  "tests/corpus/122-jvm-integer-parameters.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -1421,6 +1425,119 @@ test(
         bytecode,
         /java\/lang\/(?:Double|Number)\.valueOf|java\/util\/regex|JNI/u,
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM specializes closed integer parameters without narrowing public number ABI",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const planners = await loadScriptCExecutablePlanners();
+    const emitter = await loadScriptCJvmEmitter();
+    const roots = [
+      "directIntegerParameter",
+      "publicNumberParameter",
+      "callPublicNumberParameter",
+    ];
+    const planned = planners.planExecutableCompilation(integerParameterFixture, {
+      backend: "c",
+      externalFunctionRoots: roots,
+    });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "IntegerParameters";
+    const className = `${packageName}.${simpleName}`;
+    const source = emitter.emitJvmSerializedModule(planned.plan.ir, {
+      packageName,
+      className: simpleName,
+      functionExports: roots.map((functionName) => ({
+        functionName,
+        methodName: functionName,
+      })),
+    });
+    const integerHelperMatch = source.match(
+      /private static (int|double) (f_[0-9a-f]+)\(int [^)]+\) \{/u,
+    );
+    const integerHelperReturn = integerHelperMatch?.[1];
+    const integerHelper = integerHelperMatch?.[2];
+    assert.ok(
+      integerHelper !== undefined && integerHelperReturn !== undefined,
+      "expected one closed helper with an int parameter",
+    );
+
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-integer-parameters-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "IntegerParametersHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class IntegerParametersHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.directIntegerParameter());\n` +
+          `    System.out.println(${simpleName}.publicNumberParameter(511.75));\n` +
+          `    System.out.println(${simpleName}.callPublicNumberParameter());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.IntegerParametersHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "2016.0\n255.0\n255.0\n");
+
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", "-s", className],
+        { encoding: "utf8" },
+      );
+      assert.match(
+        bytecode,
+        new RegExp(
+          `private static ${integerHelperReturn} ${integerHelper}\\(int\\);\\n` +
+            `    descriptor: \\(I\\)${integerHelperReturn === "int" ? "I" : "D"}`,
+          "u",
+        ),
+      );
+      const helperStart = bytecode.indexOf(
+        `private static ${integerHelperReturn} ${integerHelper}(int);`,
+      );
+      const helperEnd = bytecode.indexOf("\n\n", helperStart);
+      assert.ok(helperStart >= 0 && helperEnd > helperStart);
+      assert.doesNotMatch(
+        bytecode.slice(helperStart, helperEnd),
+        /ntsToInt32/u,
+      );
+      assert.match(
+        bytecode,
+        /public static double publicNumberParameter\(double\);\n    descriptor: \(D\)D/u,
+      );
+      assert.doesNotMatch(bytecode, / native |JNI/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
