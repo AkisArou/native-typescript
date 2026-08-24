@@ -1,6 +1,7 @@
 #ifndef NTS_BLINK_REALM_H
 #define NTS_BLINK_REALM_H
 
+#include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_node_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_subscription_registry.h"
@@ -10,13 +11,14 @@
 namespace blink {
 class Document;
 class ExecutionContext;
-}
+}  // namespace blink
 
 namespace nts::blink_bridge {
 class BlinkRealmLifecycleObserver;
-using NativeEventDispatch =
-    void (*)(NtsWebRealm*, NtsWebCallbackToken, void* context);
-}
+using NativeEventDispatch = void (*)(NtsWebRealm*,
+                                     NtsWebCallbackToken,
+                                     void* context);
+}  // namespace nts::blink_bridge
 
 /* C sees only the opaque forward declaration from nts_web.h. The Chromium
  * adapter sees this owner-sequence-confined definition. It is deliberately an
@@ -47,6 +49,7 @@ struct NtsWebRealm final {
 
  private:
   base::SequenceChecker sequence_checker_;
+  uint64_t realm_id_;
   bool alive_ = true;
   blink::Persistent<blink::Document> document_;
   blink::Persistent<nts::blink_bridge::BlinkRealmLifecycleObserver>
@@ -54,7 +57,7 @@ struct NtsWebRealm final {
   nts::blink_bridge::BlinkNodeRegistry nodes_;
   nts::blink_bridge::BlinkSubscriptionRegistry subscriptions_;
   nts::blink_bridge::NativeEventDispatch event_dispatch_ = nullptr;
-  void* event_context_ = nullptr;
+  raw_ptr<void> event_context_ = nullptr;
 };
 
 namespace nts::blink_bridge {

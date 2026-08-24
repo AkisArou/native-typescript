@@ -39,11 +39,12 @@ class BlinkNodeRoot final {
 };
 
 /* Off-heap, realm-owned registry. Every operation is owner-sequence confined.
- * The C table owns only slot/generation/refcount/type state. Each live token is
- * a BlinkNodeRoot whose Persistent<Node> is the corresponding Oilpan edge. */
+ * The C table owns only realm/slot/generation/refcount/type state. Each live
+ * token is a BlinkNodeRoot whose Persistent<Node> is the corresponding Oilpan
+ * edge. */
 class BlinkNodeRegistry final {
  public:
-  BlinkNodeRegistry();
+  explicit BlinkNodeRegistry(uint64_t realm);
   BlinkNodeRegistry(const BlinkNodeRegistry&) = delete;
   BlinkNodeRegistry& operator=(const BlinkNodeRegistry&) = delete;
   ~BlinkNodeRegistry();

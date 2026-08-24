@@ -21,8 +21,14 @@ static unsigned released_handles;
 static unsigned disposed_subscriptions;
 static char button_text[64];
 
+enum { TEST_REALM_ID = 1 };
+
 static NtsWebHandle handle(uint32_t slot) {
-  NtsWebHandle value = {.slot = slot, .generation = 1};
+  NtsWebHandle value = {
+      .realm = TEST_REALM_ID,
+      .slot = slot,
+      .generation = 1,
+  };
   return value;
 }
 
@@ -57,6 +63,7 @@ NtsWebHandleResult nts_web_document(NtsWebRealm *realm) {
 NtsWebHandleResult nts_web_document_body(NtsWebRealm *realm,
                                           NtsWebHandle document) {
   assert(realm->alive);
+  assert(document.realm == TEST_REALM_ID);
   assert(document.slot == HANDLE_DOCUMENT);
   return handle_result(HANDLE_BODY);
 }
@@ -66,6 +73,7 @@ NtsWebHandleResult nts_web_document_create_element(
     NtsWebHandle document,
     NtsUtf8View local_name) {
   assert(realm->alive);
+  assert(document.realm == TEST_REALM_ID);
   assert(document.slot == HANDLE_DOCUMENT);
   if (local_name.length == 2 && memcmp(local_name.data, "h1", 2) == 0) {
     return handle_result(HANDLE_HEADING);
@@ -79,6 +87,7 @@ NtsWebVoidResult nts_web_node_set_text_content(NtsWebRealm *realm,
                                                 NtsWebHandle node,
                                                 NtsUtf8View text) {
   assert(realm->alive);
+  assert(node.realm == TEST_REALM_ID);
   if (node.slot == HANDLE_BUTTON) {
     assert(text.length < sizeof button_text);
     memcpy(button_text, text.data, text.length);
@@ -91,6 +100,8 @@ NtsWebVoidResult nts_web_node_append_child(NtsWebRealm *realm,
                                             NtsWebHandle parent,
                                             NtsWebHandle child) {
   assert(realm->alive);
+  assert(parent.realm == TEST_REALM_ID);
+  assert(child.realm == TEST_REALM_ID);
   assert(parent.slot == HANDLE_BODY);
   assert(child.slot == HANDLE_HEADING || child.slot == HANDLE_BUTTON);
   return void_result();
@@ -102,6 +113,7 @@ NtsWebSubscriptionResult nts_web_event_target_add_event_listener(
     NtsUtf8View event_type,
     NtsWebCallbackToken callback) {
   assert(realm->alive);
+  assert(target.realm == TEST_REALM_ID);
   assert(target.slot == HANDLE_BUTTON);
   assert(event_type.length == 5);
   assert(memcmp(event_type.data, "click", 5) == 0);
@@ -109,6 +121,7 @@ NtsWebSubscriptionResult nts_web_event_target_add_event_listener(
 
   NtsWebSubscriptionResult result = {0};
   result.status = NTS_WEB_OK;
+  result.value.realm = TEST_REALM_ID;
   result.value.slot = 1;
   result.value.generation = 1;
   result.exception.status = NTS_WEB_OK;
@@ -118,6 +131,7 @@ NtsWebSubscriptionResult nts_web_event_target_add_event_listener(
 NtsWebStatus nts_web_subscription_dispose(NtsWebRealm *realm,
                                            NtsWebSubscription subscription) {
   assert(realm->alive);
+  assert(subscription.realm == TEST_REALM_ID);
   assert(subscription.slot == 1);
   assert(subscription.generation == 1);
   disposed_subscriptions += 1;
@@ -126,6 +140,7 @@ NtsWebStatus nts_web_subscription_dispose(NtsWebRealm *realm,
 
 NtsWebStatus nts_web_handle_release(NtsWebRealm *realm, NtsWebHandle value) {
   assert(realm->alive);
+  assert(value.realm == TEST_REALM_ID);
   assert(value.generation == 1);
   released_handles += 1;
   return NTS_WEB_OK;

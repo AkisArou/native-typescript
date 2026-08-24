@@ -31,10 +31,14 @@ class BlinkSubscriptionRoot final {
   void Activate() { active_ = true; }
 
   void Cancel() {
-    if (!active_) return;
+    if (!active_) {
+      return;
+    }
     active_ = false;
     if (target_.Get() && listener_.Get()) {
       target_->removeEventListener(event_type_, listener_.Get(), false);
+    }
+    if (listener_.Get()) {
       listener_->Detach();
     }
   }
@@ -48,6 +52,7 @@ class BlinkSubscriptionRoot final {
 
 NtsWebHandle AsHandle(NtsWebSubscription subscription) {
   return NtsWebHandle{
+      .realm = subscription.realm,
       .slot = subscription.slot,
       .generation = subscription.generation,
   };
@@ -55,6 +60,7 @@ NtsWebHandle AsHandle(NtsWebSubscription subscription) {
 
 NtsWebSubscription AsSubscription(NtsWebHandle handle) {
   return NtsWebSubscription{
+      .realm = handle.realm,
       .slot = handle.slot,
       .generation = handle.generation,
   };
@@ -62,13 +68,13 @@ NtsWebSubscription AsSubscription(NtsWebHandle handle) {
 
 }  // namespace
 
-BlinkSubscriptionRegistry::BlinkSubscriptionRegistry() {
+BlinkSubscriptionRegistry::BlinkSubscriptionRegistry(uint64_t realm) {
   NtsHandleTableHooks hooks = {
       .destroy_token = &BlinkSubscriptionRegistry::DestroyToken,
       .type_accepts = nullptr,
       .context = this,
   };
-  nts_handle_table_init(&table_, hooks);
+  nts_handle_table_init(&table_, realm, hooks);
 }
 
 BlinkSubscriptionRegistry::~BlinkSubscriptionRegistry() {
@@ -85,13 +91,18 @@ NtsWebStatus BlinkSubscriptionRegistry::Create(
   if (!target || !listener || !out_subscription) {
     return NTS_WEB_INVALID_ARGUMENT;
   }
-  if (table_.invalidated) return NTS_WEB_CONTEXT_DESTROYED;
+  if (table_.invalidated) {
+    return NTS_WEB_CONTEXT_DESTROYED;
+  }
 
-  auto* root = new (std::nothrow)
-      BlinkSubscriptionRoot(target, event_type, listener);
-  if (!root) return NTS_WEB_OUT_OF_MEMORY;
+  auto* root =
+      new (std::nothrow) BlinkSubscriptionRoot(target, event_type, listener);
+  if (!root) {
+    return NTS_WEB_OUT_OF_MEMORY;
+  }
 
   if (!target->addEventListener(event_type, listener, false)) {
+    listener->Detach();
     delete root;
     return NTS_WEB_OPERATION_DISABLED;
   }

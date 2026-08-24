@@ -6,9 +6,24 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@native-typescript/bindgen-c": "workspace:*",
+    "@native-typescript/bindgen-webidl": "workspace:*",
+    "@native-typescript/scabi": "workspace:*",
+    "@native-typescript/scriptc": "workspace:*"
+  },
   "scripts": {
+    "sync:chromium": "node scripts/sync-chromium.ts",
+    "export:webidl": "node scripts/export-chromium-webidl.ts",
+    "generate:webidl": "node scripts/generate-chromium-webidl.ts",
+    "verify:abi": "node scripts/verify-chromium-abi.ts",
+    "build:benchmark-libraries": "node scripts/build-chromium-benchmark-libraries.ts",
+    "build:benchmark": "node scripts/build-chromium-benchmark.ts",
+    "evaluate:benchmark": "node scripts/evaluate-chromium-performance.ts",
     "apply:prototype": "node scripts/apply-chromium.ts",
     "build:counter": "node scripts/build-chromium-counter.ts",
+    "run:counter": "node scripts/run-chromium-counter.ts",
+    "run:benchmark": "node scripts/run-chromium-benchmark.ts",
     "check:no-v8": "node scripts/check-no-v8-bridge.ts",
     "verify:patches": "node scripts/verify-chromium-patches.ts"
   }

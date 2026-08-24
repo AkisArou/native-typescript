@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: normative sequencing; scope changes require architecture review  
-Last revised: 2026-08-15
+Last revised: 2026-08-25
 
 The roadmap is a sequence of permanent vertical slices. A phase exists to prove
 and ship reusable architecture, not to create a disposable demo. Dates are set
@@ -1060,9 +1060,15 @@ This is an explicit research gate with production-quality fixtures. It does not
 change the core architecture unless a generally reusable primitive is proven.
 The migrated direct-Blink C specimen under `packages/target-chromium` is
 pre-stage evidence: its portable contracts and pinned patch application pass,
-but no Chromium compile or browser behavior is claimed. The detailed,
-SCABI-aligned research design is in [Chromium and direct Blink
-feasibility](chromium.md).
+and the first normalized `Document.createElement(DOMString)` slice generates
+declarations, valid SCABI, and a typed Blink capsule that translates through
+ScriptC. Realm-tagged handles and their exact x86-64 ABI are checked with the
+pinned Chromium clang. The symbol-light component-debug `content_shell`
+dependency graph now builds at the pin, and its direct-Blink C/C++ oracle passes
+script-free rendered DOM, real click, exception-capture, and navigation-teardown
+acceptance. This does not yet host a real ScriptC instance or satisfy either
+stage. The detailed, SCABI-aligned research design is in [Chromium and direct
+Blink feasibility](chromium.md).
 
 ### Stage A: embedding
 
@@ -1089,6 +1095,14 @@ Evaluate:
 - optional V8 realm identity and lifetime;
 - performance against a conventional renderer bridge;
 - security and binary/update costs.
+
+The performance decision uses matched handwritten C++, ScriptC C, ScriptC
+LLVM, and ordinary Chromium V8 lanes. Both compiled lanes must remain within
+25% of handwritten C++ at median and p95 for each initial synchronous
+primitive, beat V8 by at least 15% on the boundary-heavy aggregate, and avoid
+being more than 10% slower than V8 on any individual initial workload. Scalar
+capsules fail independently if they contain generic dispatch, V8 values,
+avoidable boxing, or per-call heap allocation.
 
 Only after these stages do we decide whether to maintain `scriptc-dom`, use a
 system WebView/bridge target, or support both. The project remains successful as

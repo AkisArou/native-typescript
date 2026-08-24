@@ -163,10 +163,11 @@ those cells with Oilpan roots and generated type descriptors. It must provide:
 - release of the corresponding Oilpan edge at the final managed release;
 - deterministic teardown on the owner sequence.
 
-The imported prototype's independent slot/generation table is retained only as
-an executable oracle. Its values do not encode a realm, so two realms can issue
-colliding values. That makes it unsuitable as the product managed-handle
-representation.
+The imported prototype's independent table is retained only as an executable
+oracle. Its handles now carry realm, slot, and generation so the oracle can
+actually prove wrong-realm refusal and context invalidation. It remains
+unsuitable as the product managed-handle representation because ScriptC owns
+managed cells, aliasing, disposal, and closure reachability.
 
 ## Typed ABI and capsules
 
@@ -208,6 +209,19 @@ Blink overload per member:
 
 An API that genuinely consumes or produces arbitrary JavaScript values remains
 unsupported until its semantics exist in the native value algebra.
+
+Patch count is a measured maintenance cost. The first stock-Blink compile used
+no product patch: the invalid-name `createElement` fixture used Chromium's
+existing `DummyExceptionStateForTesting`, and native event listeners used the
+stock activity-logger path. That proved no per-method exception overload and no
+listener patch were needed. Product code admits one horizontal patch: a data
+sink in existing `ExceptionState` that captures code, sanitized message, and
+unsanitized security message without constructing a V8 value.
+
+Durable patches are split into product and fixture profiles. The
+`content_shell` counter hook is fixture-only and must disappear when the
+Native TypeScript-owned Content host exists. Per-method overloads and parallel
+exception classes remain outside the accepted scaling strategy.
 
 ## Events and promises
 
@@ -266,25 +280,91 @@ sources, runtime code, and host code live in this repository. Product actions
 must not mutate an unknown user checkout or discover decisive tools
 incidentally from `PATH`.
 
+## Performance falsifier
+
+The direct-Blink path exists to approach native call performance, so semantic
+success alone does not admit the target. Every measurement uses the same
+pinned Chromium build, DOM operations, fixture data, warmup policy, sample
+count, and renderer conditions across these lanes:
+
+1. handwritten C++ calling Blink directly, which defines the implementation
+   ceiling;
+2. TypeScript compiled by ScriptC's C backend and calling generated typed Blink
+   capsules;
+3. TypeScript compiled by ScriptC's LLVM backend and calling the same capsules;
+4. ordinary JavaScript using Chromium's generated V8 DOM bindings;
+5. an optional IPC/command bridge only when a conventional bridge comparison
+   becomes useful.
+
+Boundary-only microbenchmarks isolate call and conversion overhead. Mixed
+workloads include realistic DOM construction, mutation, query, event delivery,
+and teardown so an optimized empty call cannot hide application costs. Reports
+record median, p95, allocation counts, artifact identity, and raw observations.
+
+The first implemented falsifier fixture fixes one operation,
+`document.createElement("div")`, and two invocation shapes: an exported
+one-call primitive and an exported batch whose inner loop repeatedly crosses
+the typed native boundary. ScriptC emits C and LLVM archives from the same
+TypeScript kernel. The Chromium target then combines and localizes each
+archive's reached runtime with the pinned LLVM tools, leaving only its
+backend-specific entry symbols global; this permits both compiled lanes and
+the handwritten C++ ceiling to live in one release `content_shell`. A static
+page script owns the V8 lane. The runner uses CDP DOM, Page, and Target
+commands only and records raw samples with build and artifact digests. This is
+implemented tooling, not measured evidence.
+
+For each initial synchronous primitive, both compiled TypeScript lanes must
+have median and p95 latency no more than 25% above handwritten C++. Across the
+boundary-heavy aggregate they must be at least 15% faster than the V8 lane, and
+no individual initial workload may be more than 10% slower than V8. Generated
+scalar capsules additionally fail structural review if they use generic
+dispatch, V8 values, avoidable boxing, or per-call heap allocation. These are
+admission gates, not claims about the current specimen.
+
 ## Current specimen and acceptance gates
 
 The migrated specimen is under
 [`packages/target-chromium`](../packages/target-chromium/README.md). Its
 portable C tests and source-level patch/V8 gates pass. The repaired patch series
-also applies to the pinned remote sources.
+also applies to the pinned remote sources. The product profile contains one
+binding-neutral `ExceptionState` capture seam; the only fixture patch is the
+`content_shell` hook.
 
-There is not yet evidence for a full Chromium compile or browser execution.
-Stage A and Stage B remain open until this repository can:
+The pinned overlay has now completed a real component-debug `content_shell`
+build with symbols disabled. The stock path and the product-patched path both
+passed the script-free CDP acceptance lane in the built browser: a real input
+event changed the rendered counter from `Count: 0` to `Count: 1`, the
+DOMException probe completed, navigation produced explicit teardown, and the
+product path retained distinct sanitized and privileged SecurityError
+messages. The admitted product seam changes `exception_state.cc` and adds an
+optional capture header; it leaves the central `exception_state.h` contract
+unchanged. No event-listener patch is required.
 
-1. validate and stage the pinned Chromium input reproducibly;
-2. compile the overlay inside Chromium's GN configuration;
-3. run the script-free counter and deliver real click events;
-4. attach a real ScriptC runtime and compile the counter from TypeScript;
-5. generate the reached declarations, SCABI, and Blink capsules;
-6. prove stable identity, realm invalidation, and teardown;
-7. prove DOMException conversion and event cancellation;
-8. prove one Blink promise and ScriptC microtask ordering;
-9. reproduce all evidence without the temporary `electron-like` checkout.
+The first closed normalized WebIDL slice reaches exactly
+`Document.createElement(DOMString)`. It deterministically generates TypeScript
+declarations, valid SCABI, and a typed C++ capsule, and the reached binding
+translates through ScriptC's existing Native IR input. Pinned Chromium clang
+evidence fixes the realm-tagged handle and result-envelope layouts and their
+aggregate calling convention. The raw binding currently exposes a
+status/handle envelope; projecting its detailed DOMException payload into the
+compiler-owned public outcome algebra remains open.
+
+This builds the complete `content_shell` dependency graph, not the larger
+`chrome` product target. It proves the fixture-owned C/C++ oracle, not a real
+renderer-hosted ScriptC instance. Stage A and Stage B therefore remain open
+until this repository can:
+
+1. attach a real ScriptC runtime and compile the counter from TypeScript through
+   both backends;
+2. replace the oracle slot table with ScriptC-owned handles backed by Oilpan,
+   then prove stable identity and realm-wide invalidation;
+3. project the now-captured detailed DOM failure into the compiler-owned
+   outcome algebra;
+4. prove duplicate event identity, cancellation, and teardown through the
+   product callback gateway;
+5. prove one Blink promise and ScriptC microtask ordering;
+6. build and pass the C++, ScriptC C, ScriptC LLVM, and V8 release-performance
+   falsifier.
 
 Only then does the coexistence stage decide whether direct Blink remains a
 maintained target, a system WebView bridge is preferred, or both are supported.

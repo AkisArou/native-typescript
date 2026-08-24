@@ -8,9 +8,8 @@
 
 namespace nts::blink_bridge {
 
-BlinkNativeEventListener::BlinkNativeEventListener(
-    NtsWebRealm* realm,
-    NtsWebCallbackToken token)
+BlinkNativeEventListener::BlinkNativeEventListener(NtsWebRealm* realm,
+                                                   NtsWebCallbackToken token)
     : realm_(realm), token_(token) {
   CHECK(realm_);
   CHECK_NE(token_.generation, 0u);
@@ -18,7 +17,9 @@ BlinkNativeEventListener::BlinkNativeEventListener(
 
 void BlinkNativeEventListener::Invoke(blink::ExecutionContext* context,
                                       blink::Event* event) {
-  if (!realm_ || !context || !event) return;
+  if (!realm_ || !context || !event) {
+    return;
+  }
   realm_->DispatchNativeEvent(token_, context);
 }
 

@@ -8,7 +8,7 @@
 namespace blink {
 class AtomicString;
 class EventTarget;
-}
+}  // namespace blink
 
 namespace nts::blink_bridge {
 
@@ -19,7 +19,7 @@ class BlinkNativeEventListener;
  * exact listener instance from Blink before its Oilpan roots are dropped. */
 class BlinkSubscriptionRegistry final {
  public:
-  BlinkSubscriptionRegistry();
+  explicit BlinkSubscriptionRegistry(uint64_t realm);
   BlinkSubscriptionRegistry(const BlinkSubscriptionRegistry&) = delete;
   BlinkSubscriptionRegistry& operator=(const BlinkSubscriptionRegistry&) =
       delete;

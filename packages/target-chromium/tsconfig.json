@@ -4,5 +4,11 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["./src/**/*.ts", "./scripts/**/*.ts"]
+  "include": ["./src/**/*.ts", "./scripts/**/*.ts"],
+  "references": [
+    { "path": "../bindgen-c" },
+    { "path": "../bindgen-webidl" },
+    { "path": "../scabi" },
+    { "path": "../scriptc" }
+  ]
 }

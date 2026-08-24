@@ -35,6 +35,7 @@ typedef struct {
   NtsHandleSlot *slots;
   size_t slot_count;
   size_t capacity;
+  uint64_t realm;
   uint32_t free_head;
   bool invalidated;
   NtsHandleTableHooks hooks;
@@ -45,7 +46,9 @@ typedef struct {
  * issued, which leaves {0, 0} available as a convenient null-like value. */
 #define NTS_HANDLE_NO_SLOT UINT32_MAX
 
-void nts_handle_table_init(NtsHandleTable *table, NtsHandleTableHooks hooks);
+void nts_handle_table_init(NtsHandleTable *table,
+                           uint64_t realm,
+                           NtsHandleTableHooks hooks);
 
 /* Destroys every live token exactly once and frees the slot storage. After
  * destroy, the table may be initialized again. */

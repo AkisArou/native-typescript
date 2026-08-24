@@ -27,6 +27,7 @@ typedef struct {
 } NtsOwnedUtf8;
 
 typedef struct {
+  uint64_t realm;
   uint32_t slot;
   uint32_t generation;
 } NtsWebHandle;
@@ -40,6 +41,7 @@ typedef struct {
  * not alias DOM object handles: disposing one removes the exact native Blink
  * listener associated with that registration. */
 typedef struct {
+  uint64_t realm;
   uint32_t slot;
   uint32_t generation;
 } NtsWebSubscription;
@@ -64,6 +66,9 @@ typedef struct {
   uint16_t legacy_code;
   NtsOwnedUtf8 name;
   NtsOwnedUtf8 message;
+  /* Retained separately so a privileged host can report a security failure
+   * without exposing this text to ordinary application code. */
+  NtsOwnedUtf8 unsanitized_message;
 } NtsWebException;
 
 typedef struct {
@@ -71,6 +76,14 @@ typedef struct {
   NtsWebHandle value;
   NtsWebException exception;
 } NtsWebHandleResult;
+
+/* Compiler-facing success/status envelope for the first generated ScriptC
+ * slice. Detailed exception payloads stay on NtsWebHandleResult until SCABI's
+ * compiler-owned outcome vocabulary can preserve them without target lore. */
+typedef struct {
+  NtsWebStatus status;
+  NtsWebHandle value;
+} NtsWebScabiHandleResult;
 
 typedef struct {
   NtsWebStatus status;
@@ -93,8 +106,8 @@ void nts_web_exception_dispose(NtsWebException *exception);
 bool nts_web_realm_is_current(const NtsWebRealm *realm);
 bool nts_web_realm_is_alive(const NtsWebRealm *realm);
 
-/* Root objects. A successful nullable interface result uses the zero handle
- * (`slot == 0 && generation == 0`) for WebIDL null. */
+/* Root objects. A successful nullable interface result uses the all-zero
+ * handle for WebIDL null. */
 NtsWebHandleResult nts_web_document(NtsWebRealm *realm);
 NtsWebHandleResult nts_web_document_body(NtsWebRealm *realm,
                                           NtsWebHandle document);

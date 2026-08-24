@@ -1,6 +1,6 @@
 # Chromium feasibility package
 
-Status: migrated research specimen; not an implemented target provider
+Status: first direct-Blink slice built and browser-accepted; not an implemented target provider
 
 This package is the Native TypeScript home for the direct-Blink feasibility
 work originally developed in the temporary `electron-like` repository. It
@@ -14,12 +14,19 @@ backend.
 ## What is here
 
 - `chromium/revision.json` pins the investigated Chromium commit.
-- `chromium/patches/` contains three repaired research patches.
+- `chromium/patches/product.series` contains the single shared exception
+  capture seam admitted after the stock-Blink compile.
+- `chromium/patches/fixture.series` contains the test-only `content_shell`
+  acceptance hook.
 - `chromium/overlay/` contains the handwritten direct-Blink bridge specimen.
+- `chromium/webidl/` contains the pinned normalized slice, source provenance,
+  generated declarations, and SCABI manifest.
 - `prototype/` contains the experimental C ABI, portable slot table, C
   counter, create-element probe, and standalone tests.
-- `scripts/` can verify the patches, scan the bridge, or apply the specimen
-  to an explicitly supplied clean checkout.
+- `scripts/` can export the normalized slice, regenerate/check the binding
+  artifacts, verify their ABI, build both ScriptC benchmark libraries, verify
+  the patches, scan the bridge, or apply the specimen to an explicitly
+  supplied clean checkout.
 - `src/` validates the committed Chromium revision metadata for later build
   planning.
 
@@ -36,14 +43,29 @@ The repository's normal tests prove:
 - compilation of the create-element/DOMException probe;
 - absence of forbidden V8/source-evaluation carriers in the handwritten bridge;
 - syntactic integrity of the complete patch series;
-- validation of the pinned revision and WebIDL provenance input.
+- validation of the pinned revision and WebIDL provenance input;
+- deterministic regeneration of the first declarations, SCABI manifest, and
+  typed Blink capsule, including successful ScriptC Native IR translation;
+- realm-affine handle refusal and pinned-Clang layout/calling-convention
+  evidence;
+- equivalent ScriptC C and LLVM plans for the first benchmark kernel, with
+  target-owned runtime localization so both archives can share one renderer.
 
-The networked patch verifier additionally proves that all three patches apply
-to the exact pinned Chromium sources.
+The networked patch verifier additionally proves that every selected product
+and fixture patch applies to the exact pinned Chromium sources.
 
-No full Chromium GN/Ninja build or rendered interactive counter run has yet
-been recorded. The C++ bridge, product host, sandbox placement, real click
-delivery, and teardown behavior therefore remain unproven.
+At the pinned revision, a symbol-light component-debug `content_shell` build
+has completed with the overlay in Chromium's real GN graph. Both the stock
+exception path and the single product exception-capture patch then passed the
+script-free browser acceptance lane: the rendered counter changed from
+`Count: 0` to `Count: 1` after a real input event, the DOMException probe
+completed, the product path preserved distinct sanitized and privileged
+SecurityError messages, and navigation caused explicit host teardown.
+
+That is evidence for the direct-Blink C/C++ oracle and fixture host, not yet for
+a renderer-hosted ScriptC instance or a compiled TypeScript counter. The
+`content_shell` target and its complete dependency graph were built; the larger
+`chrome` product target was not.
 
 ## Deliberate prototype boundaries
 
@@ -57,11 +79,19 @@ The following are migration oracles, not permanent contracts:
 - the counter-specific `content_shell` host patch;
 - in-place patching of a disposable Chromium checkout.
 
-The current handle value contains only slot and generation. Two independent
-realms can therefore issue colliding values, so the prototype cannot enforce
-its declared wrong-realm status. Product work must add realm-wide invalidation
-to ScriptC's existing native-handle ownership rather than bless this parallel
-table as the managed representation.
+The initial stock fixture used Chromium's existing
+`DummyExceptionStateForTesting` and proved that no per-method Blink overload is
+needed. Product code now uses one capture sink in the existing
+`ExceptionState` machinery. It preserves the code, sanitized message, and
+unsanitized security message without constructing a V8 value. The stock
+native-listener path remains unchanged: merely consulting Chromium's
+isolated-world activity logger is not a V8 data carrier.
+
+The current oracle handle carries realm, slot, and generation, so independent
+realms cannot issue indistinguishable values and wrong-realm status is tested.
+Product work must still attach the Blink backing registry and realm-wide
+invalidation to ScriptC's existing native-handle ownership rather than bless
+this parallel table as the managed representation.
 
 The public prototype header was narrowed during migration to operations the
 Blink overlay actually defines. The spike had also declared `window`,
@@ -104,23 +134,63 @@ ctest --test-dir /path/on/a-real-filesystem/nts-chromium-prototype \
   --output-on-failure
 
 node packages/target-chromium/scripts/check-no-v8-bridge.ts
+node packages/target-chromium/scripts/generate-chromium-webidl.ts --check
 ```
 
-The following lane downloads the exact patched Chromium input files and is
-therefore intentionally not part of the network-free default test suite:
+The patch verifier downloads exact Chromium inputs and is therefore
+intentionally outside the network-free default suite. The ABI verifier is also
+explicit because it requires a prepared pinned checkout and its clang:
 
 ```sh
 node packages/target-chromium/scripts/verify-chromium-patches.ts
+node packages/target-chromium/scripts/verify-chromium-abi.ts \
+  /path/to/chromium/src
 ```
 
 Applying or building the overlay requires a full clean checkout at the pinned
 revision:
 
 ```sh
+node packages/target-chromium/scripts/sync-chromium.ts \
+  /path/to/chromium-root --depot-tools /path/to/depot_tools
 node packages/target-chromium/scripts/apply-chromium.ts /path/to/chromium/src
 node packages/target-chromium/scripts/build-chromium-counter.ts \
+  /path/to/chromium/src --depot-tools /path/to/depot_tools
+node packages/target-chromium/scripts/run-chromium-counter.ts \
   /path/to/chromium/src
 ```
+
+The build helper generates a component debug build with symbols disabled by
+default, compiles the narrow Blink bridge target first, and only then compiles
+`content_shell`. It defaults to four concurrent compile jobs for machines near
+Chromium's memory floor. Pass `--gn-args` or `--jobs` to replace those defaults.
+The acceptance runner uses Xvfb automatically when Linux has no display. It
+drives only the external DevTools DOM, Input, Page, and Target domains: the
+fixture page contains no script and no source-evaluation command is used. The
+gate requires the initial DOM, a native click update, navigation, and explicit
+counter-host teardown evidence.
+
+The performance harness has separate build and run commands so compiling a
+large release browser cannot accidentally produce timing evidence:
+
+```sh
+node packages/target-chromium/scripts/build-chromium-benchmark.ts \
+  /path/to/chromium/src --depot-tools /path/to/depot_tools
+# Run only on an otherwise quiet machine:
+node packages/target-chromium/scripts/run-chromium-benchmark.ts \
+  /path/to/chromium/src --output /path/to/raw-input.json
+node packages/target-chromium/scripts/evaluate-chromium-performance.ts \
+  /path/to/raw-input.json --output /path/to/report.json
+```
+
+The release fixture contains handwritten C++, ScriptC C, ScriptC LLVM, and
+ordinary page-JavaScript lanes for the same hardcoded
+`document.createElement("div")` operation. Both generated archives are compiled
+with Chromium's pinned Clang and Linux sysroot; the target supplies the one
+runtime compatibility adapter needed by that baseline. The harness records raw
+primitive and batched samples plus Chromium, Native TypeScript, ScriptC,
+toolchain, binary, archive, fixture, and GN identities. The run command has not
+been executed and no performance claim is recorded here.
 
 Those helpers are research tools. The product build must express checkout
 validation, patches, overlays, GN/Ninja tools, outputs, and provenance as
@@ -128,12 +198,13 @@ declared artifact-graph inputs and actions.
 
 ## Next gates
 
-1. Compile the migrated overlay in the pinned Chromium GN graph.
-2. Run the script-free C counter and record real click and teardown behavior.
-3. Generate the first reached WebIDL surface into declarations, SCABI, and
-   typed Blink capsules.
-4. Replace the C oracle with compiled TypeScript through both ScriptC backends.
-5. Reconcile Blink object roots with ScriptC handles and prove realm
+1. Replace the now-browser-proven C oracle with compiled TypeScript through
+   both ScriptC backends.
+2. Reconcile Blink object roots with ScriptC handles and prove realm
    invalidation.
-6. Prove DOMException conversion, event identity/cancellation, and
+3. Project the captured DOM failure into the compiler-owned outcome model and
+   prove event identity/cancellation and
    promise/microtask ordering.
+4. Build the non-component release fixture and run matched handwritten C++,
+   ScriptC C, ScriptC LLVM, and Chromium V8
+   benchmark lanes and enforce the gates in `docs/chromium.md`.

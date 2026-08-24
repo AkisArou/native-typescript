@@ -1,7 +1,33 @@
+diff --git a/content/shell/browser/shell_content_browser_client.cc b/content/shell/browser/shell_content_browser_client.cc
+--- a/content/shell/browser/shell_content_browser_client.cc
++++ b/content/shell/browser/shell_content_browser_client.cc
+@@ -464,5 +464,15 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
+ 
+   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
+                                  kForwardSwitches);
++
++  if (command_line->GetSwitchValueASCII(switches::kProcessType) ==
++      switches::kRendererProcess) {
++    static const char* const kNativeTypeScriptSwitches[] = {
++        "native-typescript-counter",
++        "native-typescript-benchmark",
++    };
++    command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
++                                   kNativeTypeScriptSwitches);
++  }
+ 
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/shell/renderer/shell_content_renderer_client.cc
 --- a/content/shell/renderer/shell_content_renderer_client.cc
 +++ b/content/shell/renderer/shell_content_renderer_client.cc
-@@ -29,6 +29,7 @@
+@@ -14,5 +14,6 @@
+ #include "base/functional/bind.h"
+ #include "base/immediate_crash.h"
++#include "base/memory/raw_ptr.h"
+ #include "base/notreached.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
+@@ -29,6 +30,7 @@
  #include "content/public/common/pseudonymization_util.h"
  #include "content/public/common/web_identity.h"
  #include "content/public/renderer/render_frame.h"
@@ -9,7 +35,7 @@ diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/s
  #include "content/public/renderer/render_thread.h"
  #include "content/public/test/test_service.mojom.h"
  #include "content/shell/common/main_frame_counter_test_impl.h"
-@@ -45,6 +46,7 @@
+@@ -45,6 +47,7 @@
  #include "third_party/blink/public/web/web_local_frame.h"
  #include "third_party/blink/public/web/web_testing_support.h"
  #include "third_party/blink/public/web/web_view.h"
@@ -17,7 +43,7 @@ diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/s
  #include "v8/include/v8-initialization.h"
  #include "v8/include/v8.h"
  
-@@ -244,6 +246,43 @@ void CreateRendererTestService(
+@@ -244,6 +247,50 @@ void CreateRendererTestService(
    new TestRendererServiceImpl(std::move(receiver));
  }
  
@@ -36,10 +62,15 @@ diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/s
 +  void DidDispatchDOMContentLoadedEvent() override {
 +    Reset();
 +    RenderFrame* frame = render_frame();
-+    if (!frame || !frame->IsMainFrame())
++    if (!frame || !frame->IsMainFrame()) {
 +      return;
-+    counter_host_ =
-+        nts::blink_bridge::StartCounterHost(frame->GetWebFrame());
++    }
++    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++            "native-typescript-benchmark")) {
++      nts::blink_bridge::RunBenchmarkHost(frame->GetWebFrame());
++      return;
++    }
++    counter_host_ = nts::blink_bridge::StartCounterHost(frame->GetWebFrame());
 +  }
 +
 +  void OnDestruct() override {
@@ -49,24 +80,28 @@ diff --git a/content/shell/renderer/shell_content_renderer_client.cc b/content/s
 +
 + private:
 +  void Reset() {
-+    if (!counter_host_)
++    if (!counter_host_) {
 +      return;
-+    nts::blink_bridge::DestroyCounterHost(counter_host_);
++    }
++    nts::blink_bridge::BlinkCounterHost* counter_host = counter_host_.get();
 +    counter_host_ = nullptr;
++    nts::blink_bridge::DestroyCounterHost(counter_host);
 +  }
 +
-+  nts::blink_bridge::BlinkCounterHost* counter_host_ = nullptr;
++  raw_ptr<nts::blink_bridge::BlinkCounterHost> counter_host_ = nullptr;
 +};
 +
  }  // namespace
  
  ShellContentRendererClient::ShellContentRendererClient(bool is_browsertest) {
-@@ -342,6 +381,10 @@ void ShellContentRendererClient::RenderFrameCreated(RenderFrame* render_frame) {
+@@ -342,6 +389,12 @@ void ShellContentRendererClient::RenderFrameCreated(RenderFrame* render_frame) {
    // browser tests. If we only create that for browser tests then the override
    // of this method in WebTestContentRendererClient would not be needed.
    new ShellRenderFrameObserver(render_frame);
 +  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-+          "native-typescript-counter")) {
++          "native-typescript-counter") ||
++      base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "native-typescript-benchmark")) {
 +    new NativeTypeScriptCounterObserver(render_frame);
 +  }
  }

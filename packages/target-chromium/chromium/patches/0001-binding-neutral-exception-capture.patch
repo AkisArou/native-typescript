@@ -1,0 +1,138 @@
+diff --git a/third_party/blink/renderer/platform/bindings/exception_state.cc b/third_party/blink/renderer/platform/bindings/exception_state.cc
+--- a/third_party/blink/renderer/platform/bindings/exception_state.cc
++++ b/third_party/blink/renderer/platform/bindings/exception_state.cc
+@@ -36,12 +36,49 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_code.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_context.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
++#include "third_party/blink/renderer/platform/bindings/exception_state_capture.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
+ #include "third_party/blink/renderer/platform/wtf/assertions.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++thread_local ExceptionStateCapture* current_exception_state_capture = nullptr;
++
++}  // namespace
++
++ExceptionStateCapture::ExceptionStateCapture()
++    : exception_state_(nullptr), previous_(current_exception_state_capture) {
++  current_exception_state_capture = this;
++}
++
++ExceptionStateCapture::~ExceptionStateCapture() {
++  CHECK_EQ(current_exception_state_capture, this);
++  current_exception_state_capture = previous_;
++}
++
++ExceptionStateCapture* ExceptionStateCapture::For(
++    ExceptionState& exception_state) {
++  for (ExceptionStateCapture* capture = current_exception_state_capture;
++       capture; capture = capture->previous_) {
++    if (&capture->exception_state_ == &exception_state) {
++      return capture;
++    }
++  }
++  return nullptr;
++}
++
++void ExceptionStateCapture::SetExceptionInfo(
++    ExceptionCode code,
++    const String& sanitized_message,
++    const String& unsanitized_message) {
++  code_ = code;
++  sanitized_message_ = sanitized_message;
++  unsanitized_message_ = unsanitized_message;
++}
++
+ ExceptionState::CreateDOMExceptionFunction
+     ExceptionState::s_create_dom_exception_func_ = nullptr;
+ 
+@@ -83,6 +120,11 @@ NOINLINE void ExceptionState::ThrowDOMException(DOMExceptionCode exception_code,
+ void ExceptionState::SetExceptionInfo(ExceptionCode exception_code,
+                                       const String& message) {
+   had_exception_ = true;
++  if (ExceptionStateCapture* capture = ExceptionStateCapture::For(*this)) {
++    CHECK(exception_code);
++    capture->SetExceptionInfo(exception_code, message, String());
++    return;
++  }
+   if (!swallow_all_exceptions_) {
+     return;
+   }
+@@ -131,8 +173,16 @@ void ExceptionState::ThrowSecurityError(const String& sanitized_message,
+   DCHECK_AT(!assert_no_exceptions_, location_)
+       << "SecurityError should not be thrown.";
+ #endif
+-  SetExceptionInfo(ToExceptionCode(DOMExceptionCode::kSecurityError),
+-                   sanitized_message);
++  const ExceptionCode exception_code =
++      ToExceptionCode(DOMExceptionCode::kSecurityError);
++  if (ExceptionStateCapture* capture = ExceptionStateCapture::For(*this)) {
++    had_exception_ = true;
++    CHECK(exception_code);
++    capture->SetExceptionInfo(exception_code, sanitized_message,
++                              unsanitized_message);
++  } else {
++    SetExceptionInfo(exception_code, sanitized_message);
++  }
+   if (isolate_) {
+     v8::Local<v8::Value> exception =
+         s_create_dom_exception_func_(isolate_, DOMExceptionCode::kSecurityError,
+diff --git a/third_party/blink/renderer/platform/bindings/exception_state_capture.h b/third_party/blink/renderer/platform/bindings/exception_state_capture.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/platform/bindings/exception_state_capture.h
+@@ -0,0 +1,49 @@
++// Copyright 2026 The Native TypeScript Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_EXCEPTION_STATE_CAPTURE_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_EXCEPTION_STATE_CAPTURE_H_
++
++#define NTS_BLINK_HAS_EXCEPTION_STATE_CAPTURE 1
++
++#include "third_party/blink/renderer/platform/bindings/exception_state.h"
++
++namespace blink {
++
++// Binding-neutral output storage for one scope-like ExceptionState. The
++// existing exception machinery writes into this object without constructing or
++// throwing a V8 value. Capture scopes may be nested on the same thread.
++class PLATFORM_EXPORT ExceptionStateCapture final {
++  STACK_ALLOCATED();
++
++ public:
++  ExceptionStateCapture();
++  ~ExceptionStateCapture();
++
++  ExceptionStateCapture(const ExceptionStateCapture&) = delete;
++  ExceptionStateCapture& operator=(const ExceptionStateCapture&) = delete;
++
++  ExceptionState& GetExceptionState() { return exception_state_; }
++  ExceptionCode Code() const { return code_; }
++  const String& SanitizedMessage() const { return sanitized_message_; }
++  const String& UnsanitizedMessage() const { return unsanitized_message_; }
++
++ private:
++  friend class ExceptionState;
++
++  static ExceptionStateCapture* For(ExceptionState& exception_state);
++  void SetExceptionInfo(ExceptionCode code,
++                        const String& sanitized_message,
++                        const String& unsanitized_message);
++
++  ExceptionState exception_state_;
++  ExceptionStateCapture* const previous_;
++  ExceptionCode code_ = 0;
++  String sanitized_message_;
++  String unsanitized_message_;
++};
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_EXCEPTION_STATE_CAPTURE_H_

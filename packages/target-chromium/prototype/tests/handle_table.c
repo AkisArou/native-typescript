@@ -37,12 +37,13 @@ int main(void) {
       .type_accepts = type_accepts,
       .context = &context,
   };
-  nts_handle_table_init(&table, hooks);
+  nts_handle_table_init(&table, UINT64_C(0x123456789abcdef0), hooks);
 
   NtsWebHandle child;
   assert(nts_handle_table_insert(&table, 2, new_token(7), &child) ==
          NTS_WEB_OK);
   assert(child.generation != 0);
+  assert(child.realm == UINT64_C(0x123456789abcdef0));
   assert(nts_handle_table_live_count(&table) == 1);
 
   void *resolved = NULL;
@@ -51,6 +52,14 @@ int main(void) {
          NTS_WEB_OK);
   assert(*(int *)resolved == 7);
   assert(actual_type == 2);
+
+  NtsWebHandle wrong_realm = child;
+  wrong_realm.realm += 1;
+  assert(nts_handle_table_resolve(
+             &table, wrong_realm, 2, &resolved, &actual_type) ==
+         NTS_WEB_WRONG_REALM);
+  assert(nts_handle_table_retain(&table, wrong_realm) == NTS_WEB_WRONG_REALM);
+  assert(nts_handle_table_release(&table, wrong_realm) == NTS_WEB_WRONG_REALM);
 
   /* Generated base-interface calls can resolve a derived-interface handle. */
   resolved = NULL;

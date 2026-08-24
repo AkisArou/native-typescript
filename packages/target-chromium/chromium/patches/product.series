@@ -1,0 +1,3 @@
+# Product seams only. Stock Blink proved the fixture, then the first product
+# seam replaced its testing-only exception catcher with shared capture data.
+0001-binding-neutral-exception-capture.patch

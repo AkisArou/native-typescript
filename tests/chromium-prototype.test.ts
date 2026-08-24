@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   accessSync,
   constants,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -121,28 +122,127 @@ test("prototype bridge has no V8 or source-evaluation carrier", () => {
 
 test("Chromium mutation helpers expose their TypeScript command surface", () => {
   run(process.execPath, [
+    join(packageRoot, "scripts/sync-chromium.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
     join(packageRoot, "scripts/apply-chromium.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/export-chromium-webidl.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/generate-chromium-webidl.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/verify-chromium-abi.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/build-chromium-benchmark-libraries.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/build-chromium-benchmark.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/run-chromium-benchmark.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/evaluate-chromium-performance.ts"),
     "--help",
   ]);
   run(process.execPath, [
     join(packageRoot, "scripts/build-chromium-counter.ts"),
     "--help",
   ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/run-chromium-counter.ts"),
+    "--help",
+  ]);
+  run(process.execPath, [
+    join(packageRoot, "scripts/verify-chromium-patches.ts"),
+    "--help",
+  ]);
 });
 
-test("Chromium patch series is complete and syntactically valid", () => {
-  const git = executable("git");
-  const names = readFileSync(join(patchRoot, "series"), "utf8")
+test("Chromium builders pin their tools and runners close concrete targets", () => {
+  const counterBuilder = readFileSync(
+    join(packageRoot, "scripts/build-chromium-counter.ts"),
+    "utf8",
+  );
+  const benchmarkBuilder = readFileSync(
+    join(packageRoot, "scripts/build-chromium-benchmark.ts"),
+    "utf8",
+  );
+  const support = readFileSync(join(packageRoot, "scripts/support.ts"), "utf8");
+  for (const builder of [counterBuilder, benchmarkBuilder]) {
+    assert.match(builder, /--depot-tools/u);
+    assert.match(builder, /buildtools\/linux64\/gn/u);
+    assert.match(builder, /runAutoninja/u);
+    assert.match(builder, /--refresh/u);
+    assert.doesNotMatch(builder, /runCommand\(\s*"(?:auto)?ninja"/u);
+  }
+  assert.match(support, /python-bin\/python3/u);
+  assert.match(support, /autoninja\.py/u);
+
+  for (const runner of ["run-chromium-counter.ts", "run-chromium-benchmark.ts"]) {
+    const source = readFileSync(join(packageRoot, "scripts", runner), "utf8");
+    assert.match(source, /Target\.closeTarget/u);
+    assert.doesNotMatch(source, /Browser\.close|Page\.loadEventFired/u);
+  }
+});
+
+function readSeries(name: string): readonly string[] {
+  return readFileSync(join(patchRoot, name), "utf8")
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
 
-  assert.deepEqual(names, [
-    "0001-binding-neutral-web-exception-state.patch",
-    "0002-native-event-listener-without-v8-logger.patch",
+test("Chromium patch profiles minimize and classify the required seams", () => {
+  const git = executable("git");
+  const productNames = readSeries("product.series");
+  assert.deepEqual(productNames, [
+    "0001-binding-neutral-exception-capture.patch",
+  ]);
+  const fixtureNames = readSeries("fixture.series");
+  assert.deepEqual(fixtureNames, [
     "0003-content-shell-native-counter-harness.patch",
   ]);
-  for (const name of names) {
+  assert.equal(existsSync(join(patchRoot, "series")), false);
+  assert.equal(
+    existsSync(join(patchRoot, "0001-binding-neutral-web-exception-state.patch")),
+    false,
+  );
+  assert.equal(
+    existsSync(join(patchRoot, "0002-native-event-listener-without-v8-logger.patch")),
+    false,
+  );
+  const exceptionPatch = readFileSync(
+    join(patchRoot, productNames[0]!),
+    "utf8",
+  );
+  const exceptionPatchFiles = exceptionPatch
+    .split("\n")
+    .filter((line) => line.startsWith("+++ b/"))
+    .map((line) => line.slice("+++ b/".length));
+  assert.deepEqual(exceptionPatchFiles, [
+    "third_party/blink/renderer/platform/bindings/exception_state.cc",
+    "third_party/blink/renderer/platform/bindings/exception_state_capture.h",
+  ]);
+  const addedExceptionCode = exceptionPatch
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .join("\n");
+  assert.doesNotMatch(addedExceptionCode, /\bv8::/u);
+  assert.doesNotMatch(exceptionPatch, /CreateElementForBinding/u);
+  for (const name of [...productNames, ...fixtureNames]) {
     run(git, ["apply", "--numstat", join(patchRoot, name)]);
   }
 });

@@ -4,4 +4,17 @@ export {
   serializeChromiumWebIdlInput,
 } from "./webidl-input.ts";
 export type { ChromiumWebIdlInput } from "./webidl-input.ts";
-
+export {
+  CHROMIUM_WEBIDL_SLICE_SCHEMA_VERSION,
+  defineChromiumWebIdlSlice,
+  generateChromiumCreateElementBinding,
+  serializeChromiumWebIdlSlice,
+} from "./chromium-webidl.ts";
+export type {
+  ChromiumCreateElementBinding,
+  ChromiumCreateElementGenerationOptions,
+  ChromiumWebIdlArgument,
+  ChromiumWebIdlInterface,
+  ChromiumWebIdlOperation,
+  ChromiumWebIdlSlice,
+} from "./chromium-webidl.ts";

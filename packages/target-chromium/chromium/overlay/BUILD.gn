@@ -13,10 +13,21 @@ source_set("nts_web_runtime") {
   ]
 
   include_dirs = [ "." ]
+
+  # This target is a stable C ABI consumed by ScriptC-generated C. Chromium's
+  # C++ raw_ptr replacement cannot appear in that layout contract, and the C
+  # table implementation cannot use Chromium's C++ span vocabulary. Keep the
+  # normal warning set while excluding those two migration plugins.
+  configs -= [
+    "//build/config/clang:find_bad_constructs",
+    "//build/config/clang:unsafe_buffers",
+  ]
 }
 
 source_set("nts_blink_bridge") {
   sources = [
+    "generated/nts_webidl_capsules.cc",
+    "generated/nts_webidl_capsules.h",
     "nts_blink_dom.cc",
     "nts_blink_events.cc",
     "nts_blink_event_listener.cc",
@@ -56,6 +67,24 @@ source_set("nts_counter_example") {
   ]
 
   include_dirs = [ "." ]
+  configs -= [
+    "//build/config/clang:find_bad_constructs",
+    "//build/config/clang:unsafe_buffers",
+  ]
+  deps = [ ":nts_blink_bridge" ]
+}
+
+source_set("nts_create_element_example") {
+  sources = [
+    "create-element/app.c",
+    "create-element/app.h",
+  ]
+
+  include_dirs = [ "." ]
+  configs -= [
+    "//build/config/clang:find_bad_constructs",
+    "//build/config/clang:unsafe_buffers",
+  ]
   deps = [ ":nts_blink_bridge" ]
 }
 
@@ -64,6 +93,8 @@ source_set("nts_counter_example") {
 # implementation types to the content embedder.
 source_set("nts_counter_host") {
   sources = [
+    "nts_blink_benchmark_host.cc",
+    "nts_blink_benchmark_host.h",
     "nts_blink_counter_host.cc",
     "nts_blink_counter_host.h",
   ]
@@ -80,7 +111,21 @@ source_set("nts_counter_host") {
   deps = [
     ":nts_blink_bridge",
     ":nts_counter_example",
+    ":nts_create_element_example",
+    "//base",
     "//third_party/blink/public:blink_headers",
     "//third_party/blink/renderer/core",
+  ]
+
+  # The TypeScript builder materializes both localized ScriptC archives before
+  # GN generation. Their runtime definitions are private, so both backends can
+  # coexist in this one matched content_shell binary.
+  lib_dirs = [
+    "$root_out_dir/gen/native_typescript/benchmark/c",
+    "$root_out_dir/gen/native_typescript/benchmark/llvm",
+  ]
+  libs = [
+    "scriptc-c",
+    "scriptc-llvm",
   ]
 }

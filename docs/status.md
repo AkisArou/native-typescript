@@ -1,7 +1,7 @@
 # Implementation Status
 
 Status: current implementation state  
-Last revised: 2026-08-23
+Last revised: 2026-08-25
 
 This document records what is **built and proven**, and by which gate. The
 normative specifications say what must be true; this says how far the
@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | portable feasibility specimen migrated; target not implemented |
+| DOM/Chromium | pinned `content_shell` debug build and direct-Blink C acceptance pass; renderer ScriptC target not implemented |
 
 ## Compiler and runtime
 
@@ -1259,21 +1259,58 @@ counter contract, compiles the create-element/DOMException probe, scans the
 handwritten bridge for forbidden V8/source-evaluation carriers, validates the
 Chromium revision record, and parses every patch in the committed series.
 
-The imported ABI was narrowed to symbols the Blink overlay defines. During
-migration the event and content-shell patch hunk counts were repaired; the
-explicit networked verifier now applies all three patches to the exact pinned
-Chromium sources.
+The imported ABI was narrowed to symbols the Blink overlay defines. A
+stock-Blink bridge compile proved Chromium's existing testing catcher and
+native-listener path without either speculative patch. The product profile now
+contains one shared `ExceptionState` capture sink rather than a per-method
+overload; the listener path remains stock. The fixture profile contains only
+the `content_shell` acceptance hook.
 
-`packages/bindgen-webidl` currently implements only deterministic validation
-and serialization of the Chromium database and TypeScript-library provenance
-pair. It does not yet ingest Chromium's normalized database or emit
-declarations, SCABI, or Blink capsules.
+A TypeScript acceptance driver launches `content_shell` under Xvfb when
+necessary, uses only external CDP DOM, Input, Page, and Target commands, checks
+`Count: 0` to `Count: 1`, navigates to a second script-free document, and
+requires renderer start/stop evidence. It now passes against the completed
+component-debug build for both the stock exception path and the product path.
+The product run also proves distinct sanitized and privileged SecurityError
+capture without a V8 value.
 
-No Chromium GN/Ninja compilation, renderer-hosted ScriptC instance, rendered
-counter, real click delivery, or browser teardown has passed in this
-repository. The imported slot table, UTF-8 ABI, handwritten DOM members,
-callback token, and counter host remain prototype evidence. There is no
-Chromium target/provider definition and no DOM compatibility claim.
+The first performance falsifier is also implemented but has not been run. One
+TypeScript kernel plans through both ScriptC backends; a TypeScript build helper
+materializes both archives with pinned Chromium clang and its Linux sysroot,
+and gives each a private, localized ScriptC runtime so they coexist in one
+release renderer. The fixture
+adds matched handwritten C++, compiled C, compiled LLVM, and static-page V8
+lanes for `document.createElement("div")`, and the evaluator enforces the
+documented C++/V8 ratios plus the no-generic-dispatch/no-V8/no-boxing/no-heap
+structural gate. Raw result inputs require exact revisions, GN arguments, clang
+identity, and binary/archive/fixture digests. No latency result is claimed.
+
+`packages/bindgen-webidl` now validates a deterministic closed slice exported
+from Chromium's normalized WebIDL database and generates the first reached
+`Document.createElement(DOMString)` declarations, SCABI manifest, and typed
+Blink capsule. The manifest validates and translates into ScriptC Native IR.
+The generated capsule calls `CreateElementForBinding` directly and its source
+gate refuses V8 values, generic dispatch, avoidable boxing, and per-call heap
+allocation. A TypeScript command checks generated-artifact drift; the one
+intentional Python process only deserializes Chromium's Python-pickled database
+through Chromium's own classes.
+
+The prototype handles now carry an explicit 64-bit realm identity in addition
+to slot and generation. The portable table proves wrong-realm refusal and
+context invalidation, while a pinned-Chromium-clang gate proves the exact
+x86-64 record layout and aggregate calling convention used by SCABI. This
+repairs the executable oracle but does not promote its parallel slot table over
+ScriptC's product native-handle ownership.
+
+The complete symbol-light component-debug `content_shell` dependency graph has
+compiled at the pin, and its rendered counter, real click delivery,
+DOMException probe, and browser teardown have passed. This is not a build of
+the larger `chrome` product target. More importantly, the running host is still
+the fixture-owned C/C++ oracle rather than a renderer-hosted ScriptC instance.
+The imported slot table, UTF-8 ABI, handwritten DOM members, callback token,
+and counter host remain prototype evidence. There is no Chromium
+target/provider definition, release-performance result, or DOM compatibility
+claim.
 
 ## Building an application
 

@@ -203,7 +203,20 @@ importers:
 
   packages/target-api: {}
 
-  packages/target-chromium: {}
+  packages/target-chromium:
+    dependencies:
+      '@native-typescript/bindgen-c':
+        specifier: workspace:*
+        version: link:../bindgen-c
+      '@native-typescript/bindgen-webidl':
+        specifier: workspace:*
+        version: link:../bindgen-webidl
+      '@native-typescript/scabi':
+        specifier: workspace:*
+        version: link:../scabi
+      '@native-typescript/scriptc':
+        specifier: workspace:*
+        version: link:../scriptc
 
   packages/target-gtk:
     dependencies:

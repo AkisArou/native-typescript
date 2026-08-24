@@ -1,16 +1,17 @@
 #ifndef NTS_BLINK_EVENT_LISTENER_H
 #define NTS_BLINK_EVENT_LISTENER_H
 
-#include "third_party/blink/renderer/native_typescript/nts_web.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
+#include "third_party/blink/renderer/native_typescript/nts_web.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 
 struct NtsWebRealm;
 
 namespace blink {
 class Event;
 class ExecutionContext;
-class Visitor;
-}
+}  // namespace blink
 
 namespace nts::blink_bridge {
 
@@ -30,7 +31,7 @@ class BlinkNativeEventListener final : public blink::NativeEventListener {
   void Detach() { realm_ = nullptr; }
 
  private:
-  NtsWebRealm* realm_;
+  raw_ptr<NtsWebRealm> realm_;
   NtsWebCallbackToken token_;
 };
 

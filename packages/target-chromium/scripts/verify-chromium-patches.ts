@@ -11,13 +11,36 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { readPinnedChromiumRevision } from "../src/revision.ts";
 import {
+  type ChromiumPatchProfile,
   chromiumPatchRoot,
+  parsePatchProfile,
   readPatchSeries,
   reportError,
   runCommand,
 } from "./support.ts";
 
 const rawChromiumRoot = "https://raw.githubusercontent.com/chromium/chromium";
+
+function usage(): string {
+  return [
+    "Usage: node scripts/verify-chromium-patches.ts",
+    "  [--profile product|fixture|all]",
+  ].join("\n");
+}
+
+function parseProfile(
+  arguments_: readonly string[],
+): ChromiumPatchProfile | null {
+  if (arguments_.includes("--help")) {
+    process.stdout.write(`${usage()}\n`);
+    return null;
+  }
+  if (arguments_.length === 0) return "all";
+  if (arguments_.length !== 2 || arguments_[0] !== "--profile") {
+    throw new Error(usage());
+  }
+  return parsePatchProfile(arguments_[1]!);
+}
 
 function patchInputPaths(patch: string): readonly string[] {
   const paths: string[] = [];
@@ -58,11 +81,19 @@ async function download(
   writeFileSync(destination, Buffer.from(await response.arrayBuffer()));
 }
 
-async function main(): Promise<void> {
+async function main(arguments_: readonly string[]): Promise<void> {
+  const profile = parseProfile(arguments_);
+  if (profile === null) return;
   const revision = readPinnedChromiumRevision().revision;
-  const patches = readPatchSeries().map((name) =>
+  const patches = readPatchSeries(profile).map((name) =>
     resolve(chromiumPatchRoot, name)
   );
+  if (patches.length === 0) {
+    process.stdout.write(
+      `the ${profile} Chromium patch profile declares no patches\n`,
+    );
+    return;
+  }
   const inputs = [
     ...new Set(patches.flatMap((patch) => patchInputPaths(patch))),
   ].sort();
@@ -92,11 +123,13 @@ async function main(): Promise<void> {
   } finally {
     rmSync(checkout, { recursive: true, force: true });
   }
-  process.stdout.write(`all Chromium patches apply to ${revision}\n`);
+  process.stdout.write(
+    `the ${profile} Chromium patch profile applies to ${revision}\n`,
+  );
 }
 
 try {
-  await main();
+  await main(process.argv.slice(2));
 } catch (error) {
   reportError(error);
 }

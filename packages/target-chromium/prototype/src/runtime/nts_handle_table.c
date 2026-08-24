@@ -30,11 +30,16 @@ static void nts_slot_reset(NtsHandleTable *table,
   }
 }
 
-static bool nts_handle_slot_matches(const NtsHandleTable *table,
-                                    NtsWebHandle handle) {
-  if (handle.generation == 0 || handle.slot >= table->slot_count) return false;
+static NtsWebStatus nts_handle_slot_status(const NtsHandleTable *table,
+                                           NtsWebHandle handle) {
+  if (handle.realm != table->realm) return NTS_WEB_WRONG_REALM;
+  if (handle.generation == 0 || handle.slot >= table->slot_count) {
+    return NTS_WEB_INVALID_HANDLE;
+  }
   const NtsHandleSlot *slot = &table->slots[handle.slot];
-  return slot->occupied && slot->generation == handle.generation;
+  return slot->occupied && slot->generation == handle.generation
+             ? NTS_WEB_OK
+             : NTS_WEB_INVALID_HANDLE;
 }
 
 static bool nts_reserve_slot(NtsHandleTable *table, uint32_t *out_index) {
@@ -76,8 +81,11 @@ static bool nts_reserve_slot(NtsHandleTable *table, uint32_t *out_index) {
   return true;
 }
 
-void nts_handle_table_init(NtsHandleTable *table, NtsHandleTableHooks hooks) {
+void nts_handle_table_init(NtsHandleTable *table,
+                           uint64_t realm,
+                           NtsHandleTableHooks hooks) {
   memset(table, 0, sizeof *table);
+  table->realm = realm;
   table->free_head = NTS_HANDLE_NO_SLOT;
   table->hooks = hooks;
 }
@@ -136,6 +144,7 @@ NtsWebStatus nts_handle_table_insert(NtsHandleTable *table,
 
   out_handle->slot = index;
   out_handle->generation = slot->generation;
+  out_handle->realm = table->realm;
   return NTS_WEB_OK;
 }
 
@@ -143,7 +152,8 @@ NtsWebStatus nts_handle_table_retain(NtsHandleTable *table,
                                      NtsWebHandle handle) {
   if (table == NULL) return NTS_WEB_INVALID_ARGUMENT;
   if (table->invalidated) return NTS_WEB_CONTEXT_DESTROYED;
-  if (!nts_handle_slot_matches(table, handle)) return NTS_WEB_INVALID_HANDLE;
+  NtsWebStatus handle_status = nts_handle_slot_status(table, handle);
+  if (handle_status != NTS_WEB_OK) return handle_status;
 
   NtsHandleSlot *slot = &table->slots[handle.slot];
   if (slot->references == UINT32_MAX) return NTS_WEB_OUT_OF_MEMORY;
@@ -155,7 +165,8 @@ NtsWebStatus nts_handle_table_release(NtsHandleTable *table,
                                       NtsWebHandle handle) {
   if (table == NULL) return NTS_WEB_INVALID_ARGUMENT;
   if (table->invalidated) return NTS_WEB_CONTEXT_DESTROYED;
-  if (!nts_handle_slot_matches(table, handle)) return NTS_WEB_INVALID_HANDLE;
+  NtsWebStatus handle_status = nts_handle_slot_status(table, handle);
+  if (handle_status != NTS_WEB_OK) return handle_status;
 
   NtsHandleSlot *slot = &table->slots[handle.slot];
   if (--slot->references == 0) nts_slot_reset(table, handle.slot, true);
@@ -169,7 +180,8 @@ NtsWebStatus nts_handle_table_resolve(NtsHandleTable *table,
                                       uint32_t *out_actual_type) {
   if (table == NULL || out_token == NULL) return NTS_WEB_INVALID_ARGUMENT;
   if (table->invalidated) return NTS_WEB_CONTEXT_DESTROYED;
-  if (!nts_handle_slot_matches(table, handle)) return NTS_WEB_INVALID_HANDLE;
+  NtsWebStatus handle_status = nts_handle_slot_status(table, handle);
+  if (handle_status != NTS_WEB_OK) return handle_status;
 
   NtsHandleSlot *slot = &table->slots[handle.slot];
   if (expected_type != 0 && slot->type_id != expected_type) {
