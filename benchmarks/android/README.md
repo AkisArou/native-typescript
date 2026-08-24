@@ -237,6 +237,12 @@ Short `parseInt` inputs now keep a proved radix in `int` and combine validation
 with accumulation. Exact parser vectors remain unchanged while repeated
 device runs improve the three-parse workload by 12.1%/15.1%, as recorded in
 [record 0050](../../docs/records/0050-direct-jvm-short-integer-parsing.md).
+Exact integer and boolean substitutions now enter the final Java string
+concatenation without first allocating standalone formatted strings. A
+disagreeing adjacent-substitution fixture preserves concatenation semantics;
+repeated device runs improve dynamic Android text updates by 22.9%/24.6% and
+reach 1.18x/1.09x Kotlin, as recorded in
+[record 0051](../../docs/records/0051-direct-jvm-primitive-string-concat.md).
 
 ## Research references
 

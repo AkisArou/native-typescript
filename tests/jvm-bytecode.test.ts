@@ -183,6 +183,8 @@ test(
       backend: "c",
       externalFunctionRoots: [
         "joined",
+        "integerTemplate",
+        "adjacentIntegerTemplate",
         "equal",
         "notEqual",
         "numberText",
@@ -205,6 +207,12 @@ test(
       functionExports: [{
         functionName: "joined",
         methodName: "joined",
+      }, {
+        functionName: "integerTemplate",
+        methodName: "integerTemplate",
+      }, {
+        functionName: "adjacentIntegerTemplate",
+        methodName: "adjacentIntegerTemplate",
       }, {
         functionName: "equal",
         methodName: "equal",
@@ -237,6 +245,8 @@ test(
           "public final class StringValuesHarness {\n" +
           "  public static void main(String[] args) {\n" +
           `    System.out.println(${simpleName}.joined(42.0d, true));\n` +
+          `    System.out.println(${simpleName}.integerTemplate(2050.0d));\n` +
+          `    System.out.println(${simpleName}.adjacentIntegerTemplate(42.0d));\n` +
           `    System.out.println(${simpleName}.equal(new String(\"same\"), new String(\"same\")));\n` +
           `    System.out.println(${simpleName}.notEqual(\"left\", \"right\"));\n` +
           "    double[] values = {-0.0d, 1e-7d, 1e-6d, 1e20d, 1e21d, " +
@@ -265,6 +275,8 @@ test(
       assert.equal(
         run.stdout,
         "value=42 enabled=true\n" +
+          "Count: 2\n" +
+          "4210\n" +
           "true\n" +
           "true\n" +
           "0\n" +
@@ -279,6 +291,13 @@ test(
           "4.0\n" +
           "-1.0\n",
       );
+
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.doesNotMatch(bytecode, /java\/lang\/(?:Integer|Boolean)\.toString/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

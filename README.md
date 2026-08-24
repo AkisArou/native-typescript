@@ -190,6 +190,16 @@ instead of scanning them twice. Two device runs reduced the parsed triple from
 full Node-bit-vector proof and reports are in
 [record 0050](docs/records/0050-direct-jvm-short-integer-parsing.md).
 
+The remaining dynamic text-update gap came from materializing
+`Integer.toString(value)` before Java built the final template string. Exact
+signed integers and booleans now enter the final JVM concatenation directly;
+general doubles retain the JavaScript-exact formatter, and a disagreeing
+two-substitution fixture prevents accidental numeric addition. Repeated device
+runs reduce the Android text update from 335.67 ns to **258.90/252.95 ns**
+(22.9%/24.6%) and improve Direct/Kotlin from 1.52x to **1.18x/1.09x**. The
+unchanged string-operation control remains in its prior range. See
+[record 0051](docs/records/0051-direct-jvm-primitive-string-concat.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |
