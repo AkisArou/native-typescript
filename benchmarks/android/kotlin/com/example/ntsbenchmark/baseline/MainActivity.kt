@@ -30,6 +30,7 @@ private const val ARRAY_OPERATION_ITERATIONS = 20000
 private const val ARRAY_PIPELINE_ITERATIONS = 20000
 private const val RECORD_OBJECT_ITERATIONS = 50000
 private const val OPTIONAL_VALUE_ITERATIONS = 50000
+private const val MAP_OPERATION_ITERATIONS = 50000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -327,6 +328,26 @@ class MainActivity : Activity() {
                     "optional-values",
                     sample,
                     OPTIONAL_VALUE_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("map-operations".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runMapOperations()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runMapOperations()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "map-operations",
+                    sample,
+                    MAP_OPERATION_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -700,6 +721,33 @@ class MainActivity : Activity() {
             checksum += if (numeric == null) 11 else numeric + 3
             val label = maybeLabel(index)
             checksum += if (label == null) 7 else label.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runMapOperations(): Int {
+        val keys = arrayOf(
+            "alpha", "beta", "gamma", "delta",
+            "epsilon", "zeta", "eta", "theta",
+            "iota", "kappa", "lambda", "mu",
+            "nu", "xi", "omicron", "pi",
+        )
+        val counts = LinkedHashMap<String, Int>()
+        var checksum = 0
+        var index = 0
+        while (index < MAP_OPERATION_ITERATIONS) {
+            val key = keys[index and 15]
+            val previous = counts[key]
+            val next = if (previous == null) (index and 7) + 1 else previous + 1
+            counts[key] = next
+            if (index and 31 == 0) {
+                val evictionKey = keys[(index ushr 5) and 15]
+                if (counts.containsKey(evictionKey)) checksum += 3
+                if (counts.remove(evictionKey) != null) checksum += 5
+                counts[evictionKey] = next + 2
+            }
+            checksum += next + counts.size
             index += 1
         }
         return checksum

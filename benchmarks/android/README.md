@@ -99,6 +99,7 @@ JavaScript array that would change the operation.
 | Language | `array-pipeline` | Run 20,000 captured `map` → `filter` → `reduce` pipelines with intermediate arrays |
 | Language | `record-objects` | Run 50,000 fixed-shape object lifetimes with number, string, and boolean fields, mutation, and reads |
 | Language | `optional-values` | Consume 50,000 scalar and reference optional-result pairs across helper calls, with mixed present/missing arms |
+| Language | `map-operations` | Run 50,000 bounded string-key cache updates with `get`, `set`, `has`, `delete`, reinsertion, and optional numeric results |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |

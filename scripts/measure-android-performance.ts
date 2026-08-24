@@ -60,6 +60,8 @@ const directConstructorSource = join(directRoot, "constructor.ts");
 const directHandleResultSource = join(directRoot, "handle-result.ts");
 const directLightObjectSource = join(directRoot, "light-object.ts");
 const directManagedClassSource = join(directRoot, "managed-class.ts");
+const directMapOperationSource = join(directRoot, "map-operations.ts");
+const directOptionalValueSource = join(directRoot, "optional-values.ts");
 const directRecordObjectSource = join(directRoot, "record-objects.ts");
 const directScreenBuildSource = join(directRoot, "screen-build.ts");
 const directSetterSource = join(directRoot, "setter.ts");
@@ -99,6 +101,8 @@ const DIRECT_JVM_SCENARIOS = [
   "array-operations",
   "array-pipeline",
   "record-objects",
+  "optional-values",
+  "map-operations",
   "byte-array",
   "handle-result",
   "text-update",
@@ -119,6 +123,8 @@ const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
   "array-operations",
   "array-pipeline",
   "record-objects",
+  "optional-values",
+  "map-operations",
   "byte-array",
   "handle-result",
   "text-update",
@@ -1002,6 +1008,42 @@ async function buildDirectJvmApk(input: {
     ["-classpath", classes, "-c", "-p", typescriptActivityClassName],
     { env: buildEnvironment },
   );
+  const mapClassEntry = readdirSync(
+    join(classes, ...generatedActivityPackage.split(".")),
+  ).find((entry) =>
+    entry.startsWith(`${generatedActivityClass}$NtsMap`) && entry.endsWith(".class")
+  );
+  if (mapClassEntry === undefined) {
+    throw new Error("Compiler-emitted TypeScript Activity has no specialized Map class");
+  }
+  const typescriptMapClassName =
+    `${generatedActivityPackage}.${mapClassEntry.slice(0, -".class".length)}`;
+  const typescriptMapBytecode = run(
+    join(input.javaHome, "bin/javap"),
+    ["-classpath", classes, "-p", typescriptMapClassName],
+    { env: buildEnvironment },
+  );
+  for (const mapEvidence of [
+    "java.lang.String[] keys;",
+    "double[] values;",
+    "int[] table;",
+    "double size();",
+    "boolean delete(java.lang.String);",
+  ]) {
+    if (!typescriptMapBytecode.includes(mapEvidence)) {
+      throw new Error(
+        `Compiler-emitted TypeScript Map lacks '${mapEvidence}':\n${typescriptMapBytecode}`,
+      );
+    }
+  }
+  if (
+    /java\.lang\.Object|java\.util\.(?:HashMap|LinkedHashMap)|java\.lang\.Double/u
+      .test(typescriptMapBytecode)
+  ) {
+    throw new Error(
+      `Compiler-emitted TypeScript Map erased its exact storage:\n${typescriptMapBytecode}`,
+    );
+  }
   for (const activityEvidence of [
     "extends android.app.Activity",
     "android/app/Activity.onCreate:(Landroid/os/Bundle;)V",
@@ -1089,7 +1131,8 @@ async function buildDirectJvmApk(input: {
   writeFileSync(
     join(input.root, "bytecode-evidence.txt"),
     `=== ${typescriptActivityClassName} ===\n${typescriptActivityBytecode}\n` +
-      `=== ${typescriptCallbackAdapterClassName} ===\n${typescriptCallbackBytecode}`,
+      `=== ${typescriptCallbackAdapterClassName} ===\n${typescriptCallbackBytecode}\n` +
+      `=== ${typescriptMapClassName} ===\n${typescriptMapBytecode}`,
   );
 
   const compiledClasses = classFiles(classes);
@@ -1322,6 +1365,8 @@ function verifyWorkloadAgreement(): void {
       androidBenchmarkWorkload.recordObjectIterations,
     OPTIONAL_VALUE_ITERATIONS:
       androidBenchmarkWorkload.optionalValueIterations,
+    MAP_OPERATION_ITERATIONS:
+      androidBenchmarkWorkload.mapOperationIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
@@ -1842,6 +1887,8 @@ async function main(): Promise<void> {
     directHandleResultSourceSha256: sha256(directHandleResultSource),
     directLightObjectSourceSha256: sha256(directLightObjectSource),
     directManagedClassSourceSha256: sha256(directManagedClassSource),
+    directMapOperationSourceSha256: sha256(directMapOperationSource),
+    directOptionalValueSourceSha256: sha256(directOptionalValueSource),
     directRecordObjectSourceSha256: sha256(directRecordObjectSource),
     directScreenBuildSourceSha256: sha256(directScreenBuildSource),
     directSetterSourceSha256: sha256(directSetterSource),

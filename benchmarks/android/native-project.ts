@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 8,
+  version: 9,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -25,6 +25,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   arrayPipelineIterations: 20_000,
   recordObjectIterations: 50_000,
   optionalValueIterations: 50_000,
+  mapOperationIterations: 50_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -98,6 +99,31 @@ function optionalValueChecksum(iterations: number): number {
     checksum += numeric === undefined ? 11 : numeric + 3;
     const label = index & 1 ? "alpha" : undefined;
     checksum += label === undefined ? 7 : label.length;
+  }
+  return checksum;
+}
+
+function mapOperationChecksum(iterations: number): number {
+  const keys = [
+    "alpha", "beta", "gamma", "delta",
+    "epsilon", "zeta", "eta", "theta",
+    "iota", "kappa", "lambda", "mu",
+    "nu", "xi", "omicron", "pi",
+  ];
+  const counts = new Map<string, number>();
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const key = keys[index & 15]!;
+    const previous = counts.get(key);
+    const next = previous === undefined ? (index & 7) + 1 : previous + 1;
+    counts.set(key, next);
+    if ((index & 31) === 0) {
+      const evictionKey = keys[(index >>> 5) & 15]!;
+      if (counts.has(evictionKey)) checksum += 3;
+      if (counts.delete(evictionKey)) checksum += 5;
+      counts.set(evictionKey, next + 2);
+    }
+    checksum += next + counts.size;
   }
   return checksum;
 }
@@ -258,6 +284,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: optionalValueChecksum(workload.optionalValueIterations),
+  },
+  {
+    name: "map-operations",
+    layer: "language-runtime",
+    hotspot:
+      "bounded string-key map get, set, has, delete, reinsertion, and optional numeric results",
+    operationUnit: "map update",
+    iterations: workload.mapOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: mapOperationChecksum(workload.mapOperationIterations),
   },
   {
     name: "byte-array",

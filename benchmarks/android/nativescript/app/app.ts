@@ -21,6 +21,7 @@ const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
+const MAP_OPERATION_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -215,6 +216,33 @@ function runOptionalValues(): number {
     checksum += numeric === undefined ? 11 : numeric + 3;
     const label = maybeLabel(index);
     checksum += label === undefined ? 7 : label.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runMapOperations(): number {
+  const keys = [
+    "alpha", "beta", "gamma", "delta",
+    "epsilon", "zeta", "eta", "theta",
+    "iota", "kappa", "lambda", "mu",
+    "nu", "xi", "omicron", "pi",
+  ];
+  const counts = new Map<string, number>();
+  let checksum = 0;
+  let index = 0;
+  while (index < MAP_OPERATION_ITERATIONS) {
+    const key = keys[index & 15];
+    const previous = counts.get(key);
+    const next = previous === undefined ? (index & 7) + 1 : previous + 1;
+    counts.set(key, next);
+    if ((index & 31) === 0) {
+      const evictionKey = keys[(index >>> 5) & 15];
+      if (counts.has(evictionKey)) checksum += 3;
+      if (counts.delete(evictionKey)) checksum += 5;
+      counts.set(evictionKey, next + 2);
+    }
+    checksum += next + counts.size;
     index += 1;
   }
   return checksum;
@@ -568,6 +596,26 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
         "optional-values",
         sample,
         OPTIONAL_VALUE_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "map-operations") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runMapOperations();
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runMapOperations();
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "map-operations",
+        sample,
+        MAP_OPERATION_ITERATIONS,
         elapsed,
         checksum,
       );

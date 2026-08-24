@@ -15,6 +15,7 @@ import { runConstructorWorkload } from "./constructor.js";
 import { runHandleResultWorkload } from "./handle-result.js";
 import { runLightObjectWorkload } from "./light-object.js";
 import { runManagedClassWorkload } from "./managed-class.js";
+import { runMapOperationWorkload } from "./map-operations.js";
 import { runOptionalValueWorkload } from "./optional-values.js";
 import { runRecordObjectWorkload } from "./record-objects.js";
 import { runSetterWorkload } from "./setter.js";
@@ -36,6 +37,7 @@ const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
+const MAP_OPERATION_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -461,6 +463,35 @@ export default class MainActivity extends Activity {
       Log.i(
         TAG,
         "complete implementation=native-typescript-jvm scenario=optional-values",
+      );
+    } else if (scenario === "map-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runMapOperationWorkload(MAP_OPERATION_ITERATIONS);
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runMapOperationWorkload(MAP_OPERATION_ITERATIONS);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "map-operations",
+          MAP_OPERATION_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        "complete implementation=native-typescript-jvm scenario=map-operations",
       );
     } else if (scenario === "byte-array") {
       const input = new Uint8Array(BYTE_ARRAY_LENGTH);

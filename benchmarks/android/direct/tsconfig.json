@@ -13,6 +13,7 @@
     "./handle-result.ts",
     "./light-object.ts",
     "./managed-class.ts",
+    "./map-operations.ts",
     "./optional-values.ts",
     "./record-objects.ts",
     "./screen-build.ts",

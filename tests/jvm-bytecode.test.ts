@@ -48,6 +48,10 @@ const unionFixture = join(
   scriptcRoot,
   "tests/corpus/117-jvm-union-values.ts",
 );
+const mapFixture = join(
+  scriptcRoot,
+  "tests/corpus/118-jvm-map-values.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -821,6 +825,131 @@ test(
         { encoding: "utf8" },
       );
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|JNI/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM maps keep exact storage and JavaScript live iteration semantics",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "stringNumberMap",
+      "numberStringMap",
+      "booleanMap",
+      "unionValueMap",
+      "nullableValueMap",
+      "undefinedValueMap",
+      "liveIterationMap",
+      "clearDuringIterationMap",
+      "rehashAndCompactMap",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(mapFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "MapValues";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-map-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "MapValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class MapValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.stringNumberMap(10.0d));\n` +
+          `    System.out.println(${simpleName}.numberStringMap(4.0d));\n` +
+          `    System.out.println(${simpleName}.booleanMap());\n` +
+          `    System.out.println(${simpleName}.unionValueMap(false));\n` +
+          `    System.out.println(${simpleName}.unionValueMap(true));\n` +
+          `    System.out.println(${simpleName}.nullableValueMap(false));\n` +
+          `    System.out.println(${simpleName}.nullableValueMap(true));\n` +
+          `    System.out.println(${simpleName}.undefinedValueMap());\n` +
+          `    System.out.println(${simpleName}.liveIterationMap());\n` +
+          `    System.out.println(${simpleName}.clearDuringIterationMap());\n` +
+          `    System.out.println(${simpleName}.rehashAndCompactMap());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.MapValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "19.0\n15.0\n2.0\n5.0\n9.0\n4.0\n7.0\n2.0\n11.0\n102.0\n11760.0\n",
+      );
+
+      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsMap`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(nestedBytecode, /java\.lang\.String\[\] keys;/u);
+      assert.match(nestedBytecode, /double\[\] keys;/u);
+      assert.match(nestedBytecode, /double\[\] values;/u);
+      assert.match(nestedBytecode, /java\.lang\.String\[\] values;/u);
+      assert.match(nestedBytecode, /boolean\[\] values;/u);
+      assert.doesNotMatch(
+        nestedBytecode,
+        /java\.lang\.Object|java\.util\.(?:HashMap|LinkedHashMap)|java\.lang\.(?:Double|Boolean)/u,
+      );
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf|JNI/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
