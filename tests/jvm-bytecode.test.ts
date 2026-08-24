@@ -44,6 +44,10 @@ const recordFixture = join(
   scriptcRoot,
   "tests/corpus/116-jvm-record-values.ts",
 );
+const unionFixture = join(
+  scriptcRoot,
+  "tests/corpus/117-jvm-union-values.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -701,6 +705,122 @@ test(
         { encoding: "utf8" },
       );
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf|JNI/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM unions keep optional references nullable and scalar payloads unboxed",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "optionalNumber",
+      "optionalRecord",
+      "optionalString",
+      "optionalArray",
+      "mixedValue",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(unionFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "UnionValues";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-union-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "UnionValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class UnionValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.optionalNumber(10.0d, true));\n` +
+          `    System.out.println(${simpleName}.optionalNumber(10.0d, false));\n` +
+          `    System.out.println(${simpleName}.optionalRecord(10.0d, true));\n` +
+          `    System.out.println(${simpleName}.optionalRecord(10.0d, false));\n` +
+          `    System.out.println(${simpleName}.optionalString("four", true));\n` +
+          `    System.out.println(${simpleName}.optionalString("four", false));\n` +
+          `    System.out.println(${simpleName}.optionalArray(10.0d, true));\n` +
+          `    System.out.println(${simpleName}.optionalArray(10.0d, false));\n` +
+          `    System.out.println(${simpleName}.mixedValue(10.0d, 0.0d));\n` +
+          `    System.out.println(${simpleName}.mixedValue(10.0d, 1.0d));\n` +
+          `    System.out.println(${simpleName}.mixedValue(10.0d, 2.0d));\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.UnionValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "13.0\n11.0\n10.0\n5.0\n4.0\n7.0\n12.0\n9.0\n12.0\n3.0\n5.0\n",
+      );
+
+      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsUnion`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(nestedBytecode, /private final int tag;/u);
+      assert.match(nestedBytecode, /private final double payload\d+;/u);
+      assert.match(nestedBytecode, /private final java\.lang\.String payload\d+;/u);
+      assert.doesNotMatch(nestedBytecode, /java\.lang\.Object|java\.lang\.Double/u);
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.doesNotMatch(ownerBytecode, /Double\.valueOf|JNI/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

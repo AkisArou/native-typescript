@@ -59,8 +59,8 @@ The runner uses the same exclusive device lock as the acceptance lane. It
 builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
 raw `am start -W` output, and uninstalls them during teardown. The three full
-applications participate in every scenario; the direct-JVM APK joins only the
-ten scenarios it implements.
+applications participate in every scenario; the direct-JVM APK now implements
+the complete declared matrix as well.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -72,7 +72,7 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 ## Workloads
 
 The three full readable source files contain the same constants. The direct
-kernel also carries every constant used by its ten scenarios. The
+kernel carries the same constants for the complete matrix. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -98,6 +98,7 @@ JavaScript array that would change the operation.
 | Language | `array-operations` | Run 20,000 dynamic numeric-array lifetimes with growth, indexed mutation/read, search, and pop |
 | Language | `array-pipeline` | Run 20,000 captured `map` → `filter` → `reduce` pipelines with intermediate arrays |
 | Language | `record-objects` | Run 50,000 fixed-shape object lifetimes with number, string, and boolean fields, mutation, and reads |
+| Language | `optional-values` | Consume 50,000 scalar and reference optional-result pairs across helper calls, with mixed present/missing arms |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |

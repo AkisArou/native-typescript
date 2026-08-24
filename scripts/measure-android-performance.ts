@@ -1320,6 +1320,8 @@ function verifyWorkloadAgreement(): void {
       androidBenchmarkWorkload.arrayPipelineIterations,
     RECORD_OBJECT_ITERATIONS:
       androidBenchmarkWorkload.recordObjectIterations,
+    OPTIONAL_VALUE_ITERATIONS:
+      androidBenchmarkWorkload.optionalValueIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,

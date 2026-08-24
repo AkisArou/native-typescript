@@ -107,7 +107,7 @@ is better.
 | dynamic `TextView` counter update | 555.56 ns/update | 295.10 ns/update | 1,579.56 ns/update | 1.88x | 0.352x |
 | nested programmatic screen build | 115,030 ns/row | 151,367 ns/row | 159,147 ns/row | 0.76x | 0.723x |
 
-The experimental direct-JVM backend now joins ten unchanged scenarios. Their
+The first matched direct-JVM batch covered ten unchanged scenarios. Their
 checked TypeScript loops execute as ART bytecode and call the exact reached
 Android members directly; bytecode inspection proves there is no native entry.
 The latest matched five-round run measured:
@@ -124,6 +124,12 @@ The latest matched five-round run measured:
 | fresh Java string result | 293.93 ns/result | 249.58 ns/result | 692.60 ns/result | 715.84 ns/result | 1.18x | 0.424x |
 | 256-byte array encoding | 870.04 ns/encoding | 782.88 ns/encoding | 1,665.12 ns/encoding | 8,935.55 ns/encoding | 1.11x | 0.523x |
 | nullable object result plus receiver call | **2.30 ns/lookup** | 3.90 ns/lookup | 172.27 ns/lookup | 691.53 ns/lookup | **0.59x** | **0.013x** |
+
+The direct-JVM application now implements the complete 19-scenario matrix,
+including specialized arrays, fixed records, and optional scalar/reference
+values. Those newer language-runtime workloads are intentionally absent from
+the table until one matched four-APK device batch measures them; no number is
+inferred from host bytecode evidence.
 
 The direct JVM tier reuses ScriptC's flow-sensitive number facts to store
 proved signed-32-bit locals, immutable literal globals, managed instance

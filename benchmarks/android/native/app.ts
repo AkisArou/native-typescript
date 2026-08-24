@@ -34,6 +34,7 @@ const STRING_OPERATION_ITERATIONS = 10000;
 const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
+const OPTIONAL_VALUE_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -207,6 +208,27 @@ function runRecordObjects(): number {
     row.count += row.label.length;
     if (row.active) row.count += 3;
     checksum += row.count;
+    index += 1;
+  }
+  return checksum;
+}
+
+function maybeNumber(index: number): number | undefined {
+  return (index & 3) === 0 ? undefined : index & 255;
+}
+
+function maybeLabel(index: number): string | undefined {
+  return index & 1 ? "alpha" : undefined;
+}
+
+function runOptionalValues(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < OPTIONAL_VALUE_ITERATIONS) {
+    const numeric = maybeNumber(index);
+    checksum += numeric === undefined ? 11 : numeric + 3;
+    const label = maybeLabel(index);
+    checksum += label === undefined ? 7 : label.length;
     index += 1;
   }
   return checksum;
@@ -566,6 +588,28 @@ export default class MainActivity extends Activity {
           "record-objects",
           sample,
           RECORD_OBJECT_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "optional-values") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runOptionalValues();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runOptionalValues();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "optional-values",
+          sample,
+          OPTIONAL_VALUE_ITERATIONS,
           elapsed,
           checksum,
         );

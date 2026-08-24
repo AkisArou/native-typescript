@@ -15,6 +15,7 @@ import { runConstructorWorkload } from "./constructor.js";
 import { runHandleResultWorkload } from "./handle-result.js";
 import { runLightObjectWorkload } from "./light-object.js";
 import { runManagedClassWorkload } from "./managed-class.js";
+import { runOptionalValueWorkload } from "./optional-values.js";
 import { runRecordObjectWorkload } from "./record-objects.js";
 import { runSetterWorkload } from "./setter.js";
 import { runScreenBuildWorkload } from "./screen-build.js";
@@ -34,6 +35,7 @@ const STRING_OPERATION_ITERATIONS = 10000;
 const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
+const OPTIONAL_VALUE_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -430,6 +432,35 @@ export default class MainActivity extends Activity {
       Log.i(
         TAG,
         "complete implementation=native-typescript-jvm scenario=record-objects",
+      );
+    } else if (scenario === "optional-values") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runOptionalValueWorkload(OPTIONAL_VALUE_ITERATIONS);
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runOptionalValueWorkload(OPTIONAL_VALUE_ITERATIONS);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "optional-values",
+          OPTIONAL_VALUE_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        "complete implementation=native-typescript-jvm scenario=optional-values",
       );
     } else if (scenario === "byte-array") {
       const input = new Uint8Array(BYTE_ARRAY_LENGTH);

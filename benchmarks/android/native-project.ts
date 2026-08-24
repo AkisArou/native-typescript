@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 7,
+  version: 8,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -24,6 +24,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   arrayOperationIterations: 20_000,
   arrayPipelineIterations: 20_000,
   recordObjectIterations: 50_000,
+  optionalValueIterations: 50_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -86,6 +87,17 @@ function recordObjectChecksum(iterations: number): number {
   for (let index = 0; index < iterations; index++) {
     checksum += (index & 255) + (index & 1 ? 5 : 8);
     if ((index & 3) === 0) checksum += 3;
+  }
+  return checksum;
+}
+
+function optionalValueChecksum(iterations: number): number {
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const numeric = (index & 3) === 0 ? undefined : index & 255;
+    checksum += numeric === undefined ? 11 : numeric + 3;
+    const label = index & 1 ? "alpha" : undefined;
+    checksum += label === undefined ? 7 : label.length;
   }
   return checksum;
 }
@@ -235,6 +247,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: recordObjectChecksum(workload.recordObjectIterations),
+  },
+  {
+    name: "optional-values",
+    layer: "language-runtime",
+    hotspot:
+      "scalar/reference optional results, tag tests, narrowing, and short-lived payloads",
+    operationUnit: "two optional lookups",
+    iterations: workload.optionalValueIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: optionalValueChecksum(workload.optionalValueIterations),
   },
   {
     name: "byte-array",
