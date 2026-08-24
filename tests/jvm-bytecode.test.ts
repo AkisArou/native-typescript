@@ -526,6 +526,7 @@ test(
     execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
     const roots = [
       "mutateNumbers",
+      "reservedPushOrder",
       "findString",
       "mutateBooleans",
       "arrayPipeline",
@@ -575,6 +576,7 @@ test(
           "public final class ArrayValuesHarness {\n" +
           "  public static void main(String[] args) {\n" +
           `    System.out.println(${simpleName}.mutateNumbers(10.0d));\n` +
+          `    System.out.println(${simpleName}.reservedPushOrder());\n` +
           `    System.out.println(${simpleName}.findString(new String(\"same\")));\n` +
           `    System.out.println(${simpleName}.mutateBooleans(true));\n` +
           `    System.out.println(${simpleName}.mutateBooleans(false));\n` +
@@ -603,7 +605,7 @@ test(
       assert.equal(run.status, 0, run.stderr);
       assert.equal(
         run.stdout,
-        "27.0\n11.0\ntrue\nfalse\n39.0\n27.0\n16.0\n13.0\n5555666.0\n6123.0\n",
+        "27.0\n3011.0\n11.0\ntrue\nfalse\n39.0\n27.0\n16.0\n13.0\n5555666.0\n6123.0\n",
       );
 
       const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
@@ -627,6 +629,10 @@ test(
       assert.match(nestedBytecode, /private int length\(\);/u);
       assert.match(nestedBytecode, /private double get\(int\);/u);
       assert.match(nestedBytecode, /private double get\(double\);/u);
+      assert.match(
+        nestedBytecode,
+        /private dev\.nts\.generated\.ArrayValues\$NtsArray\d+\(double\[\], int\);/u,
+      );
       assert.match(nestedBytecode, /private int push\(double\);/u);
       assert.match(nestedBytecode, /private int push\(double, double\);/u);
       assert.match(nestedBytecode, /private int push\(double\.\.\.\);/u);
@@ -643,6 +649,10 @@ test(
       assert.match(ownerBytecode, /NtsArray\d+\.get:\(I\)D/u);
       assert.match(ownerBytecode, /NtsArray\d+\.push:\(D\)I/u);
       assert.match(ownerBytecode, /NtsArray\d+\.push:\(DD\)I/u);
+      assert.match(
+        ownerBytecode,
+        /ntsArrayLiteral\d+:\(DDD\)Ldev\/nts\/generated\/ArrayValues\$NtsArray\d+;/u,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

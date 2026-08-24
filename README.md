@@ -169,6 +169,16 @@ Direct/Kotlin ratio improved from 1.60x/1.80x to **1.32x/1.30x**. The exact
 bytecode and repeated measurement are in
 [record 0048](docs/records/0048-direct-jvm-fixed-two-value-push.md).
 
+With the argument allocation gone, the same trace exposed one remaining copy:
+the exact four-value literal grew its backing array when the immediately
+following two-value append ran. Direct JVM now reserves the exact six slots
+while keeping the literal's logical length at four and executing `push` at its
+original statement. In two more five-round runs, the lifecycle fell from
+141.37/144.07 ns to **103.80/85.55 ns** (26.6%/40.6%), moving its
+Direct/Kotlin ratio from 1.32x/1.30x to **1.008x/0.782x**. The deliberately
+disagreeing evaluation-order proof and repeated device results are in
+[record 0049](docs/records/0049-direct-jvm-array-capacity-planning.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

@@ -226,6 +226,11 @@ Primitive numeric union specialization is recorded in
 The subsequent fixed two-value array append removes the Java varargs argument
 array from `push(a, b)`; its repeated device result is recorded in
 [record 0048](../../docs/records/0048-direct-jvm-fixed-two-value-push.md).
+Exact backing-capacity planning for a literal followed immediately by fixed
+appends then removes the remaining grow-and-copy without moving the append or
+its argument evaluation. The dynamic array lifecycle improves another
+26.6%/40.6% and reaches Kotlin parity or better in the repeated runs recorded
+in [record 0049](../../docs/records/0049-direct-jvm-array-capacity-planning.md).
 
 ## Research references
 
