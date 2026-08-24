@@ -160,6 +160,15 @@ Kotlin-normalized ratio did not improve across the noisier cross-run baseline.
 The target boundary, bytecode proof, and both device reports are in
 [record 0047](docs/records/0047-direct-jvm-int-bounded-arrays.md).
 
+The remaining ordinary-array trace exposed a second independent allocation:
+`push(a, b)` constructed a two-element Java varargs array on every call. A
+fixed two-value overload removed it while preserving the general variadic and
+spread paths. In two five-round device runs, the dynamic array lifecycle fell
+from 156.63/162.65 ns to **141.37/144.07 ns** (9.7%/11.4%), and its
+Direct/Kotlin ratio improved from 1.60x/1.80x to **1.32x/1.30x**. The exact
+bytecode and repeated measurement are in
+[record 0048](docs/records/0048-direct-jvm-fixed-two-value-push.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

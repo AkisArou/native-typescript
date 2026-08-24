@@ -223,6 +223,9 @@ matrix-selected optimization is recorded in
 [record 0045](../../docs/records/0045-direct-jvm-integer-parameters.md).
 Primitive numeric union specialization is recorded in
 [record 0046](../../docs/records/0046-direct-jvm-primitive-number-unions.md).
+The subsequent fixed two-value array append removes the Java varargs argument
+array from `push(a, b)`; its repeated device result is recorded in
+[record 0048](../../docs/records/0048-direct-jvm-fixed-two-value-push.md).
 
 ## Research references
 
