@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 6,
+  version: 7,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -23,6 +23,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   stringOperationIterations: 10_000,
   arrayOperationIterations: 20_000,
   arrayPipelineIterations: 20_000,
+  recordObjectIterations: 50_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -76,6 +77,15 @@ function arrayPipelineChecksum(iterations: number): number {
     for (const value of mapped) {
       if (value > 7) checksum += value;
     }
+  }
+  return checksum;
+}
+
+function recordObjectChecksum(iterations: number): number {
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    checksum += (index & 255) + (index & 1 ? 5 : 8);
+    if ((index & 3) === 0) checksum += 3;
   }
   return checksum;
 }
@@ -214,6 +224,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: arrayPipelineChecksum(workload.arrayPipelineIterations),
+  },
+  {
+    name: "record-objects",
+    layer: "language-runtime",
+    hotspot:
+      "fixed-shape object allocation, primitive/reference fields, mutation, and reads",
+    operationUnit: "record lifecycle",
+    iterations: workload.recordObjectIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: recordObjectChecksum(workload.recordObjectIterations),
   },
   {
     name: "byte-array",

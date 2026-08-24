@@ -19,6 +19,7 @@ const STRING_RESULT_ITERATIONS = 10000;
 const STRING_OPERATION_ITERATIONS = 10000;
 const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
+const RECORD_OBJECT_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -50,6 +51,12 @@ class ManagedCounter extends ManagedCounterBase {
   override step(): number {
     return super.step() + this.bonus;
   }
+}
+
+interface BenchmarkRow {
+  count: number;
+  label: string;
+  active: boolean;
 }
 
 function runConstructors(activity: android.app.Activity): number {
@@ -169,6 +176,23 @@ function runArrayPipeline(): number {
       .filter((value) => value > 7)
       .reduce((sum, value) => sum + value, 0);
     checksum += result;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runRecordObjects(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < RECORD_OBJECT_ITERATIONS) {
+    const row: BenchmarkRow = {
+      label: index & 1 ? "alpha" : "Καλημέρα",
+      count: index & 255,
+      active: (index & 3) === 0,
+    };
+    row.count += row.label.length;
+    if (row.active) row.count += 3;
+    checksum += row.count;
     index += 1;
   }
   return checksum;
@@ -482,6 +506,26 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
         "array-pipeline",
         sample,
         ARRAY_PIPELINE_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "record-objects") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runRecordObjects();
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runRecordObjects();
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "record-objects",
+        sample,
+        RECORD_OBJECT_ITERATIONS,
         elapsed,
         checksum,
       );

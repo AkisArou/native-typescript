@@ -28,6 +28,7 @@ private const val STRING_RESULT_ITERATIONS = 10000
 private const val STRING_OPERATION_ITERATIONS = 10000
 private const val ARRAY_OPERATION_ITERATIONS = 20000
 private const val ARRAY_PIPELINE_ITERATIONS = 20000
+private const val RECORD_OBJECT_ITERATIONS = 50000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -56,6 +57,12 @@ private class ManagedCounter : ManagedCounterBase() {
         return super.step() + bonus
     }
 }
+
+private class BenchmarkRow(
+    var count: Int,
+    val label: String,
+    val active: Boolean,
+)
 
 class MainActivity : Activity() {
     private var callbackCount = 0
@@ -279,6 +286,26 @@ class MainActivity : Activity() {
                     "array-pipeline",
                     sample,
                     ARRAY_PIPELINE_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("record-objects".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runRecordObjects()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runRecordObjects()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "record-objects",
+                    sample,
+                    RECORD_OBJECT_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -614,6 +641,23 @@ class MainActivity : Activity() {
                 .filter { value -> value > 7 }
                 .fold(0) { sum, value -> sum + value }
             checksum += result
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runRecordObjects(): Int {
+        var checksum = 0
+        var index = 0
+        while (index < RECORD_OBJECT_ITERATIONS) {
+            val row = BenchmarkRow(
+                label = if (index and 1 != 0) "alpha" else "Καλημέρα",
+                count = index and 255,
+                active = index and 3 == 0,
+            )
+            row.count += row.label.length
+            if (row.active) row.count += 3
+            checksum += row.count
             index += 1
         }
         return checksum

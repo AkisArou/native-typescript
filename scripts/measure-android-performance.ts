@@ -60,6 +60,7 @@ const directConstructorSource = join(directRoot, "constructor.ts");
 const directHandleResultSource = join(directRoot, "handle-result.ts");
 const directLightObjectSource = join(directRoot, "light-object.ts");
 const directManagedClassSource = join(directRoot, "managed-class.ts");
+const directRecordObjectSource = join(directRoot, "record-objects.ts");
 const directScreenBuildSource = join(directRoot, "screen-build.ts");
 const directSetterSource = join(directRoot, "setter.ts");
 const directStringArgumentSource = join(directRoot, "string-argument.ts");
@@ -97,6 +98,7 @@ const DIRECT_JVM_SCENARIOS = [
   "string-operations",
   "array-operations",
   "array-pipeline",
+  "record-objects",
   "byte-array",
   "handle-result",
   "text-update",
@@ -116,6 +118,7 @@ const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
   "string-operations",
   "array-operations",
   "array-pipeline",
+  "record-objects",
   "byte-array",
   "handle-result",
   "text-update",
@@ -1315,6 +1318,8 @@ function verifyWorkloadAgreement(): void {
       androidBenchmarkWorkload.arrayOperationIterations,
     ARRAY_PIPELINE_ITERATIONS:
       androidBenchmarkWorkload.arrayPipelineIterations,
+    RECORD_OBJECT_ITERATIONS:
+      androidBenchmarkWorkload.recordObjectIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
@@ -1835,6 +1840,7 @@ async function main(): Promise<void> {
     directHandleResultSourceSha256: sha256(directHandleResultSource),
     directLightObjectSourceSha256: sha256(directLightObjectSource),
     directManagedClassSourceSha256: sha256(directManagedClassSource),
+    directRecordObjectSourceSha256: sha256(directRecordObjectSource),
     directScreenBuildSourceSha256: sha256(directScreenBuildSource),
     directSetterSourceSha256: sha256(directSetterSource),
     directStringArgumentSourceSha256: sha256(directStringArgumentSource),

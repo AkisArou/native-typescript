@@ -3,23 +3,19 @@
 Status: active measurement instrument  
 Last revised: 2026-08-24
 
-This benchmark compares three complete, equivalent direct-Android
+This benchmark compares four complete, equivalent direct-Android
 applications:
 
 - Native TypeScript compiled through the JVM target;
+- Native TypeScript emitted directly as JVM bytecode;
 - Kotlin compiled directly against `android.jar`;
 - plain NativeScript TypeScript using raw Android APIs, with no React, XML UI,
   or cross-platform widget tree in the measured workload.
 
-It also carries an experimental fourth APK for the direct-JVM compiler slice.
-That APK measures `light-object`, `managed-class`, `setter`, `callback`, `callback-payload`,
-`callback-capture`, `string-argument`, `string-result`, `byte-array`, and
-`handle-result`: all ten hot loops come from checked TypeScript and execute
-as ART bytecode,
-while a small Java Activity supplies lifecycle, timing, logging, its own
-concrete receiver for `setter`, the click sources, the distinct runtime string
-inputs, and the byte-array input. It is not included in application launch or
-memory comparisons until it can express the whole benchmark application.
+The fourth APK is the direct-JVM compiler tier. Its Activity, lifecycle,
+timing, logging, platform calls, and every workload are checked TypeScript
+emitted as ART bytecode, so it now participates in the full workload, launch,
+and memory comparison without a handwritten Java benchmark shell.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -98,6 +94,10 @@ JavaScript array that would change the operation.
 | Android | `view-tree` | Build and attach 128 `TextView` children; also supplies the process-launch screen |
 | Boundary | `light-object` | Construct 50,000 `Rect`s, immediately call `width()`, and let each non-escaping result die |
 | Language | `managed-class` | Make 100,000 virtual calls through a base-typed object; each override calls `super`, advances a stateful integer recurrence in a field, and reads a derived field |
+| Language | `string-operations` | Apply UTF-16 trim, case conversion, search, slicing, and padding 10,000 times |
+| Language | `array-operations` | Run 20,000 dynamic numeric-array lifetimes with growth, indexed mutation/read, search, and pop |
+| Language | `array-pipeline` | Run 20,000 captured `map` → `filter` → `reduce` pipelines with intermediate arrays |
+| Language | `record-objects` | Run 50,000 fixed-shape object lifetimes with number, string, and boolean fields, mutation, and reads |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |
@@ -228,9 +228,13 @@ joined by direct native subclasses: platform virtual dispatch, exact `super`,
 instance fields on the Java receiver, and terminal lifecycle lowering now
 compile without JNI, with the two-dispatch peer proof recorded in
 [record 0035](../../docs/records/0035-direct-jvm-native-subclasses.md). These
-are still call-path and host-bytecode results, not yet launch, memory,
-lifecycle, or complete-application results for the direct backend. Scenario-selective runs
-and the first rejected managed-method candidate are recorded in
+now compose the complete TypeScript-owned benchmark Activity. Specialized
+arrays and primitive-signature function values are recorded in
+[record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md), and
+fixed-shape records with exact Java fields are recorded in
+[record 0038](../../docs/records/0038-direct-jvm-fixed-records.md). Their
+on-device array and record measurements are still pending. Scenario-selective
+runs and the first rejected managed-method candidate are recorded in
 [record 0033](../../docs/records/0033-selective-android-performance-runs.md).
 
 The original two-way observation is preserved in
@@ -279,6 +283,10 @@ Direct managed classes are recorded in
 [record 0032](../../docs/records/0032-direct-jvm-managed-classes.md).
 Proved internal JVM integer returns are recorded in
 [record 0034](../../docs/records/0034-proved-jvm-integer-returns.md).
+Specialized Direct JVM arrays and function values are recorded in
+[record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md).
+Fixed-shape Direct JVM records are recorded in
+[record 0038](../../docs/records/0038-direct-jvm-fixed-records.md).
 
 ## Research references
 
