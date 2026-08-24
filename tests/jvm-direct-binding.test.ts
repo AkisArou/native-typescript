@@ -346,6 +346,201 @@ test(
 );
 
 test(
+  "a nullable TypeScript string widens directly into Java CharSequence",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-direct-char-sequence-"));
+    try {
+      const platformClasses = join(root, "platform-classes");
+      const platformSource = join(root, "fixture/TextSink.java");
+      mkdirSync(join(root, "fixture"), { recursive: true });
+      mkdirSync(platformClasses);
+      writeFileSync(
+        platformSource,
+        "package fixture;\n" +
+          "public final class TextSink {\n" +
+          "  public static int length(CharSequence value) {\n" +
+          "    return value == null ? -1 : value.length();\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        platformClasses,
+        platformSource,
+      ]);
+      const textSinkClass = join(platformClasses, "fixture/TextSink.class");
+      const snapshot = ingestJvmClasses(
+        [{
+          logicalPath: "fixture/TextSink.class",
+          bytes: readFileSync(textSinkClass),
+        }],
+        {
+          classes: [{
+            binaryName: "fixture/TextSink",
+            methods: [{
+              name: "length",
+              descriptor: "(Ljava/lang/CharSequence;)I",
+            }],
+          }],
+        },
+      );
+      const adapter = generateJvmAdapterSource(snapshot, { packageSlug: "charsequence" });
+      const generated = generateJvmScabiPackage({
+        snapshot,
+        adapter,
+        packageSlug: "charsequence",
+        evidence: evidence(generateJvmClangAbiProbe(adapter)),
+        package: {
+          name: "@native-typescript/jvm-charsequence",
+          version: "0.0.0",
+          namespace: "native-typescript.jvm-charsequence",
+          instance: "native-typescript.jvm-charsequence@0.0.0",
+        },
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "glibc-2.17",
+          abi: "sysv-amd64",
+          features: ["jvm"],
+        },
+        sdk: {
+          vendor: "openjdk",
+          name: "jdk",
+          version: "21",
+          deploymentTarget: "21",
+          modules: ["fixture"],
+        },
+        linkInputs: [
+          { id: "link.jvm", kind: "shared-library", name: "jvm", order: 0 },
+        ],
+        adapterInput: {
+          id: "charsequence.jvm-adapters",
+          output: "jvm-adapters.o",
+        },
+      });
+      const direct = generated.directBindings.bindings.find((binding) =>
+        binding.kind === "static-method" &&
+        binding.ownerBinaryName === "fixture/TextSink" &&
+        binding.name === "length" &&
+        binding.descriptor === "(Ljava/lang/CharSequence;)I"
+      );
+      assert.ok(direct, "generated CharSequence binding is absent");
+      const separator = direct.id.indexOf("#");
+      assert.notEqual(separator, -1);
+      const translated = translateScabiNativeProgram(generated.manifest, {
+        imports: [direct.id.slice(separator + 1)],
+        exports: [],
+      });
+      assert.equal(translated.ok, true);
+      if (!translated.ok) return;
+
+      const source = join(root, "app.ts");
+      const declarations = join(root, "package.d.ts");
+      writeFileSync(
+        source,
+        'import { TextSink } from "@native-typescript/jvm-charsequence";\n' +
+          "export function nullableLength(value: string, present: boolean): number {\n" +
+          "  const candidate: string | null = present ? value : null;\n" +
+          "  return TextSink.length(candidate);\n" +
+          "}\n",
+      );
+      writeFileSync(declarations, generated.declarations);
+      const planned = (await loadScriptCExecutablePlanners())
+        .planExecutableCompilation(source, {
+          backend: "c",
+          externalFunctionRoots: ["nullableLength"],
+          sourceRoot: root,
+          externalTypes: {
+            [generated.manifest.package.name]: declarations,
+          },
+          native: translated.input,
+        });
+      assert.equal(
+        planned.ok,
+        true,
+        planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+      );
+      if (!planned.ok) return;
+      const javaSource = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+        planned.plan.ir,
+        {
+          packageName: "dev.nts.generated",
+          className: "CharSequenceBinding",
+          nativeBindings: generated.directBindings.bindings,
+          functionExports: [{
+            functionName: "nullableLength",
+            methodName: "nullableLength",
+          }],
+        },
+      );
+      const javaRoot = join(root, "java/dev/nts/generated");
+      const classes = join(root, "classes");
+      mkdirSync(javaRoot, { recursive: true });
+      mkdirSync(classes);
+      const javaPath = join(javaRoot, "CharSequenceBinding.java");
+      const harnessPath = join(javaRoot, "CharSequenceHarness.java");
+      writeFileSync(javaPath, javaSource);
+      writeFileSync(
+        harnessPath,
+        "package dev.nts.generated;\n" +
+          "public final class CharSequenceHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          "    System.out.println(CharSequenceBinding.nullableLength(\"direct\", true));\n" +
+          "    System.out.println(CharSequenceBinding.nullableLength(\"direct\", false));\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-classpath",
+        platformClasses,
+        "-d",
+        classes,
+        javaPath,
+        harnessPath,
+      ]);
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        [
+          "-classpath",
+          `${classes}:${platformClasses}`,
+          "-c",
+          "-p",
+          "dev.nts.generated.CharSequenceBinding",
+        ],
+        { encoding: "utf8" },
+      );
+      assert.match(
+        bytecode,
+        /fixture\/TextSink\.length:\(Ljava\/lang\/CharSequence;\)I/u,
+      );
+      assert.doesNotMatch(bytecode, /NtsUnion|JNI/u);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        [
+          "-cp",
+          `${classes}:${platformClasses}`,
+          "dev.nts.generated.CharSequenceHarness",
+        ],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "6.0\n-1.0\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "a platform-dispatched TypeScript override stays inside the JVM",
   { skip: javaHome === null ? "no JDK on this host" : false },
   async () => {

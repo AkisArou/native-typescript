@@ -7,12 +7,13 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { readZipEntries } from "@native-typescript/bindgen-jvm";
 import type {
   JvmDirectBinding,
@@ -61,9 +62,12 @@ const directHandleResultSource = join(directRoot, "handle-result.ts");
 const directLightObjectSource = join(directRoot, "light-object.ts");
 const directManagedClassSource = join(directRoot, "managed-class.ts");
 const directMapOperationSource = join(directRoot, "map-operations.ts");
+const directMathOperationSource = join(directRoot, "math-operations.ts");
+const directNumberParsingSource = join(directRoot, "number-parsing.ts");
 const directOptionalValueSource = join(directRoot, "optional-values.ts");
 const directRecordObjectSource = join(directRoot, "record-objects.ts");
 const directScreenBuildSource = join(directRoot, "screen-build.ts");
+const directSetOperationSource = join(directRoot, "set-operations.ts");
 const directSetterSource = join(directRoot, "setter.ts");
 const directStringArgumentSource = join(directRoot, "string-argument.ts");
 const directStringOperationSource = join(directRoot, "string-operations.ts");
@@ -105,6 +109,7 @@ const DIRECT_JVM_SCENARIOS = [
   "map-operations",
   "set-operations",
   "math-operations",
+  "number-parsing",
   "byte-array",
   "handle-result",
   "text-update",
@@ -129,6 +134,7 @@ const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
   "map-operations",
   "set-operations",
   "math-operations",
+  "number-parsing",
   "byte-array",
   "handle-result",
   "text-update",
@@ -165,6 +171,7 @@ interface AndroidTools {
   readonly clang: string;
   readonly ar: string;
   readonly kotlin: string;
+  readonly kotlinRuntimeJars: readonly string[];
 }
 
 interface BuiltApplication {
@@ -340,6 +347,26 @@ function discoverKotlin(): string | null {
   ) ?? null;
 }
 
+function discoverKotlinRuntimeJars(compiler: string): readonly string[] {
+  /* The command is distributed as KOTLIN_HOME/bin/kotlinc[-jvm]. Keep the
+   * benchmark on that same distribution instead of finding an unrelated
+   * stdlib elsewhere on the host. jdk7/jdk8 are optional compatibility
+   * overlays in newer distributions; the core stdlib is not optional. */
+  const library = join(dirname(dirname(realpathSync(resolve(compiler)))), "lib");
+  const core = join(library, "kotlin-stdlib.jar");
+  if (!existsSync(core)) {
+    throw new Error(
+      `Kotlin compiler '${compiler}' has no sibling lib/kotlin-stdlib.jar`,
+    );
+  }
+  return Object.freeze([
+    core,
+    ...["kotlin-stdlib-jdk7.jar", "kotlin-stdlib-jdk8.jar"]
+      .map((name) => join(library, name))
+      .filter(existsSync),
+  ]);
+}
+
 function discoverAndroidTools(): AndroidTools {
   const kotlin = discoverKotlin();
   if (kotlin === null) {
@@ -404,6 +431,7 @@ function discoverAndroidTools(): AndroidTools {
       clang,
       ar,
       kotlin,
+      kotlinRuntimeJars: discoverKotlinRuntimeJars(kotlin),
     };
   }
   throw new Error(
@@ -497,21 +525,6 @@ function buildKotlinApk(input: {
   );
   const compiledClasses = classFiles(classes);
   if (compiledClasses.length === 0) throw new Error("Kotlin produced no classes");
-  const runtimeReferences = compiledClasses.flatMap((path) => {
-    const text = readFileSync(path).toString("latin1");
-    return [
-      "kotlin/jvm/internal/",
-      "kotlin/collections/",
-      "kotlin/ranges/",
-      "kotlin/text/",
-    ].filter((name) => text.includes(name)).map((name) => `${path}: ${name}`);
-  });
-  if (runtimeReferences.length > 0) {
-    throw new Error(
-      "The Kotlin baseline unexpectedly needs runtime classes, which would " +
-        "make direct D8 packaging incomplete:\n" + runtimeReferences.join("\n"),
-    );
-  }
 
   const manifest = join(input.root, "AndroidManifest.xml");
   writeFileSync(manifest, generateAndroidManifest(kotlinBenchmarkApplication));
@@ -534,6 +547,7 @@ function buildKotlinApk(input: {
     "--output",
     dex,
     ...compiledClasses,
+    ...input.tools.kotlinRuntimeJars,
   ], { env: buildEnvironment });
   stageZipEntries(linked, staging, ["AndroidManifest.xml", "resources.arsc"]);
   stageZipEntries(dex, staging, ["classes.dex"]);
@@ -1419,6 +1433,8 @@ function verifyWorkloadAgreement(): void {
       androidBenchmarkWorkload.setOperationIterations,
     MATH_OPERATION_ITERATIONS:
       androidBenchmarkWorkload.mathOperationIterations,
+    NUMBER_PARSING_ITERATIONS:
+      androidBenchmarkWorkload.numberParsingIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
@@ -1940,9 +1956,12 @@ async function main(): Promise<void> {
     directLightObjectSourceSha256: sha256(directLightObjectSource),
     directManagedClassSourceSha256: sha256(directManagedClassSource),
     directMapOperationSourceSha256: sha256(directMapOperationSource),
+    directMathOperationSourceSha256: sha256(directMathOperationSource),
+    directNumberParsingSourceSha256: sha256(directNumberParsingSource),
     directOptionalValueSourceSha256: sha256(directOptionalValueSource),
     directRecordObjectSourceSha256: sha256(directRecordObjectSource),
     directScreenBuildSourceSha256: sha256(directScreenBuildSource),
+    directSetOperationSourceSha256: sha256(directSetOperationSource),
     directSetterSourceSha256: sha256(directSetterSource),
     directStringArgumentSourceSha256: sha256(directStringArgumentSource),
     directStringOperationSourceSha256: sha256(directStringOperationSource),
@@ -1954,6 +1973,10 @@ async function main(): Promise<void> {
   const toolchains = {
     java: commandVersion(join(javaHome, "bin/java"), ["-version"]),
     kotlin: commandVersion(tools.kotlin, ["-version"]),
+    kotlinRuntime: tools.kotlinRuntimeJars.map((path) => ({
+      name: basename(path),
+      sha256: sha256(path),
+    })),
     nativeScript: JSON.parse(
       readFileSync(join(nativeScriptRoot, "node_modules/nativescript/package.json"), "utf8"),
     ).version as string,
@@ -1968,7 +1991,7 @@ async function main(): Promise<void> {
   };
   const baseReport = {
     schema: "native-typescript.android-performance",
-    schemaVersion: 7,
+    schemaVersion: 8,
     recordedAt: new Date().toISOString(),
     mode: options.buildOnly ? "build-only" : "device",
     rounds: options.rounds,

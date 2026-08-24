@@ -23,6 +23,14 @@ interface AndroidLanguageContract {
   readonly mathExpectedChecksum: number;
   readonly mathActualChecksum: number;
   readonly mathRepeated: boolean;
+  readonly numberParsingIterations: number;
+  readonly numberParsingExpectedChecksum: number;
+  readonly numberParsingActualChecksum: number;
+  readonly numberParsingRepeated: boolean;
+  readonly directApplicationId: string;
+  readonly directActivityBinaryName: string;
+  readonly nativeApplicationId: string;
+  readonly kotlinApplicationId: string;
 }
 
 function readAndroidLanguageContract(): AndroidLanguageContract {
@@ -38,15 +46,22 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
   const mathWorkloadUrl = pathToFileURL(
     join(workspace, "benchmarks/android/direct/math-operations.ts"),
   ).href;
+  const numberParsingWorkloadUrl = pathToFileURL(
+    join(workspace, "benchmarks/android/direct/number-parsing.ts"),
+  ).href;
   const program = `
     import {
       androidBenchmarkScenarios,
       androidBenchmarkWorkload,
+      directJvmBenchmarkApplication,
+      kotlinBenchmarkApplication,
+      nativeTypescriptBenchmarkProject,
       repeatedAndroidBenchmarkScenarios,
     } from ${JSON.stringify(projectUrl)};
     import { runMapOperationWorkload } from ${JSON.stringify(workloadUrl)};
     import { runSetOperationWorkload } from ${JSON.stringify(setWorkloadUrl)};
     import { runMathOperationWorkload } from ${JSON.stringify(mathWorkloadUrl)};
+    import { runNumberParsingWorkload } from ${JSON.stringify(numberParsingWorkloadUrl)};
     const scenario = androidBenchmarkScenarios.find(
       ({ name }) => name === "map-operations",
     );
@@ -59,6 +74,10 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       ({ name }) => name === "math-operations",
     );
     if (mathScenario === undefined) throw new Error("math scenario is absent");
+    const numberParsingScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "number-parsing",
+    );
+    if (numberParsingScenario === undefined) throw new Error("number parsing scenario is absent");
     process.stdout.write(JSON.stringify({
       version: androidBenchmarkWorkload.version,
       scenarioCount: androidBenchmarkScenarios.length,
@@ -77,6 +96,14 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       mathExpectedChecksum: mathScenario.expectedChecksum,
       mathActualChecksum: runMathOperationWorkload(mathScenario.iterations),
       mathRepeated: repeatedAndroidBenchmarkScenarios.includes("math-operations"),
+      numberParsingIterations: numberParsingScenario.iterations,
+      numberParsingExpectedChecksum: numberParsingScenario.expectedChecksum,
+      numberParsingActualChecksum: runNumberParsingWorkload(numberParsingScenario.iterations),
+      numberParsingRepeated: repeatedAndroidBenchmarkScenarios.includes("number-parsing"),
+      directApplicationId: directJvmBenchmarkApplication.applicationId,
+      directActivityBinaryName: directJvmBenchmarkApplication.activityBinaryName,
+      nativeApplicationId: nativeTypescriptBenchmarkProject.android.applicationId,
+      kotlinApplicationId: kotlinBenchmarkApplication.applicationId,
     }));
   `;
   return JSON.parse(execFileSync(process.execPath, [
@@ -90,8 +117,8 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
 
 test("the Android language benchmarks are one matched four-application contract", () => {
   const contract = readAndroidLanguageContract();
-  assert.equal(contract.version, 11);
-  assert.equal(contract.scenarioCount, 22);
+  assert.equal(contract.version, 12);
+  assert.equal(contract.scenarioCount, 23);
   assert.equal(contract.uniqueScenarioCount, contract.scenarioCount);
   assert.equal(contract.iterations, 50_000);
   assert.equal(contract.expectedChecksum, 83_989_039);
@@ -105,6 +132,38 @@ test("the Android language benchmarks are one matched four-application contract"
   assert.equal(contract.mathExpectedChecksum, 3_075_216);
   assert.equal(contract.mathActualChecksum, contract.mathExpectedChecksum);
   assert.equal(contract.mathRepeated, true);
+  assert.equal(contract.numberParsingIterations, 50_000);
+  assert.equal(contract.numberParsingExpectedChecksum, -62_856_250);
+  assert.equal(
+    contract.numberParsingActualChecksum,
+    contract.numberParsingExpectedChecksum,
+  );
+  assert.equal(contract.numberParsingRepeated, true);
+  assert.ok(
+    contract.directActivityBinaryName.replaceAll("/", ".")
+      .startsWith(`${contract.directApplicationId}.`),
+    "the compiler-emitted Direct Activity must be owned by its application id",
+  );
+  assert.equal(new Set([
+    contract.directApplicationId,
+    contract.nativeApplicationId,
+    contract.kotlinApplicationId,
+  ]).size, 3, "benchmark application ids must remain independently installable");
+
+  const runner = readFileSync(
+    join(workspace, "scripts/measure-android-performance.ts"),
+    "utf8",
+  );
+  assert.match(
+    runner,
+    /\.\.\.input\.tools\.kotlinRuntimeJars/u,
+    "Kotlin stdlib jars are not D8 program inputs",
+  );
+  assert.match(
+    runner,
+    /kotlinRuntime: tools\.kotlinRuntimeJars\.map/u,
+    "Kotlin stdlib identities are absent from benchmark provenance",
+  );
 
   for (const [
     implementation,
@@ -112,6 +171,7 @@ test("the Android language benchmarks are one matched four-application contract"
     mapConstant,
     setConstant,
     mathConstant,
+    numberParsingConstant,
   ] of [
     [
       "native-typescript",
@@ -119,6 +179,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
+      /const NUMBER_PARSING_ITERATIONS = 50000;/u,
     ],
     [
       "native-typescript-jvm",
@@ -126,6 +187,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
+      /const NUMBER_PARSING_ITERATIONS = 50000;/u,
     ],
     [
       "kotlin",
@@ -133,6 +195,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /private const val MAP_OPERATION_ITERATIONS = 50000/u,
       /private const val SET_OPERATION_ITERATIONS = 50000/u,
       /private const val MATH_OPERATION_ITERATIONS = 100000/u,
+      /private const val NUMBER_PARSING_ITERATIONS = 50000/u,
     ],
     [
       "nativescript",
@@ -140,12 +203,18 @@ test("the Android language benchmarks are one matched four-application contract"
       /const MAP_OPERATION_ITERATIONS = 50000;/u,
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
+      /const NUMBER_PARSING_ITERATIONS = 50000;/u,
     ],
   ] as const) {
     const source = readFileSync(join(workspace, relativePath), "utf8");
     assert.match(source, mapConstant, `${implementation} map iteration count drifted`);
     assert.match(source, setConstant, `${implementation} set iteration count drifted`);
     assert.match(source, mathConstant, `${implementation} math iteration count drifted`);
+    assert.match(
+      source,
+      numberParsingConstant,
+      `${implementation} number parsing iteration count drifted`,
+    );
     assert.match(
       source,
       /map-operations/u,
@@ -160,6 +229,11 @@ test("the Android language benchmarks are one matched four-application contract"
       source,
       /math-operations/u,
       `${implementation} does not route the math scenario`,
+    );
+    assert.match(
+      source,
+      /number-parsing/u,
+      `${implementation} does not route the number parsing scenario`,
     );
   }
 });

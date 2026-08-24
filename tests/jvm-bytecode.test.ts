@@ -60,6 +60,10 @@ const mathFixture = join(
   scriptcRoot,
   "tests/corpus/120-jvm-math-values.ts",
 );
+const numberParsingFixture = join(
+  scriptcRoot,
+  "tests/corpus/121-jvm-number-parsing.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -985,6 +989,7 @@ test(
       "clearDuringIterationSet",
       "combinedSets",
       "rehashAndCompactSet",
+      "directSetIteration",
     ];
     const planned = (await loadScriptCExecutablePlanners())
       .planExecutableCompilation(setFixture, {
@@ -1033,6 +1038,7 @@ test(
           `    System.out.println(${simpleName}.clearDuringIterationSet());\n` +
           `    System.out.println(${simpleName}.combinedSets());\n` +
           `    System.out.println(${simpleName}.rehashAndCompactSet());\n` +
+          `    System.out.println(${simpleName}.directSetIteration());\n` +
           "  }\n" +
           "}\n",
       );
@@ -1052,7 +1058,7 @@ test(
       assert.equal(run.status, 0, run.stderr);
       assert.equal(
         run.stdout,
-        "10.0\n15.0\n1212.0\n7.0\n19.0\n102.0\n5238.0\n4656.0\n",
+        "10.0\n15.0\n1212.0\n7.0\n19.0\n102.0\n5238.0\n4656.0\n6.0\n",
       );
 
       const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
@@ -1223,6 +1229,198 @@ test(
         .join("\n");
       assert.match(arrayBytecode, /double\[\] data;/u);
       assert.doesNotMatch(arrayBytecode, /java\.lang\.Object\[\]/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM numeric parsing preserves JavaScript grammar without JNI",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "numberPredicates",
+      "numericSameValue",
+      "predicateEvaluationOrder",
+      "parseIntegerEdges",
+      "parseFloatEdges",
+      "convertStringEdges",
+      "parsedInteger",
+      "parsedFloat",
+      "convertedNumber",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(numberParsingFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "NumberParsing";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-number-parsing-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "NumberParsingHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class NumberParsingHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.numberPredicates());\n` +
+          `    System.out.println(${simpleName}.numericSameValue());\n` +
+          `    System.out.println(${simpleName}.predicateEvaluationOrder());\n` +
+          `    System.out.println(${simpleName}.parseIntegerEdges());\n` +
+          `    System.out.println(${simpleName}.parseFloatEdges());\n` +
+          `    System.out.println(${simpleName}.convertStringEdges());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.NumberParsingHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "4095.0\n31.0\n3.0\n1023.0\n255.0\n1023.0\n");
+
+      const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+      const parseIntegerCases: Array<readonly [string, number]> = [
+        ["42", 0], ["  42  ", 0], ["\t\n-17", 0], ["3.9", 0],
+        ["1e3", 0], ["12abc", 0], ["abc12", 0], ["0x1F", 0],
+        ["-0x20", 0], ["0x", 0], ["ff", 16], ["0x1A", 16],
+        ["101", 2], ["777", 8], ["z", 36], ["hello", 30],
+        ["ff", 1], ["ff", 37], ["11", 2.9], ["11", Number.NaN],
+        ["11", Number.POSITIVE_INFINITY], ["ff", 4_294_967_312],
+        ["-0", 0], ["0000", 0], ["18446744073709551615", 10],
+        ["18446744073709551616", 10],
+        ["123456789012345678901234567890", 10],
+        ["deadbeefdeadbeefdeadbeefdeadbeef", 16],
+        ["1".repeat(80), 35], ["7".repeat(30), 36],
+        ["1" + "0".repeat(309), 10], ["１２３", 10], ["١٢٣", 10],
+      ];
+      for (let radix = 2; radix <= 36; radix += 1) {
+        let digits = "";
+        for (let index = 0; index < 80; index += 1) {
+          const digit = index === 0 ? 1 : (index * 17 + radix * 11) % radix;
+          digits += alphabet[digit]!;
+        }
+        parseIntegerCases.push([`${radix % 2 === 0 ? "-" : "+"}${digits}tail`, radix]);
+      }
+      const parseFloatCases = [
+        "3.14abc", "  42  ", "abc", ".5", "1e3", "-2.5e-2",
+        "Infinity", "+Infinitytail", "-Infinity", "", ".", "1.",
+        "1e", "1e+", "1e-4tail", "0x10", "-0", "5e-324",
+        "2.2250738585072014e-308", "1.7976931348623157e308", "1e309",
+        "4.9406564584124654e-324tail",
+      ];
+      const numberCases = [
+        "", " ", "42", "  -12.5e2  ", ".5", "1.", "1e3",
+        "Infinity", "+Infinity", "-Infinity", "infinity", "NaN",
+        "0x10", "0Xdeadbeef", "0o777", "0b10101", "-0x10", "+0b1",
+        "0x", "0o8", "0b2", "12px", "1e", ".", "-0", "5e-324",
+        "1.7976931348623157e308", "1e309", `0x${"f".repeat(300)}`,
+      ];
+      const javaDouble = (value: number): string =>
+        Number.isNaN(value) ? "Double.NaN"
+        : value === Number.POSITIVE_INFINITY ? "Double.POSITIVE_INFINITY"
+        : value === Number.NEGATIVE_INFINITY ? "Double.NEGATIVE_INFINITY"
+        : Object.is(value, -0) ? "-0.0d"
+        : `${value}d`;
+      const javaStrings = (values: readonly string[]): string =>
+        values.map((value) => JSON.stringify(value)).join(", ");
+      const vectorHarnessPath = join(sourceDirectory, "NumberParsingVectors.java");
+      writeFileSync(
+        vectorHarnessPath,
+        `package ${packageName};\n` +
+          "public final class NumberParsingVectors {\n" +
+          "  private static void print(double value) {\n" +
+          "    System.out.println(Double.isNaN(value) ? \"NaN\" : Long.toHexString(Double.doubleToRawLongBits(value)));\n" +
+          "  }\n" +
+          "  public static void main(String[] args) {\n" +
+          `    String[] integers = new String[]{${javaStrings(parseIntegerCases.map(([value]) => value))}};\n` +
+          `    double[] radices = new double[]{${parseIntegerCases.map(([, radix]) => javaDouble(radix)).join(", ")}};\n` +
+          `    for (int index = 0; index < integers.length; index += 1) print(${simpleName}.parsedInteger(integers[index], radices[index]));\n` +
+          `    String[] floats = new String[]{${javaStrings(parseFloatCases)}};\n` +
+          `    for (String value : floats) print(${simpleName}.parsedFloat(value));\n` +
+          `    String[] numbers = new String[]{${javaStrings(numberCases)}};\n` +
+          `    for (String value : numbers) print(${simpleName}.convertedNumber(value));\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-cp",
+        classes,
+        "-d",
+        classes,
+        vectorHarnessPath,
+      ]);
+      const vectors = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.NumberParsingVectors`],
+        { encoding: "utf8" },
+      );
+      assert.equal(vectors.status, 0, vectors.stderr);
+      const bits = (value: number): string => {
+        if (Number.isNaN(value)) return "NaN";
+        const bytes = new ArrayBuffer(8);
+        new Float64Array(bytes)[0] = value;
+        return new BigUint64Array(bytes)[0]!.toString(16);
+      };
+      const expectedVectors = [
+        ...parseIntegerCases.map(([value, radix]) => bits(parseInt(value, radix))),
+        ...parseFloatCases.map((value) => bits(parseFloat(value))),
+        ...numberCases.map((value) => bits(Number(value))),
+      ].join("\n") + "\n";
+      assert.equal(vectors.stdout, expectedVectors);
+
+      const bytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.match(bytecode, /java\/lang\/Double\.parseDouble:\(Ljava\/lang\/String;\)D/u);
+      assert.match(bytecode, /java\/math\/BigInteger\.doubleValue:\(\)D/u);
+      assert.match(bytecode, /Method ntsParseInt:\(Ljava\/lang\/String;D\)D/u);
+      assert.match(bytecode, /Method ntsParseFloat:\(Ljava\/lang\/String;\)D/u);
+      assert.match(bytecode, /Method ntsStringToNumber:\(Ljava\/lang\/String;\)D/u);
+      assert.doesNotMatch(
+        bytecode,
+        /java\/lang\/(?:Double|Number)\.valueOf|java\/util\/regex|JNI/u,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

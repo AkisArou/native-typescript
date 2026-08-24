@@ -15,6 +15,7 @@
     "./managed-class.ts",
     "./map-operations.ts",
     "./math-operations.ts",
+    "./number-parsing.ts",
     "./optional-values.ts",
     "./record-objects.ts",
     "./screen-build.ts",

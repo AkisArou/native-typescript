@@ -6,16 +6,17 @@ Last revised: 2026-08-24
 This benchmark compares four complete, equivalent direct-Android
 applications:
 
-- Native TypeScript compiled through the JVM target;
-- Native TypeScript emitted directly as JVM bytecode;
+- Native TypeScript compiled through ScriptC's C/JNI route;
+- Native TypeScript emitted as JVM-targeted Java and compiled to ART bytecode;
 - Kotlin compiled directly against `android.jar`;
 - plain NativeScript TypeScript using raw Android APIs, with no React, XML UI,
   or cross-platform widget tree in the measured workload.
 
-The fourth APK is the direct-JVM compiler tier. Its Activity, lifecycle,
-timing, logging, platform calls, and every workload are checked TypeScript
-emitted as ART bytecode, so it now participates in the full workload, launch,
-and memory comparison without a handwritten Java benchmark shell.
+The second APK is the Direct JVM compiler tier. Its Activity, lifecycle,
+timing, logging, platform calls, and every workload originate in checked
+TypeScript. The compiler emits JVM-targeted Java, then `javac` and D8 produce
+the classes and DEX consumed by ART. It participates in the full workload,
+launch, and memory comparison without a handwritten Java benchmark shell.
 
 It is separate from the Android acceptance fixture: timings are observations,
 never test verdicts.
@@ -58,9 +59,9 @@ host's `/tmp` tmpfs.
 The runner uses the same exclusive device lock as the acceptance lane. It
 builds before taking that lock, installs all four packages, asks ART to
 compile each with the `speed` filter, rotates their order each round, records
-raw `am start -W` output, and uninstalls them during teardown. The three full
-applications participate in every scenario; the direct-JVM APK now implements
-the complete declared matrix as well.
+raw `am start -W` output, and uninstalls them during teardown. All four
+applications participate in every scenario; the Direct JVM APK implements the
+complete declared matrix.
 
 NativeScript is a pinned release build. Its CLI, Android runtime, core,
 webpack, Android declarations, TypeScript, and pnpm-hoisting compatibility
@@ -71,8 +72,9 @@ only the x86-64 runtime to match the Native TypeScript artifact under test.
 
 ## Workloads
 
-The three full readable source files contain the same constants. The direct
-kernel carries the same constants for the complete matrix. The
+The four readable application implementations contain the same constants. The
+Direct route splits some reached language kernels into focused TypeScript
+modules, but carries the same constants for the complete matrix. The
 runner compares those constants to `native-project.ts` and refuses to run if
 they drift. That project file also owns a machine-readable scenario catalog. Every
 report records each scenario's layer, hotspot, operation unit, sample count,
@@ -102,6 +104,7 @@ JavaScript array that would change the operation.
 | Language | `map-operations` | Run 50,000 bounded string-key cache updates with `get`, `set`, `has`, `delete`, reinsertion, and optional numeric results |
 | Language | `set-operations` | Run 50,000 bounded string membership updates with `add`, `has`, `delete`, reinsertion, `size`, and periodic insertion-order iteration |
 | Language | `math-operations` | Run 100,000 deterministic numeric transforms through `floor`, `ceil`, `trunc`, JavaScript `round`, `abs`, `min`, and `max` |
+| Language | `number-parsing` | Parse 50,000 bounded triples of base-10 integers, signed fractions, and exponent text through `parseInt`, `parseFloat`, and number conversion |
 | Android | `constructor` | Construct 2,000 `TextView`s and make one scalar call on each |
 | Boundary | `setter` | Make 50,000 `TextView.setTextSize` calls on one stable object |
 | Boundary | `callback` | Make 50,000 synchronous `Button.callOnClick` deliveries without consuming the payload |
@@ -132,7 +135,7 @@ rather than more loops in this one.
 `process-start` means `am force-stop` followed by `am start -W`; it is a new
 process with warm filesystem caches, not a claim that the whole device is
 cold. `warm-foreground` means returning an existing Activity from Home.
-Launch summaries use `WaitTime`, the field current ART emits for all three
+Launch summaries use `WaitTime`, the field current ART emits for all four
 activity implementations, and preserve `TotalTime`, launch state, and the
 complete raw result when the platform supplies them.
 
@@ -153,7 +156,8 @@ Each run directory contains:
 - `results.json`, including source revisions and dirty state, toolchain
   versions, device/build identity, the declared hotspot catalog, raw samples,
   launch/workload/memory summaries, direct-JVM evidence coordinates, and the
-  applicable cross-implementation ratios;
+  applicable cross-implementation ratios. Schema 8 also records the exact
+  Kotlin standard-library jars supplied to D8 and each jar's SHA-256 digest;
 - one `dumpsys meminfo` snapshot per application and launch round.
 
 The initial harness does not yet claim first-visible-frame timing, tap-input
@@ -163,134 +167,37 @@ completion rather than being renamed to the stronger first-frame claim.
 
 ## Interpretation
 
-The lightweight-object, constructor, and returned-handle scenarios are the
-first resource-domain targets. Native TypeScript now keeps both exact non-null
-results and nullable results guarded by null tests frame-bounded when an
-immutable local is used only by synchronous borrowed native calls. The value
-remains a JNI local reference, receives one lexical `DeleteLocalRef`, and never
-enters a managed handle cell or managed nullable-union box. Any storage,
-capture, suspension, callback ownership, or other unsupported use stays on the
-stable global-reference path. `light-object` exposes the non-null mechanism;
-`handle-result` exposes its nullable sibling; `constructor` and `view-tree` say
-whether a real widget application notices.
+The first complete four-application run is recorded in
+[record 0044](../../docs/records/0044-first-complete-direct-jvm-matrix.md).
+Direct JVM is within 16% of Kotlin for managed dispatch, construction,
+same-thread callbacks, returned strings, string operations, byte arrays,
+callback payload/capture, and composite screen rows. It wins the measured
+string-result, callback-payload, callback-capture, and screen-row comparisons.
 
-The scalar, string, byte-array, returned-handle, and callback cases prevent one
-resource improvement from being misreported as a general JNI improvement.
-They identify separate costs that need their own evidence before string
-residency, callback-token changes, or call fusion is admitted. A scoped
-`JNIEnv *` carrier now removes repeated acquisition inside one callback or
-owner turn; the Android and composite cases remain the check that an isolated
-boundary saving is visible once framework work surrounds it. Ordinary short
-string arguments now stage UTF-16 in their native frame instead of allocating
-a temporary heap buffer, while returned Java strings borrow JNI's UTF-16 view
-and allocate only their final UTF-8 owner. The exact mechanics and five-round
-measurement are recorded in
-[record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
-The experimental direct-JVM route removes the JNI boundary from the string
-kernel and now keeps `Rect` construction plus immediate instance reuse on ART
-as an ordinary Java reference. It also accepts the platform-created Activity
-as a concrete externally supplied Java parameter, uses its checked identity
-upcast to construct a `TextView`, and invokes repeated setters directly on
-that stable receiver. Externally called TypeScript bodies are explicit
-executable roots rather than fake module-initializer calls, and host-supplied
-native types enter the native type closure without selecting an unrelated
-binding. Its first static-call proof is recorded in
-[record 0023](../../docs/records/0023-direct-jvm-android-call.md); the object
-representation, exact bytecode evidence, and matched device result are in
-[record 0024](../../docs/records/0024-direct-jvm-object-calls.md); the
-host-supplied receiver and stable-setter result are in
-[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md). Proved
-signed-integer locals now remove the remaining `ToInt32` and truthiness calls
-from the setter and string loops; their bytecode and matched parity result are
-in [record 0026](../../docs/records/0026-proved-jvm-integer-locals.md). Java
-strings and exact nullable native handles now remain unboxed ART references;
-the two added kernels, bytecode proof, and matched device results are in
-[record 0027](../../docs/records/0027-direct-jvm-reference-values.md). Direct
-`Uint8Array` parameters and results now remain Java `byte[]` references; the
-unchanged Base64 loop, exact bytecode proof, and matched device result are in
-[record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md). Same-thread
-callback delivery now also stays in ART: the generated interface shell is
-replaced by a Java listener whose registration arm calls the reached
-TypeScript handler directly, while an idempotent Java connection preserves
-cancellation. Its stated-and-verified class contract, bytecode proof, and
-3.60 ns device median are in
-[record 0029](../../docs/records/0029-direct-jvm-callbacks.md). The delivered
-object can now be null-checked and used for another Android call
-without leaving ART; the matched payload result is in
-[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
-Captured values now live in exact Java fields or typed mutable holders owned
-by that registration; the aliasing proof and matched measurement are in
-[record 0031](../../docs/records/0031-direct-jvm-callback-captures.md). These
-are joined by ordinary managed TypeScript classes whose fields, inheritance,
-`super`, and virtual calls stay in ART; the disagreeing recurrence and matched
-2.17 ns first device median are in
-[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md). Proved
-compiler-private and override-family returns now keep an integer JVM
-descriptor; the controlled 36.0% reduction to 1.30 ns per dispatch is in
-[record 0034](../../docs/records/0034-proved-jvm-integer-returns.md). These are
-joined by direct native subclasses: platform virtual dispatch, exact `super`,
-instance fields on the Java receiver, and terminal lifecycle lowering now
-compile without JNI, with the two-dispatch peer proof recorded in
-[record 0035](../../docs/records/0035-direct-jvm-native-subclasses.md). These
-now compose the complete TypeScript-owned benchmark Activity. Specialized
-arrays and primitive-signature function values are recorded in
-[record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md), and
-fixed-shape records with exact Java fields are recorded in
-[record 0038](../../docs/records/0038-direct-jvm-fixed-records.md). Their
-on-device array and record measurements are still pending. Scenario-selective
-runs and the first rejected managed-method candidate are recorded in
-[record 0033](../../docs/records/0033-selective-android-performance-runs.md).
+The largest Direct JVM gaps are now explicit: fixed records (48.90x Kotlin),
+returned handles (9.89x), optional values (9.20x), sets (8.04x), stable
+setters (3.39x), Math (2.88x), maps (2.37x), string arguments (2.07x), arrays
+(1.56–1.82x), and number parsing (1.55x). These ratios determine the next
+inspection order; they are not assumed causes. Each optimization still needs
+a disagreeing semantic observer, host JVM/classfile proof, and unchanged
+on-device workload before it is accepted.
 
-The original two-way observation is preserved in
-[record 0014](../../docs/records/0014-first-android-kotlin-baseline.md). The
-first three-way Native TypeScript/Kotlin/NativeScript baseline is recorded in
-[record 0015](../../docs/records/0015-first-android-nativescript-baseline.md).
-The first compiler-selected resource optimization and its unchanged-workload
-remeasurement are recorded in
-[record 0016](../../docs/records/0016-frame-bounded-native-results.md).
-The expanded hotspot matrix, its research basis, and first five-round result
-are recorded in
-[record 0017](../../docs/records/0017-android-hotspot-matrix.md).
-The nullable returned-handle optimization and its unchanged-workload
-remeasurement are recorded in
-[record 0018](../../docs/records/0018-nullable-frame-bounded-results.md).
-The exact `GetEnv`/TLS/explicit-operand carrier measurement, the decision to
-keep the implementation target-owned, and its ART before/after result are
-recorded in
-[record 0019](../../docs/records/0019-scoped-jni-environment-capability.md).
-The frame-bounded callback-payload selection and its matched result are
-recorded in
-[record 0020](../../docs/records/0020-frame-bounded-callback-payloads.md).
-The frame-local JVM string bridge and its matched three-way result are recorded
-in [record 0021](../../docs/records/0021-frame-local-jvm-string-bridge.md).
-The first direct-JVM Android member and its matched four-way result are recorded
-in [record 0023](../../docs/records/0023-direct-jvm-android-call.md).
-Direct-JVM constructor and instance calls over concrete Java references are
-recorded in [record 0024](../../docs/records/0024-direct-jvm-object-calls.md).
-Direct-JVM host-supplied objects, checked handle upcasts, and the stable setter
-measurement are recorded in
-[record 0025](../../docs/records/0025-direct-jvm-stable-receiver.md).
-Proved JVM integer locals and the first Kotlin-parity direct setter result are
-recorded in
-[record 0026](../../docs/records/0026-proved-jvm-integer-locals.md).
-Direct-JVM string and nullable-handle representations are recorded in
-[record 0027](../../docs/records/0027-direct-jvm-reference-values.md).
-Direct-JVM byte-array residency is recorded in
-[record 0028](../../docs/records/0028-direct-jvm-byte-arrays.md).
-Direct same-thread callbacks are recorded in
-[record 0029](../../docs/records/0029-direct-jvm-callbacks.md).
-Direct callback object payloads are recorded in
-[record 0030](../../docs/records/0030-direct-jvm-callback-payloads.md).
-Direct callback captures are recorded in
-[record 0031](../../docs/records/0031-direct-jvm-callback-captures.md).
-Direct managed classes are recorded in
-[record 0032](../../docs/records/0032-direct-jvm-managed-classes.md).
-Proved internal JVM integer returns are recorded in
-[record 0034](../../docs/records/0034-proved-jvm-integer-returns.md).
-Specialized Direct JVM arrays and function values are recorded in
-[record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md).
-Fixed-shape Direct JVM records are recorded in
-[record 0038](../../docs/records/0038-direct-jvm-fixed-records.md).
+NativeScript's mature V8 runtime wins several pure-language kernels, while
+Direct JVM is far faster on the measured Android boundary and callback paths.
+That complementary result supports specialization of reached TypeScript
+semantics into ART-friendly JVM forms rather than adding a generic JavaScript
+dispatcher.
+
+Earlier JNI resource-domain measurements are preserved in
+[records 0016–0021](../../docs/records/0016-frame-bounded-native-results.md).
+The Direct JVM architecture grows from exact Android calls in
+[record 0023](../../docs/records/0023-direct-jvm-android-call.md) through
+native subclasses in
+[record 0035](../../docs/records/0035-direct-jvm-native-subclasses.md), arrays
+in [record 0037](../../docs/records/0037-direct-jvm-specialized-arrays.md),
+records in [record 0038](../../docs/records/0038-direct-jvm-fixed-records.md),
+and JavaScript-exact number parsing in
+[record 0043](../../docs/records/0043-direct-jvm-number-parsing.md).
 
 ## Research references
 

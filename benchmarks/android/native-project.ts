@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 11,
+  version: 12,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -28,6 +28,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   mapOperationIterations: 50_000,
   setOperationIterations: 50_000,
   mathOperationIterations: 100_000,
+  numberParsingIterations: 50_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -173,6 +174,29 @@ function mathOperationChecksum(iterations: number): number {
     checksum += Math.trunc(Math.abs(value));
     checksum += Math.trunc(minimum);
     checksum += Math.trunc(maximum);
+  }
+  return checksum;
+}
+
+function numberParsingChecksum(iterations: number): number {
+  const integerInputs = [
+    "0", "7", "42", "-17", "255", "1024", "6553", "-3276",
+    "12345", "-7654", "2147", "-9999", "73", "8080", "-4096", "3141",
+  ];
+  const floatInputs = [
+    "0.5", "-2.25", "3.125", "1e3", "-0.03125", "42.75", "512.5", "-128.125",
+    "0.125", "64.875", "-16.5", "2048.25", "-4096.75", "7.5", "0e0", "123.375",
+  ];
+  const numberInputs = [
+    "1.25", "-3.5", "6.125", "2.5e2", "-0.0625", "18.75", "256.25", "-64.5",
+    "0.375", "32.625", "-8.25", "1024.5", "-2048.125", "15.875", "0.0", "61.25",
+  ];
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const slot = index & 15;
+    checksum += parseInt(integerInputs[slot]!, 10);
+    checksum += parseFloat(floatInputs[slot]!) * 32;
+    checksum += Number(numberInputs[slot]!) * 32;
   }
   return checksum;
 }
@@ -366,6 +390,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: mathOperationChecksum(workload.mathOperationIterations),
+  },
+  {
+    name: "number-parsing",
+    layer: "language-runtime",
+    hotspot:
+      "base-10 integer, fractional, signed, and exponent string parsing",
+    operationUnit: "three numeric parses",
+    iterations: workload.numberParsingIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: numberParsingChecksum(workload.numberParsingIterations),
   },
   {
     name: "byte-array",
@@ -605,7 +640,12 @@ export const kotlinBenchmarkApplication = Object.freeze({
 /** The direct-ART Native TypeScript benchmark. Its launcher, lifecycle, and
  * measured workloads are all compiled from direct/activity.ts. */
 export const directJvmBenchmarkApplication = Object.freeze({
-  applicationId: "com.example.ntsbenchmark.direct",
+  /* The Direct route deliberately consumes the exact generated subclass
+   * coordinates carried by the same SCABI package as the native route.
+   * Give it a distinct owning application id above that class package;
+   * Android application ids need not equal a Java package, but our
+   * manifest contract requires generated code to remain beneath one. */
+  applicationId: "com.example.ntsbenchmark",
   activityBinaryName:
     "com/example/ntsbenchmark/compiled/MainActivity",
   label: "NTS Direct JVM Benchmark",

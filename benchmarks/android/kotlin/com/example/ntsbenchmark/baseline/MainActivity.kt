@@ -39,6 +39,7 @@ private const val OPTIONAL_VALUE_ITERATIONS = 50000
 private const val MAP_OPERATION_ITERATIONS = 50000
 private const val SET_OPERATION_ITERATIONS = 50000
 private const val MATH_OPERATION_ITERATIONS = 100000
+private const val NUMBER_PARSING_ITERATIONS = 50000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -396,6 +397,26 @@ class MainActivity : Activity() {
                     "math-operations",
                     sample,
                     MATH_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("number-parsing".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runNumberParsing()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runNumberParsing()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "number-parsing",
+                    sample,
+                    NUMBER_PARSING_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -854,6 +875,31 @@ class MainActivity : Activity() {
             checksum += truncate(abs(value))
             checksum += truncate(minimum)
             checksum += truncate(maximum)
+            index += 1
+        }
+        return checksum.toInt()
+    }
+
+    private fun runNumberParsing(): Int {
+        val integerInputs = arrayOf(
+            "0", "7", "42", "-17", "255", "1024", "6553", "-3276",
+            "12345", "-7654", "2147", "-9999", "73", "8080", "-4096", "3141",
+        )
+        val floatInputs = arrayOf(
+            "0.5", "-2.25", "3.125", "1e3", "-0.03125", "42.75", "512.5", "-128.125",
+            "0.125", "64.875", "-16.5", "2048.25", "-4096.75", "7.5", "0e0", "123.375",
+        )
+        val numberInputs = arrayOf(
+            "1.25", "-3.5", "6.125", "2.5e2", "-0.0625", "18.75", "256.25", "-64.5",
+            "0.375", "32.625", "-8.25", "1024.5", "-2048.125", "15.875", "0.0", "61.25",
+        )
+        var checksum = 0.0
+        var index = 0
+        while (index < NUMBER_PARSING_ITERATIONS) {
+            val slot = index and 15
+            checksum += integerInputs[slot].toInt()
+            checksum += floatInputs[slot].toDouble() * 32.0
+            checksum += numberInputs[slot].toDouble() * 32.0
             index += 1
         }
         return checksum.toInt()

@@ -82,148 +82,78 @@ ingress function is not a second public lifecycle API.
 
 #### Current Android benchmark
 
-The current three-way release measurement compares the same raw Android
-workload in Native TypeScript, direct Kotlin, and plain NativeScript
-TypeScript. The NativeScript application uses neither React nor XML UI, and
-all timed work uses the same `android.*` objects, calls, iteration counts, and
-checksums. These are medians from five cyclically ordered process rounds on an
-x86-64 Pixel 10 Pro AVD running API 37, after ART `speed` compilation. Lower
-is better.
+The current release measurement runs four equivalent programmatic Android
+applications: Native TypeScript through ScriptC C/JNI, the experimental
+Direct JVM compiler tier, Kotlin, and plain NativeScript TypeScript. The
+NativeScript app uses neither React nor XML UI. Every route uses the same
+Android objects, inputs, iteration counts, and checked results.
 
-| Workload | Native TypeScript | Kotlin | NativeScript | NTS / Kotlin | NTS / NativeScript |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 128-child view tree | 48,384 ns/child | 39,466 ns/child | 40,140 ns/child | 1.23x | 1.21x |
-| lightweight `Rect` construction and `width()` | 222.71 ns/op | 0.30 ns/op | 4,615.52 ns/op | 740.23x | 0.048x |
-| managed field, inheritance, `super`, and virtual call | 76.38 ns/dispatch | 1.33 ns/dispatch | 1.96 ns/dispatch | 57.41x | 39.05x |
-| `TextView` construction and scalar call | 26,509 ns/op | 25,802 ns/op | 32,765 ns/op | 1.03x | 0.809x |
-| repeated `TextView.setTextSize` | 73.74 ns/op | 18.53 ns/op | 257.65 ns/op | 3.98x | 0.286x |
-| payload-free synchronous callback | 212.35 ns/delivery | 21.81 ns/delivery | 1,418.76 ns/delivery | 9.74x | 0.150x |
-| ASCII/Unicode string arguments | 603.27 ns/comparison | 42.19 ns/comparison | 1,384.77 ns/comparison | 14.30x | 0.436x |
-| fresh Java string result | 692.60 ns/result | 249.58 ns/result | 715.84 ns/result | 2.78x | 0.968x |
-| 256-byte array encoding round trip | 1,665.12 ns/encoding | 782.88 ns/encoding | 8,935.55 ns/encoding | 2.13x | 0.186x |
-| nullable object result plus receiver call | 172.27 ns/lookup | 3.90 ns/lookup | 691.53 ns/lookup | 44.15x | 0.249x |
-| callback payload plus receiver call | 297.20 ns/delivery | 4.12 ns/delivery | 2,195.23 ns/delivery | 72.21x | 0.135x |
-| captured Android receiver plus callback payload | 323.83 ns/delivery | 5.45 ns/delivery | 2,318.71 ns/delivery | 59.44x | 0.140x |
-| dynamic `TextView` counter update | 555.56 ns/update | 295.10 ns/update | 1,579.56 ns/update | 1.88x | 0.352x |
-| nested programmatic screen build | 115,030 ns/row | 151,367 ns/row | 159,147 ns/row | 0.76x | 0.723x |
+These are medians from three cyclic process rounds on an x86-64 Pixel 10 Pro
+AVD running API 37, after ART `speed` compilation. Each repeated workload has
+21 measured samples; `view-tree` has one sample per process round. Lower is
+better. Ratios below compare the Direct JVM tier with Kotlin and NativeScript.
 
-The first matched direct-JVM batch covered ten unchanged scenarios. Their
-checked TypeScript loops execute as ART bytecode and call the exact reached
-Android members directly; bytecode inspection proves there is no native entry.
-The latest matched five-round run measured:
-
-| Workload | Direct JVM | Kotlin | NTS / JNI | NativeScript | Direct / Kotlin | Direct / JNI |
+| Workload | Native/JNI | Direct JVM | Kotlin | NativeScript | Direct/Kotlin | Direct/NS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| lightweight `Rect` construction and `width()` | **0.62 ns/op** | 0.30 ns/op | 222.71 ns/op | 4,615.52 ns/op | 2.05x | **0.003x** |
-| managed field, inheritance, `super`, and virtual call | **1.30 ns/dispatch** | 1.20 ns/dispatch | 67.04 ns/dispatch | 1.88 ns/dispatch | 1.08x | **0.019x** |
-| stable `TextView.setTextSize` receiver | **15.67 ns/call** | 18.53 ns/call | 73.74 ns/call | 257.65 ns/call | **0.85x** | 0.212x |
-| same-thread callback | **3.86 ns/delivery** | 21.81 ns/delivery | 212.35 ns/delivery | 1,418.76 ns/delivery | **0.18x** | **0.018x** |
-| callback payload plus receiver call | **4.46 ns/delivery** | 4.12 ns/delivery | 297.20 ns/delivery | 2,195.23 ns/delivery | 1.08x | **0.015x** |
-| captured Android receiver plus callback payload | **22.89 ns/delivery** | 5.45 ns/delivery | 323.83 ns/delivery | 2,318.71 ns/delivery | 4.20x | **0.071x** |
-| ASCII/Unicode string arguments | **33.98 ns/comparison** | 42.19 ns/comparison | 603.27 ns/comparison | 1,384.77 ns/comparison | **0.81x** | 0.056x |
-| fresh Java string result | 293.93 ns/result | 249.58 ns/result | 692.60 ns/result | 715.84 ns/result | 1.18x | 0.424x |
-| 256-byte array encoding | 870.04 ns/encoding | 782.88 ns/encoding | 1,665.12 ns/encoding | 8,935.55 ns/encoding | 1.11x | 0.523x |
-| nullable object result plus receiver call | **2.30 ns/lookup** | 3.90 ns/lookup | 172.27 ns/lookup | 691.53 ns/lookup | **0.59x** | **0.013x** |
+| View-tree child | 101,546.11 ns | 175,123.23 ns | 64,668.13 ns | 46,687.16 ns | 2.71x | 3.75x |
+| Lightweight object | 242.36 ns | 0.68 ns | 0.34 ns | 3,759.45 ns | 2.01x | 0.00018x |
+| Managed-class dispatch | 59.62 ns | 1.48 ns | 1.31 ns | 2.20 ns | 1.13x | 0.67x |
+| Widget construction | 29,173.87 ns | 26,080.33 ns | 24,191.67 ns | 30,892.12 ns | 1.08x | 0.84x |
+| Stable scalar setter | 78.01 ns | 63.38 ns | 18.68 ns | 362.58 ns | 3.39x | 0.17x |
+| Same-thread callback | 189.99 ns | 20.87 ns | 20.01 ns | 1,617.98 ns | 1.04x | 0.013x |
+| Two string arguments | 628.27 ns | 67.17 ns | 32.53 ns | 1,505.59 ns | 2.07x | 0.045x |
+| Fresh string result | 662.50 ns | 224.17 ns | 230.47 ns | 773.62 ns | 0.97x | 0.29x |
+| String operations | 661.69 ns | 2,652.96 ns | 2,393.09 ns | 341.81 ns | 1.11x | 7.76x |
+| Array operations | 207.71 ns | 230.62 ns | 126.50 ns | 71.16 ns | 1.82x | 3.24x |
+| Array pipeline | 673.91 ns | 460.55 ns | 295.55 ns | 171.19 ns | 1.56x | 2.69x |
+| Fixed record | 88.61 ns | 69.32 ns | 1.42 ns | 0.90 ns | 48.90x | 77.13x |
+| Optional values | 101.04 ns | 67.14 ns | 7.30 ns | 1.78 ns | 9.20x | 37.66x |
+| Map operations | 116.27 ns | 90.26 ns | 38.02 ns | 21.60 ns | 2.37x | 4.18x |
+| Set operations | 72.29 ns | 101.07 ns | 12.57 ns | 12.64 ns | 8.04x | 8.00x |
+| Math operations | 30.41 ns | 75.62 ns | 26.27 ns | 8.74 ns | 2.88x | 8.65x |
+| Number parsing | 111.61 ns | 250.10 ns | 161.01 ns | 102.47 ns | 1.55x | 2.44x |
+| 256-byte array encoding | 1,479.62 ns | 609.06 ns | 525.18 ns | 8,693.67 ns | 1.16x | 0.070x |
+| Nullable object result | 222.66 ns | 36.48 ns | 3.69 ns | 785.93 ns | 9.89x | 0.046x |
+| Callback payload | 265.72 ns | 21.34 ns | 26.76 ns | 2,300.74 ns | 0.80x | 0.0093x |
+| Captured callback | 361.49 ns | 26.03 ns | 27.72 ns | 2,394.53 ns | 0.94x | 0.0109x |
+| Dynamic text update | 503.91 ns | 510.20 ns | 292.44 ns | 1,754.65 ns | 1.74x | 0.29x |
+| Composite screen row | 154,681.97 ns | 110,294.72 ns | 118,639.09 ns | 148,144.09 ns | 0.93x | 0.74x |
 
-The direct-JVM application now implements the complete 22-scenario matrix,
-including specialized arrays, fixed records, optional scalar/reference values,
-exact typed maps and sets, and primitive JavaScript Math operations. Those newer language-runtime workloads are intentionally absent from
-the table until one matched four-APK device batch measures them; no number is
-inferred from host bytecode evidence.
+Direct JVM is already within 16% of Kotlin for managed dispatch, widget
+construction, callbacks, string results, byte arrays, string operations, and
+the composite screen. It wins the measured string-result, callback-payload,
+callback-capture, and screen-row comparisons. The largest actionable Direct
+JVM gaps are fixed records (48.90x), returned handles (9.89x), optionals
+(9.20x), sets (8.04x), stable setters (3.39x), Math (2.88x), maps (2.37x),
+string arguments (2.07x), arrays (1.56–1.82x), and number parsing (1.55x).
+NativeScript's mature V8 runtime wins several pure JavaScript kernels, while
+Direct JVM is far faster on the measured Android boundary and callback paths.
 
-The direct JVM tier reuses ScriptC's flow-sensitive number facts to store
-proved signed-32-bit locals, immutable literal globals, managed instance
-fields, and compiler-private return values as Java `int`. A virtual method
-descriptor specializes only when its complete override family agrees, while
-public TypeScript `number` returns remain Java `double`.
-Overflow, fractions, NaN, infinities, parameters, mutable globals, and
-observable `-0` remain `double`.
-Ordinary TypeScript classes now become Java classes too: their fields,
-inheritance, `super`, object casts, and virtual calls remain in ART without a
-native handle or managed peer.
-The reference slices also keep Java strings as `java.lang.String`, exact
-`T | null` native-handle unions as nullable Java references, and
-`Uint8Array` values as Java `byte[]` on the exact direct-call surface. A
-generator-stated, classfile-verified listener shell also becomes a Java
-implementation whose exact registration arm stores captured Java references
-or typed mutable holders and calls the reached TypeScript handler directly in
-ART. An idempotent connection clears retained reference state when
-cancellation cuts ownership. The
-accepted bytecode feeds `Rect.flattenToString()` directly to `String.length()`,
-stores/null-tests `getChildAt()` directly before `getId()`, and feeds
-`Base64.encode([BI)[B` directly to `arraylength`, and dispatches
-`View.OnClickListener.onClick` through a direct static handler call. The payload
-handler then null-checks the delivered `View` and calls `getId()` directly,
-with no JNI, handle cell, identity scan, tagged union, bytes-copy helper, or
-numeric-coercion invocation. The captured-callback kernel preserves mutable
-binding aliasing, reuses both the delivered and retained Android receivers,
-and is 14.15x faster than the JNI route; it remains 4.20x Kotlin, identifying
-captured state as a real remaining direct-tier cost. This is still a kernel APK
-rather than a complete Android application backend, so it makes no launch or
-memory claim. The first static-call proof is in
-[record 0023](docs/records/0023-direct-jvm-android-call.md); constructor and
-local instance-call evidence is in
-[record 0024](docs/records/0024-direct-jvm-object-calls.md); host-supplied
-receivers and the stable setter measurement are in
-[record 0025](docs/records/0025-direct-jvm-stable-receiver.md); proved integer
-storage and the parity measurement are in
-[record 0026](docs/records/0026-proved-jvm-integer-locals.md).
-Direct string and nullable-handle representation plus the latest five-kernel
-measurement are in
-[record 0027](docs/records/0027-direct-jvm-reference-values.md).
-Direct `byte[]` residency and the latest six-kernel measurement are in
-[record 0028](docs/records/0028-direct-jvm-byte-arrays.md).
-Direct same-thread listener delivery and the latest seven-kernel measurement
-are in [record 0029](docs/records/0029-direct-jvm-callbacks.md).
-Direct callback payload reuse and the preceding eight-kernel measurement are in
-[record 0030](docs/records/0030-direct-jvm-callback-payloads.md).
-Captured callback state, direct registration-site dispatch, and the latest
-nine-kernel measurement are in
-[record 0031](docs/records/0031-direct-jvm-callback-captures.md).
-Managed class representation, integer fields, and the latest ten-kernel
-measurement are in
-[record 0032](docs/records/0032-direct-jvm-managed-classes.md).
-The controlled integer-return descriptor optimization and its 1.30 ns
-managed-class result are in
-[record 0034](docs/records/0034-proved-jvm-integer-returns.md).
+The same run measured application shape:
 
-The post-warm-foreground median memory and packaged artifact observations were:
+| Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |
+| --- | ---: | ---: | ---: | ---: |
+| Process launch | 461 ms | 477 ms | 456 ms | 796 ms |
+| Warm foreground | 89 ms | 68 ms | 28 ms | 37 ms |
+| Total PSS | 18,503 KiB | 17,586 KiB | 18,673 KiB | 76,102 KiB |
+| Total RSS | 143,816 KiB | 141,480 KiB | 142,948 KiB | 203,140 KiB |
+| APK size | 811,291 B | 61,648 B | 2,461,904 B | 28,640,616 B |
 
-| Measurement | Native TypeScript | Kotlin | NativeScript |
-| --- | ---: | ---: | ---: |
-| Total PSS | 16,532 KiB | 16,136 KiB | 72,109 KiB |
-| Total RSS | 143,040 KiB | 141,192 KiB | 199,840 KiB |
-| APK size | 610,587 bytes | 20,688 bytes | 28,639,848 bytes |
+The sub-nanosecond lightweight-object results describe an optimized loop, not
+literal allocation latency. `view-tree` has only three high-variance emulator
+samples; the 21-sample composite screen is the stronger application-shaped
+observation. APK sizes reflect different product shapes and the Kotlin APK now
+includes its reached standard library. These are measurements of this pinned
+fixture, not general platform rankings.
 
-The view-tree result has only five high-variance emulator observations, and
-the artifact sizes reflect deliberately different product shapes. They are
-recorded observations rather than general platform rankings. The suite now
-separates boundary microcases from Android operations and a composite screen:
-widget construction remains near Kotlin parity, while callbacks and outbound
-strings expose distinct remaining costs. JNI callback and owner turns now
-scope the environment they already hold across nested adapter calls; the
-targeted setter, light-object, handle-result, and callback medians improved by
-12.8–34.1%. Synchronous callback objects now stay in their JNI frame when
-whole-program analysis proves they do not escape, reducing the two callback
-medians by 27.0–29.1%; its structural proof and matched measurement are in
-[record 0020](docs/records/0020-frame-bounded-callback-payloads.md). Short
-outbound strings now stage UTF-16 in their native frame, and Java results
-borrow JNI's UTF-16 view while allocating only the final UTF-8 owner. The two
-isolated string medians fell by 26.8–35.8% raw and their Kotlin-normalized
-ratios improved by 10.6–16.0%; the exact mechanics and emulator caveats are in
-[record 0021](docs/records/0021-frame-local-jvm-string-bridge.md). The scoped
-environment mechanism, falsifier, and before/after evidence are in
-[record 0019](docs/records/0019-scoped-jni-environment-capability.md). Nullable
-returned objects stay in the JNI local-reference domain when their use does
-not escape; that mechanism and before/after evidence are in
-[record 0018](docs/records/0018-nullable-frame-bounded-results.md). The first
-escape-selected JNI resource optimization and its before/after evidence remain in
-[record 0016](docs/records/0016-frame-bounded-native-results.md). The expanded
-hotspot matrix, exact inputs, source hashes, and caveats are in
-[record 0017](docs/records/0017-android-hotspot-matrix.md). The original
-three-way baseline remains in
-[record 0015](docs/records/0015-first-android-nativescript-baseline.md); the
-reusable instrument and full workload contract are in
+The complete contract, raw-run coordinates, operation counts, and next
+optimization priorities are recorded in
+[record 0044](docs/records/0044-first-complete-direct-jvm-matrix.md). The
+JavaScript-exact parser and its device result are in
+[record 0043](docs/records/0043-direct-jvm-number-parsing.md). Earlier JNI
+resource-domain optimizations remain documented in
+[records 0016–0021](docs/records/0016-frame-bounded-native-results.md), and the
+reproducible instrument is described in
 [the Android benchmark README](benchmarks/android/README.md).
 
 ### iOS
