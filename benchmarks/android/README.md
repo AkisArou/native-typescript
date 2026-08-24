@@ -174,7 +174,8 @@ same-thread callbacks, returned strings, string operations, byte arrays,
 callback payload/capture, and composite screen rows. It wins the measured
 string-result, callback-payload, callback-capture, and screen-row comparisons.
 
-The largest Direct JVM gaps are now explicit: fixed records (48.90x Kotlin),
+The largest Direct JVM gaps in that complete baseline are explicit: fixed
+records (48.90x Kotlin),
 returned handles (9.89x), optional values (9.20x), sets (8.04x), stable
 setters (3.39x), Math (2.88x), maps (2.37x), string arguments (2.07x), arrays
 (1.56–1.82x), and number parsing (1.55x). These ratios determine the next
@@ -191,6 +192,16 @@ to 1.67x, and Math from 2.88x to 1.27x. Public `number` ABI remains `double`.
 contains the complete nine-scenario before/after table and safety proof; the
 complete 23-scenario matrix above remains the regression baseline until the
 next full run.
+
+The next focused inspection removed allocation from numeric optional unions.
+One primitive `long` now carries `number | null | undefined`, including NaN
+and negative-zero semantics, through calls, arrays, narrowing, and typed-map
+results. Optional lookups fell from 28.69 ns to 1.47 ns (3.12x Kotlin to
+0.23x); map operations fell from 97.60 ns to 36.77 ns (2.12x to 1.26x).
+Returned handles were also remeasured at 3.19 ns and 1.13x Kotlin after the
+earlier integer specialization, disproving the old handle-representation
+diagnosis. [Record 0046](../../docs/records/0046-direct-jvm-primitive-number-unions.md)
+contains the representation proof and raw five-round reports.
 
 NativeScript's mature V8 runtime wins several pure-language kernels, while
 Direct JVM is far faster on the measured Android boundary and callback paths.
@@ -210,6 +221,8 @@ and JavaScript-exact number parsing in
 [record 0043](../../docs/records/0043-direct-jvm-number-parsing.md). The first
 matrix-selected optimization is recorded in
 [record 0045](../../docs/records/0045-direct-jvm-integer-parameters.md).
+Primitive numeric union specialization is recorded in
+[record 0046](../../docs/records/0046-direct-jvm-primitive-number-unions.md).
 
 ## Research references
 

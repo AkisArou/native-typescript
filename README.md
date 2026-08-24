@@ -123,7 +123,8 @@ Direct JVM is already within 16% of Kotlin for managed dispatch, widget
 construction, callbacks, string results, byte arrays, string operations, and
 the composite screen. It wins the measured string-result, callback-payload,
 callback-capture, and screen-row comparisons. The largest actionable Direct
-JVM gaps are fixed records (48.90x), returned handles (9.89x), optionals
+JVM gaps in this complete baseline were fixed records (48.90x), returned
+handles (9.89x), optionals
 (9.20x), sets (8.04x), stable setters (3.39x), Math (2.88x), maps (2.37x),
 string arguments (2.07x), arrays (1.56–1.82x), and number parsing (1.55x).
 NativeScript's mature V8 runtime wins several pure JavaScript kernels, while
@@ -138,6 +139,16 @@ signed integer use an internal Java `int` parameter while public TypeScript
 safety boundary, complete focused table, and raw report are in
 [record 0045](docs/records/0045-direct-jvm-integer-parameters.md); the table
 above remains the last complete 23-scenario application matrix.
+
+A second focused optimization now keeps `number | null | undefined` in one
+primitive JVM word instead of allocating a tagged object. Optional lookups
+improved from 28.69 ns to **1.47 ns** (3.12x Kotlin to **0.23x**), while the
+map workload improved from 97.60 ns to **36.77 ns** (2.12x to **1.26x**).
+The same inspection remeasured returned handles at 3.19 ns, or 1.13x Kotlin;
+their earlier 9.89x result was also removed by integer parameter
+specialization and required no handle-specific representation. The exact
+encoding, semantic observers, and five-round device reports are in
+[record 0046](docs/records/0046-direct-jvm-primitive-number-unions.md).
 
 The same run measured application shape:
 

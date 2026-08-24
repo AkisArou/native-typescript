@@ -745,6 +745,9 @@ test(
     execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
     const roots = [
       "optionalNumber",
+      "optionalNumberIdentity",
+      "optionalNumberKinds",
+      "optionalNumberArray",
       "optionalRecord",
       "optionalString",
       "optionalArray",
@@ -791,6 +794,14 @@ test(
           "  public static void main(String[] args) {\n" +
           `    System.out.println(${simpleName}.optionalNumber(10.0d, true));\n` +
           `    System.out.println(${simpleName}.optionalNumber(10.0d, false));\n` +
+          `    System.out.println(${simpleName}.optionalNumberIdentity(-0.0d, true));\n` +
+          `    System.out.println(${simpleName}.optionalNumberIdentity(Double.NaN, true));\n` +
+          `    System.out.println(${simpleName}.optionalNumberIdentity(5.0d, false));\n` +
+          `    System.out.println(${simpleName}.optionalNumberKinds(Double.NaN, 0.0d));\n` +
+          `    System.out.println(${simpleName}.optionalNumberKinds(-0.0d, 0.0d));\n` +
+          `    System.out.println(${simpleName}.optionalNumberKinds(7.0d, 1.0d));\n` +
+          `    System.out.println(${simpleName}.optionalNumberKinds(7.0d, 2.0d));\n` +
+          `    System.out.println(${simpleName}.optionalNumberArray());\n` +
           `    System.out.println(${simpleName}.optionalRecord(10.0d, true));\n` +
           `    System.out.println(${simpleName}.optionalRecord(10.0d, false));\n` +
           `    System.out.println(${simpleName}.optionalString("four", true));\n` +
@@ -819,11 +830,14 @@ test(
       assert.equal(run.status, 0, run.stderr);
       assert.equal(
         run.stdout,
-        "13.0\n11.0\n10.0\n5.0\n4.0\n7.0\n12.0\n9.0\n12.0\n3.0\n5.0\n",
+        "13.0\n11.0\n-0.0\nNaN\n91.0\n33.0\n44.0\n11.0\n22.0\n15.0\n" +
+          "10.0\n5.0\n4.0\n7.0\n12.0\n9.0\n12.0\n3.0\n5.0\n",
       );
 
-      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
-        .filter((entry) => entry.startsWith(`${simpleName}$NtsUnion`))
+      const unionClasses = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsUnion`));
+      assert.equal(unionClasses.length, 1);
+      const nestedBytecode = unionClasses
         .map((entry) =>
           execFileSync(
             join(javaHome!, "bin/javap"),
@@ -847,6 +861,8 @@ test(
         ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
         { encoding: "utf8" },
       );
+      assert.match(ownerBytecode, /java\/lang\/Double\.doubleToLongBits:\(D\)J/u);
+      assert.match(ownerBytecode, /java\/lang\/Double\.longBitsToDouble:\(J\)D/u);
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|JNI/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -962,6 +978,7 @@ test(
       assert.match(nestedBytecode, /double\[\] values;/u);
       assert.match(nestedBytecode, /java\.lang\.String\[\] values;/u);
       assert.match(nestedBytecode, /boolean\[\] values;/u);
+      assert.match(nestedBytecode, /private long get\(java\.lang\.String\);/u);
       assert.doesNotMatch(
         nestedBytecode,
         /java\.lang\.Object|java\.util\.(?:HashMap|LinkedHashMap)|java\.lang\.(?:Double|Boolean)/u,
@@ -972,6 +989,7 @@ test(
         ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
         { encoding: "utf8" },
       );
+      assert.match(ownerBytecode, /java\/lang\/Double\.longBitsToDouble:\(J\)D/u);
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf|JNI/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
