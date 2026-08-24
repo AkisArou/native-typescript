@@ -125,9 +125,9 @@ The latest matched five-round run measured:
 | 256-byte array encoding | 870.04 ns/encoding | 782.88 ns/encoding | 1,665.12 ns/encoding | 8,935.55 ns/encoding | 1.11x | 0.523x |
 | nullable object result plus receiver call | **2.30 ns/lookup** | 3.90 ns/lookup | 172.27 ns/lookup | 691.53 ns/lookup | **0.59x** | **0.013x** |
 
-The direct-JVM application now implements the complete 20-scenario matrix,
+The direct-JVM application now implements the complete 21-scenario matrix,
 including specialized arrays, fixed records, optional scalar/reference values,
-and exact typed maps. Those newer language-runtime workloads are intentionally absent from
+and exact typed maps and sets. Those newer language-runtime workloads are intentionally absent from
 the table until one matched four-APK device batch measures them; no number is
 inferred from host bytecode evidence.
 

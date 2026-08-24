@@ -36,6 +36,7 @@ const ARRAY_PIPELINE_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
 const MAP_OPERATION_ITERATIONS = 50000;
+const SET_OPERATION_ITERATIONS = 50000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -257,6 +258,37 @@ function runMapOperations(): number {
       counts.set(evictionKey, next + 2);
     }
     checksum += next + counts.size;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runSetOperations(): number {
+  const keys = [
+    "alpha", "beta", "gamma", "delta",
+    "epsilon", "zeta", "eta", "theta",
+    "iota", "kappa", "lambda", "mu",
+    "nu", "xi", "omicron", "pi",
+  ];
+  const active = new Set<string>();
+  let checksum = 0;
+  let index = 0;
+  while (index < SET_OPERATION_ITERATIONS) {
+    const key = keys[index & 15]!;
+    if (!active.has(key)) {
+      active.add(key);
+      checksum += 1;
+    }
+    if ((index & 31) === 0) {
+      const evictionKey = keys[(index >>> 5) & 15]!;
+      if (active.has(evictionKey)) checksum += 3;
+      if (active.delete(evictionKey)) checksum += 5;
+      active.add(evictionKey);
+    }
+    if ((index & 255) === 0) {
+      for (const member of active) checksum += member.length;
+    }
+    checksum += active.size;
     index += 1;
   }
   return checksum;
@@ -660,6 +692,28 @@ export default class MainActivity extends Activity {
           "map-operations",
           sample,
           MAP_OPERATION_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "set-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runSetOperations();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runSetOperations();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "set-operations",
+          sample,
+          SET_OPERATION_ITERATIONS,
           elapsed,
           checksum,
         );

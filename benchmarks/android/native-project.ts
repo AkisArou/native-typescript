@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 9,
+  version: 10,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -26,6 +26,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   recordObjectIterations: 50_000,
   optionalValueIterations: 50_000,
   mapOperationIterations: 50_000,
+  setOperationIterations: 50_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -124,6 +125,35 @@ function mapOperationChecksum(iterations: number): number {
       counts.set(evictionKey, next + 2);
     }
     checksum += next + counts.size;
+  }
+  return checksum;
+}
+
+function setOperationChecksum(iterations: number): number {
+  const keys = [
+    "alpha", "beta", "gamma", "delta",
+    "epsilon", "zeta", "eta", "theta",
+    "iota", "kappa", "lambda", "mu",
+    "nu", "xi", "omicron", "pi",
+  ];
+  const active = new Set<string>();
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const key = keys[index & 15]!;
+    if (!active.has(key)) {
+      active.add(key);
+      checksum += 1;
+    }
+    if ((index & 31) === 0) {
+      const evictionKey = keys[(index >>> 5) & 15]!;
+      if (active.has(evictionKey)) checksum += 3;
+      if (active.delete(evictionKey)) checksum += 5;
+      active.add(evictionKey);
+    }
+    if ((index & 255) === 0) {
+      for (const member of active) checksum += member.length;
+    }
+    checksum += active.size;
   }
   return checksum;
 }
@@ -295,6 +325,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: mapOperationChecksum(workload.mapOperationIterations),
+  },
+  {
+    name: "set-operations",
+    layer: "language-runtime",
+    hotspot:
+      "bounded string set add, has, delete, reinsertion, size, and insertion-order iteration",
+    operationUnit: "set membership update",
+    iterations: workload.setOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: setOperationChecksum(workload.setOperationIterations),
   },
   {
     name: "byte-array",

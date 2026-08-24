@@ -31,6 +31,7 @@ private const val ARRAY_PIPELINE_ITERATIONS = 20000
 private const val RECORD_OBJECT_ITERATIONS = 50000
 private const val OPTIONAL_VALUE_ITERATIONS = 50000
 private const val MAP_OPERATION_ITERATIONS = 50000
+private const val SET_OPERATION_ITERATIONS = 50000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -348,6 +349,26 @@ class MainActivity : Activity() {
                     "map-operations",
                     sample,
                     MAP_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("set-operations".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runSetOperations()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runSetOperations()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "set-operations",
+                    sample,
+                    SET_OPERATION_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -748,6 +769,37 @@ class MainActivity : Activity() {
                 counts[evictionKey] = next + 2
             }
             checksum += next + counts.size
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runSetOperations(): Int {
+        val keys = arrayOf(
+            "alpha", "beta", "gamma", "delta",
+            "epsilon", "zeta", "eta", "theta",
+            "iota", "kappa", "lambda", "mu",
+            "nu", "xi", "omicron", "pi",
+        )
+        val active = LinkedHashSet<String>()
+        var checksum = 0
+        var index = 0
+        while (index < SET_OPERATION_ITERATIONS) {
+            val key = keys[index and 15]
+            if (!active.contains(key)) {
+                active.add(key)
+                checksum += 1
+            }
+            if (index and 31 == 0) {
+                val evictionKey = keys[(index ushr 5) and 15]
+                if (active.contains(evictionKey)) checksum += 3
+                if (active.remove(evictionKey)) checksum += 5
+                active.add(evictionKey)
+            }
+            if (index and 255 == 0) {
+                for (member in active) checksum += member.length
+            }
+            checksum += active.size
             index += 1
         }
         return checksum

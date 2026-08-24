@@ -1044,6 +1044,43 @@ async function buildDirectJvmApk(input: {
       `Compiler-emitted TypeScript Map erased its exact storage:\n${typescriptMapBytecode}`,
     );
   }
+  const setClassEntry = readdirSync(
+    join(classes, ...generatedActivityPackage.split(".")),
+  ).find((entry) =>
+    entry.startsWith(`${generatedActivityClass}$NtsSet`) && entry.endsWith(".class")
+  );
+  if (setClassEntry === undefined) {
+    throw new Error("Compiler-emitted TypeScript Activity has no specialized Set class");
+  }
+  const typescriptSetClassName =
+    `${generatedActivityPackage}.${setClassEntry.slice(0, -".class".length)}`;
+  const typescriptSetBytecode = run(
+    join(input.javaHome, "bin/javap"),
+    ["-classpath", classes, "-p", typescriptSetClassName],
+    { env: buildEnvironment },
+  );
+  for (const setEvidence of [
+    "java.lang.String[] elements;",
+    "boolean[] live;",
+    "int[] table;",
+    "double size();",
+    "boolean delete(java.lang.String);",
+    "java.lang.String iterKey(double);",
+  ]) {
+    if (!typescriptSetBytecode.includes(setEvidence)) {
+      throw new Error(
+        `Compiler-emitted TypeScript Set lacks '${setEvidence}':\n${typescriptSetBytecode}`,
+      );
+    }
+  }
+  if (
+    /java\.lang\.Object|java\.util\.(?:HashSet|LinkedHashSet)|java\.lang\.Double/u
+      .test(typescriptSetBytecode)
+  ) {
+    throw new Error(
+      `Compiler-emitted TypeScript Set erased its exact storage:\n${typescriptSetBytecode}`,
+    );
+  }
   for (const activityEvidence of [
     "extends android.app.Activity",
     "android/app/Activity.onCreate:(Landroid/os/Bundle;)V",
@@ -1132,7 +1169,8 @@ async function buildDirectJvmApk(input: {
     join(input.root, "bytecode-evidence.txt"),
     `=== ${typescriptActivityClassName} ===\n${typescriptActivityBytecode}\n` +
       `=== ${typescriptCallbackAdapterClassName} ===\n${typescriptCallbackBytecode}\n` +
-      `=== ${typescriptMapClassName} ===\n${typescriptMapBytecode}`,
+      `=== ${typescriptMapClassName} ===\n${typescriptMapBytecode}\n` +
+      `=== ${typescriptSetClassName} ===\n${typescriptSetBytecode}`,
   );
 
   const compiledClasses = classFiles(classes);
@@ -1367,6 +1405,8 @@ function verifyWorkloadAgreement(): void {
       androidBenchmarkWorkload.optionalValueIterations,
     MAP_OPERATION_ITERATIONS:
       androidBenchmarkWorkload.mapOperationIterations,
+    SET_OPERATION_ITERATIONS:
+      androidBenchmarkWorkload.setOperationIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,

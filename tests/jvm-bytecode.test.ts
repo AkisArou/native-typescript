@@ -52,6 +52,10 @@ const mapFixture = join(
   scriptcRoot,
   "tests/corpus/118-jvm-map-values.ts",
 );
+const setFixture = join(
+  scriptcRoot,
+  "tests/corpus/119-jvm-set-values.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -516,6 +520,8 @@ test(
       "capturedPipeline",
       "mutateCapturedTotal",
       "namedPipeline",
+      "spreadLiteralOrder",
+      "selfSpreadArray",
     ];
     const planned = (await loadScriptCExecutablePlanners())
       .planExecutableCompilation(arrayFixture, {
@@ -564,6 +570,8 @@ test(
           `    System.out.println(${simpleName}.capturedPipeline(10.0d, 4.0d));\n` +
           `    System.out.println(${simpleName}.mutateCapturedTotal(10.0d));\n` +
           `    System.out.println(${simpleName}.namedPipeline(10.0d));\n` +
+          `    System.out.println(${simpleName}.spreadLiteralOrder());\n` +
+          `    System.out.println(${simpleName}.selfSpreadArray());\n` +
           "  }\n" +
           "}\n",
       );
@@ -581,7 +589,10 @@ test(
         { encoding: "utf8" },
       );
       assert.equal(run.status, 0, run.stderr);
-      assert.equal(run.stdout, "27.0\n11.0\ntrue\nfalse\n39.0\n27.0\n16.0\n13.0\n");
+      assert.equal(
+        run.stdout,
+        "27.0\n11.0\ntrue\nfalse\n39.0\n27.0\n16.0\n13.0\n5555666.0\n6123.0\n",
+      );
 
       const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
         .filter((entry) => entry.startsWith(`${simpleName}$NtsArray`))
@@ -950,6 +961,145 @@ test(
         { encoding: "utf8" },
       );
       assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf|JNI/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM sets keep exact storage and JavaScript live iteration semantics",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "stringSet",
+      "numberSet",
+      "seededEvaluationOrderSet",
+      "spreadSet",
+      "liveIterationSet",
+      "clearDuringIterationSet",
+      "combinedSets",
+      "rehashAndCompactSet",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(setFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "SetValues";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-set-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "SetValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class SetValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.stringSet(\"gamma\"));\n` +
+          `    System.out.println(${simpleName}.numberSet(4.0d));\n` +
+          `    System.out.println(${simpleName}.seededEvaluationOrderSet());\n` +
+          `    System.out.println(${simpleName}.spreadSet());\n` +
+          `    System.out.println(${simpleName}.liveIterationSet());\n` +
+          `    System.out.println(${simpleName}.clearDuringIterationSet());\n` +
+          `    System.out.println(${simpleName}.combinedSets());\n` +
+          `    System.out.println(${simpleName}.rehashAndCompactSet());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.SetValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "10.0\n15.0\n1212.0\n7.0\n19.0\n102.0\n5238.0\n4656.0\n",
+      );
+
+      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsSet`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(nestedBytecode, /java\.lang\.String\[\] elements;/u);
+      assert.match(nestedBytecode, /double\[\] elements;/u);
+      assert.match(nestedBytecode, /boolean\[\] live;/u);
+      assert.match(nestedBytecode, /int\[\] table;/u);
+      assert.doesNotMatch(nestedBytecode, /\[\] values;/u);
+      assert.doesNotMatch(
+        nestedBytecode,
+        /java\.lang\.Object|java\.util\.(?:HashSet|LinkedHashSet)|java\.lang\.Double/u,
+      );
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.doesNotMatch(ownerBytecode, /Double\.valueOf|JNI/u);
+
+      const arrayBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsArray`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-c",
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(arrayBytecode, /java\/lang\/System\.arraycopy/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
