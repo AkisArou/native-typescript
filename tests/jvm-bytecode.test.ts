@@ -1366,6 +1366,7 @@ test(
         ["11", Number.POSITIVE_INFINITY], ["ff", 4_294_967_312],
         ["-0", 0], ["0000", 0], ["18446744073709551615", 10],
         ["18446744073709551616", 10],
+        ["zzzzzzzzzzzz", 36], ["zzzzzzzzzzzzz", 36],
         ["123456789012345678901234567890", 10],
         ["deadbeefdeadbeefdeadbeefdeadbeef", 16],
         ["1".repeat(80), 35], ["7".repeat(30), 36],
@@ -1456,6 +1457,7 @@ test(
       assert.match(bytecode, /java\/lang\/Double\.parseDouble:\(Ljava\/lang\/String;\)D/u);
       assert.match(bytecode, /java\/math\/BigInteger\.doubleValue:\(\)D/u);
       assert.match(bytecode, /Method ntsParseInt:\(Ljava\/lang\/String;D\)D/u);
+      assert.match(bytecode, /Method ntsParseInt:\(Ljava\/lang\/String;I\)D/u);
       assert.match(bytecode, /Method ntsParseFloat:\(Ljava\/lang\/String;\)D/u);
       assert.match(bytecode, /Method ntsStringToNumber:\(Ljava\/lang\/String;\)D/u);
       assert.doesNotMatch(

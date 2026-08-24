@@ -231,6 +231,12 @@ appends then removes the remaining grow-and-copy without moving the append or
 its argument evaluation. The dynamic array lifecycle improves another
 26.6%/40.6% and reaches Kotlin parity or better in the repeated runs recorded
 in [record 0049](../../docs/records/0049-direct-jvm-array-capacity-planning.md).
+A subsequent focused rebaseline shows the scalar setter at 1.06x Kotlin and
+two-string arguments at 1.01x, invalidating their old priority rankings.
+Short `parseInt` inputs now keep a proved radix in `int` and combine validation
+with accumulation. Exact parser vectors remain unchanged while repeated
+device runs improve the three-parse workload by 12.1%/15.1%, as recorded in
+[record 0050](../../docs/records/0050-direct-jvm-short-integer-parsing.md).
 
 ## Research references
 

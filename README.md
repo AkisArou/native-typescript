@@ -179,6 +179,17 @@ Direct/Kotlin ratio from 1.32x/1.30x to **1.008x/0.782x**. The deliberately
 disagreeing evaluation-order proof and repeated device results are in
 [record 0049](docs/records/0049-direct-jvm-array-capacity-planning.md).
 
+A fresh five-round priority batch then showed that earlier general compiler
+work had already moved the stable setter to 1.06x Kotlin and two-string calls
+to 1.01x; neither old gap needed a local workaround. Number parsing remained
+stable at 1.39x Kotlin. Its common short-integer path now preserves proved
+radices as Java `int` and accumulates validated prefixes during the first scan
+instead of scanning them twice. Two device runs reduced the parsed triple from
+188.46 ns to **165.70/160.00 ns** (12.1%/15.1%), improving Direct/Kotlin to
+**1.29x/1.19x** without weakening huge-value or invalid-input semantics. The
+full Node-bit-vector proof and reports are in
+[record 0050](docs/records/0050-direct-jvm-short-integer-parsing.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |
