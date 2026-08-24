@@ -200,6 +200,14 @@ runs reduce the Android text update from 335.67 ns to **258.90/252.95 ns**
 unchanged string-operation control remains in its prior range. See
 [record 0051](docs/records/0051-direct-jvm-primitive-string-concat.md).
 
+Static `Math.trunc` and JavaScript `Math.round` also classified NaN, infinity,
+and zero before calling JVM operations that already preserve or propagate
+those values. Removing the redundant guards preserves the full special-value
+domain, now covered by an all-bits edge fixture, while repeated device runs
+reduce the math workload from 43.10 ns to **19.59/21.57 ns**
+(54.5%/50.0%). Direct JVM moves from 1.48x Kotlin to **0.68x/0.80x**; see
+[record 0052](docs/records/0052-direct-jvm-math-special-values.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

@@ -243,6 +243,12 @@ disagreeing adjacent-substitution fixture preserves concatenation semantics;
 repeated device runs improve dynamic Android text updates by 22.9%/24.6% and
 reach 1.18x/1.09x Kotlin, as recorded in
 [record 0051](../../docs/records/0051-direct-jvm-primitive-string-concat.md).
+Direct JVM `Math.trunc` and JavaScript rounding now rely on the JVM operations'
+own exact NaN, infinity, and signed-zero behavior instead of classifying those
+values first. A strengthened special-value fixture accompanies repeated
+50.0%–54.5% device improvements, moving the math kernel from 1.48x Kotlin to
+0.68x/0.80x, as recorded in
+[record 0052](../../docs/records/0052-direct-jvm-math-special-values.md).
 
 ## Research references
 

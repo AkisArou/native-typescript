@@ -1253,7 +1253,7 @@ test(
       assert.equal(run.status, 0, run.stderr);
       assert.equal(
         run.stdout,
-        "8.6\n1023.0\n63.0\n897.0\n1233.0\n4096.0\n",
+        "8.6\n131071.0\n63.0\n897.0\n1233.0\n4096.0\n",
       );
 
       const ownerBytecode = execFileSync(
