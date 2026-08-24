@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 4,
+  version: 6,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -21,6 +21,8 @@ export const androidBenchmarkWorkload = Object.freeze({
   stringArgumentIterations: 20_000,
   stringResultIterations: 10_000,
   stringOperationIterations: 10_000,
+  arrayOperationIterations: 20_000,
+  arrayPipelineIterations: 20_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -49,6 +51,31 @@ function managedClassChecksum(iterations: number): number {
   for (let index = 0; index < iterations; index++) {
     value = ((value << 5) ^ (value >>> 2) ^ 17) & 1023;
     checksum += value + 1;
+  }
+  return checksum;
+}
+
+function maskedCycleChecksum(iterations: number, mask: number): number {
+  const width = mask + 1;
+  const completeCycles = Math.floor(iterations / width);
+  const remainder = iterations % width;
+  return completeCycles * ((mask * width) / 2) +
+    ((remainder * (remainder - 1)) / 2);
+}
+
+function arrayPipelineChecksum(iterations: number): number {
+  let checksum = 0;
+  for (let index = 0; index < iterations; index++) {
+    const delta = index & 7;
+    const mapped = [
+      (index & 255) * 2 + delta,
+      5 + delta,
+      8 + delta,
+      11 + delta,
+    ];
+    for (const value of mapped) {
+      if (value > 7) checksum += value;
+    }
   }
   return checksum;
 }
@@ -164,6 +191,29 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: workload.stringOperationIterations * 960,
+  },
+  {
+    name: "array-operations",
+    layer: "language-runtime",
+    hotspot:
+      "dynamic numeric array allocation, growth, indexed access, search, and pop",
+    operationUnit: "array lifecycle",
+    iterations: workload.arrayOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: workload.arrayOperationIterations * 54 +
+      maskedCycleChecksum(workload.arrayOperationIterations, 255),
+  },
+  {
+    name: "array-pipeline",
+    layer: "language-runtime",
+    hotspot:
+      "captured and indexed map callback, filter callback, intermediate arrays, and reduce",
+    operationUnit: "map-filter-reduce pipeline",
+    iterations: workload.arrayPipelineIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: arrayPipelineChecksum(workload.arrayPipelineIterations),
   },
   {
     name: "byte-array",

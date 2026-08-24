@@ -36,6 +36,10 @@ const stringIntrinsicFixture = join(
   scriptcRoot,
   "tests/corpus/114-jvm-string-intrinsics.ts",
 );
+const arrayFixture = join(
+  scriptcRoot,
+  "tests/corpus/115-jvm-array-values.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -372,6 +376,8 @@ test(
       "cased",
       "wellFormed",
       "repaired",
+      "splitCount",
+      "splitPart",
     ];
     const planned = (await loadScriptCExecutablePlanners())
       .planExecutableCompilation(stringIntrinsicFixture, {
@@ -426,8 +432,13 @@ test(
           `    System.out.println(${simpleName}.trimmed("\\u00a0 x \\u00a0"));\n` +
           `    System.out.println(${simpleName}.cased("Stra\\u00dfe"));\n` +
           `    System.out.println(${simpleName}.wellFormed("\\ud800X"));\n` +
-          `    System.out.println(${simpleName}.repaired("\\ud800X"));\n` +
-          "    try {\n" +
+         `    System.out.println(${simpleName}.repaired("\\ud800X"));\n` +
+          `    System.out.println(${simpleName}.splitCount("a::b::", "::", 10.0d));\n` +
+          `    System.out.println("[" + ${simpleName}.splitPart("a::b::", "::", 10.0d, 2.0d) + "]");\n` +
+          `    System.out.println(${simpleName}.splitCount("A\\ud83d\\udc69", "", 10.0d));\n` +
+          `    System.out.println((double)${simpleName}.splitPart("A\\ud83d\\udc69", "", 10.0d, 1.0d).charAt(0));\n` +
+          `    System.out.println(${simpleName}.splitCount("a::b::c", "::", 2.0d));\n` +
+         "    try {\n" +
           `      ${simpleName}.repeated("x", -1.0d);\n` +
           "      System.out.println(\"missing RangeError\");\n" +
           "    } catch (RuntimeException error) {\n" +
@@ -466,9 +477,128 @@ test(
           "x:\u0078 \u00a0:\u00a0 x\n" +
           "stra\u00dfe:STRASSE\n" +
           "false\n" +
-          "\ufffdX\n" +
-          "NtsRangeError:Invalid count value\n",
+         "\ufffdX\n" +
+          "3.0\n" +
+          "[]\n" +
+          "3.0\n" +
+          "55357.0\n" +
+          "2.0\n" +
+         "NtsRangeError:Invalid count value\n",
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM arrays keep numbers and booleans unboxed and preserve string equality",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "mutateNumbers",
+      "findString",
+      "mutateBooleans",
+      "arrayPipeline",
+      "capturedPipeline",
+      "mutateCapturedTotal",
+      "namedPipeline",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(arrayFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "ArrayValues";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-array-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "ArrayValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class ArrayValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.mutateNumbers(10.0d));\n` +
+          `    System.out.println(${simpleName}.findString(new String(\"same\")));\n` +
+          `    System.out.println(${simpleName}.mutateBooleans(true));\n` +
+          `    System.out.println(${simpleName}.mutateBooleans(false));\n` +
+          `    System.out.println(${simpleName}.arrayPipeline(10.0d));\n` +
+          `    System.out.println(${simpleName}.capturedPipeline(10.0d, 4.0d));\n` +
+          `    System.out.println(${simpleName}.mutateCapturedTotal(10.0d));\n` +
+          `    System.out.println(${simpleName}.namedPipeline(10.0d));\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.ArrayValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "27.0\n11.0\ntrue\nfalse\n39.0\n27.0\n16.0\n13.0\n");
+
+      const nestedBytecode = readdirSync(join(classes, ...packageName.split(".")))
+        .filter((entry) => entry.startsWith(`${simpleName}$NtsArray`))
+        .map((entry) =>
+          execFileSync(
+            join(javaHome!, "bin/javap"),
+            [
+              "-classpath",
+              classes,
+              "-p",
+              `${packageName}.${entry.slice(0, -".class".length)}`,
+            ],
+            { encoding: "utf8" },
+          )
+        )
+        .join("\n");
+      assert.match(nestedBytecode, /double\[\] data;/u);
+      assert.match(nestedBytecode, /boolean\[\] data;/u);
+      assert.match(nestedBytecode, /java\.lang\.String\[\] data;/u);
+      assert.doesNotMatch(nestedBytecode, /java\.lang\.Object\[\]/u);
+      assert.doesNotMatch(nestedBytecode, /ArrayList/u);
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      assert.doesNotMatch(ownerBytecode, /Double\.valueOf|Boolean\.valueOf/u);
+      assert.match(ownerBytecode, /InvokeDynamic/u);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

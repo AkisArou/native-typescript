@@ -26,6 +26,8 @@ private const val CALLBACK_ITERATIONS = 50000
 private const val STRING_ARGUMENT_ITERATIONS = 20000
 private const val STRING_RESULT_ITERATIONS = 10000
 private const val STRING_OPERATION_ITERATIONS = 10000
+private const val ARRAY_OPERATION_ITERATIONS = 20000
+private const val ARRAY_PIPELINE_ITERATIONS = 20000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -237,6 +239,46 @@ class MainActivity : Activity() {
                     "string-operations",
                     sample,
                     STRING_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("array-operations".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runArrayOperations()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runArrayOperations()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "array-operations",
+                    sample,
+                    ARRAY_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("array-pipeline".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runArrayPipeline()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runArrayPipeline()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "array-pipeline",
+                    sample,
+                    ARRAY_PIPELINE_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -535,6 +577,43 @@ class MainActivity : Activity() {
             if (normalized.contains("typescript")) checksum += 1
             checksum += trimmed[18].code
             checksum += padded.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runArrayOperations(): Int {
+        var checksum = 0
+        var index = 0
+        while (index < ARRAY_OPERATION_ITERATIONS) {
+            val values = ArrayList<Int>(6)
+            values.add(index and 255)
+            values.add(3)
+            values.add(5)
+            values.add(7)
+            values.add(1024)
+            values.add(13)
+            values[1] = 17
+            checksum += values.size
+            checksum += values[0] + values[1] + values[5]
+            checksum += values.indexOf(1024)
+            if (values.contains(13)) checksum += 1
+            checksum += values.removeAt(values.lastIndex)
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runArrayPipeline(): Int {
+        var checksum = 0
+        var index = 0
+        while (index < ARRAY_PIPELINE_ITERATIONS) {
+            val delta = index and 7
+            val result = listOf(index and 255, 2, 3, 4)
+                .mapIndexed { position, value -> value * 2 + position + delta }
+                .filter { value -> value > 7 }
+                .fold(0) { sum, value -> sum + value }
+            checksum += result
             index += 1
         }
         return checksum

@@ -8,6 +8,8 @@ import { SystemClock } from "@native-typescript/jvm-android_benchmark";
 import { TextView } from "@native-typescript/jvm-android_benchmark";
 import { jlong } from "@native-typescript/jvm-android_benchmark";
 import type { Bundle } from "@native-typescript/jvm-android_benchmark";
+import { runArrayOperationWorkload } from "./array-operations.js";
+import { runArrayPipelineWorkload } from "./array-pipeline.js";
 import { runByteArrayWorkload } from "./byte-array.js";
 import { runConstructorWorkload } from "./constructor.js";
 import { runHandleResultWorkload } from "./handle-result.js";
@@ -28,6 +30,8 @@ const SETTER_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
 const STRING_OPERATION_ITERATIONS = 10000;
+const ARRAY_OPERATION_ITERATIONS = 20000;
+const ARRAY_PIPELINE_ITERATIONS = 20000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -337,6 +341,64 @@ export default class MainActivity extends Activity {
       Log.i(
         TAG,
         "complete implementation=native-typescript-jvm scenario=string-operations",
+      );
+    } else if (scenario === "array-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runArrayOperationWorkload(ARRAY_OPERATION_ITERATIONS);
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runArrayOperationWorkload(ARRAY_OPERATION_ITERATIONS);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "array-operations",
+          ARRAY_OPERATION_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        "complete implementation=native-typescript-jvm scenario=array-operations",
+      );
+    } else if (scenario === "array-pipeline") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runArrayPipelineWorkload(ARRAY_PIPELINE_ITERATIONS);
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runArrayPipelineWorkload(ARRAY_PIPELINE_ITERATIONS);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "array-pipeline",
+          ARRAY_PIPELINE_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        "complete implementation=native-typescript-jvm scenario=array-pipeline",
       );
     } else if (scenario === "byte-array") {
       const input = new Uint8Array(BYTE_ARRAY_LENGTH);

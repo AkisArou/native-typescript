@@ -6,6 +6,8 @@
   },
   "include": [
     "./activity.ts",
+    "./array-operations.ts",
+    "./array-pipeline.ts",
     "./byte-array.ts",
     "./constructor.ts",
     "./handle-result.ts",

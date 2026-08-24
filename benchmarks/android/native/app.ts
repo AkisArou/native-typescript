@@ -31,6 +31,8 @@ const CALLBACK_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
 const STRING_OPERATION_ITERATIONS = 10000;
+const ARRAY_OPERATION_ITERATIONS = 20000;
+const ARRAY_PIPELINE_ITERATIONS = 20000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -149,6 +151,38 @@ function runStringOperations(value: string): number {
     if (normalized.includes("typescript")) checksum += 1;
     checksum += trimmed.charCodeAt(18);
     checksum += padded.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runArrayOperations(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < ARRAY_OPERATION_ITERATIONS) {
+    const values = [index & 255, 3, 5, 7];
+    values.push(1024, 13);
+    values[1] = 17;
+    checksum += values.length;
+    checksum += values[0]! + values[1]! + values[5]!;
+    checksum += values.indexOf(1024);
+    if (values.includes(13)) checksum += 1;
+    checksum += values.pop()!;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runArrayPipeline(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < ARRAY_PIPELINE_ITERATIONS) {
+    const delta = index & 7;
+    const result = [index & 255, 2, 3, 4]
+      .map((value, position) => value * 2 + position + delta)
+      .filter((value) => value > 7)
+      .reduce((sum, value) => sum + value, 0);
+    checksum += result;
     index += 1;
   }
   return checksum;
@@ -442,6 +476,50 @@ export default class MainActivity extends Activity {
           "string-operations",
           sample,
           STRING_OPERATION_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "array-operations") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runArrayOperations();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runArrayOperations();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "array-operations",
+          sample,
+          ARRAY_OPERATION_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "array-pipeline") {
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runArrayPipeline();
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runArrayPipeline();
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "array-pipeline",
+          sample,
+          ARRAY_PIPELINE_ITERATIONS,
           elapsed,
           checksum,
         );

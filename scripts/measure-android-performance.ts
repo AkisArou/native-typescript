@@ -53,6 +53,8 @@ const nativeScriptRoot = join(benchmarkRoot, "nativescript");
 const nativeScriptSource = join(nativeScriptRoot, "app/app.ts");
 const directRoot = join(benchmarkRoot, "direct");
 const directTypescriptActivitySource = join(directRoot, "activity.ts");
+const directArrayOperationSource = join(directRoot, "array-operations.ts");
+const directArrayPipelineSource = join(directRoot, "array-pipeline.ts");
 const directByteArraySource = join(directRoot, "byte-array.ts");
 const directConstructorSource = join(directRoot, "constructor.ts");
 const directHandleResultSource = join(directRoot, "handle-result.ts");
@@ -93,6 +95,8 @@ const DIRECT_JVM_SCENARIOS = [
   "string-argument",
   "string-result",
   "string-operations",
+  "array-operations",
+  "array-pipeline",
   "byte-array",
   "handle-result",
   "text-update",
@@ -110,6 +114,8 @@ const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
   "string-argument",
   "string-result",
   "string-operations",
+  "array-operations",
+  "array-pipeline",
   "byte-array",
   "handle-result",
   "text-update",
@@ -1305,6 +1311,10 @@ function verifyWorkloadAgreement(): void {
     STRING_RESULT_ITERATIONS: androidBenchmarkWorkload.stringResultIterations,
     STRING_OPERATION_ITERATIONS:
       androidBenchmarkWorkload.stringOperationIterations,
+    ARRAY_OPERATION_ITERATIONS:
+      androidBenchmarkWorkload.arrayOperationIterations,
+    ARRAY_PIPELINE_ITERATIONS:
+      androidBenchmarkWorkload.arrayPipelineIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
@@ -1818,6 +1828,8 @@ async function main(): Promise<void> {
     status: run("git", ["status", "--short"], { cwd: workspace }),
     nativeSourceSha256: sha256(nativeSource),
     directTypescriptActivitySourceSha256: sha256(directTypescriptActivitySource),
+    directArrayOperationSourceSha256: sha256(directArrayOperationSource),
+    directArrayPipelineSourceSha256: sha256(directArrayPipelineSource),
     directByteArraySourceSha256: sha256(directByteArraySource),
     directConstructorSourceSha256: sha256(directConstructorSource),
     directHandleResultSourceSha256: sha256(directHandleResultSource),
