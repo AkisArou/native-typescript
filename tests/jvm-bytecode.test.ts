@@ -476,6 +476,7 @@ test(
           `    System.out.println(${simpleName}.substring("abcdef", 4.0d, 1.0d));\n` +
           `    System.out.println(${simpleName}.repeated("ab", 3.0d));\n` +
           `    System.out.println(${simpleName}.padded("7", 3.0d, "0"));\n` +
+          `    System.out.println(${simpleName}.padded("v", 6.0d, "ab"));\n` +
           `    System.out.println(${simpleName}.trimmed("\\u00a0 x \\u00a0"));\n` +
           `    System.out.println(${simpleName}.cased("Stra\\u00dfe"));\n` +
           `    System.out.println(${simpleName}.wellFormed("\\ud800X"));\n` +
@@ -521,6 +522,7 @@ test(
           "bcd\n" +
           "ababab\n" +
           "007700\n" +
+          "ababavvababa\n" +
           "x:\u0078 \u00a0:\u00a0 x\n" +
           "stra\u00dfe:STRASSE\n" +
           "false\n" +

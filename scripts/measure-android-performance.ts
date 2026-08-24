@@ -102,6 +102,10 @@ const DIRECT_JVM_SCENARIOS = [
   "string-argument",
   "string-result",
   "string-operations",
+  "string-normalize",
+  "string-slice",
+  "string-pad",
+  "string-search",
   "array-operations",
   "array-pipeline",
   "record-objects",
@@ -127,6 +131,10 @@ const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
   "string-argument",
   "string-result",
   "string-operations",
+  "string-normalize",
+  "string-slice",
+  "string-pad",
+  "string-search",
   "array-operations",
   "array-pipeline",
   "record-objects",
@@ -1183,7 +1191,7 @@ async function buildDirectJvmApk(input: {
   }
   if (
     typescriptActivityBytecode.includes("nts_jvm_") ||
-    / native /u.test(typescriptActivityBytecode)
+    /^\s+.*\bnative\b.*\);$/mu.test(typescriptActivityBytecode)
   ) {
     throw new Error(
       `Compiler-emitted TypeScript Activity unexpectedly crosses JNI:\n${typescriptActivityBytecode}`,

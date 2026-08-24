@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 12,
+  version: 13,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -214,6 +214,25 @@ function numberedTextChecksum(
   return checksum;
 }
 
+function stringNormalizeChecksum(iterations: number): number {
+  return iterations * "native typescript καλημέρα 👩‍💻 e\u0301".length;
+}
+
+function stringSliceChecksum(iterations: number): number {
+  return iterations * "native typescript".length;
+}
+
+function stringPadChecksum(iterations: number): number {
+  return iterations * 20;
+}
+
+function stringSearchChecksum(iterations: number): number {
+  const value = "native typescript καλημέρα 👩‍💻 e\u0301";
+  return iterations * (
+    (value.includes("typescript") ? 1 : 0) + value.charCodeAt(18)
+  );
+}
+
 const workload = androidBenchmarkWorkload;
 
 /**
@@ -312,6 +331,46 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: workload.stringOperationIterations * 960,
+  },
+  {
+    name: "string-normalize",
+    layer: "language-runtime",
+    hotspot: "UTF-16 trim and locale-root lowercase allocation",
+    operationUnit: "normalization",
+    iterations: workload.stringOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: stringNormalizeChecksum(workload.stringOperationIterations),
+  },
+  {
+    name: "string-slice",
+    layer: "language-runtime",
+    hotspot: "UTF-16 slicing allocation",
+    operationUnit: "slice",
+    iterations: workload.stringOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: stringSliceChecksum(workload.stringOperationIterations),
+  },
+  {
+    name: "string-pad",
+    layer: "language-runtime",
+    hotspot: "UTF-16 end-padding allocation",
+    operationUnit: "pad",
+    iterations: workload.stringOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: stringPadChecksum(workload.stringOperationIterations),
+  },
+  {
+    name: "string-search",
+    layer: "language-runtime",
+    hotspot: "substring search and UTF-16 indexed code-unit read",
+    operationUnit: "search and index",
+    iterations: workload.stringOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: stringSearchChecksum(workload.stringOperationIterations),
   },
   {
     name: "array-operations",

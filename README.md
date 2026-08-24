@@ -208,6 +208,13 @@ reduce the math workload from 43.10 ns to **19.59/21.57 ns**
 (54.5%/50.0%). Direct JVM moves from 1.48x Kotlin to **0.68x/0.80x**; see
 [record 0052](docs/records/0052-direct-jvm-math-special-values.md).
 
+Four matched probes now separate string normalization, slicing, padding, and
+search. Only padding remained materially behind Kotlin. A single final-sized
+builder improves Direct JVM `padEnd` from 533.13 ns to **227.56/302.67 ns**
+in repeated runs (2.50x Kotlin to **1.05x/1.35x**), while the unchanged
+aggregate string workload reaches 1.03x Kotlin. See
+[record 0053](docs/records/0053-direct-jvm-single-builder-padding.md).
+
 The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |

@@ -154,6 +154,50 @@ function runStringOperations(value: string): number {
   return checksum;
 }
 
+function runStringNormalize(value: string): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_OPERATION_ITERATIONS) {
+    const normalized = value.trim().toLowerCase();
+    checksum += normalized.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runStringSlice(value: string): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_OPERATION_ITERATIONS) {
+    const segment = value.slice(0, 17);
+    checksum += segment.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runStringPad(value: string): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_OPERATION_ITERATIONS) {
+    const padded = value.padEnd(20, ".");
+    checksum += padded.length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runStringSearch(value: string): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_OPERATION_ITERATIONS) {
+    if (value.includes("typescript")) checksum += 1;
+    checksum += value.charCodeAt(18);
+    index += 1;
+  }
+  return checksum;
+}
+
 function runArrayOperations(): number {
   let checksum = 0;
   let index = 0;
@@ -593,6 +637,50 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
       const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
       logSample(
         "string-operations",
+        sample,
+        STRING_OPERATION_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (
+    scenario === "string-normalize" ||
+    scenario === "string-slice" ||
+    scenario === "string-pad" ||
+    scenario === "string-search"
+  ) {
+    const raw = "  Native TypeScript Καλημέρα 👩‍💻 e\u0301  ";
+    const normalized = "native typescript καλημέρα 👩‍💻 e\u0301";
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      if (scenario === "string-normalize") {
+        runStringNormalize(raw);
+      } else if (scenario === "string-slice") {
+        runStringSlice(normalized);
+      } else if (scenario === "string-pad") {
+        runStringPad("native typescript");
+      } else {
+        runStringSearch(normalized);
+      }
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      let checksum = 0;
+      if (scenario === "string-normalize") {
+        checksum = runStringNormalize(raw);
+      } else if (scenario === "string-slice") {
+        checksum = runStringSlice(normalized);
+      } else if (scenario === "string-pad") {
+        checksum = runStringPad("native typescript");
+      } else {
+        checksum = runStringSearch(normalized);
+      }
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        scenario,
         sample,
         STRING_OPERATION_ITERATIONS,
         elapsed,

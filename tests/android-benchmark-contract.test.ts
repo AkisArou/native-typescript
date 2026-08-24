@@ -27,6 +27,18 @@ interface AndroidLanguageContract {
   readonly numberParsingExpectedChecksum: number;
   readonly numberParsingActualChecksum: number;
   readonly numberParsingRepeated: boolean;
+  readonly stringNormalizeExpectedChecksum: number;
+  readonly stringNormalizeActualChecksum: number;
+  readonly stringNormalizeRepeated: boolean;
+  readonly stringSliceExpectedChecksum: number;
+  readonly stringSliceActualChecksum: number;
+  readonly stringSliceRepeated: boolean;
+  readonly stringPadExpectedChecksum: number;
+  readonly stringPadActualChecksum: number;
+  readonly stringPadRepeated: boolean;
+  readonly stringSearchExpectedChecksum: number;
+  readonly stringSearchActualChecksum: number;
+  readonly stringSearchRepeated: boolean;
   readonly directApplicationId: string;
   readonly directActivityBinaryName: string;
   readonly nativeApplicationId: string;
@@ -49,6 +61,9 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
   const numberParsingWorkloadUrl = pathToFileURL(
     join(workspace, "benchmarks/android/direct/number-parsing.ts"),
   ).href;
+  const stringOperationWorkloadUrl = pathToFileURL(
+    join(workspace, "benchmarks/android/direct/string-operations.ts"),
+  ).href;
   const program = `
     import {
       androidBenchmarkScenarios,
@@ -62,6 +77,12 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
     import { runSetOperationWorkload } from ${JSON.stringify(setWorkloadUrl)};
     import { runMathOperationWorkload } from ${JSON.stringify(mathWorkloadUrl)};
     import { runNumberParsingWorkload } from ${JSON.stringify(numberParsingWorkloadUrl)};
+    import {
+      runStringNormalizeWorkload,
+      runStringPadWorkload,
+      runStringSearchWorkload,
+      runStringSliceWorkload,
+    } from ${JSON.stringify(stringOperationWorkloadUrl)};
     const scenario = androidBenchmarkScenarios.find(
       ({ name }) => name === "map-operations",
     );
@@ -78,6 +99,22 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       ({ name }) => name === "number-parsing",
     );
     if (numberParsingScenario === undefined) throw new Error("number parsing scenario is absent");
+    const stringNormalizeScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "string-normalize",
+    );
+    if (stringNormalizeScenario === undefined) throw new Error("string normalize scenario is absent");
+    const stringSliceScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "string-slice",
+    );
+    if (stringSliceScenario === undefined) throw new Error("string slice scenario is absent");
+    const stringPadScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "string-pad",
+    );
+    if (stringPadScenario === undefined) throw new Error("string pad scenario is absent");
+    const stringSearchScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "string-search",
+    );
+    if (stringSearchScenario === undefined) throw new Error("string search scenario is absent");
     process.stdout.write(JSON.stringify({
       version: androidBenchmarkWorkload.version,
       scenarioCount: androidBenchmarkScenarios.length,
@@ -100,6 +137,30 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       numberParsingExpectedChecksum: numberParsingScenario.expectedChecksum,
       numberParsingActualChecksum: runNumberParsingWorkload(numberParsingScenario.iterations),
       numberParsingRepeated: repeatedAndroidBenchmarkScenarios.includes("number-parsing"),
+      stringNormalizeExpectedChecksum: stringNormalizeScenario.expectedChecksum,
+      stringNormalizeActualChecksum: runStringNormalizeWorkload(
+        "  Native TypeScript Καλημέρα 👩‍💻 e\\u0301  ",
+        stringNormalizeScenario.iterations,
+      ),
+      stringNormalizeRepeated: repeatedAndroidBenchmarkScenarios.includes("string-normalize"),
+      stringSliceExpectedChecksum: stringSliceScenario.expectedChecksum,
+      stringSliceActualChecksum: runStringSliceWorkload(
+        "native typescript καλημέρα 👩‍💻 e\\u0301",
+        stringSliceScenario.iterations,
+      ),
+      stringSliceRepeated: repeatedAndroidBenchmarkScenarios.includes("string-slice"),
+      stringPadExpectedChecksum: stringPadScenario.expectedChecksum,
+      stringPadActualChecksum: runStringPadWorkload(
+        "native typescript",
+        stringPadScenario.iterations,
+      ),
+      stringPadRepeated: repeatedAndroidBenchmarkScenarios.includes("string-pad"),
+      stringSearchExpectedChecksum: stringSearchScenario.expectedChecksum,
+      stringSearchActualChecksum: runStringSearchWorkload(
+        "native typescript καλημέρα 👩‍💻 e\\u0301",
+        stringSearchScenario.iterations,
+      ),
+      stringSearchRepeated: repeatedAndroidBenchmarkScenarios.includes("string-search"),
       directApplicationId: directJvmBenchmarkApplication.applicationId,
       directActivityBinaryName: directJvmBenchmarkApplication.activityBinaryName,
       nativeApplicationId: nativeTypescriptBenchmarkProject.android.applicationId,
@@ -117,8 +178,8 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
 
 test("the Android language benchmarks are one matched four-application contract", () => {
   const contract = readAndroidLanguageContract();
-  assert.equal(contract.version, 12);
-  assert.equal(contract.scenarioCount, 23);
+  assert.equal(contract.version, 13);
+  assert.equal(contract.scenarioCount, 27);
   assert.equal(contract.uniqueScenarioCount, contract.scenarioCount);
   assert.equal(contract.iterations, 50_000);
   assert.equal(contract.expectedChecksum, 83_989_039);
@@ -139,6 +200,26 @@ test("the Android language benchmarks are one matched four-application contract"
     contract.numberParsingExpectedChecksum,
   );
   assert.equal(contract.numberParsingRepeated, true);
+  assert.equal(
+    contract.stringNormalizeActualChecksum,
+    contract.stringNormalizeExpectedChecksum,
+  );
+  assert.equal(contract.stringNormalizeRepeated, true);
+  assert.equal(
+    contract.stringSliceActualChecksum,
+    contract.stringSliceExpectedChecksum,
+  );
+  assert.equal(contract.stringSliceRepeated, true);
+  assert.equal(
+    contract.stringPadActualChecksum,
+    contract.stringPadExpectedChecksum,
+  );
+  assert.equal(contract.stringPadRepeated, true);
+  assert.equal(
+    contract.stringSearchActualChecksum,
+    contract.stringSearchExpectedChecksum,
+  );
+  assert.equal(contract.stringSearchRepeated, true);
   assert.ok(
     contract.directActivityBinaryName.replaceAll("/", ".")
       .startsWith(`${contract.directApplicationId}.`),
@@ -234,6 +315,26 @@ test("the Android language benchmarks are one matched four-application contract"
       source,
       /number-parsing/u,
       `${implementation} does not route the number parsing scenario`,
+    );
+    assert.match(
+      source,
+      /string-normalize/u,
+      `${implementation} does not route the string normalization probe`,
+    );
+    assert.match(
+      source,
+      /string-slice/u,
+      `${implementation} does not route the string slice probe`,
+    );
+    assert.match(
+      source,
+      /string-pad/u,
+      `${implementation} does not route the string pad probe`,
+    );
+    assert.match(
+      source,
+      /string-search/u,
+      `${implementation} does not route the string search probe`,
     );
   }
 });

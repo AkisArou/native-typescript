@@ -262,6 +262,49 @@ class MainActivity : Activity() {
                 )
                 sample += 1
             }
+        } else if (
+            "string-normalize".equals(scenario) ||
+            "string-slice".equals(scenario) ||
+            "string-pad".equals(scenario) ||
+            "string-search".equals(scenario)
+        ) {
+            val raw = "  Native TypeScript Καλημέρα 👩‍💻 e\u0301  "
+            val normalized = "native typescript καλημέρα 👩‍💻 e\u0301"
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                if ("string-normalize".equals(scenario)) {
+                    runStringNormalize(raw)
+                } else if ("string-slice".equals(scenario)) {
+                    runStringSlice(normalized)
+                } else if ("string-pad".equals(scenario)) {
+                    runStringPad("native typescript")
+                } else {
+                    runStringSearch(normalized)
+                }
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = if ("string-normalize".equals(scenario)) {
+                    runStringNormalize(raw)
+                } else if ("string-slice".equals(scenario)) {
+                    runStringSlice(normalized)
+                } else if ("string-pad".equals(scenario)) {
+                    runStringPad("native typescript")
+                } else {
+                    runStringSearch(normalized)
+                }
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    scenario!!,
+                    sample,
+                    STRING_OPERATION_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
         } else if ("array-operations".equals(scenario)) {
             var warmup = 0
             while (warmup < WARMUP_SAMPLES) {
@@ -715,6 +758,50 @@ class MainActivity : Activity() {
             if (normalized.contains("typescript")) checksum += 1
             checksum += trimmed[18].code
             checksum += padded.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runStringNormalize(value: String): Int {
+        var checksum = 0
+        var index = 0
+        while (index < STRING_OPERATION_ITERATIONS) {
+            val normalized = value.trim().lowercase(Locale.ROOT)
+            checksum += normalized.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runStringSlice(value: String): Int {
+        var checksum = 0
+        var index = 0
+        while (index < STRING_OPERATION_ITERATIONS) {
+            val segment = value.substring(0, 17)
+            checksum += segment.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runStringPad(value: String): Int {
+        var checksum = 0
+        var index = 0
+        while (index < STRING_OPERATION_ITERATIONS) {
+            val padded = value.padEnd(20, '.')
+            checksum += padded.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runStringSearch(value: String): Int {
+        var checksum = 0
+        var index = 0
+        while (index < STRING_OPERATION_ITERATIONS) {
+            if (value.contains("typescript")) checksum += 1
+            checksum += value[18].code
             index += 1
         }
         return checksum

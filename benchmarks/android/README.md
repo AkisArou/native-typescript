@@ -97,6 +97,10 @@ JavaScript array that would change the operation.
 | Boundary | `light-object` | Construct 50,000 `Rect`s, immediately call `width()`, and let each non-escaping result die |
 | Language | `managed-class` | Make 100,000 virtual calls through a base-typed object; each override calls `super`, advances a stateful integer recurrence in a field, and reads a derived field |
 | Language | `string-operations` | Apply UTF-16 trim, case conversion, search, slicing, and padding 10,000 times |
+| Language | `string-normalize` | Isolate UTF-16 trim and locale-root lowercase allocation 10,000 times |
+| Language | `string-slice` | Isolate UTF-16 slicing allocation 10,000 times |
+| Language | `string-pad` | Isolate UTF-16 end-padding allocation 10,000 times |
+| Language | `string-search` | Isolate substring search and UTF-16 indexed code-unit reads 10,000 times |
 | Language | `array-operations` | Run 20,000 dynamic numeric-array lifetimes with growth, indexed mutation/read, search, and pop |
 | Language | `array-pipeline` | Run 20,000 captured `map` → `filter` → `reduce` pipelines with intermediate arrays |
 | Language | `record-objects` | Run 50,000 fixed-shape object lifetimes with number, string, and boolean fields, mutation, and reads |
@@ -249,6 +253,13 @@ values first. A strengthened special-value fixture accompanies repeated
 50.0%–54.5% device improvements, moving the math kernel from 1.48x Kotlin to
 0.68x/0.80x, as recorded in
 [record 0052](../../docs/records/0052-direct-jvm-math-special-values.md).
+The aggregate string workload is now accompanied by normalization, slicing,
+padding, and search probes. They identified padding as the only material JVM
+gap. Building the final padded string once improves that probe by 43.2%–57.3%
+across repeated runs and moves it from 2.50x Kotlin to 1.05x/1.35x; the
+unchanged aggregate reaches 1.03x Kotlin in the repeat. The instrument and
+implementation are recorded in
+[record 0053](../../docs/records/0053-direct-jvm-single-builder-padding.md).
 
 ## Research references
 

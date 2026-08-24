@@ -24,7 +24,13 @@ import { runSetOperationWorkload } from "./set-operations.js";
 import { runSetterWorkload } from "./setter.js";
 import { runScreenBuildWorkload } from "./screen-build.js";
 import { runStringArgumentWorkload } from "./string-argument.js";
-import { runStringOperationWorkload } from "./string-operations.js";
+import {
+  runStringNormalizeWorkload,
+  runStringOperationWorkload,
+  runStringPadWorkload,
+  runStringSearchWorkload,
+  runStringSliceWorkload,
+} from "./string-operations.js";
 import { runStringResultWorkload } from "./string-result.js";
 import { runTextUpdateWorkload } from "./text-update.js";
 
@@ -353,6 +359,68 @@ export default class MainActivity extends Activity {
       Log.i(
         TAG,
         "complete implementation=native-typescript-jvm scenario=string-operations",
+      );
+    } else if (
+      scenario === "string-normalize" ||
+      scenario === "string-slice" ||
+      scenario === "string-pad" ||
+      scenario === "string-search"
+    ) {
+      const raw = "  Native TypeScript Καλημέρα 👩‍💻 e\u0301  ";
+      const normalized = "native typescript καλημέρα 👩‍💻 e\u0301";
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        if (scenario === "string-normalize") {
+          runStringNormalizeWorkload(raw, STRING_OPERATION_ITERATIONS);
+        } else if (scenario === "string-slice") {
+          runStringSliceWorkload(normalized, STRING_OPERATION_ITERATIONS);
+        } else if (scenario === "string-pad") {
+          runStringPadWorkload("native typescript", STRING_OPERATION_ITERATIONS);
+        } else {
+          runStringSearchWorkload(normalized, STRING_OPERATION_ITERATIONS);
+        }
+        warmup += 1;
+      }
+
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        let checksum = 0;
+        if (scenario === "string-normalize") {
+          checksum = runStringNormalizeWorkload(raw, STRING_OPERATION_ITERATIONS);
+        } else if (scenario === "string-slice") {
+          checksum = runStringSliceWorkload(
+            normalized,
+            STRING_OPERATION_ITERATIONS,
+          );
+        } else if (scenario === "string-pad") {
+          checksum = runStringPadWorkload(
+            "native typescript",
+            STRING_OPERATION_ITERATIONS,
+          );
+        } else {
+          checksum = runStringSearchWorkload(
+            normalized,
+            STRING_OPERATION_ITERATIONS,
+          );
+        }
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          scenario,
+          STRING_OPERATION_ITERATIONS,
+          sample,
+          elapsed,
+          checksum,
+        );
+        this.completedSamples += 1;
+        sample += 1;
+      }
+
+      Log.i(
+        TAG,
+        `complete implementation=native-typescript-jvm scenario=${scenario}`,
       );
     } else if (scenario === "array-operations") {
       let warmup = 0;
