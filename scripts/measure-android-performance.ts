@@ -52,11 +52,18 @@ const kotlinSource = join(
 const nativeScriptRoot = join(benchmarkRoot, "nativescript");
 const nativeScriptSource = join(nativeScriptRoot, "app/app.ts");
 const directRoot = join(benchmarkRoot, "direct");
-const directSource = join(directRoot, "kernel.ts");
-const directActivitySource = join(
-  directRoot,
-  "java/com/example/ntsbenchmark/direct/MainActivity.java",
-);
+const directTypescriptActivitySource = join(directRoot, "activity.ts");
+const directByteArraySource = join(directRoot, "byte-array.ts");
+const directConstructorSource = join(directRoot, "constructor.ts");
+const directHandleResultSource = join(directRoot, "handle-result.ts");
+const directLightObjectSource = join(directRoot, "light-object.ts");
+const directManagedClassSource = join(directRoot, "managed-class.ts");
+const directScreenBuildSource = join(directRoot, "screen-build.ts");
+const directSetterSource = join(directRoot, "setter.ts");
+const directStringArgumentSource = join(directRoot, "string-argument.ts");
+const directStringOperationSource = join(directRoot, "string-operations.ts");
+const directStringResultSource = join(directRoot, "string-result.ts");
+const directTextUpdateSource = join(directRoot, "text-update.ts");
 const scriptcRoot = join(workspace, "third_party/scriptc");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const DEVICE_LOCK = "/tmp/native-typescript-android-device.lock";
@@ -71,20 +78,43 @@ const IMPLEMENTATIONS = [
 type Implementation = typeof IMPLEMENTATIONS[number];
 const FULL_APPLICATION_IMPLEMENTATIONS = [
   "native-typescript",
+  "native-typescript-jvm",
   "kotlin",
   "nativescript",
 ] as const;
 const DIRECT_JVM_SCENARIOS = [
   "light-object",
   "managed-class",
+  "constructor",
   "setter",
   "callback",
   "callback-payload",
   "callback-capture",
   "string-argument",
   "string-result",
+  "string-operations",
   "byte-array",
   "handle-result",
+  "text-update",
+  "screen-build",
+  "view-tree",
+] as const satisfies readonly AndroidBenchmarkScenario[];
+const TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS = [
+  "light-object",
+  "managed-class",
+  "constructor",
+  "setter",
+  "callback",
+  "callback-payload",
+  "callback-capture",
+  "string-argument",
+  "string-result",
+  "string-operations",
+  "byte-array",
+  "handle-result",
+  "text-update",
+  "screen-build",
+  "view-tree",
 ] as const satisfies readonly AndroidBenchmarkScenario[];
 
 function directJvmSupportsScenario(
@@ -137,6 +167,8 @@ interface DirectJvmBuiltApplication extends BuiltApplication {
       readonly nativeEntrySymbol: string;
     }[];
     readonly bytecodePath: string;
+    readonly typescriptActivity: string;
+    readonly typescriptActivityBytecodePath: string;
   };
 }
 
@@ -668,6 +700,24 @@ async function buildDirectJvmApk(input: {
     "setTextSize",
     "(F)V",
   );
+  const textViewSetTextBinding = findDirectBinding(
+    "instance-method",
+    "android/widget/TextView",
+    "setText",
+    "(Ljava/lang/CharSequence;)V",
+  );
+  const linearLayoutConstructorBinding = findDirectBinding(
+    "constructor",
+    "android/widget/LinearLayout",
+    "<init>",
+    "(Landroid/content/Context;)V",
+  );
+  const viewGroupAddViewBinding = findDirectBinding(
+    "instance-method",
+    "android/view/ViewGroup",
+    "addView",
+    "(Landroid/view/View;)V",
+  );
   const buttonConstructorBinding = findDirectBinding(
     "constructor",
     "android/widget/Button",
@@ -722,165 +772,203 @@ async function buildDirectJvmApk(input: {
     "setId",
     "(I)V",
   );
+  const viewSetMinimumHeightBinding = findDirectBinding(
+    "instance-method",
+    "android/view/View",
+    "setMinimumHeight",
+    "(I)V",
+  );
   const viewGroupGetChildAtBinding = findDirectBinding(
     "instance-method",
     "android/view/ViewGroup",
     "getChildAt",
     "(I)Landroid/view/View;",
   );
-  const selectedBindings = [
+  const linearLayoutSetOrientationBinding = findDirectBinding(
+    "instance-method",
+    "android/widget/LinearLayout",
+    "setOrientation",
+    "(I)V",
+  );
+  const systemClockElapsedBinding = findDirectBinding(
+    "static-method",
+    "android/os/SystemClock",
+    "elapsedRealtimeNanos",
+    "()J",
+  );
+  const activityConstructorBinding = findDirectBinding(
+    "constructor",
+    "android/app/Activity",
+    "<init>",
+    "()V",
+  );
+  const activityGetIntentBinding = findDirectBinding(
+    "instance-method",
+    "android/app/Activity",
+    "getIntent",
+    "()Landroid/content/Intent;",
+  );
+  const activitySetContentViewBinding = findDirectBinding(
+    "instance-method",
+    "android/app/Activity",
+    "setContentView",
+    "(Landroid/view/View;)V",
+  );
+  const intentGetStringExtraBinding = findDirectBinding(
+    "instance-method",
+    "android/content/Intent",
+    "getStringExtra",
+    "(Ljava/lang/String;)Ljava/lang/String;",
+  );
+  const logInfoBinding = findDirectBinding(
+    "static-method",
+    "android/util/Log",
+    "i",
+    "(Ljava/lang/String;Ljava/lang/String;)I",
+  );
+  const generatedActivityOwner =
+    nativeTypescriptBenchmarkProject.android.activityBinaryName;
+  const activityOnCreateBinding = findDirectBinding(
+    "class-callback",
+    generatedActivityOwner,
+    "onCreate",
+    "(Landroid/os/Bundle;)V",
+  );
+  const activityOnDestroyBinding = findDirectBinding(
+    "class-callback",
+    generatedActivityOwner,
+    "onDestroy",
+    "()V",
+  );
+  const packageInstanceSeparator = rectConstructorBinding.id.indexOf("#");
+  if (packageInstanceSeparator < 1) {
+    throw new Error(
+      `Direct binding '${rectConstructorBinding.id}' has no package instance`,
+    );
+  }
+  const representativeLocalBindingId = rectConstructorBinding.id.slice(
+    packageInstanceSeparator + 1,
+  );
+  const packageSlugSeparator = representativeLocalBindingId.indexOf(".");
+  if (packageSlugSeparator < 1) {
+    throw new Error(
+      `Direct binding '${representativeLocalBindingId}' has no package slug`,
+    );
+  }
+  const packageSlug = representativeLocalBindingId.slice(0, packageSlugSeparator);
+
+  const activityBindings = [
     rectConstructorBinding,
     rectWidthBinding,
     rectFlattenToStringBinding,
+    activityConstructorBinding,
+    activityGetIntentBinding,
+    activitySetContentViewBinding,
+    intentGetStringExtraBinding,
+    equalsBinding,
+    base64EncodeBinding,
     textViewConstructorBinding,
+    textViewSetTextBinding,
     textViewSetTextSizeBinding,
     buttonConstructorBinding,
     clickBridgeConstructorBinding,
     clickBridgeCallbackBinding,
     viewSetOnClickListenerBinding,
     viewCallOnClickBinding,
-    equalsBinding,
-    base64EncodeBinding,
+    linearLayoutConstructorBinding,
+    viewGroupAddViewBinding,
+    viewGroupGetChildAtBinding,
     viewGetIdBinding,
     viewSetIdBinding,
-    viewGroupGetChildAtBinding,
+    viewSetMinimumHeightBinding,
+    linearLayoutSetOrientationBinding,
+    systemClockElapsedBinding,
+    logInfoBinding,
+    activityOnCreateBinding,
+    activityOnDestroyBinding,
   ] as const;
-  const localBindingIds = selectedBindings.map((binding) => {
+  const activityLocalBindingIds = activityBindings.map((binding) => {
     const separator = binding.id.indexOf("#");
     if (separator < 1) {
       throw new Error(`Direct binding '${binding.id}' has no package instance`);
     }
     return binding.id.slice(separator + 1);
   });
-  const packageSlugSeparator = localBindingIds[0]!.indexOf(".");
-  if (packageSlugSeparator < 1) {
-    throw new Error(
-      `Direct binding '${localBindingIds[0]}' has no package slug`,
-    );
-  }
-  const packageSlug = localBindingIds[0]!.slice(0, packageSlugSeparator);
-  const translated = translateScabiNativeProgram(manifest, {
+  const activityConstantBindingIds = [
+    `${packageSlug}.android.widget.linearlayout.horizontal`,
+    `${packageSlug}.android.widget.linearlayout.vertical`,
+  ] as const;
+  const translatedActivity = translateScabiNativeProgram(manifest, {
     types: [
       "jvm.android.app.activity",
+      "jvm.android.content.intent",
+      "jvm.android.widget.textview",
       "jvm.android.widget.linearlayout",
     ],
-    imports: [`${packageSlug}.object.release`, ...localBindingIds],
+    imports: [
+      `${packageSlug}.object.release`,
+      ...activityLocalBindingIds,
+      ...activityConstantBindingIds,
+    ],
     exports: [],
   });
-  if (!translated.ok) {
+  if (!translatedActivity.ok) {
     throw new Error(
-      "Direct-JVM native translation failed:\n" +
-        translated.diagnostics
+      "Direct-JVM TypeScript Activity translation failed:\n" +
+        translatedActivity.diagnostics
           .map(({ code, path, message }) => `  ${code} ${path}: ${message}`)
           .join("\n"),
     );
   }
 
   const planners = await loadScriptCExecutablePlanners();
-  const planned = planners.planExecutableCompilation(directSource, {
-    backend: "c",
-    externalFunctionRoots: [
-      "runLightObjects",
-      "runManagedClasses",
-      "runSetters",
-      "prepareCallbacks",
-      "runCallbacks",
-      "prepareCallbackPayload",
-      "runCallbackPayload",
-      "prepareCallbackCapture",
-      "runCallbackCapture",
-      "runStringArguments",
-      "runStringResults",
-      "runByteArrays",
-      "runHandleResults",
-    ],
-    sourceRoot: directRoot,
-    externalTypes: {
-      [manifest.package.name]: packageDeclarationsPath,
+  const plannedActivity = planners.planExecutableCompilation(
+    directTypescriptActivitySource,
+    {
+      backend: "c",
+      sourceRoot: directRoot,
+      externalTypes: {
+        [manifest.package.name]: packageDeclarationsPath,
+      },
+      native: translatedActivity.input,
     },
-    native: translated.input,
-  });
-  if (!planned.ok) {
+  );
+  if (!plannedActivity.ok) {
     throw new Error(
-      "Compiling the direct-JVM benchmark kernel failed:\n" +
-        planned.diagnostics.map(({ message }) => `  ${message}`).join("\n"),
+      "Compiling the direct-JVM TypeScript Activity failed:\n" +
+        plannedActivity.diagnostics.map((diagnostic) =>
+          `  ${diagnostic.code} ${diagnostic.loc.file}:` +
+          `${diagnostic.loc.start}-${diagnostic.loc.end} ${diagnostic.message}`
+        ).join("\n"),
     );
   }
   const emitter = await loadScriptCJvmEmitter();
-  const packageName = "com.example.ntsbenchmark.direct.generated";
-  const className = "NativeTypeScriptKernel";
-  const generatedSource = emitter.emitJvmSerializedModule(planned.plan.ir, {
-    packageName,
-    className,
-    nativeBindings: directBindings.bindings,
-    functionExports: [
-      {
-        functionName: "runLightObjects",
-        methodName: "runLightObjects",
-      },
-      {
-        functionName: "runManagedClasses",
-        methodName: "runManagedClasses",
-      },
-      {
-        functionName: "runSetters",
-        methodName: "runSetters",
-      },
-      {
-        functionName: "prepareCallbacks",
-        methodName: "prepareCallbacks",
-      },
-      {
-        functionName: "runCallbacks",
-        methodName: "runCallbacks",
-      },
-      {
-        functionName: "prepareCallbackPayload",
-        methodName: "prepareCallbackPayload",
-      },
-      {
-        functionName: "runCallbackPayload",
-        methodName: "runCallbackPayload",
-      },
-      {
-        functionName: "prepareCallbackCapture",
-        methodName: "prepareCallbackCapture",
-      },
-      {
-        functionName: "runCallbackCapture",
-        methodName: "runCallbackCapture",
-      },
-      {
-        functionName: "runStringArguments",
-        methodName: "runStringArguments",
-      },
-      {
-        functionName: "runStringResults",
-        methodName: "runStringResults",
-      },
-      {
-        functionName: "runByteArrays",
-        methodName: "runByteArrays",
-      },
-      {
-        functionName: "runHandleResults",
-        methodName: "runHandleResults",
-      },
-    ],
-  });
+  const generatedActivityPackage = generatedActivityOwner
+    .slice(0, generatedActivityOwner.lastIndexOf("/"))
+    .replaceAll("/", ".");
+  const generatedActivityClass = generatedActivityOwner
+    .slice(generatedActivityOwner.lastIndexOf("/") + 1);
+  const generatedActivitySource = emitter.emitJvmSerializedModule(
+    plannedActivity.plan.ir,
+    {
+      packageName: generatedActivityPackage,
+      className: generatedActivityClass,
+      nativeBindings: directBindings.bindings,
+    },
+  );
 
   const generatedRoot = join(input.root, "generated");
-  const generatedPath = join(
+  const generatedActivityPath = join(
     generatedRoot,
-    ...packageName.split("."),
-    `${className}.java`,
+    ...generatedActivityPackage.split("."),
+    `${generatedActivityClass}.java`,
   );
   const classes = join(input.root, "classes");
   const staging = join(input.root, "staging");
-  mkdirSync(dirname(generatedPath), { recursive: true });
+  mkdirSync(dirname(generatedActivityPath), { recursive: true });
   mkdirSync(classes, { recursive: true });
   mkdirSync(staging, { recursive: true });
-  writeFileSync(generatedPath, generatedSource);
+  writeFileSync(generatedActivityPath, generatedActivitySource);
   const buildEnvironment = {
     ...process.env,
     JAVA_HOME: input.javaHome,
@@ -895,158 +983,104 @@ async function buildDirectJvmApk(input: {
       input.tools.androidJar,
       "-d",
       classes,
-      generatedPath,
-      directActivitySource,
+      generatedActivityPath,
     ],
     { env: buildEnvironment },
   );
-  const generatedClassName = `${packageName}.${className}`;
-  const bytecode = run(
+  const typescriptActivityClassName = generatedActivityOwner.replaceAll("/", ".");
+  const typescriptActivityBytecode = run(
     join(input.javaHome, "bin/javap"),
-    ["-classpath", classes, "-c", "-p", generatedClassName],
+    ["-classpath", classes, "-c", "-p", typescriptActivityClassName],
     { env: buildEnvironment },
   );
-  const directInstructions = [
-    'android/graphics/Rect."<init>":(IIII)V',
+  for (const activityEvidence of [
+    "extends android.app.Activity",
+    "android/app/Activity.onCreate:(Landroid/os/Bundle;)V",
+    "android/app/Activity.getIntent:()Landroid/content/Intent;",
+    "android/app/Activity.setContentView:(Landroid/view/View;)V",
+    "android/content/Intent.getStringExtra:(Ljava/lang/String;)Ljava/lang/String;",
+    "android/text/TextUtils.equals:(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Z",
+    "android/os/SystemClock.elapsedRealtimeNanos:()J",
     "android/graphics/Rect.width:()I",
+    "android/graphics/Rect.flattenToString:()Ljava/lang/String;",
+    "android/util/Base64.encode:([BI)[B",
     'android/widget/TextView."<init>":(Landroid/content/Context;)V',
+    "android/widget/TextView.setText:(Ljava/lang/CharSequence;)V",
     "android/widget/TextView.setTextSize:(F)V",
+    "android/widget/TextView.setMinimumHeight:(I)V",
     'android/widget/Button."<init>":(Landroid/content/Context;)V',
     "android/widget/Button.setOnClickListener:(Landroid/view/View$OnClickListener;)V",
     "android/widget/Button.callOnClick:()Z",
-    "android/text/TextUtils.equals:(Ljava/lang/CharSequence;" +
-      "Ljava/lang/CharSequence;)Z",
-    "android/graphics/Rect.flattenToString:()Ljava/lang/String;",
-    "android/util/Base64.encode:([BI)[B",
+    'android/widget/LinearLayout."<init>":(Landroid/content/Context;)V',
+    "android/widget/LinearLayout.addView:(Landroid/view/View;)V",
     "android/widget/LinearLayout.getChildAt:(I)Landroid/view/View;",
+    "android/widget/LinearLayout.setOrientation:(I)V",
     "android/view/View.getId:()I",
-    "android/widget/Button.setId:(I)V",
-  ];
-  for (const directInstruction of directInstructions) {
-    if (!bytecode.includes(directInstruction)) {
+    "android/widget/TextView.setId:(I)V",
+    "android/util/Log.i:(Ljava/lang/String;Ljava/lang/String;)I",
+    "java/lang/String.toLowerCase:(Ljava/util/Locale;)Ljava/lang/String;",
+    "java/lang/String.indexOf:(Ljava/lang/String;I)I",
+    "java/lang/String.substring:(II)Ljava/lang/String;",
+    "ntsStringTrim",
+    "ntsStringPad",
+    "ntsI64ToNumber:(J)D",
+    "lsub",
+    "newarray       byte",
+    "bastore",
+  ]) {
+    if (!typescriptActivityBytecode.includes(activityEvidence)) {
       throw new Error(
-        `Direct-JVM bytecode does not call the selected member '${directInstruction}':\n` +
-          bytecode,
+        `Compiler-emitted TypeScript Activity lacks '${activityEvidence}':\n` +
+          typescriptActivityBytecode,
       );
     }
   }
-  if (!/invokevirtual .*\.m_[0-9a-f]+:\(\)I/u.test(bytecode)) {
+  if (!/invokevirtual .*\.m_[0-9a-f]+:\(\)I/u.test(typescriptActivityBytecode)) {
     throw new Error(
-      "Direct-JVM managed class kernel did not use an integer-returning " +
-        "ART virtual dispatch:\n" +
-        bytecode,
+      "Compiler-emitted TypeScript Activity did not run the managed-class " +
+        `workload through ART virtual dispatch:\n${typescriptActivityBytecode}`,
     );
   }
-  if (!/putfield .*\.d_[0-9a-f]+:I/u.test(bytecode)) {
-    throw new Error(
-      "Direct-JVM managed class kernel did not use a proved integer field:\n" +
-        bytecode,
-    );
-  }
-  if (!bytecode.includes("arraylength")) {
-    throw new Error(
-      `Direct-JVM bytecode did not consume the byte[] result in ART:\n${bytecode}`,
-    );
-  }
-  if (bytecode.includes("nts_jvm_") || / native /u.test(bytecode)) {
-    throw new Error(`Direct-JVM bytecode unexpectedly carries a native call:\n${bytecode}`);
-  }
-  const numericCoercionCalls = bytecode.match(
-    /invokestatic\s+#[0-9]+\s+\/\/ Method ntsTo(?:Int32|Bool):/gu,
-  ) ?? [];
-  if (numericCoercionCalls.length !== 0) {
-    throw new Error(
-      "Direct-JVM benchmark bytecode retained a numeric coercion helper " +
-        `inside a proved integer kernel:\n${bytecode}`,
-    );
-  }
-  if (
-    !/private static void [^(]+\(android\.view\.View\);\n    Code:\n(?:(?!\n  (?:private|public|protected)).)*android\/view\/View\.getId:\(\)I/su
-      .test(bytecode)
-  ) {
-    throw new Error(
-      "Direct-JVM callback payload handler did not consume its delivered " +
-        `View directly in ART:\n${bytecode}`,
-    );
-  }
-  if (
-    !/private static void [^(]+\(android\.widget\.Button, android\.view\.View\);\n    Code:\n(?:(?!\n  (?:private|public|protected)).)*android\/view\/View\.getId:\(\)I(?:(?!\n  (?:private|public|protected)).)*android\/widget\/Button\.getId:\(\)I/su
-      .test(bytecode)
-  ) {
-    throw new Error(
-      "Direct-JVM captured callback handler did not retain and call its " +
-        `second Android receiver directly in ART:\n${bytecode}`,
-    );
-  }
-  const callbackAdapterClassName = `${generatedClassName}$NtsCallbackAdapter0`;
-  const callbackBytecode = run(
+  const typescriptCallbackAdapterClassName =
+    `${typescriptActivityClassName}$NtsCallbackAdapter0`;
+  const typescriptCallbackBytecode = run(
     join(input.javaHome, "bin/javap"),
-    ["-classpath", classes, "-c", "-p", callbackAdapterClassName],
+    ["-classpath", classes, "-c", "-p", typescriptCallbackAdapterClassName],
     { env: buildEnvironment },
   );
   for (const callbackEvidence of [
     "implements android.view.View$OnClickListener",
     "public void onClick(android.view.View)",
-    "NativeTypeScriptKernel.f_",
+    "tableswitch",
   ]) {
-    if (!callbackBytecode.includes(callbackEvidence)) {
+    if (!typescriptCallbackBytecode.includes(callbackEvidence)) {
       throw new Error(
-        `Direct-JVM callback adapter lacks '${callbackEvidence}':\n${callbackBytecode}`,
+        `Compiler-emitted TypeScript callback lacks '${callbackEvidence}':\n` +
+          typescriptCallbackBytecode,
       );
     }
   }
-  if (callbackBytecode.includes("nts_jvm_") || / native /u.test(callbackBytecode)) {
+  if (
+    !/getfield .*d_[0-9a-f]+:[ID]/u.test(typescriptActivityBytecode) ||
+    !/putfield .*d_[0-9a-f]+:[ID]/u.test(typescriptActivityBytecode)
+  ) {
     throw new Error(
-      `Direct-JVM callback adapter unexpectedly crosses JNI:\n${callbackBytecode}`,
+      "Compiler-emitted TypeScript Activity did not keep its instance field " +
+        `on the ART receiver:\n${typescriptActivityBytecode}`,
     );
   }
-  if (callbackBytecode.includes("NtsCallback0") || /invokeinterface/u.test(callbackBytecode)) {
+  if (
+    typescriptActivityBytecode.includes("nts_jvm_") ||
+    / native /u.test(typescriptActivityBytecode)
+  ) {
     throw new Error(
-      "Direct-JVM callback adapter retained a generic handler dispatch " +
-        `instead of its reached registration sites:\n${callbackBytecode}`,
-    );
-  }
-  const activityClassName = directJvmBenchmarkApplication.activityBinaryName
-    .replaceAll("/", ".");
-  const activityBytecode = run(
-    join(input.javaHome, "bin/javap"),
-    ["-classpath", classes, "-c", "-p", activityClassName],
-    { env: buildEnvironment },
-  );
-  const generatedInvocations = [
-    "NativeTypeScriptKernel.runLightObjects:()D",
-    "NativeTypeScriptKernel.runManagedClasses:()D",
-    "NativeTypeScriptKernel.runSetters:(Landroid/app/Activity;)D",
-    "NativeTypeScriptKernel.prepareCallbacks:(Landroid/app/Activity;)Landroid/widget/Button;",
-    "NativeTypeScriptKernel.runCallbacks:(Landroid/widget/Button;)D",
-    "NativeTypeScriptKernel.prepareCallbackPayload:(Landroid/app/Activity;)Landroid/widget/Button;",
-    "NativeTypeScriptKernel.runCallbackPayload:(Landroid/widget/Button;)D",
-    "NativeTypeScriptKernel.prepareCallbackCapture:(Landroid/app/Activity;)Landroid/widget/Button;",
-    "NativeTypeScriptKernel.runCallbackCapture:(Landroid/widget/Button;)D",
-    "NativeTypeScriptKernel.runStringArguments:(Ljava/lang/String;" +
-      "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)D",
-    "NativeTypeScriptKernel.runStringResults:(Landroid/graphics/Rect;)D",
-    "NativeTypeScriptKernel.runByteArrays:([B)D",
-    "NativeTypeScriptKernel.runHandleResults:(Landroid/widget/LinearLayout;)D",
-  ];
-  for (const generatedInvocation of generatedInvocations) {
-    if (!activityBytecode.includes(generatedInvocation)) {
-      throw new Error(
-        `Direct-JVM harness does not call '${generatedInvocation}':\n` +
-          activityBytecode,
-      );
-    }
-  }
-  if (activityBytecode.includes(" native ")) {
-    throw new Error(
-      `Direct-JVM harness unexpectedly carries a native call:\n${activityBytecode}`,
+      `Compiler-emitted TypeScript Activity unexpectedly crosses JNI:\n${typescriptActivityBytecode}`,
     );
   }
   writeFileSync(
     join(input.root, "bytecode-evidence.txt"),
-    `=== ${generatedClassName} ===\n${bytecode}\n` +
-      `=== ${callbackAdapterClassName} ===\n${callbackBytecode}\n` +
-      `=== ${activityClassName} ===\n${activityBytecode}`,
+    `=== ${typescriptActivityClassName} ===\n${typescriptActivityBytecode}\n` +
+      `=== ${typescriptCallbackAdapterClassName} ===\n${typescriptCallbackBytecode}`,
   );
 
   const compiledClasses = classFiles(classes);
@@ -1131,7 +1165,7 @@ async function buildDirectJvmApk(input: {
     sha256: sha256(apkPath),
     bytes: statSync(apkPath).size,
     evidence: {
-      bindings: selectedBindings.map((binding) => ({
+      bindings: activityBindings.map((binding) => ({
         bindingId: binding.id,
         ownerBinaryName: binding.ownerBinaryName,
         name: binding.name,
@@ -1139,6 +1173,11 @@ async function buildDirectJvmApk(input: {
         nativeEntrySymbol: binding.nativeEntrySymbol,
       })),
       bytecodePath: relative(
+        input.root,
+        join(input.root, "bytecode-evidence.txt"),
+      ),
+      typescriptActivity: generatedActivityOwner.replaceAll("/", "."),
+      typescriptActivityBytecodePath: relative(
         input.root,
         join(input.root, "bytecode-evidence.txt"),
       ),
@@ -1248,21 +1287,11 @@ function sourceConstant(source: string, language: Implementation, name: string):
   return Number(found.replace(/_/gu, ""));
 }
 
-function javaSourceConstant(source: string, name: string): number {
-  const found = new RegExp(
-    `private static final int ${name} = ([0-9_]+);`,
-    "u",
-  ).exec(source)?.[1];
-  if (found === undefined) throw new Error(`Java source has no ${name}`);
-  return Number(found.replace(/_/gu, ""));
-}
-
 function verifyWorkloadAgreement(): void {
   const nts = readFileSync(nativeSource, "utf8");
   const kotlin = readFileSync(kotlinSource, "utf8");
   const nativeScript = readFileSync(nativeScriptSource, "utf8");
-  const direct = readFileSync(directSource, "utf8");
-  const directActivity = readFileSync(directActivitySource, "utf8");
+  const direct = readFileSync(directTypescriptActivitySource, "utf8");
   const expected = {
     WARMUP_SAMPLES: androidBenchmarkWorkload.warmupSamples,
     MEASURED_SAMPLES: androidBenchmarkWorkload.measuredSamples,
@@ -1274,6 +1303,8 @@ function verifyWorkloadAgreement(): void {
     STRING_ARGUMENT_ITERATIONS:
       androidBenchmarkWorkload.stringArgumentIterations,
     STRING_RESULT_ITERATIONS: androidBenchmarkWorkload.stringResultIterations,
+    STRING_OPERATION_ITERATIONS:
+      androidBenchmarkWorkload.stringOperationIterations,
     BYTE_ARRAY_ITERATIONS: androidBenchmarkWorkload.byteArrayIterations,
     BYTE_ARRAY_LENGTH: androidBenchmarkWorkload.byteArrayLength,
     HANDLE_RESULT_ITERATIONS: androidBenchmarkWorkload.handleResultIterations,
@@ -1298,28 +1329,11 @@ function verifyWorkloadAgreement(): void {
           `kotlin=${kotlinValue}, nativescript=${nativeScriptValue}`,
       );
     }
-    if (
-      name === "LIGHT_OBJECT_ITERATIONS" ||
-      name === "MANAGED_CLASS_ITERATIONS" ||
-      name === "SETTER_ITERATIONS" ||
-      name === "CALLBACK_ITERATIONS" ||
-      name === "CALLBACK_PAYLOAD_ITERATIONS" ||
-      name === "CALLBACK_CAPTURE_ITERATIONS" ||
-      name === "STRING_ARGUMENT_ITERATIONS" ||
-      name === "STRING_RESULT_ITERATIONS" ||
-      name === "BYTE_ARRAY_ITERATIONS" ||
-      name === "BYTE_ARRAY_LENGTH" ||
-      name === "HANDLE_RESULT_ITERATIONS" ||
-      name === "HANDLE_RESULT_CHILDREN"
-    ) {
-      const directValue = name === "BYTE_ARRAY_LENGTH"
-        ? javaSourceConstant(directActivity, name)
-        : sourceConstant(direct, "native-typescript-jvm", name);
-      if (directValue !== value) {
-        throw new Error(
-          `${name} drifted: project=${value}, native-typescript-jvm=${directValue}`,
-        );
-      }
+    const directValue = sourceConstant(direct, "native-typescript-jvm", name);
+    if (directValue !== value) {
+      throw new Error(
+        `${name} drifted: project=${value}, native-typescript-jvm=${directValue}`,
+      );
     }
   }
 }
@@ -1794,6 +1808,7 @@ async function main(): Promise<void> {
   ] as const;
   const fullApplications = [
     nativeApplication,
+    directApplication,
     kotlinApplication,
     nativeScriptApplication,
   ] as const;
@@ -1802,7 +1817,18 @@ async function main(): Promise<void> {
     scriptcCommit: run("git", ["rev-parse", "HEAD"], { cwd: scriptcRoot }).trim(),
     status: run("git", ["status", "--short"], { cwd: workspace }),
     nativeSourceSha256: sha256(nativeSource),
-    directSourceSha256: sha256(directSource),
+    directTypescriptActivitySourceSha256: sha256(directTypescriptActivitySource),
+    directByteArraySourceSha256: sha256(directByteArraySource),
+    directConstructorSourceSha256: sha256(directConstructorSource),
+    directHandleResultSourceSha256: sha256(directHandleResultSource),
+    directLightObjectSourceSha256: sha256(directLightObjectSource),
+    directManagedClassSourceSha256: sha256(directManagedClassSource),
+    directScreenBuildSourceSha256: sha256(directScreenBuildSource),
+    directSetterSourceSha256: sha256(directSetterSource),
+    directStringArgumentSourceSha256: sha256(directStringArgumentSource),
+    directStringOperationSourceSha256: sha256(directStringOperationSource),
+    directStringResultSourceSha256: sha256(directStringResultSource),
+    directTextUpdateSourceSha256: sha256(directTextUpdateSource),
     kotlinSourceSha256: sha256(kotlinSource),
     nativeScriptSourceSha256: sha256(nativeScriptSource),
   };
@@ -1839,6 +1865,7 @@ async function main(): Promise<void> {
     })),
     directJvmEvidence: {
       ...directApplication.evidence,
+      typescriptOwnedScenarios: TYPESCRIPT_OWNED_DIRECT_JVM_SCENARIOS,
       bytecodePath: join(
         "native-typescript-jvm",
         directApplication.evidence.bytecodePath,

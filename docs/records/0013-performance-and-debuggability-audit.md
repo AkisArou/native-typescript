@@ -126,17 +126,20 @@ foreign string representation.
 
 The later direct-JVM experiment tests the boundary itself rather than another
 JNI mechanic. Its first checked `TextUtils.equals` call is recorded in
-[record 0023](0023-direct-jvm-android-call.md). The experiment has since grown
-to ten independently checked kernels covering objects, managed classes,
-stable receivers, strings, byte arrays, nullable handles, and same-thread callbacks. Captured
-callback state now remains in generated Java fields or typed mutable holders,
-and the listener calls the reached TypeScript body without JNI or a generic
-handler interface; its latest measurement is in
+[record 0023](0023-direct-jvm-android-call.md). Captured callback state now
+remains in generated Java fields or typed mutable holders, and the listener
+calls the reached TypeScript body without JNI or a generic handler interface;
+its first captured-state measurement is in
 [record 0031](0031-direct-jvm-callback-captures.md). Managed fields,
 inheritance, `super`, and virtual dispatch now stay in ART too; their matched
-measurement is in [record 0032](0032-direct-jvm-managed-classes.md). It remains a kernel APK,
-not yet evidence for replacing the native backend wholesale or for a complete
-Android application product.
+measurement is in [record 0032](0032-direct-jvm-managed-classes.md).
+
+The kernel limitation has since been removed. [Record 0036](0036-direct-jvm-android-application.md)
+makes the compiler-emitted TypeScript `Activity` the sole launcher and moves
+every declared benchmark workload into that application, while adding a
+matched string-transformation case. Its host proof is complete; a new device
+batch is still required before it becomes launch, memory, or performance
+evidence for the full application route.
 
 ## Findings accepted with modification
 

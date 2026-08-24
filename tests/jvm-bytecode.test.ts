@@ -24,6 +24,18 @@ const classFixture = join(
   scriptcRoot,
   "tests/corpus/111-jvm-class-fields.ts",
 );
+const stringFixture = join(
+  scriptcRoot,
+  "tests/corpus/112-jvm-string-values.ts",
+);
+const byteFixture = join(
+  scriptcRoot,
+  "tests/corpus/113-jvm-byte-values.ts",
+);
+const stringIntrinsicFixture = join(
+  scriptcRoot,
+  "tests/corpus/114-jvm-string-intrinsics.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -124,6 +136,341 @@ test(
       assert.doesNotMatch(bytecode, /JNI/u);
     } finally {
       rmSync(built.root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM strings preserve JavaScript concatenation, equality, and number text",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const planners = await loadScriptCExecutablePlanners();
+    const emitter = await loadScriptCJvmEmitter();
+    const planned = planners.planExecutableCompilation(stringFixture, {
+      backend: "c",
+      externalFunctionRoots: [
+        "joined",
+        "equal",
+        "notEqual",
+        "numberText",
+        "maybeText",
+        "nullableLength",
+      ],
+    });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "StringValues";
+    const source = emitter.emitJvmSerializedModule(planned.plan.ir, {
+      packageName,
+      className: simpleName,
+      functionExports: [{
+        functionName: "joined",
+        methodName: "joined",
+      }, {
+        functionName: "equal",
+        methodName: "equal",
+      }, {
+        functionName: "notEqual",
+        methodName: "notEqual",
+      }, {
+        functionName: "numberText",
+        methodName: "numberText",
+      }, {
+        functionName: "maybeText",
+        methodName: "maybeText",
+      }, {
+        functionName: "nullableLength",
+        methodName: "nullableLength",
+      }],
+    });
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-string-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "StringValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class StringValuesHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.joined(42.0d, true));\n` +
+          `    System.out.println(${simpleName}.equal(new String(\"same\"), new String(\"same\")));\n` +
+          `    System.out.println(${simpleName}.notEqual(\"left\", \"right\"));\n` +
+          "    double[] values = {-0.0d, 1e-7d, 1e-6d, 1e20d, 1e21d, " +
+            "Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN, " +
+            "1.2345678901234567d};\n" +
+          `    for (double value : values) System.out.println(${simpleName}.numberText(value));\n` +
+          `    System.out.println(${simpleName}.nullableLength(${simpleName}.maybeText(\"four\", true)));\n` +
+          `    System.out.println(${simpleName}.nullableLength(${simpleName}.maybeText(\"four\", false)));\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.StringValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "value=42 enabled=true\n" +
+          "true\n" +
+          "true\n" +
+          "0\n" +
+          "1e-7\n" +
+          "0.000001\n" +
+          "100000000000000000000\n" +
+          "1e+21\n" +
+          "Infinity\n" +
+          "-Infinity\n" +
+          "NaN\n" +
+          "1.2345678901234567\n" +
+          "4.0\n" +
+          "-1.0\n",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM Uint8Array construction and stores stay in Java byte arrays",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const planners = await loadScriptCExecutablePlanners();
+    const emitter = await loadScriptCJvmEmitter();
+    const planned = planners.planExecutableCompilation(byteFixture, {
+      backend: "c",
+      externalFunctionRoots: ["filledBytes", "copiedBytes", "emptyBytes"],
+    });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "ByteValues";
+    const source = emitter.emitJvmSerializedModule(planned.plan.ir, {
+      packageName,
+      className: simpleName,
+      functionExports: [{
+        functionName: "filledBytes",
+        methodName: "filledBytes",
+      }, {
+        functionName: "copiedBytes",
+        methodName: "copiedBytes",
+      }, {
+        functionName: "emptyBytes",
+        methodName: "emptyBytes",
+      }],
+    });
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-byte-values-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "ByteValuesHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class ByteValuesHarness {\n" +
+          "  private static int checksum(byte[] values) {\n" +
+          "    int result = 0;\n" +
+          "    for (byte value : values) result += value & 255;\n" +
+          "    return result;\n" +
+          "  }\n" +
+          "  public static void main(String[] args) {\n" +
+          `    byte[] filled = ${simpleName}.filledBytes(4.0d);\n` +
+          "    System.out.println(filled.length + \":\" + checksum(filled) + \":\" + (filled[0] & 255));\n" +
+          `    byte[] copied = ${simpleName}.copiedBytes(filled);\n` +
+          "    filled[0] = 0;\n" +
+          "    System.out.println(filled[0] + \":\" + (copied[0] & 255));\n" +
+          `    System.out.println(${simpleName}.emptyBytes().length);\n` +
+          `    System.out.println(${simpleName}.filledBytes(Double.NaN).length);\n` +
+          `    System.out.println(${simpleName}.filledBytes(-0.5d).length);\n` +
+          "    try {\n" +
+          `      ${simpleName}.filledBytes(-1.0d);\n` +
+          "      System.out.println(\"missing RangeError\");\n" +
+          "    } catch (RuntimeException error) {\n" +
+          "      System.out.println(error.getClass().getSimpleName() + \":\" + error.getMessage());\n" +
+          "    }\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.ByteValuesHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "4:310:244\n" +
+          "0:244\n" +
+          "0\n" +
+          "0\n" +
+          "0\n" +
+          "NtsRangeError:Invalid typed array length: -1\n",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM string methods preserve JavaScript indexing and Unicode behavior",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = [
+      "codeAt",
+      "characterAt",
+      "findText",
+      "hasText",
+      "startsWithText",
+      "endsWithText",
+      "sliced",
+      "substring",
+      "repeated",
+      "padded",
+      "trimmed",
+      "cased",
+      "wellFormed",
+      "repaired",
+    ];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(stringIntrinsicFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "StringIntrinsics";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-string-intrinsics-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "StringIntrinsicsHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class StringIntrinsicsHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.codeAt("A\\ud83d\\udc69", 1.0d));\n` +
+          `    System.out.println(${simpleName}.codeAt("A", 9.0d));\n` +
+          `    System.out.println("[" + ${simpleName}.characterAt("A", 9.0d) + "]");\n` +
+          `    System.out.println(${simpleName}.findText("bananas", "na", 2.9d));\n` +
+          `    System.out.println(${simpleName}.hasText("bananas", "na", 3.0d));\n` +
+          `    System.out.println(${simpleName}.startsWithText("native-typescript", "native"));\n` +
+          `    System.out.println(${simpleName}.endsWithText("native-typescript", "script"));\n` +
+          `    System.out.println(${simpleName}.sliced("abcdef", -4.0d, -1.0d));\n` +
+          `    System.out.println(${simpleName}.substring("abcdef", 4.0d, 1.0d));\n` +
+          `    System.out.println(${simpleName}.repeated("ab", 3.0d));\n` +
+          `    System.out.println(${simpleName}.padded("7", 3.0d, "0"));\n` +
+          `    System.out.println(${simpleName}.trimmed("\\u00a0 x \\u00a0"));\n` +
+          `    System.out.println(${simpleName}.cased("Stra\\u00dfe"));\n` +
+          `    System.out.println(${simpleName}.wellFormed("\\ud800X"));\n` +
+          `    System.out.println(${simpleName}.repaired("\\ud800X"));\n` +
+          "    try {\n" +
+          `      ${simpleName}.repeated("x", -1.0d);\n` +
+          "      System.out.println(\"missing RangeError\");\n" +
+          "    } catch (RuntimeException error) {\n" +
+          "      System.out.println(error.getClass().getSimpleName() + \":\" + error.getMessage());\n" +
+          "    }\n" +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.StringIntrinsicsHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(
+        run.stdout,
+        "55357.0\n" +
+          "NaN\n" +
+          "[]\n" +
+          "2.0\n" +
+          "true\n" +
+          "true\n" +
+          "true\n" +
+          "cde\n" +
+          "bcd\n" +
+          "ababab\n" +
+          "007700\n" +
+          "x:\u0078 \u00a0:\u00a0 x\n" +
+          "stra\u00dfe:STRASSE\n" +
+          "false\n" +
+          "\ufffdX\n" +
+          "NtsRangeError:Invalid count value\n",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   },
 );

@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 3,
+  version: 4,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -20,6 +20,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   callbackIterations: 50_000,
   stringArgumentIterations: 20_000,
   stringResultIterations: 10_000,
+  stringOperationIterations: 10_000,
   byteArrayIterations: 2_000,
   byteArrayLength: 256,
   handleResultIterations: 32_000,
@@ -152,6 +153,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: workload.stringResultIterations * "1 2 11 22".length,
+  },
+  {
+    name: "string-operations",
+    layer: "language-runtime",
+    hotspot:
+      "UTF-16 trim, case conversion, search, slicing, and padding",
+    operationUnit: "string transform",
+    iterations: workload.stringOperationIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: workload.stringOperationIterations * 960,
   },
   {
     name: "byte-array",
@@ -388,12 +400,12 @@ export const kotlinBenchmarkApplication = Object.freeze({
   targetSdk: 36,
 });
 
-/** The first direct-ART Native TypeScript product. Its Activity is a small
- * measurement harness; the hot loop is compiled from direct/kernel.ts. */
+/** The direct-ART Native TypeScript benchmark. Its launcher, lifecycle, and
+ * measured workloads are all compiled from direct/activity.ts. */
 export const directJvmBenchmarkApplication = Object.freeze({
   applicationId: "com.example.ntsbenchmark.direct",
   activityBinaryName:
-    "com/example/ntsbenchmark/direct/MainActivity",
+    "com/example/ntsbenchmark/compiled/MainActivity",
   label: "NTS Direct JVM Benchmark",
   minSdk: ANDROID_BENCHMARK_API,
   targetSdk: 36,

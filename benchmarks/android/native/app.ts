@@ -30,6 +30,7 @@ const SETTER_ITERATIONS = 50000;
 const CALLBACK_ITERATIONS = 50000;
 const STRING_ARGUMENT_ITERATIONS = 20000;
 const STRING_RESULT_ITERATIONS = 10000;
+const STRING_OPERATION_ITERATIONS = 10000;
 const BYTE_ARRAY_ITERATIONS = 2000;
 const BYTE_ARRAY_LENGTH = 256;
 const HANDLE_RESULT_ITERATIONS = 32000;
@@ -131,6 +132,23 @@ function runStringResults(rectangle: Rect): number {
   let index = 0;
   while (index < STRING_RESULT_ITERATIONS) {
     checksum += rectangle.flattenToString().length;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runStringOperations(value: string): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < STRING_OPERATION_ITERATIONS) {
+    const trimmed = value.trim();
+    const normalized = trimmed.toLowerCase();
+    const segment = normalized.slice(0, 17);
+    const padded = segment.padEnd(20, ".");
+    checksum += segment.length;
+    if (normalized.includes("typescript")) checksum += 1;
+    checksum += trimmed.charCodeAt(18);
+    checksum += padded.length;
     index += 1;
   }
   return checksum;
@@ -401,6 +419,29 @@ export default class MainActivity extends Activity {
           "string-result",
           sample,
           STRING_RESULT_ITERATIONS,
+          elapsed,
+          checksum,
+        );
+        sample += 1;
+      }
+    } else if (scenario === "string-operations") {
+      const value = "  Native TypeScript Καλημέρα 👩‍💻 e\u0301  ";
+      let warmup = 0;
+      while (warmup < WARMUP_SAMPLES) {
+        runStringOperations(value);
+        warmup += 1;
+      }
+      let sample = 0;
+      while (sample < MEASURED_SAMPLES) {
+        const started = SystemClock.elapsedRealtimeNanos();
+        const checksum = runStringOperations(value);
+        const elapsed = jlong.toNumber(
+          (SystemClock.elapsedRealtimeNanos() - started) as jlong,
+        );
+        logSample(
+          "string-operations",
+          sample,
+          STRING_OPERATION_ITERATIONS,
           elapsed,
           checksum,
         );

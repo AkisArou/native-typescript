@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import java.util.Locale
 
 /* The runner compares these literals to the Native TypeScript source before
  * building either APK. Keep the program shapes readable on both sides; do not
@@ -24,6 +25,7 @@ private const val SETTER_ITERATIONS = 50000
 private const val CALLBACK_ITERATIONS = 50000
 private const val STRING_ARGUMENT_ITERATIONS = 20000
 private const val STRING_RESULT_ITERATIONS = 10000
+private const val STRING_OPERATION_ITERATIONS = 10000
 private const val BYTE_ARRAY_ITERATIONS = 2000
 private const val BYTE_ARRAY_LENGTH = 256
 private const val HANDLE_RESULT_ITERATIONS = 32000
@@ -214,6 +216,27 @@ class MainActivity : Activity() {
                     "string-result",
                     sample,
                     STRING_RESULT_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("string-operations".equals(scenario)) {
+            val value = "  Native TypeScript Καλημέρα 👩‍💻 e\u0301  "
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runStringOperations(value)
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runStringOperations(value)
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "string-operations",
+                    sample,
+                    STRING_OPERATION_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -495,6 +518,23 @@ class MainActivity : Activity() {
         while (index < STRING_RESULT_ITERATIONS) {
             val flattened: String? = rectangle.flattenToString()
             if (flattened != null) checksum += flattened.length
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runStringOperations(value: String): Int {
+        var checksum = 0
+        var index = 0
+        while (index < STRING_OPERATION_ITERATIONS) {
+            val trimmed = value.trim()
+            val normalized = trimmed.lowercase(Locale.ROOT)
+            val segment = normalized.substring(0, 17)
+            val padded = segment.padEnd(20, '.')
+            checksum += segment.length
+            if (normalized.contains("typescript")) checksum += 1
+            checksum += trimmed[18].code
+            checksum += padded.length
             index += 1
         }
         return checksum
