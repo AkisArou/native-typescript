@@ -14,6 +14,8 @@ namespace nts::blink_bridge {
 
 namespace {
 
+thread_local NtsWebRealm* current_web_realm = nullptr;
+
 uint64_t NextRealmId() {
   static std::atomic<uint64_t> next_realm{1};
   const uint64_t realm = next_realm.fetch_add(1, std::memory_order_relaxed);
@@ -69,6 +71,7 @@ NtsWebRealm::NtsWebRealm(blink::Document* document,
       document_(document),
       nodes_(realm_id_),
       subscriptions_(realm_id_),
+      managed_(this),
       event_dispatch_(event_dispatch),
       event_context_(event_context) {
   CHECK(document);
@@ -107,6 +110,7 @@ void NtsWebRealm::Invalidate() {
    * back to this realm, so every registration is removed/detached before DOM
    * object roots or the document root are released. */
   subscriptions_.Invalidate();
+  managed_.Invalidate();
   nodes_.Invalidate();
   document_ = nullptr;
   event_dispatch_ = nullptr;
@@ -131,6 +135,21 @@ void NtsWebRealm::DispatchNativeEvent(NtsWebCallbackToken token,
 }
 
 namespace nts::blink_bridge {
+
+ScopedCurrentWebRealm::ScopedCurrentWebRealm(NtsWebRealm* realm)
+    : previous_(current_web_realm) {
+  CHECK(realm);
+  CHECK(realm->IsCurrent());
+  current_web_realm = realm;
+}
+
+ScopedCurrentWebRealm::~ScopedCurrentWebRealm() {
+  current_web_realm = previous_;
+}
+
+NtsWebRealm* CurrentWebRealm() {
+  return current_web_realm;
+}
 
 NtsWebRealm* CreateWebRealm(blink::Document* document,
                             NativeEventDispatch event_dispatch,

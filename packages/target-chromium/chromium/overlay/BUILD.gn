@@ -32,10 +32,13 @@ source_set("nts_blink_bridge") {
     "nts_blink_events.cc",
     "nts_blink_event_listener.cc",
     "nts_blink_event_listener.h",
+    "nts_blink_managed_registry.cc",
+    "nts_blink_managed_registry.h",
     "nts_blink_node_registry.cc",
     "nts_blink_node_registry.h",
     "nts_blink_realm.cc",
     "nts_blink_realm.h",
+    "nts_blink_scabi.cc",
     "nts_blink_subscription_registry.cc",
     "nts_blink_subscription_registry.h",
   ]
@@ -123,9 +126,13 @@ source_set("nts_counter_host") {
   lib_dirs = [
     "$root_out_dir/gen/native_typescript/benchmark/c",
     "$root_out_dir/gen/native_typescript/benchmark/llvm",
+    "$root_out_dir/gen/native_typescript/counter/c",
+    "$root_out_dir/gen/native_typescript/counter/llvm",
   ]
   libs = [
     "scriptc-c",
     "scriptc-llvm",
+    "scriptc-counter-c",
+    "scriptc-counter-llvm",
   ]
 }

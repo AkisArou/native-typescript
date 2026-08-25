@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertScabiManifest } from "@native-typescript/scabi";
 import {
-  chromiumBenchmarkNativeDeclarations,
-  createChromiumBenchmarkNativeManifest,
   defineChromiumPerformanceInput,
   evaluateChromiumPerformance,
   type ChromiumBenchmarkCategory,
@@ -117,25 +116,20 @@ test("Chromium performance input is exact and deeply frozen", () => {
   );
 });
 
-test("both ScriptC benchmark lanes plan the same native-call kernel", async () => {
-  const manifest = createChromiumBenchmarkNativeManifest({
-    chromiumRevision: "96324a4012fe62f48b9463a67486eeb645bc5c78",
-    clangVersion: "24.0.0git",
-    metadataDigest:
-      "sha256:c8c043174eb0aae7e6e81ba91af23a5a45d944f1fdf01bf4b3ba0271a490161a",
-    target: {
-      triple: "x86_64-unknown-linux-gnu",
-      architecture: "x86_64",
-      pointerWidth: 64,
-      endianness: "little",
-      objectFormat: "elf",
-      minimumPlatformVersion: "0",
-      abi: "gnu",
-      features: [],
-    },
-  });
+test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => {
+  const webIdlRoot = resolve(chromiumPackageRoot, "chromium/webidl");
+  const manifest = assertScabiManifest(JSON.parse(readFileSync(
+    resolve(webIdlRoot, "package.scabi.json"),
+    "utf8",
+  )));
   const translated = translateScabiNativeProgram(manifest, {
-    imports: ["create_element_once"],
+    imports: [
+      "web_current_document",
+      "web_document_create_element",
+      "web_document_create_text_node",
+      "web_node_append_child",
+      "web_character_data_set_data",
+    ],
     exports: [],
   });
   assert.equal(
@@ -148,17 +142,13 @@ test("both ScriptC benchmark lanes plan the same native-call kernel", async () =
   if (!translated.ok) return;
 
   const benchmarkRoot = resolve(chromiumPackageRoot, "benchmark/scriptc");
-  assert.equal(
-    readFileSync(resolve(benchmarkRoot, "native.d.ts"), "utf8"),
-    chromiumBenchmarkNativeDeclarations,
-  );
   const { planLibraryCompilation, planLibraryExternalCBuild } =
     await loadScriptCLibraryPlanners();
   for (const backend of ["c", "llvm"] as const) {
     const planned = await planLibraryCompilation({
       profilePath: resolve(benchmarkRoot, `profile-${backend}.json`),
       externalTypes: {
-        [manifest.package.name]: resolve(benchmarkRoot, "native.d.ts"),
+        [manifest.package.name]: resolve(webIdlRoot, "reached.d.ts"),
       },
       native: translated.input,
     });
@@ -174,12 +164,13 @@ test("both ScriptC benchmark lanes plan the same native-call kernel", async () =
     assert.match(planned.plan.ir, /"kind": "nativeCall"/u);
     assert.match(
       planned.plan.ir,
-      /96324a4012fe62f48b9463a67486eeb645bc5c78#create_element_once/u,
+      /96324a4012fe62f48b9463a67486eeb645bc5c78#web_document_create_element/u,
     );
     assert.deepEqual(planned.plan.nativeBuild.localizeSymbols, [
       `nts_chromium_scriptc_${backend}_init`,
       `nts_chromium_scriptc_${backend}_set_panic_sink`,
       `nts_chromium_scriptc_${backend}_create_elements`,
+      `nts_chromium_scriptc_${backend}_create_detached_counter_trees`,
     ]);
     const { localizeSymbols: _, ...unlocalizedNativeBuild } =
       planned.plan.nativeBuild;

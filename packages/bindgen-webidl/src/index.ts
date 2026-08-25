@@ -14,7 +14,13 @@ export type {
   ChromiumCreateElementBinding,
   ChromiumCreateElementGenerationOptions,
   ChromiumWebIdlArgument,
+  ChromiumWebIdlAttribute,
   ChromiumWebIdlInterface,
   ChromiumWebIdlOperation,
   ChromiumWebIdlSlice,
 } from "./chromium-webidl.ts";
+export { generateChromiumDomCounterBinding } from "./chromium-dom-counter.ts";
+export type {
+  ChromiumDomCounterBinding,
+  ChromiumDomCounterGenerationOptions,
+} from "./chromium-dom-counter.ts";

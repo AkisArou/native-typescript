@@ -101,6 +101,8 @@ function main(arguments_: readonly string[]): void {
       options.checkout,
       "--out",
       resolve(options.checkout, options.output, "gen/native_typescript/benchmark"),
+      "--workload",
+      "all",
     ],
     packageRoot,
   );

@@ -19,6 +19,12 @@
       "symbol": "nts_chromium_scriptc_c_create_elements",
       "params": ["f64"],
       "returns": "f64"
+    },
+    {
+      "export": "createDetachedCounterTrees",
+      "symbol": "nts_chromium_scriptc_c_create_detached_counter_trees",
+      "params": ["f64"],
+      "returns": "f64"
     }
   ]
 }

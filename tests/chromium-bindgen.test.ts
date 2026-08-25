@@ -8,11 +8,15 @@ import {
   defineChromiumWebIdlSlice,
   defineChromiumWebIdlInput,
   generateChromiumCreateElementBinding,
+  generateChromiumDomCounterBinding,
   serializeChromiumWebIdlSlice,
   serializeChromiumWebIdlInput,
 } from "@native-typescript/bindgen-webidl";
 import { canonicalizeJson, validateScabiManifest } from "@native-typescript/scabi";
-import { translateScabiNativeProgram } from "@native-typescript/scriptc";
+import {
+  loadScriptCLibraryPlanners,
+  translateScabiNativeProgram,
+} from "@native-typescript/scriptc";
 
 const zeroDigest = `sha256:${"0".repeat(64)}` as const;
 const oneDigest = `sha256:${"1".repeat(64)}` as const;
@@ -83,6 +87,7 @@ function createElementSlice(implementedAs = "CreateElementForBinding") {
           "third_party/blink/renderer/core/animation/document_animation.h",
           "third_party/blink/renderer/core/dom/document.h",
         ],
+        attributes: [],
         operations: [
           {
             kind: "operation",
@@ -278,17 +283,17 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
   );
   const database = defineChromiumWebIdlSlice(
     JSON.parse(
-      readFileSync(resolve(webIdlRoot, "document-create-element.json"), "utf8"),
+      readFileSync(resolve(webIdlRoot, "dom-counter.json"), "utf8"),
     ),
   );
   const input = defineChromiumWebIdlInput(
     JSON.parse(readFileSync(resolve(webIdlRoot, "input.json"), "utf8")),
   );
-  const generated = generateChromiumCreateElementBinding({
+  const generated = generateChromiumDomCounterBinding({
     database,
     webIdlDatabaseDigest: input.webIdlDatabaseDigest,
     typescriptLibraryDigest: input.typescriptLibraryDigest,
-    generatorRevision: "chromium-create-element-v1",
+    generatorRevision: "chromium-dom-counter-v1",
     clangVersion: "24.0.0git",
     target: {
       triple: "x86_64-unknown-linux-gnu",
@@ -318,4 +323,138 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
     readFileSync(resolve(overlayGeneratedRoot, "nts_webidl_capsules.cc"), "utf8"),
     generated.capsuleSource,
   );
+
+  const imports = [
+    "web_current_document",
+    "web_document_body",
+    "web_document_create_element",
+    "web_document_create_text_node",
+    "web_node_append_child",
+    "web_character_data_set_data",
+    "web_event_target_listen",
+    "web_subscription_release",
+  ];
+  const translated = translateScabiNativeProgram(generated.manifest, {
+    imports,
+    exports: [],
+  });
+  assert.equal(
+    translated.ok,
+    true,
+    translated.ok ? undefined : JSON.stringify(translated.diagnostics),
+  );
+  assert.deepEqual(generated.manifest.types.text, {
+    kind: "handle",
+    nativeName: "NtsWebNode*",
+    threadSafety: "confined",
+    identity: "pointer",
+    upcasts: [{ kind: "identity", target: "character_data" }],
+    destructor: "web_node_release",
+  });
+  const listen = generated.manifest.bindings.web_event_target_listen;
+  assert.ok(listen && listen.kind === "method");
+  if (listen && listen.kind === "method") {
+    const callback = listen.signature.parameters.find(
+      (parameter) => parameter.name === "callback",
+    );
+    assert.equal(callback?.callback?.registrationOwner, "result");
+    assert.equal(
+      callback?.callback?.cancellationBinding,
+      "web_subscription_release",
+    );
+  }
+  assert.match(generated.declarations, /createTextNode\(data: string\): Text/u);
+  assert.match(generated.declarations, /listen\(type: string, callback:/u);
+  assert.doesNotMatch(
+    `${generated.capsuleHeader}\n${generated.capsuleSource}`,
+    /\bv8::|genericDispatch|malloc|new\s/u,
+  );
+});
+
+test("DOM counter generation refuses a changed CharacterData string policy", () => {
+  const database = JSON.parse(
+    readFileSync(
+      resolve(chromiumPackageRoot, "chromium/webidl/dom-counter.json"),
+      "utf8",
+    ),
+  );
+  const data = database.interfaces
+    .find((interface_: { name: string }) => interface_.name === "CharacterData")
+    .attributes.find((attribute: { name: string }) => attribute.name === "data");
+  data.type = "DOMString";
+  assert.throws(
+    () =>
+      generateChromiumDomCounterBinding({
+        database,
+        webIdlDatabaseDigest: zeroDigest,
+        typescriptLibraryDigest: oneDigest,
+        generatorRevision: "chromium-dom-counter-v1",
+        clangVersion: "24.0.0git",
+        target: {
+          triple: "x86_64-unknown-linux-gnu",
+          architecture: "x86_64",
+          pointerWidth: 64,
+          endianness: "little",
+          objectFormat: "elf",
+          minimumPlatformVersion: "0",
+          abi: "gnu",
+          features: [],
+        },
+      }),
+    /NTS-WEBIDL-108/u,
+  );
+});
+
+test("compiled DOM counter plans through both ScriptC backends", async () => {
+  const webIdlRoot = resolve(chromiumPackageRoot, "chromium/webidl");
+  const manifest = JSON.parse(
+    readFileSync(resolve(webIdlRoot, "package.scabi.json"), "utf8"),
+  );
+  const native = translateScabiNativeProgram(manifest, {
+    imports: [
+      "web_current_document",
+      "web_document_body",
+      "web_document_create_element",
+      "web_document_create_text_node",
+      "web_node_append_child",
+      "web_character_data_set_data",
+      "web_event_target_listen",
+      "web_subscription_release",
+    ],
+    exports: [],
+  });
+  assert.equal(
+    native.ok,
+    true,
+    native.ok ? undefined : JSON.stringify(native.diagnostics),
+  );
+  if (!native.ok) return;
+
+  const { planLibraryCompilation } = await loadScriptCLibraryPlanners();
+  for (const backend of ["c", "llvm"] as const) {
+    const planned = await planLibraryCompilation({
+      profilePath: resolve(
+        chromiumPackageRoot,
+        `counter/scriptc/profile-${backend}.json`,
+      ),
+      externalTypes: {
+        "@native-typescript/web-chromium": resolve(webIdlRoot, "reached.d.ts"),
+      },
+      native: native.input,
+    });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : JSON.stringify(planned.diagnostics),
+    );
+    if (planned.ok) {
+      assert.deepEqual(planned.plan.nativeBuild.localizeSymbols, [
+        `nts_chromium_counter_scriptc_${backend}_init`,
+        `nts_chromium_counter_scriptc_${backend}_set_panic_sink`,
+        `nts_chromium_counter_scriptc_${backend}_collect`,
+        `nts_chromium_counter_scriptc_${backend}_start`,
+        `nts_chromium_counter_scriptc_${backend}_stop`,
+      ]);
+    }
+  }
 });

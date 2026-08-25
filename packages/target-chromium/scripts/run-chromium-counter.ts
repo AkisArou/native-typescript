@@ -16,6 +16,7 @@ interface Options {
   readonly checkout: string;
   readonly output: string;
   readonly exceptionPath: "stock" | "product";
+  readonly lane: "oracle-c" | "scriptc-c" | "scriptc-llvm";
 }
 
 interface CdpError {
@@ -74,6 +75,7 @@ function usage(): string {
   return [
     "Usage: node scripts/run-chromium-counter.ts /path/to/chromium/src",
     "  [--out out/nts-counter] [--exception-path stock|product]",
+    "  [--lane oracle-c|scriptc-c|scriptc-llvm]",
   ].join("\n");
 }
 
@@ -89,22 +91,37 @@ function parseOptions(arguments_: readonly string[]): Options | null {
 
   let output = "out/nts-counter";
   let exceptionPath: "stock" | "product" = "product";
+  let lane: "oracle-c" | "scriptc-c" | "scriptc-llvm" = "scriptc-c";
   for (let index = 1; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
-    if (argument !== "--out" && argument !== "--exception-path") {
+    if (
+      argument !== "--out" && argument !== "--exception-path" &&
+      argument !== "--lane"
+    ) {
       throw new Error(`Unknown argument: ${argument}\n${usage()}`);
     }
     const value = arguments_[index + 1];
     if (value === undefined) throw new Error(`${argument} requires a value`);
     if (argument === "--out") output = value;
-    else if (value === "stock" || value === "product") exceptionPath = value;
-    else throw new Error("--exception-path must be stock or product");
+    else if (argument === "--exception-path" &&
+      (value === "stock" || value === "product")) exceptionPath = value;
+    else if (argument === "--lane" &&
+      (value === "oracle-c" || value === "scriptc-c" || value === "scriptc-llvm")) {
+      lane = value;
+    } else {
+      throw new Error(
+        argument === "--exception-path"
+          ? "--exception-path must be stock or product"
+          : "--lane must be oracle-c, scriptc-c, or scriptc-llvm",
+      );
+    }
     index += 1;
   }
   return Object.freeze({
     checkout: resolve(checkoutArgument),
     output,
     exceptionPath,
+    lane,
   });
 }
 
@@ -400,7 +417,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
 
   const profile = mkdtempSync(join(tmpdir(), "nts-chromium-profile-"));
   const browserArguments = [
-    "--native-typescript-counter",
+    `--native-typescript-counter=${options.lane}`,
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
     "--enable-logging=stderr",
@@ -457,6 +474,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
       [
         "",
         "Chromium direct-Blink acceptance passed:",
+        `  lane: ${options.lane}`,
         "  script-free DOM: Count: 0",
         "  native click: Count: 1",
         "  DOMException conversion: observed",

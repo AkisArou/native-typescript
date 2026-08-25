@@ -20,45 +20,83 @@ import web_idl
 
 database = web_idl.Database.read_from_file(sys.argv[1])
 revision = sys.argv[2]
-document = database.find("Document")
-if document is None:
-    raise RuntimeError("Document is absent from Chromium's WebIDL database")
+selection = {
+    "CharacterData": {"attributes": {"data"}, "operations": set()},
+    "Document": {
+        "attributes": {"body"},
+        "operations": {"createElement", "createTextNode"},
+    },
+    "Element": {"attributes": set(), "operations": set()},
+    "EventTarget": {
+        "attributes": set(),
+        "operations": {"addEventListener"},
+    },
+    "HTMLElement": {"attributes": set(), "operations": set()},
+    "Node": {"attributes": set(), "operations": {"appendChild"}},
+    "Text": {"attributes": set(), "operations": set()},
+}
 
-operations = []
-for operation in document.operations:
-    if str(operation.identifier) != "createElement":
-        continue
-    implemented_as = operation.code_generator_info.property_implemented_as
-    operations.append({
-        "arguments": [{
-            "name": str(argument.identifier),
-            "optionality": str(argument.optionality),
-            "type": argument.idl_type.syntactic_form,
-        } for argument in operation.arguments],
-        "extendedAttributes": sorted(operation.extended_attributes.keys()),
-        "implementedAs": implemented_as or str(operation.identifier),
-        "kind": "operation",
-        "name": str(operation.identifier),
-        "returnType": operation.return_type.syntactic_form,
-        "static": operation.is_static,
+interfaces = []
+for interface_name, reached in sorted(selection.items()):
+    interface = database.find(interface_name)
+    if interface is None:
+        raise RuntimeError(
+            f"{interface_name} is absent from Chromium's WebIDL database"
+        )
+    attributes = []
+    for attribute in interface.attributes:
+        name = str(attribute.identifier)
+        if name not in reached["attributes"]:
+            continue
+        implemented_as = attribute.code_generator_info.property_implemented_as
+        attributes.append({
+            "extendedAttributes": sorted(attribute.extended_attributes.keys()),
+            "implementedAs": implemented_as or name,
+            "kind": "attribute",
+            "name": name,
+            "readonly": attribute.is_readonly,
+            "static": attribute.is_static,
+            "type": attribute.idl_type.syntactic_form,
+        })
+    attributes.sort(key=lambda value: value["name"])
+    operations = []
+    for operation in interface.operations:
+        name = str(operation.identifier)
+        if name not in reached["operations"]:
+            continue
+        implemented_as = operation.code_generator_info.property_implemented_as
+        operations.append({
+            "arguments": [{
+                "name": str(argument.identifier),
+                "optionality": str(argument.optionality),
+                "type": argument.idl_type.syntactic_form,
+            } for argument in operation.arguments],
+            "extendedAttributes": sorted(operation.extended_attributes.keys()),
+            "implementedAs": implemented_as or name,
+            "kind": "operation",
+            "name": name,
+            "returnType": operation.return_type.syntactic_form,
+            "static": operation.is_static,
+        })
+    operations.sort(key=lambda value: (
+        value["name"],
+        len(value["arguments"]),
+        tuple(argument["type"] for argument in value["arguments"]),
+    ))
+    inherited = interface.inherited
+    interfaces.append({
+        "attributes": attributes,
+        "blinkHeaders": sorted(interface.code_generator_info.blink_headers),
+        "inherited": str(inherited.identifier) if inherited else None,
+        "name": interface_name,
+        "operations": operations,
     })
 
-operations.sort(key=lambda value: (
-    value["name"],
-    len(value["arguments"]),
-    tuple(argument["type"] for argument in value["arguments"]),
-))
-inherited = document.inherited
 payload = {
     "chromiumRevision": revision,
-    "interfaces": [{
-        "blinkHeaders": sorted(document.code_generator_info.blink_headers),
-        "inherited": str(inherited.identifier) if inherited else None,
-        "name": "Document",
-        "operations": operations,
-    }],
+    "interfaces": interfaces,
     "schema": "native-typescript.chromium-webidl-slice",
-    "schemaVersion": 1,
+    "schemaVersion": 2,
 }
 sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
 sys.stdout.write("\n")
@@ -68,7 +106,7 @@ function usage(): string {
   return [
     "Usage: node scripts/export-chromium-webidl.ts /path/to/chromium/src",
     "  --depot-tools /path/to/depot_tools [--out out/nts-counter]",
-    "  [--output /path/to/document-create-element.json]",
+    "  [--output /path/to/dom-counter.json]",
   ].join("\n");
 }
 

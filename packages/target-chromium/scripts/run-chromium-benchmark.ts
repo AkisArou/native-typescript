@@ -73,8 +73,10 @@ interface LaneResult {
   readonly sampleCount: number;
   readonly warmupIterations: number;
   readonly checksum: number;
-  readonly primitive: readonly number[];
-  readonly boundaryHeavy: readonly number[];
+  readonly createElementPerCall: readonly number[];
+  readonly createElementCompiledLoop: readonly number[];
+  readonly detachedCounterTreePerCall: readonly number[];
+  readonly detachedCounterTreeCompiledLoop: readonly number[];
 }
 
 const lanes = Object.freeze([
@@ -87,8 +89,8 @@ const benchmarkIterations = 100_000;
 const benchmarkSampleCount = 30;
 const benchmarkWarmupIterations = 20_000;
 const benchmarkChecksum =
-  2 * benchmarkWarmupIterations +
-  2 * benchmarkSampleCount * benchmarkIterations;
+  4 * benchmarkWarmupIterations +
+  4 * benchmarkSampleCount * benchmarkIterations;
 const operationTimeoutMilliseconds = 60_000;
 
 function usage(): string {
@@ -341,11 +343,20 @@ function parseLaneResult(value: string, expectedLane: ChromiumBenchmarkLane): La
     parsed.sampleCount !== benchmarkSampleCount ||
     parsed.warmupIterations !== benchmarkWarmupIterations ||
     parsed.checksum !== benchmarkChecksum ||
-    !Array.isArray(parsed.primitive) ||
-    !Array.isArray(parsed.boundaryHeavy) ||
-    parsed.primitive.length !== benchmarkSampleCount ||
-    parsed.boundaryHeavy.length !== benchmarkSampleCount ||
-    [...parsed.primitive, ...parsed.boundaryHeavy].some(
+    !Array.isArray(parsed.createElementPerCall) ||
+    !Array.isArray(parsed.createElementCompiledLoop) ||
+    !Array.isArray(parsed.detachedCounterTreePerCall) ||
+    !Array.isArray(parsed.detachedCounterTreeCompiledLoop) ||
+    parsed.createElementPerCall.length !== benchmarkSampleCount ||
+    parsed.createElementCompiledLoop.length !== benchmarkSampleCount ||
+    parsed.detachedCounterTreePerCall.length !== benchmarkSampleCount ||
+    parsed.detachedCounterTreeCompiledLoop.length !== benchmarkSampleCount ||
+    [
+      ...parsed.createElementPerCall,
+      ...parsed.createElementCompiledLoop,
+      ...parsed.detachedCounterTreePerCall,
+      ...parsed.detachedCounterTreeCompiledLoop,
+    ].some(
       (sample) => typeof sample !== "number" || !Number.isFinite(sample) || sample <= 0,
     )
   ) {
@@ -401,6 +412,12 @@ function fixtureDigest(): string {
   const files = [
     "chromium/overlay/generated/nts_webidl_capsules.cc",
     "chromium/overlay/nts_blink_benchmark_host.cc",
+    "chromium/overlay/nts_blink_managed_registry.cc",
+    "chromium/overlay/nts_blink_scabi.cc",
+    "chromium/webidl/package.scabi.json",
+    "benchmark/scriptc/app.ts",
+    "benchmark/scriptc/profile-c.json",
+    "benchmark/scriptc/profile-llvm.json",
     "benchmark/pages/cpp.html",
     "benchmark/pages/scriptc-c.html",
     "benchmark/pages/scriptc-llvm.html",
@@ -441,19 +458,37 @@ function observations(results: readonly LaneResult[]): readonly ChromiumBenchmar
     const repetitions = results.filter((result) => result.lane === lane);
     return [
       Object.freeze({
-        workload: "document-create-element-primitive",
+        workload: "webidl-create-element-per-call",
         category: "primitive" as const,
         lane,
         samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) => result.primitive),
+          repetitions.flatMap((result) => result.createElementPerCall),
         ),
       }),
       Object.freeze({
-        workload: "document-create-element-batch",
+        workload: "webidl-create-element-compiled-loop",
         category: "boundary-heavy" as const,
         lane,
         samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) => result.boundaryHeavy),
+          repetitions.flatMap((result) => result.createElementCompiledLoop),
+        ),
+      }),
+      Object.freeze({
+        workload: "webidl-detached-counter-tree-per-call",
+        category: "mixed" as const,
+        lane,
+        samplesNanoseconds: Object.freeze(
+          repetitions.flatMap((result) => result.detachedCounterTreePerCall),
+        ),
+      }),
+      Object.freeze({
+        workload: "webidl-detached-counter-tree-compiled-loop",
+        category: "boundary-heavy" as const,
+        lane,
+        samplesNanoseconds: Object.freeze(
+          repetitions.flatMap((result) =>
+            result.detachedCounterTreeCompiledLoop
+          ),
         ),
       }),
     ];

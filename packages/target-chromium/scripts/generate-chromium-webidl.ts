@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import {
   defineChromiumWebIdlInput,
   defineChromiumWebIdlSlice,
-  generateChromiumCreateElementBinding,
+  generateChromiumDomCounterBinding,
 } from "@native-typescript/bindgen-webidl";
 import { canonicalizeJson } from "@native-typescript/scabi";
 import { packageRoot, reportError } from "./support.ts";
@@ -27,13 +27,13 @@ function generatedFiles(): readonly GeneratedFile[] {
   );
   const database = defineChromiumWebIdlSlice(
     JSON.parse(
-      readFileSync(resolve(webIdlRoot, "document-create-element.json"), "utf8"),
+      readFileSync(resolve(webIdlRoot, "dom-counter.json"), "utf8"),
     ),
   );
   if (input.chromiumRevision !== database.chromiumRevision) {
     throw new Error("Chromium WebIDL input and normalized database revisions differ");
   }
-  const generated = generateChromiumCreateElementBinding({
+  const generated = generateChromiumDomCounterBinding({
     database,
     webIdlDatabaseDigest: input.webIdlDatabaseDigest,
     typescriptLibraryDigest: input.typescriptLibraryDigest,
@@ -48,7 +48,7 @@ function generatedFiles(): readonly GeneratedFile[] {
       features: [],
     },
     clangVersion: "24.0.0git",
-    generatorRevision: "chromium-create-element-v1",
+    generatorRevision: "chromium-dom-counter-v1",
   });
   return Object.freeze([
     Object.freeze({

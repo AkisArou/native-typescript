@@ -10,7 +10,7 @@ import type {
   TargetIdentity,
 } from "@native-typescript/scabi";
 
-export const CHROMIUM_WEBIDL_SLICE_SCHEMA_VERSION = 1 as const;
+export const CHROMIUM_WEBIDL_SLICE_SCHEMA_VERSION = 2 as const;
 
 export interface ChromiumWebIdlArgument {
   readonly name: string;
@@ -28,10 +28,21 @@ export interface ChromiumWebIdlOperation {
   readonly static: boolean;
 }
 
+export interface ChromiumWebIdlAttribute {
+  readonly kind: "attribute";
+  readonly name: string;
+  readonly type: string;
+  readonly implementedAs: string;
+  readonly extendedAttributes: readonly string[];
+  readonly readonly: boolean;
+  readonly static: boolean;
+}
+
 export interface ChromiumWebIdlInterface {
   readonly name: string;
   readonly inherited: string | null;
   readonly blinkHeaders: readonly string[];
+  readonly attributes: readonly ChromiumWebIdlAttribute[];
   readonly operations: readonly ChromiumWebIdlOperation[];
 }
 
@@ -153,9 +164,60 @@ function validateOperation(value: unknown, path: string): ChromiumWebIdlOperatio
   return value as unknown as ChromiumWebIdlOperation;
 }
 
+function validateAttribute(value: unknown, path: string): ChromiumWebIdlAttribute {
+  assertRecord(value, path);
+  assertExactKeys(
+    value,
+    [
+      "extendedAttributes",
+      "implementedAs",
+      "kind",
+      "name",
+      "readonly",
+      "static",
+      "type",
+    ],
+    path,
+  );
+  if (value.kind !== "attribute") {
+    throw new TypeError(`${path}/kind is unsupported`);
+  }
+  assertString(value.name, `${path}/name`);
+  assertString(value.type, `${path}/type`);
+  assertString(value.implementedAs, `${path}/implementedAs`);
+  if (!identifierPattern.test(value.implementedAs)) {
+    throw new TypeError(`${path}/implementedAs must be a C++ identifier`);
+  }
+  if (typeof value.readonly !== "boolean") {
+    throw new TypeError(`${path}/readonly must be boolean`);
+  }
+  if (typeof value.static !== "boolean") {
+    throw new TypeError(`${path}/static must be boolean`);
+  }
+  if (
+    !Array.isArray(value.extendedAttributes) ||
+    value.extendedAttributes.some((attribute) => typeof attribute !== "string")
+  ) {
+    throw new TypeError(`${path}/extendedAttributes must be a string array`);
+  }
+  const attributes = value.extendedAttributes as string[];
+  if (
+    attributes.some(
+      (attribute, index) => index > 0 && attributes[index - 1]! >= attribute,
+    )
+  ) {
+    throw new TypeError(`${path}/extendedAttributes must be unique and sorted`);
+  }
+  return value as unknown as ChromiumWebIdlAttribute;
+}
+
 function validateInterface(value: unknown, path: string): ChromiumWebIdlInterface {
   assertRecord(value, path);
-  assertExactKeys(value, ["blinkHeaders", "inherited", "name", "operations"], path);
+  assertExactKeys(
+    value,
+    ["attributes", "blinkHeaders", "inherited", "name", "operations"],
+    path,
+  );
   assertString(value.name, `${path}/name`);
   if (value.inherited !== null && typeof value.inherited !== "string") {
     throw new TypeError(`${path}/inherited must be a string or null`);
@@ -174,6 +236,12 @@ function validateInterface(value: unknown, path: string): ChromiumWebIdlInterfac
   if (!Array.isArray(value.operations)) {
     throw new TypeError(`${path}/operations must be an array`);
   }
+  if (!Array.isArray(value.attributes)) {
+    throw new TypeError(`${path}/attributes must be an array`);
+  }
+  value.attributes.forEach((attribute, index) => {
+    validateAttribute(attribute, `${path}/attributes/${index}`);
+  });
   value.operations.forEach((operation, index) => {
     validateOperation(operation, `${path}/operations/${index}`);
   });

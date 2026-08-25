@@ -1,40 +1,25 @@
 // Generated from lib.dom.d.ts and Chromium normalized WebIDL; do not edit.
-declare const nativeScalar: unique symbol;
-export type NTSWebRealmId = bigint & {
-  readonly [nativeScalar]: "NTSWebRealmId";
-};
-export interface NTSWebHandle {
-  readonly realm: NTSWebRealmId;
-  readonly slot: number;
-  readonly generation: number;
+declare const nativeResource: unique symbol;
+export declare abstract class EventTarget {
+  readonly [nativeResource]: true;
+  listen(type: string, callback: () => void): EventSubscription;
 }
-export declare enum NTSWebStatus {
-  Ok = 0,
-  InvalidArgument = 1,
-  InvalidHandle = 2,
-  WrongRealm = 3,
-  WrongSequence = 4,
-  ContextDestroyed = 5,
-  TypeError = 6,
-  RangeError = 7,
-  SyntaxError = 8,
-  DomException = 9,
-  OperationDisabled = 10,
-  OutOfMemory = 11,
+export declare abstract class Node extends EventTarget {
+  appendChild(node: Node): Node;
 }
-export interface NTSWebScabiHandleResult {
-  readonly status: NTSWebStatus;
-  readonly value: NTSWebHandle;
+export declare abstract class Element extends Node {}
+export declare abstract class HTMLElement extends Element {}
+export declare abstract class CharacterData extends Node {
+  set data(value: string);
 }
-export declare class NTSWebRealm {
-  private readonly __nativeType: unique symbol;
+export declare abstract class Text extends CharacterData {}
+export declare abstract class Document extends Node {
+  get body(): HTMLElement | null;
+  createElement(localName: string): Element;
+  createTextNode(data: string): Text;
 }
-export declare function documentCreateElementRaw(
-  realm: NTSWebRealm,
-  document: NTSWebHandle,
-  localName: string,
-): NTSWebScabiHandleResult;
-export type NTSReachedDocumentCreateElement = (
-  receiver: Document,
-  localName: string,
-) => Element;
+export interface EventSubscription {
+  readonly [nativeResource]: true;
+  dispose(): void;
+}
+export declare function currentDocument(): Document | null;

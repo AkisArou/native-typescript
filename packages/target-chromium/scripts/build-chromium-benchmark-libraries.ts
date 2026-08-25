@@ -19,13 +19,15 @@ import type {
   ScriptCLibraryCompilationPlan,
 } from "@native-typescript/scriptc";
 import type { Sha256Digest } from "@native-typescript/scabi";
-import { createChromiumBenchmarkNativeManifest } from "../src/benchmark-native.ts";
+import { assertScabiManifest } from "@native-typescript/scabi";
 import { commandOutput, packageRoot, reportError, runCommand } from "./support.ts";
 
 type Backend = "c" | "llvm";
+type WorkloadId = "benchmark" | "counter";
 
 interface Options {
   readonly backend: Backend | "all";
+  readonly workload: WorkloadId | "all";
   readonly checkout: string;
   readonly output: string;
 }
@@ -39,6 +41,49 @@ interface LibraryEmitterModule {
   readonly emitLibraryCompilationPlan?: (
     plan: ScriptCLibraryCompilationPlan,
   ) => string;
+}
+
+interface Workload {
+  readonly id: WorkloadId;
+  readonly sourceRoot: string;
+  readonly externalTypes: Readonly<Record<string, string>>;
+  readonly outputRoot: string;
+  readonly archiveStem: string;
+}
+
+const counterCallbackOperations = Object.freeze([
+  "configure",
+  "dispatch",
+  "stop_accepting",
+  "discard",
+  "destroy",
+] as const);
+
+function counterCallbackPrefix(backend: Backend): string {
+  return `nts_chromium_counter_scriptc_${backend}_callbacks`;
+}
+
+function counterCallbackShim(prefix: string): string {
+  return [
+    '#include "scr_runtime.h"',
+    "",
+    `int ${prefix}_configure(ScrOwnerGatewayWakeFn wake, void *context) {`,
+    "  return scr_retained_callbacks_configure(wake, context) ? 1 : 0;",
+    "}",
+    `int ${prefix}_dispatch(void) {`,
+    "  return (int)scr_retained_callbacks_dispatch();",
+    "}",
+    `void ${prefix}_stop_accepting(void) {`,
+    "  scr_retained_callbacks_stop_accepting();",
+    "}",
+    `size_t ${prefix}_discard(void) {`,
+    "  return scr_retained_callbacks_discard();",
+    "}",
+    `int ${prefix}_destroy(void) {`,
+    "  return scr_retained_callbacks_destroy() ? 1 : 0;",
+    "}",
+    "",
+  ].join("\n");
 }
 
 const target = Object.freeze({
@@ -57,6 +102,7 @@ function usage(): string {
     "Usage: node scripts/build-chromium-benchmark-libraries.ts /path/to/chromium/src",
     "  [--out out/nts-counter/gen/native_typescript/benchmark]",
     "  [--backend c|llvm|all]",
+    "  [--workload benchmark|counter|all]",
     "",
     "Builds artifacts only; it does not execute or time a benchmark.",
   ].join("\n");
@@ -77,22 +123,34 @@ function parseOptions(arguments_: readonly string[]): Options | null {
     "out/nts-counter/gen/native_typescript/benchmark",
   );
   let backend: Backend | "all" = "all";
+  let workload: WorkloadId | "all" = "benchmark";
   for (let index = 1; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
-    if (argument !== "--out" && argument !== "--backend") {
+    if (
+      argument !== "--out" && argument !== "--backend" &&
+      argument !== "--workload"
+    ) {
       throw new Error(`Unknown argument: ${argument}\n${usage()}`);
     }
     const value = arguments_[index + 1];
     if (value === undefined) throw new Error(`${argument} requires a value`);
     if (argument === "--out") output = resolve(checkout, value);
-    else if (value === "c" || value === "llvm" || value === "all") {
+    else if (argument === "--backend" &&
+      (value === "c" || value === "llvm" || value === "all")) {
       backend = value;
+    } else if (argument === "--workload" &&
+      (value === "benchmark" || value === "counter" || value === "all")) {
+      workload = value;
     } else {
-      throw new Error("--backend must be c, llvm, or all");
+      throw new Error(
+        argument === "--backend"
+          ? "--backend must be c, llvm, or all"
+          : "--workload must be benchmark, counter, or all",
+      );
     }
     index += 1;
   }
-  return Object.freeze({ backend, checkout, output });
+  return Object.freeze({ backend, checkout, output, workload });
 }
 
 function requireTool(checkout: string, name: string): string {
@@ -136,6 +194,7 @@ function unlocalizedPlan(
 }
 
 async function buildLibrary(
+  workload: Workload,
   backend: Backend,
   options: Options,
   emitter: Required<LibraryEmitterModule>,
@@ -146,51 +205,48 @@ async function buildLibrary(
   llvmObjcopy: string,
   native: ReturnType<typeof translateScabiNativeProgram> & { readonly ok: true },
 ): Promise<string> {
-  const benchmarkRoot = resolve(packageRoot, "benchmark/scriptc");
   const runtimeCompatibilityHeader = resolve(
-    benchmarkRoot,
+    packageRoot,
+    "benchmark/scriptc",
     "chromium-runtime-compat.h",
   );
   const { planLibraryCompilation, planLibraryExternalCBuild } =
     await loadScriptCLibraryPlanners();
   const planned = await planLibraryCompilation({
-    profilePath: resolve(benchmarkRoot, `profile-${backend}.json`),
-    externalTypes: {
-      "@native-typescript/chromium-benchmark-native": resolve(
-        benchmarkRoot,
-        "native.d.ts",
-      ),
-    },
+    profilePath: resolve(workload.sourceRoot, `profile-${backend}.json`),
+    externalTypes: workload.externalTypes,
     native: native.input,
   });
   if (!planned.ok) {
     throw new Error(
-      `Planning the ScriptC ${backend} benchmark library failed:\n` +
+      `Planning the ScriptC ${backend} ${workload.id} library failed:\n` +
         planned.diagnostics.map(({ message }) => `  ${message}`).join("\n"),
     );
   }
-  const keepSymbols = planned.plan.nativeBuild.localizeSymbols;
-  if (keepSymbols === undefined || keepSymbols.length === 0) {
-    throw new Error(`ScriptC ${backend} benchmark runtime is not localized`);
+  const plannedKeepSymbols = planned.plan.nativeBuild.localizeSymbols;
+  if (plannedKeepSymbols === undefined || plannedKeepSymbols.length === 0) {
+    throw new Error(
+      `ScriptC ${backend} ${workload.id} runtime is not localized`,
+    );
   }
 
-  const backendRoot = resolve(options.output, backend);
+  const backendRoot = resolve(workload.outputRoot, backend);
   const objectRoot = resolve(backendRoot, "objects");
   mkdirSync(objectRoot, { recursive: true });
   const extension = backend === "llvm" ? "ll" : "c";
   const program = resolve(backendRoot, `program.${extension}`);
   writeFileSync(program, emitter.emitLibraryCompilationPlan(planned.plan));
 
-  const programId = `benchmark/${backend}/program`;
+  const programId = `${workload.id}/${backend}/program`;
   const runtimeId = "scriptc/runtime";
-  const archiveId = `benchmark/${backend}/archive`;
+  const archiveId = `${workload.id}/${backend}/archive`;
   const external = await planLibraryExternalCBuild(
     unlocalizedPlan(planned.plan),
     {
       program: programId,
       runtime: runtimeId,
       output: archiveId,
-      objectIdPrefix: `benchmark/${backend}/object/`,
+      objectIdPrefix: `${workload.id}/${backend}/object/`,
     },
   );
   const inputs = new Map<string, string>([
@@ -242,6 +298,42 @@ async function buildLibrary(
     );
   }
 
+  let callbackShimObject: string | undefined;
+  let keepSymbols = [...plannedKeepSymbols];
+  if (workload.id === "counter") {
+    const prefix = counterCallbackPrefix(backend);
+    const callbackShimSource = resolve(backendRoot, "callback-host.c");
+    callbackShimObject = resolve(objectRoot, "callback-host.o");
+    writeFileSync(callbackShimSource, counterCallbackShim(prefix));
+    runCommand(
+      clang,
+      [
+        `--target=${target.triple}`,
+        `--sysroot=${sysroot}`,
+        ...reproduciblePathArguments,
+        "-std=c11",
+        "-D_GNU_SOURCE",
+        "-DSCR_LIB",
+        "-DSCR_THREAD_INSTANCES",
+        "-O2",
+        "-fPIC",
+        "-include",
+        runtimeCompatibilityHeader,
+        "-I",
+        resolve(external.bindings.runtimeDirectory, "src"),
+        "-c",
+        callbackShimSource,
+        "-o",
+        callbackShimObject,
+      ],
+      backendRoot,
+    );
+    keepSymbols = [
+      ...keepSymbols,
+      ...counterCallbackOperations.map((operation) => `${prefix}_${operation}`),
+    ];
+  }
+
   const [programObject, ...runtimeObjects] = external.objects;
   if (programObject === undefined || !programObject.fileName.startsWith("program.")) {
     throw new Error("ScriptC external plan did not put the program object first");
@@ -249,8 +341,11 @@ async function buildLibrary(
   const staging = resolve(backendRoot, "runtime-staging.a");
   const combined = resolve(backendRoot, "program.localized.o");
   const keepFile = resolve(backendRoot, "keep-global-symbols.txt");
-  const archive = resolve(backendRoot, `libscriptc-${backend}.a`);
-  removeExactFile(resolve(backendRoot, `scriptc-${backend}.a`));
+  const archive = resolve(
+    backendRoot,
+    `lib${workload.archiveStem}-${backend}.a`,
+  );
+  removeExactFile(resolve(backendRoot, `${workload.archiveStem}-${backend}.a`));
   removeExactFile(staging);
   removeExactFile(combined);
   removeExactFile(archive);
@@ -270,6 +365,7 @@ async function buildLibrary(
       "-r",
       "--force-group-allocation",
       inputs.get(programObject.id)!,
+      ...(callbackShimObject === undefined ? [] : [callbackShimObject]),
       staging,
       "-o",
       combined,
@@ -301,7 +397,7 @@ async function buildLibrary(
   for (const physicalRoot of [resolve(packageRoot, "../.."), options.checkout]) {
     if (archiveBytes.includes(Buffer.from(physicalRoot))) {
       throw new Error(
-        `ScriptC ${backend} archive retained a physical source path`,
+        `ScriptC ${backend} ${workload.id} archive retained a physical source path`,
       );
     }
   }
@@ -328,20 +424,27 @@ async function main(arguments_: readonly string[]): Promise<void> {
   if (!clangVersion.startsWith("clang version 24.0.0git ")) {
     throw new Error(`Unexpected pinned Chromium clang version: ${clangVersion}`);
   }
-  const manifest = createChromiumBenchmarkNativeManifest({
-    chromiumRevision: webIdlInput.chromiumRevision,
-    clangVersion: "24.0.0git",
-    metadataDigest: webIdlInput.webIdlDatabaseDigest,
-    target,
-  });
-  const native = translateScabiNativeProgram(manifest, {
-    imports: ["create_element_once"],
+  const webManifest = assertScabiManifest(JSON.parse(readFileSync(
+    resolve(packageRoot, "chromium/webidl/package.scabi.json"),
+    "utf8",
+  )));
+  const counterNative = translateScabiNativeProgram(webManifest, {
+    imports: [
+      "web_current_document",
+      "web_document_body",
+      "web_document_create_element",
+      "web_document_create_text_node",
+      "web_node_append_child",
+      "web_character_data_set_data",
+      "web_event_target_listen",
+      "web_subscription_release",
+    ],
     exports: [],
   });
-  if (!native.ok) {
+  if (!counterNative.ok) {
     throw new Error(
-      "Translating the Chromium benchmark native manifest failed:\n" +
-        native.diagnostics.map(({ message }) => `  ${message}`).join("\n"),
+      "Translating the Chromium counter WebIDL manifest failed:\n" +
+        counterNative.diagnostics.map(({ message }) => `  ${message}`).join("\n"),
     );
   }
   const compilerModule = await import(
@@ -355,23 +458,64 @@ async function main(arguments_: readonly string[]): Promise<void> {
     ? ["c", "llvm"]
     : [options.backend];
   const archives: string[] = [];
-  for (const backend of backends) {
-    archives.push(await buildLibrary(
-      backend,
-      options,
-      compilerModule as Required<LibraryEmitterModule>,
-      clang,
-      llvmAr,
-      llvmLd,
-      llvmNm,
-      llvmObjcopy,
-      native,
-    ));
+  const workloadCandidates: readonly {
+    readonly workload: Workload;
+    readonly native: typeof counterNative;
+  }[] = [
+    {
+      workload: {
+        id: "benchmark",
+        sourceRoot: resolve(packageRoot, "benchmark/scriptc"),
+        externalTypes: {
+          "@native-typescript/web-chromium": resolve(
+            packageRoot,
+            "chromium/webidl/reached.d.ts",
+          ),
+        },
+        outputRoot: options.output,
+        archiveStem: "scriptc",
+      },
+      native: counterNative,
+    },
+    {
+      workload: {
+        id: "counter",
+        sourceRoot: resolve(packageRoot, "counter/scriptc"),
+        externalTypes: {
+          "@native-typescript/web-chromium": resolve(
+            packageRoot,
+            "chromium/webidl/reached.d.ts",
+          ),
+        },
+        outputRoot: resolve(options.output, "../counter"),
+        archiveStem: "scriptc-counter",
+      },
+      native: counterNative,
+    },
+  ];
+  const workloads = workloadCandidates.filter(({ workload }) =>
+    options.workload === "all" || options.workload === workload.id
+  );
+  for (const entry of workloads) {
+    for (const backend of backends) {
+      archives.push(await buildLibrary(
+        entry.workload,
+        backend,
+        options,
+        compilerModule as Required<LibraryEmitterModule>,
+        clang,
+        llvmAr,
+        llvmLd,
+        llvmNm,
+        llvmObjcopy,
+        entry.native,
+      ));
+    }
   }
   process.stdout.write(
     [
       "",
-      "Built localized ScriptC benchmark libraries (no benchmark was run):",
+      "Built localized ScriptC libraries (no benchmark was run):",
       ...archives.map((archive) => `  ${relative(options.checkout, archive)}`),
       "",
     ].join("\n"),

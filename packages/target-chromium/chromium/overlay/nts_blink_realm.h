@@ -3,6 +3,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
+#include "third_party/blink/renderer/native_typescript/nts_blink_managed_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_node_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_subscription_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_web.h"
@@ -43,6 +44,7 @@ struct NtsWebRealm final {
   nts::blink_bridge::BlinkSubscriptionRegistry& Subscriptions() {
     return subscriptions_;
   }
+  nts::blink_bridge::BlinkManagedRegistry& Managed() { return managed_; }
 
   void DispatchNativeEvent(NtsWebCallbackToken token,
                            blink::ExecutionContext* context);
@@ -56,11 +58,25 @@ struct NtsWebRealm final {
       lifecycle_observer_;
   nts::blink_bridge::BlinkNodeRegistry nodes_;
   nts::blink_bridge::BlinkSubscriptionRegistry subscriptions_;
+  nts::blink_bridge::BlinkManagedRegistry managed_;
   nts::blink_bridge::NativeEventDispatch event_dispatch_ = nullptr;
   raw_ptr<void> event_context_ = nullptr;
 };
 
 namespace nts::blink_bridge {
+
+class ScopedCurrentWebRealm final {
+ public:
+  explicit ScopedCurrentWebRealm(NtsWebRealm* realm);
+  ScopedCurrentWebRealm(const ScopedCurrentWebRealm&) = delete;
+  ScopedCurrentWebRealm& operator=(const ScopedCurrentWebRealm&) = delete;
+  ~ScopedCurrentWebRealm();
+
+ private:
+  raw_ptr<NtsWebRealm> previous_;
+};
+
+NtsWebRealm* CurrentWebRealm();
 
 /* Host-facing construction seam. The embedder creates one realm for the
  * document/execution context whose renderer sequence is currently executing.

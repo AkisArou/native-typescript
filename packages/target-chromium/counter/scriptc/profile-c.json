@@ -1,0 +1,30 @@
+{
+  "profile_format": 1,
+  "name": "native-typescript-chromium-counter-c",
+  "entry": "app.ts",
+  "emission": "c",
+  "optimization": "release",
+  "abi": {
+    "prefix": "nts_chromium_counter_scriptc_c_",
+    "init_symbol": "nts_chromium_counter_scriptc_c_init",
+    "sink_register_symbol": "nts_chromium_counter_scriptc_c_set_panic_sink",
+    "collect_symbol": "nts_chromium_counter_scriptc_c_collect",
+    "result_reset_symbol": null,
+    "localize_runtime": true,
+    "instance_per_thread": true
+  },
+  "exports": [
+    {
+      "export": "start",
+      "symbol": "nts_chromium_counter_scriptc_c_start",
+      "params": [],
+      "returns": "f64"
+    },
+    {
+      "export": "stop",
+      "symbol": "nts_chromium_counter_scriptc_c_stop",
+      "params": [],
+      "returns": "f64"
+    }
+  ]
+}
