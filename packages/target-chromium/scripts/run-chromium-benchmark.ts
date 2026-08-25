@@ -297,6 +297,13 @@ async function bodyAttributes(
   return attributes;
 }
 
+function isTransientDomReadFailure(error: unknown): boolean {
+  return error instanceof Error &&
+    /(?:Could not find|No) node with given id|Document is not available/u.test(
+      error.message,
+    );
+}
+
 function parseLaneResult(value: string, expectedLane: ChromiumBenchmarkLane): LaneResult {
   const parsed = JSON.parse(value) as Partial<LaneResult>;
   if (
@@ -325,7 +332,14 @@ async function waitForLaneResult(
 ): Promise<LaneResult> {
   const deadline = Date.now() + operationTimeoutMilliseconds;
   while (Date.now() < deadline) {
-    const attributes = await bodyAttributes(client, sessionId);
+    let attributes: ReadonlyMap<string, string>;
+    try {
+      attributes = await bodyAttributes(client, sessionId);
+    } catch (error) {
+      if (!isTransientDomReadFailure(error)) throw error;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+      continue;
+    }
     if (attributes.get("data-nts-benchmark-lane") !== lane) {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
       continue;

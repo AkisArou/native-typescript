@@ -180,6 +180,10 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     join(packageRoot, "scripts/build-chromium-benchmark.ts"),
     "utf8",
   );
+  const benchmarkRunner = readFileSync(
+    join(packageRoot, "scripts/run-chromium-benchmark.ts"),
+    "utf8",
+  );
   const support = readFileSync(join(packageRoot, "scripts/support.ts"), "utf8");
   for (const builder of [counterBuilder, benchmarkBuilder]) {
     assert.match(builder, /--depot-tools/u);
@@ -190,6 +194,8 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   }
   assert.match(benchmarkBuilder, /is_official_build=true/u);
   assert.match(benchmarkBuilder, /chrome_pgo_phase=0/u);
+  assert.match(benchmarkRunner, /isTransientDomReadFailure/u);
+  assert.match(benchmarkRunner, /Could not find/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);
 
