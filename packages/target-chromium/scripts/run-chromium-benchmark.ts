@@ -442,26 +442,62 @@ function parseLaneResult(
         interop.managedNodeClaims === expectedManagedNodes &&
         interop.managedSubscriptions === 0
       : interop === null;
-    if (
-      workload?.id !== definition.id ||
-      workload.perCallIterations !== definition.perCallIterations ||
-      workload.perCallWarmupIterations !== definition.perCallWarmupIterations ||
-      workload.compiledLoopIterations !== definition.compiledLoopIterations ||
-      workload.compiledLoopWarmupIterations !==
-        definition.compiledLoopWarmupIterations ||
-      workload.checksum !== expectedChecksum ||
-      !interopValid ||
-      !Array.isArray(workload.perCall) ||
-      !Array.isArray(workload.compiledLoop) ||
-      workload.perCall.length !== benchmarkContract.sampleCount ||
-      workload.compiledLoop.length !== benchmarkContract.sampleCount ||
-      [...workload.perCall, ...workload.compiledLoop].some(
-        (sample) => typeof sample !== "number" ||
-          !Number.isFinite(sample) || sample <= 0,
-      )
-    ) {
+    const mismatches: string[] = [];
+    for (const [name, actual, expected] of [
+      ["id", workload?.id, definition.id],
+      [
+        "perCallIterations",
+        workload.perCallIterations,
+        definition.perCallIterations,
+      ],
+      [
+        "perCallWarmupIterations",
+        workload.perCallWarmupIterations,
+        definition.perCallWarmupIterations,
+      ],
+      [
+        "compiledLoopIterations",
+        workload.compiledLoopIterations,
+        definition.compiledLoopIterations,
+      ],
+      [
+        "compiledLoopWarmupIterations",
+        workload.compiledLoopWarmupIterations,
+        definition.compiledLoopWarmupIterations,
+      ],
+      ["checksum", workload.checksum, expectedChecksum],
+    ] as const) {
+      if (actual !== expected) {
+        mismatches.push(`${name}=${String(actual)} (expected ${expected})`);
+      }
+    }
+    if (!interopValid) mismatches.push(`interop=${JSON.stringify(interop)}`);
+    for (const [name, samples] of [
+      ["perCall", workload.perCall],
+      ["compiledLoop", workload.compiledLoop],
+    ] as const) {
+      if (!Array.isArray(samples)) {
+        mismatches.push(`${name}=non-array`);
+        continue;
+      }
+      if (samples.length !== benchmarkContract.sampleCount) {
+        mismatches.push(
+          `${name}.length=${samples.length} ` +
+          `(expected ${benchmarkContract.sampleCount})`,
+        );
+        continue;
+      }
+      const invalidIndex = samples.findIndex((sample) =>
+        typeof sample !== "number" || !Number.isFinite(sample) || sample <= 0
+      );
+      if (invalidIndex >= 0) {
+        mismatches.push(`${name}[${invalidIndex}]=${String(samples[invalidIndex])}`);
+      }
+    }
+    if (mismatches.length > 0) {
       throw new Error(
-        `Invalid or mismatched benchmark workload for ${expectedLane}/${definition.id}`,
+        `Invalid or mismatched benchmark workload for ` +
+        `${expectedLane}/${definition.id}: ${mismatches.join("; ")}`,
       );
     }
   }
