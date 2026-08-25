@@ -46,8 +46,8 @@ function repeatedly from the host, exposing call-boundary cost. `compiled-loop`
 keeps the whole loop in the lane, matching optimized application code more
 closely. The contract assigns independent iteration and warmup budgets to each
 shape and lane, records every budget in provenance, and still normalizes every
-sample per operation. The synchronous-event workload uses equal 100-event
-per-call and 1,000-event compiled-loop budgets in all four lanes. Neither shape
+sample per operation. The synchronous-event workload uses equal 1,000-event
+per-call and 10,000-event compiled-loop budgets in all four lanes. Neither shape
 alone is treated as the product result.
 
 Lane order rotates deterministically with both workload and repetition. This

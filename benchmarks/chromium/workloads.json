@@ -179,28 +179,28 @@
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
       "budgets": {
         "cpp": {
-          "perCallIterations": 100,
-          "perCallWarmupIterations": 20,
-          "compiledLoopIterations": 1000,
-          "compiledLoopWarmupIterations": 200
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 10000,
+          "compiledLoopWarmupIterations": 2000
         },
-      "scriptc-c": {
-        "perCallIterations": 100,
-        "perCallWarmupIterations": 20,
-        "compiledLoopIterations": 1000,
-        "compiledLoopWarmupIterations": 200
-      },
-      "scriptc-llvm": {
-        "perCallIterations": 100,
-        "perCallWarmupIterations": 20,
-        "compiledLoopIterations": 1000,
-        "compiledLoopWarmupIterations": 200
-      },
+        "scriptc-c": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 10000,
+          "compiledLoopWarmupIterations": 2000
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 10000,
+          "compiledLoopWarmupIterations": 2000
+        },
         "v8": {
-          "perCallIterations": 100,
-          "perCallWarmupIterations": 20,
-          "compiledLoopIterations": 1000,
-          "compiledLoopWarmupIterations": 200
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 10000,
+          "compiledLoopWarmupIterations": 2000
         }
       },
       "perCallCategory": "mixed",
