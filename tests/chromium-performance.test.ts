@@ -22,6 +22,24 @@ const chromiumPackageRoot = resolve(
   "../packages/target-chromium",
 );
 
+function collectRecords(
+  value: unknown,
+  predicate: (record: Readonly<Record<string, unknown>>) => boolean,
+  output: Readonly<Record<string, unknown>>[] = [],
+): Readonly<Record<string, unknown>>[] {
+  if (value === null || typeof value !== "object") return output;
+  if (Array.isArray(value)) {
+    for (const item of value) collectRecords(item, predicate, output);
+    return output;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  if (predicate(record)) output.push(record);
+  for (const child of Object.values(record)) {
+    collectRecords(child, predicate, output);
+  }
+  return output;
+}
+
 function samples(value: number): readonly number[] {
   return Object.freeze(Array.from({ length: 20 }, () => value));
 }
@@ -103,6 +121,7 @@ function productShape(
     workload: workloadName,
     startupMilliseconds: 50,
     workloadMilliseconds: 400,
+    shutdownMilliseconds: 25,
     wallClockMilliseconds: 500,
     rendererPeakRssBytes: 120_000_000,
     baseline: snapshot,
@@ -324,6 +343,20 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
     assert.match(
       planned.plan.ir,
       /96324a4012fe62f48b9463a67486eeb645bc5c78#web_document_create_element/u,
+    );
+    const plannedIr = JSON.parse(planned.plan.ir) as unknown;
+    const createTextCalls = collectRecords(
+      plannedIr,
+      (record) =>
+        record.kind === "nativeCall" &&
+        typeof record.binding === "string" &&
+        record.binding.endsWith("#web_document_create_text_node"),
+    );
+    assert.equal(createTextCalls.length, 5);
+    assert.equal(
+      createTextCalls.filter((call) => call.resultMode === "frameBounded").length,
+      4,
+      "nested borrowed text nodes must not allocate managed ScriptC/Oilpan peers",
     );
     const profile = JSON.parse(readFileSync(
       resolve(benchmarkRoot, `profile-${backend}.json`),

@@ -192,6 +192,10 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     join(packageRoot, "chromium/overlay/nts_blink_benchmark_host.cc"),
     "utf8",
   );
+  const blinkBuild = readFileSync(
+    join(packageRoot, "chromium/overlay/BUILD.gn"),
+    "utf8",
+  );
   const managedRegistry = readFileSync(
     join(packageRoot, "chromium/overlay/nts_blink_managed_registry.cc"),
     "utf8",
@@ -214,11 +218,14 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkRunner, /Could not find/u);
   assert.match(benchmarkRunner, /benchmarkContract\.workloads/u);
   assert.match(benchmarkRunner, /repetitions = 3/u);
+  assert.match(benchmarkRunner, /--workload/u);
+  assert.match(benchmarkRunner, /selectedWorkloads/u);
   assert.match(benchmarkRunner, /for \(const lane of lanes\)/u);
   assert.match(benchmarkRunner, /renderer-cmd-prefix/u);
   assert.match(benchmarkRunner, /schemaVersion: 3/u);
   assert.match(benchmarkRunner, /captureRendererPhase/u);
   assert.match(benchmarkRunner, /workloadRendererId/u);
+  assert.match(benchmarkRunner, /shutdownMilliseconds/u);
   assert.match(benchmarkRunner, /Page\.navigate/u);
   assert.match(benchmarkRunner, /Page\.loadEventFired/u);
   assert.match(benchmarkRunner, /Inspector\.enable/u);
@@ -228,6 +235,15 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkHost, /kSampleCount = 30/u);
   assert.match(benchmarkHost, /ConfigureScriptCCallbacks/u);
   assert.match(benchmarkHost, /ReportScriptCPanic/u);
+  for (const archive of [
+    "benchmark/c/libscriptc-c.a",
+    "benchmark/llvm/libscriptc-llvm.a",
+    "counter/c/libscriptc-counter-c.a",
+    "counter/llvm/libscriptc-counter-llvm.a",
+  ]) {
+    assert.match(blinkBuild, new RegExp(archive.replaceAll(".", "\\."), "u"));
+  }
+  assert.doesNotMatch(blinkBuild, /lib_dirs\s*=/u);
   assert.match(managedRegistry, /DISABLE_CFI_ICALL void InvokeScriptCCallback/u);
   assert.match(
     benchmarkLibraryBuilder,

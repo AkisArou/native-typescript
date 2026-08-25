@@ -123,16 +123,13 @@ source_set("nts_counter_host") {
   # The TypeScript builder materializes both localized ScriptC archives before
   # GN generation. Their runtime definitions are private, so both backends can
   # coexist in this one matched content_shell binary.
-  lib_dirs = [
-    "$root_out_dir/gen/native_typescript/benchmark/c",
-    "$root_out_dir/gen/native_typescript/benchmark/llvm",
-    "$root_out_dir/gen/native_typescript/counter/c",
-    "$root_out_dir/gen/native_typescript/counter/llvm",
-  ]
+  # Keep the concrete archives in the final link inputs. Short -l names plus
+  # lib_dirs make the linker find them, but do not let Ninja observe that a
+  # regenerated ScriptC archive requires content_shell to be relinked.
   libs = [
-    "scriptc-c",
-    "scriptc-llvm",
-    "scriptc-counter-c",
-    "scriptc-counter-llvm",
+    "$root_out_dir/gen/native_typescript/benchmark/c/libscriptc-c.a",
+    "$root_out_dir/gen/native_typescript/benchmark/llvm/libscriptc-llvm.a",
+    "$root_out_dir/gen/native_typescript/counter/c/libscriptc-counter-c.a",
+    "$root_out_dir/gen/native_typescript/counter/llvm/libscriptc-counter-llvm.a",
   ]
 }

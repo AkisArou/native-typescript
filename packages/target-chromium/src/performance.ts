@@ -41,6 +41,7 @@ export interface ChromiumProductShapeObservation {
   readonly workload: string;
   readonly startupMilliseconds: number;
   readonly workloadMilliseconds: number;
+  readonly shutdownMilliseconds?: number;
   readonly wallClockMilliseconds: number;
   readonly rendererPeakRssBytes: number;
   readonly baseline: ChromiumRendererSnapshot;
@@ -306,6 +307,9 @@ export function defineChromiumPerformanceInput(
           "postTeardown",
           "postWorkload",
           "rendererPeakRssBytes",
+          ...(Object.hasOwn(observation, "shutdownMilliseconds")
+            ? ["shutdownMilliseconds"]
+            : []),
           "startupMilliseconds",
           "wallClockMilliseconds",
           "workload",
@@ -322,6 +326,7 @@ export function defineChromiumPerformanceInput(
       }
       const startupMilliseconds = observation.startupMilliseconds;
       const workloadMilliseconds = observation.workloadMilliseconds;
+      const shutdownMilliseconds = observation.shutdownMilliseconds;
       const wallClockMilliseconds = observation.wallClockMilliseconds;
       if (typeof startupMilliseconds !== "number" ||
           !Number.isFinite(startupMilliseconds) || startupMilliseconds <= 0) {
@@ -335,9 +340,15 @@ export function defineChromiumPerformanceInput(
           !Number.isFinite(workloadMilliseconds) || workloadMilliseconds <= 0) {
         throw new TypeError(`${path}/workloadMilliseconds must be positive`);
       }
-      if (wallClockMilliseconds < startupMilliseconds + workloadMilliseconds) {
+      if (shutdownMilliseconds !== undefined &&
+          (typeof shutdownMilliseconds !== "number" ||
+            !Number.isFinite(shutdownMilliseconds) || shutdownMilliseconds <= 0)) {
+        throw new TypeError(`${path}/shutdownMilliseconds must be positive`);
+      }
+      if (wallClockMilliseconds < startupMilliseconds + workloadMilliseconds +
+          (shutdownMilliseconds ?? 0)) {
         throw new TypeError(
-          `${path}/wallClockMilliseconds must include startup and workload time`,
+          `${path}/wallClockMilliseconds must include startup, workload, and shutdown time`,
         );
       }
       if (typeof observation.rendererPeakRssBytes !== "number" ||

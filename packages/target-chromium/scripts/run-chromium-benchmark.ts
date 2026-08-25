@@ -34,6 +34,7 @@ interface Options {
   readonly result: string;
   readonly repetitions: number;
   readonly rendererCpuSet: string | null;
+  readonly workloadIds: readonly string[];
 }
 
 interface CdpMessage {
@@ -158,9 +159,10 @@ function usage(): string {
   return [
     "Usage: node scripts/run-chromium-benchmark.ts /path/to/chromium/src",
     "  --output chromium-benchmark-input.json [--out out/nts-benchmark]",
-    "  [--repetitions 3] [--renderer-cpu-set 0-3]",
+    "  [--repetitions 3] [--renderer-cpu-set 0-3] [--workload id]",
     "",
-    "This command executes timed benchmark workloads.",
+    "This command executes timed benchmark workloads. Repeat --workload to",
+    "run a focused, schema-valid subset; the default is the complete matrix.",
   ].join("\n");
 }
 
@@ -177,13 +179,15 @@ function parseOptions(arguments_: readonly string[]): Options | null {
   let result: string | undefined;
   let repetitions = 3;
   let rendererCpuSet: string | null = null;
+  const workloadIds: string[] = [];
   for (let index = 1; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
     if (
       argument !== "--out" &&
       argument !== "--output" &&
       argument !== "--repetitions" &&
-      argument !== "--renderer-cpu-set"
+      argument !== "--renderer-cpu-set" &&
+      argument !== "--workload"
     ) {
       throw new Error(`Unknown argument: ${argument}\n${usage()}`);
     }
@@ -196,11 +200,13 @@ function parseOptions(arguments_: readonly string[]): Options | null {
       if (!Number.isSafeInteger(repetitions) || repetitions <= 0) {
         throw new Error("--repetitions must be a positive integer");
       }
-    } else {
+    } else if (argument === "--renderer-cpu-set") {
       if (!/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/u.test(value)) {
         throw new Error("--renderer-cpu-set must be a taskset CPU list");
       }
       rendererCpuSet = value;
+    } else {
+      workloadIds.push(value);
     }
     index += 1;
   }
@@ -211,7 +217,26 @@ function parseOptions(arguments_: readonly string[]): Options | null {
     result,
     repetitions,
     rendererCpuSet,
+    workloadIds: Object.freeze(workloadIds),
   });
+}
+
+function selectedWorkloads(
+  workloadIds: readonly string[],
+): ChromiumBenchmarkContract["workloads"] {
+  if (new Set(workloadIds).size !== workloadIds.length) {
+    throw new Error("--workload values must be unique");
+  }
+  const requested = new Set(workloadIds);
+  const unknown = workloadIds.filter((id) =>
+    !benchmarkContract.workloads.some((workload) => workload.id === id)
+  );
+  if (unknown.length !== 0) {
+    throw new Error(`Unknown benchmark workload: ${unknown.join(", ")}`);
+  }
+  return workloadIds.length === 0
+    ? benchmarkContract.workloads
+    : Object.freeze(benchmarkContract.workloads.filter(({ id }) => requested.has(id)));
 }
 
 function withTimeout<T>(
@@ -614,9 +639,12 @@ function capsuleStructure(): {
   });
 }
 
-function observations(results: readonly LaneResult[]): readonly ChromiumBenchmarkObservation[] {
+function observations(
+  results: readonly LaneResult[],
+  workloads: ChromiumBenchmarkContract["workloads"],
+): readonly ChromiumBenchmarkObservation[] {
   return Object.freeze(lanes.flatMap((lane) => {
-    return benchmarkContract.workloads.flatMap((definition) => {
+    return workloads.flatMap((definition) => {
       const repetitions = results.filter((result) =>
         result.lane === lane && result.workloads[0]?.id === definition.id
       );
@@ -818,12 +846,22 @@ async function runLane(
     await client.send("Page.navigate", { url: blankPageUrl }, sessionId);
     await blankLoaded;
     const postTeardown = await captureRendererPhase(client, sessionId);
+    const shutdownStartedAt = performance.now();
+    const exited = waitForExit(child);
+    const closed = await client.send<{ readonly success: boolean }>(
+      "Target.closeTarget",
+      { targetId: target.targetId },
+    );
+    if (!closed.success) throw new Error(`Could not close the ${lane} target`);
+    await exited;
+    const shutdownMilliseconds = performance.now() - shutdownStartedAt;
     const wallClockMilliseconds = performance.now() - startedAt;
     const productShape = Object.freeze({
       lane,
       workload,
       startupMilliseconds,
       workloadMilliseconds,
+      shutdownMilliseconds,
       wallClockMilliseconds,
       rendererPeakRssBytes: postWorkload.processes.find(
         ({ id }) => id === measuredRendererId,
@@ -833,14 +871,6 @@ async function runLane(
       postTeardown: rendererSnapshot(postTeardown, measuredRendererId),
       finalInterop: result.workloads.at(-1)!.interop,
     });
-
-    const exited = waitForExit(child);
-    const closed = await client.send<{ readonly success: boolean }>(
-      "Target.closeTarget",
-      { targetId: target.targetId },
-    );
-    if (!closed.success) throw new Error(`Could not close the ${lane} target`);
-    await exited;
     return Object.freeze({ result, productShape });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -862,6 +892,7 @@ async function runLane(
 async function main(arguments_: readonly string[]): Promise<void> {
   const options = parseOptions(arguments_);
   if (options === null) return;
+  const workloads = selectedWorkloads(options.workloadIds);
   requireLinuxProductShapeMetrics();
   if (options.rendererCpuSet !== null) {
     if (process.platform !== "linux") {
@@ -949,7 +980,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
   ]));
   const executions: LaneExecution[] = [];
   for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
-    for (const workload of benchmarkContract.workloads) {
+    for (const workload of workloads) {
       for (const lane of lanes) {
         process.stdout.write(
           `Running repetition ${repetition + 1}/${options.repetitions}: ${workload.id}/${lane}\n`,
@@ -967,7 +998,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
   }
 
   const input = defineChromiumPerformanceInput({
-    observations: observations(executions.map(({ result }) => result)),
+    observations: observations(executions.map(({ result }) => result), workloads),
     productShape: executions.map(({ productShape }) => productShape),
     artifactShape: {
       sharedContentShellBytes: statSync(executable).size,
@@ -978,7 +1009,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
     provenance: {
       schemaVersion: 3,
       benchmarkEnvironment: {
-        workloads: benchmarkContract.workloads.map((workload) => ({
+        workloads: workloads.map((workload) => ({
           id: workload.id,
           budgets: workload.budgets,
         })),
