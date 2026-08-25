@@ -188,6 +188,8 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     assert.match(builder, /--refresh/u);
     assert.doesNotMatch(builder, /runCommand\(\s*"(?:auto)?ninja"/u);
   }
+  assert.match(benchmarkBuilder, /is_official_build=true/u);
+  assert.match(benchmarkBuilder, /chrome_pgo_phase=0/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);
 

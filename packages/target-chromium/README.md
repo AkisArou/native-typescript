@@ -171,7 +171,12 @@ gate requires the initial DOM, a native click update, navigation, and explicit
 counter-host teardown evidence.
 
 The performance harness has separate build and run commands so compiling a
-large release browser cannot accidentally produce timing evidence:
+large official release browser cannot accidentally produce timing evidence.
+The default preset sets `is_official_build=true`; Chromium's ordinary
+`is_debug=false` configuration retains DCHECKs and is not valid for timings.
+It also sets `chrome_pgo_phase=0` so a public checkout does not depend on a
+separately downloaded Chrome training profile and every lane is compared in
+the same reproducible optimized binary:
 
 ```sh
 node packages/target-chromium/scripts/build-chromium-benchmark.ts \
@@ -183,6 +188,11 @@ node packages/target-chromium/scripts/evaluate-chromium-performance.ts \
   /path/to/raw-input.json --output /path/to/report.json
 ```
 
+If Siso cannot write its own logs because the system `/tmp` has a per-user
+quota, point `TMPDIR` at a task-owned directory on a filesystem with free space
+before invoking the build helper. This changes only transient tool files; the
+Chromium output directory and its incremental build cache remain unchanged.
+
 The release fixture contains handwritten C++, ScriptC C, ScriptC LLVM, and
 ordinary page-JavaScript lanes for the same hardcoded
 `document.createElement("div")` operation. Both generated archives are compiled
@@ -191,6 +201,13 @@ runtime compatibility adapter needed by that baseline. The harness records raw
 primitive and batched samples plus Chromium, Native TypeScript, ScriptC,
 toolchain, binary, archive, fixture, and GN identities. The run command has not
 been executed and no performance claim is recorded here.
+
+At the pinned revision, the official non-component fixture has completed a
+full `content_shell` build with ThinLTO and `chrome_pgo_phase=0`. Structural
+verification confirms that the final link includes the native benchmark host
+and both localized ScriptC archives, and that each archive exports exactly its
+three declared backend-specific symbols. This is build evidence only; the
+timed runner still requires a quiet-system window.
 
 Those helpers are research tools. The product build must express checkout
 validation, patches, overlays, GN/Ninja tools, outputs, and provenance as
@@ -205,6 +222,6 @@ declared artifact-graph inputs and actions.
 3. Project the captured DOM failure into the compiler-owned outcome model and
    prove event identity/cancellation and
    promise/microtask ordering.
-4. Build the non-component release fixture and run matched handwritten C++,
-   ScriptC C, ScriptC LLVM, and Chromium V8
-   benchmark lanes and enforce the gates in `docs/chromium.md`.
+4. Run the built official non-component release fixture with matched
+   handwritten C++, ScriptC C, ScriptC LLVM, and Chromium V8 benchmark lanes,
+   then enforce the gates in `docs/chromium.md`.

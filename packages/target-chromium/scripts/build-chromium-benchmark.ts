@@ -39,6 +39,8 @@ function parseOptions(arguments_: readonly string[]): Options | null {
   let depotTools: string | undefined;
   let jobs = 4;
   let gnArguments = [
+    "is_official_build=true",
+    "chrome_pgo_phase=0",
     "is_debug=false",
     "is_component_build=false",
     "symbol_level=0",

@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned `content_shell` debug build and direct-Blink C acceptance pass; renderer ScriptC target not implemented |
+| DOM/Chromium | pinned debug acceptance passes and official four-lane `content_shell` fixture builds; timings and product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -1278,8 +1278,11 @@ The first performance falsifier is also implemented but has not been run. One
 TypeScript kernel plans through both ScriptC backends; a TypeScript build helper
 materializes both archives with pinned Chromium clang and its Linux sysroot,
 and gives each a private, localized ScriptC runtime so they coexist in one
-release renderer. The fixture
-adds matched handwritten C++, compiled C, compiled LLVM, and static-page V8
+release renderer. The official non-component ThinLTO `content_shell` build now
+completes at the pin with `chrome_pgo_phase=0`; its final link contains both
+archives, and each archive's external definitions exactly match its three
+declared backend symbols. The fixture adds matched handwritten C++, compiled C,
+compiled LLVM, and static-page V8
 lanes for `document.createElement("div")`, and the evaluator enforces the
 documented C++/V8 ratios plus the no-generic-dispatch/no-V8/no-boxing/no-heap
 structural gate. Raw result inputs require exact revisions, GN arguments, clang
@@ -1302,11 +1305,13 @@ x86-64 record layout and aggregate calling convention used by SCABI. This
 repairs the executable oracle but does not promote its parallel slot table over
 ScriptC's product native-handle ownership.
 
-The complete symbol-light component-debug `content_shell` dependency graph has
-compiled at the pin, and its rendered counter, real click delivery,
-DOMException probe, and browser teardown have passed. This is not a build of
-the larger `chrome` product target. More importantly, the running host is still
-the fixture-owned C/C++ oracle rather than a renderer-hosted ScriptC instance.
+The complete symbol-light component-debug and official non-component release
+`content_shell` dependency graphs have compiled at the pin. The debug fixture's
+rendered counter, real click delivery, DOMException probe, and browser teardown
+have passed; the release fixture has only been structurally verified and has
+not been timed. These are not builds of the larger `chrome` product target.
+More importantly, the accepted running host is still the fixture-owned C/C++
+oracle rather than a production renderer-hosted ScriptC lifecycle.
 The imported slot table, UTF-8 ABI, handwritten DOM members, callback token,
 and counter host remain prototype evidence. There is no Chromium
 target/provider definition, release-performance result, or DOM compatibility

@@ -1066,9 +1066,11 @@ ScriptC. Realm-tagged handles and their exact x86-64 ABI are checked with the
 pinned Chromium clang. The symbol-light component-debug `content_shell`
 dependency graph now builds at the pin, and its direct-Blink C/C++ oracle passes
 script-free rendered DOM, real click, exception-capture, and navigation-teardown
-acceptance. This does not yet host a real ScriptC instance or satisfy either
-stage. The detailed, SCABI-aligned research design is in [Chromium and direct
-Blink feasibility](chromium.md).
+acceptance. The official non-component release fixture also completes with
+ThinLTO and links both localized ScriptC backend archives into the same binary;
+timed evidence remains pending. This does not yet prove a production ScriptC
+renderer lifecycle or satisfy either stage. The detailed, SCABI-aligned
+research design is in [Chromium and direct Blink feasibility](chromium.md).
 
 ### Stage A: embedding
 

@@ -462,9 +462,12 @@ async function main(arguments_: readonly string[]): Promise<void> {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  if (!gnArguments.includes("is_debug = false") ||
+  if (!gnArguments.includes("is_official_build = true") ||
+      !gnArguments.includes("is_debug = false") ||
       !gnArguments.includes("is_component_build = false")) {
-    throw new Error("Chromium timings require a non-component release build");
+    throw new Error(
+      "Chromium timings require an official, non-component release build",
+    );
   }
   const clang = resolve(
     options.checkout,

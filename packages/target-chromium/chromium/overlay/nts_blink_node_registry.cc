@@ -156,6 +156,7 @@ bool BlinkNodeRegistry::TypeAccepts(WebTypeId actual, WebTypeId expected) {
 void BlinkNodeRegistry::DestroyToken(void* context, void* token) {
   auto* registry = static_cast<BlinkNodeRegistry*>(context);
   DCHECK_CALLED_ON_VALID_SEQUENCE(registry->sequence_checker_);
+  static_cast<void>(registry);
   delete static_cast<BlinkNodeRoot*>(token);
 }
 
@@ -164,6 +165,7 @@ bool BlinkNodeRegistry::TypeAcceptsHook(void* context,
                                         uint32_t expected_type) {
   auto* registry = static_cast<BlinkNodeRegistry*>(context);
   DCHECK_CALLED_ON_VALID_SEQUENCE(registry->sequence_checker_);
+  static_cast<void>(registry);
   return TypeAccepts(static_cast<WebTypeId>(actual_type),
                      static_cast<WebTypeId>(expected_type));
 }

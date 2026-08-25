@@ -139,6 +139,7 @@ size_t BlinkSubscriptionRegistry::LiveCount() const {
 void BlinkSubscriptionRegistry::DestroyToken(void* context, void* token) {
   auto* registry = static_cast<BlinkSubscriptionRegistry*>(context);
   DCHECK_CALLED_ON_VALID_SEQUENCE(registry->sequence_checker_);
+  static_cast<void>(registry);
   delete static_cast<BlinkSubscriptionRoot*>(token);
 }
 

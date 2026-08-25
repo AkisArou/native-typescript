@@ -310,8 +310,11 @@ archive's reached runtime with the pinned LLVM tools, leaving only its
 backend-specific entry symbols global; this permits both compiled lanes and
 the handwritten C++ ceiling to live in one release `content_shell`. A static
 page script owns the V8 lane. The runner uses CDP DOM, Page, and Target
-commands only and records raw samples with build and artifact digests. This is
-implemented tooling, not measured evidence.
+commands only and records raw samples with build and artifact digests. The
+official non-component `content_shell` fixture has completed a full ThinLTO
+build with `chrome_pgo_phase=0`; its final link includes both localized
+archives, whose exported symbols exactly match their declared surfaces. This
+is verified build evidence, not measured performance evidence.
 
 For each initial synchronous primitive, both compiled TypeScript lanes must
 have median and p95 latency no more than 25% above handwritten C++. Across the
@@ -340,6 +343,12 @@ messages. The admitted product seam changes `exception_state.cc` and adds an
 optional capture header; it leaves the central `exception_state.h` contract
 unchanged. No event-listener patch is required.
 
+The same pin has also completed the official non-component release fixture.
+Its resolved arguments include `is_official_build=true`, `is_debug=false`, and
+`is_component_build=false`; both ScriptC backend archives and all four lane
+selectors are present in the final artifact graph. No timed benchmark has been
+run, so no latency or admission-gate claim follows from this build.
+
 The first closed normalized WebIDL slice reaches exactly
 `Document.createElement(DOMString)`. It deterministically generates TypeScript
 declarations, valid SCABI, and a typed C++ capsule, and the reached binding
@@ -349,10 +358,11 @@ aggregate calling convention. The raw binding currently exposes a
 status/handle envelope; projecting its detailed DOMException payload into the
 compiler-owned public outcome algebra remains open.
 
-This builds the complete `content_shell` dependency graph, not the larger
-`chrome` product target. It proves the fixture-owned C/C++ oracle, not a real
-renderer-hosted ScriptC instance. Stage A and Stage B therefore remain open
-until this repository can:
+These fixtures build the complete `content_shell` dependency graph, not the
+larger `chrome` product target. They prove the fixture-owned C/C++ oracle and
+that both compiled ScriptC lanes can be linked into the renderer; they do not
+prove a production renderer-hosted ScriptC instance lifecycle. Stage A and
+Stage B therefore remain open until this repository can:
 
 1. attach a real ScriptC runtime and compile the counter from TypeScript through
    both backends;
