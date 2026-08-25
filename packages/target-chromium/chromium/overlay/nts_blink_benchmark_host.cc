@@ -32,9 +32,9 @@ extern "C" void nts_chromium_scriptc_random_bytes(void* output, size_t length) {
 
 namespace {
 
-constexpr int kIterations = 2000;
+constexpr int kIterations = 100000;
 constexpr int kSampleCount = 30;
-constexpr int kWarmupIterations = 2000;
+constexpr int kWarmupIterations = 20000;
 
 using LaneFunction = double (*)(double iterations);
 using Samples = std::array<double, kSampleCount>;

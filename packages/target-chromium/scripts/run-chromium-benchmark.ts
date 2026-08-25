@@ -81,6 +81,12 @@ const lanes = Object.freeze([
   "scriptc-llvm",
   "v8",
 ] as const);
+const benchmarkIterations = 100_000;
+const benchmarkSampleCount = 30;
+const benchmarkWarmupIterations = 20_000;
+const benchmarkChecksum =
+  2 * benchmarkWarmupIterations +
+  2 * benchmarkSampleCount * benchmarkIterations;
 const operationTimeoutMilliseconds = 60_000;
 
 function usage(): string {
@@ -308,14 +314,14 @@ function parseLaneResult(value: string, expectedLane: ChromiumBenchmarkLane): La
   const parsed = JSON.parse(value) as Partial<LaneResult>;
   if (
     parsed.lane !== expectedLane ||
-    parsed.iterations !== 2000 ||
-    parsed.sampleCount !== 30 ||
-    parsed.warmupIterations !== 2000 ||
-    parsed.checksum !== 124000 ||
+    parsed.iterations !== benchmarkIterations ||
+    parsed.sampleCount !== benchmarkSampleCount ||
+    parsed.warmupIterations !== benchmarkWarmupIterations ||
+    parsed.checksum !== benchmarkChecksum ||
     !Array.isArray(parsed.primitive) ||
     !Array.isArray(parsed.boundaryHeavy) ||
-    parsed.primitive.length !== 30 ||
-    parsed.boundaryHeavy.length !== 30 ||
+    parsed.primitive.length !== benchmarkSampleCount ||
+    parsed.boundaryHeavy.length !== benchmarkSampleCount ||
     [...parsed.primitive, ...parsed.boundaryHeavy].some(
       (sample) => typeof sample !== "number" || !Number.isFinite(sample) || sample <= 0,
     )
@@ -424,6 +430,59 @@ function observations(results: readonly LaneResult[]): readonly ChromiumBenchmar
   ]));
 }
 
+async function runLane(
+  executable: string,
+  pageUrl: string,
+  lane: ChromiumBenchmarkLane,
+): Promise<LaneResult> {
+  const profile = mkdtempSync(join(tmpdir(), "nts-chromium-benchmark-profile-"));
+  const browserArguments = [
+    "--native-typescript-benchmark",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${profile}`,
+    "--disable-gpu",
+    "--no-first-run",
+    pageUrl,
+  ];
+  const useXvfb = process.platform === "linux" && !process.env.DISPLAY;
+  const command = useXvfb ? "xvfb-run" : executable;
+  const commandArguments = useXvfb
+    ? ["-a", executable, ...browserArguments]
+    : browserArguments;
+  const child = spawn(command, commandArguments, { stdio: "pipe" });
+  let client: CdpClient | undefined;
+
+  try {
+    const endpoint = await waitForDevTools(child);
+    client = await CdpClient.connect(endpoint);
+    const target = await waitForPageTarget(client);
+    const attached = await client.send<{ readonly sessionId: string }>(
+      "Target.attachToTarget",
+      { targetId: target.targetId, flatten: true },
+    );
+    const sessionId = attached.sessionId;
+    await client.send("DOM.enable", {}, sessionId);
+    const result = await waitForLaneResult(client, sessionId, lane);
+
+    const exited = waitForExit(child);
+    const closed = await client.send<{ readonly success: boolean }>(
+      "Target.closeTarget",
+      { targetId: target.targetId },
+    );
+    if (!closed.success) throw new Error(`Could not close the ${lane} target`);
+    await exited;
+    return result;
+  } finally {
+    client?.close();
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = waitForExit(child);
+      child.kill("SIGTERM");
+      await exited.catch(() => undefined);
+    }
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
+
 async function main(arguments_: readonly string[]): Promise<void> {
   const options = parseOptions(arguments_);
   if (options === null) return;
@@ -503,89 +562,41 @@ async function main(arguments_: readonly string[]): Promise<void> {
     lane,
     pathToFileURL(resolve(pagesRoot, `${lane}.html`)).href,
   ]));
-  const profile = mkdtempSync(join(tmpdir(), "nts-chromium-benchmark-profile-"));
-  const browserArguments = [
-    "--native-typescript-benchmark",
-    "--remote-debugging-port=0",
-    `--user-data-dir=${profile}`,
-    "--disable-gpu",
-    "--no-first-run",
-    pageUrls.get("cpp")!,
-  ];
-  const useXvfb = process.platform === "linux" && !process.env.DISPLAY;
-  const command = useXvfb ? "xvfb-run" : executable;
-  const commandArguments = useXvfb
-    ? ["-a", executable, ...browserArguments]
-    : browserArguments;
-  const child = spawn(command, commandArguments, { stdio: "pipe" });
-  let client: CdpClient | undefined;
-
-  try {
-    const endpoint = await waitForDevTools(child);
-    client = await CdpClient.connect(endpoint);
-    const target = await waitForPageTarget(client);
-    const attached = await client.send<{ readonly sessionId: string }>(
-      "Target.attachToTarget",
-      { targetId: target.targetId, flatten: true },
-    );
-    const sessionId = attached.sessionId;
-    await client.send("DOM.enable", {}, sessionId);
-    await client.send("Page.enable", {}, sessionId);
-    const results: LaneResult[] = [
-      await waitForLaneResult(client, sessionId, "cpp"),
-    ];
-    for (const lane of lanes.slice(1)) {
-      await client.send("Page.navigate", { url: pageUrls.get(lane)! }, sessionId);
-      results.push(await waitForLaneResult(client, sessionId, lane));
-    }
-
-    const input = defineChromiumPerformanceInput({
-      observations: observations(results),
-      capsuleStructure: capsuleStructure(),
-      provenance: {
-        schemaVersion: 1,
-        chromiumRevision: commandOutput(
-          "git",
-          ["rev-parse", "HEAD"],
-          options.checkout,
-        ),
-        nativeTypescriptRevision: commandOutput(
-          "git",
-          ["rev-parse", "HEAD"],
-          repositoryRoot,
-        ),
-        scriptCRevision,
-        chromiumClangVersion: clangVersion,
-        contentShellDigest: sha256(executable),
-        scriptcCArchiveDigest: sha256(cArchive),
-        scriptcLlvmArchiveDigest: sha256(llvmArchive),
-        fixtureDigest: fixtureDigest(),
-        buildArguments: gnArguments,
-        recordedAt: new Date().toISOString(),
-      },
-    });
-    mkdirSync(dirname(options.result), { recursive: true });
-    writeFileSync(options.result, `${JSON.stringify(input, null, 2)}\n`);
-    process.stdout.write(
-      `Chromium benchmark raw input written to ${options.result}\n`,
-    );
-
-    const exited = waitForExit(child);
-    const closed = await client.send<{ readonly success: boolean }>(
-      "Target.closeTarget",
-      { targetId: target.targetId },
-    );
-    if (!closed.success) throw new Error("Could not close the benchmark target");
-    await exited;
-  } finally {
-    client?.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = waitForExit(child);
-      child.kill("SIGTERM");
-      await exited.catch(() => undefined);
-    }
-    rmSync(profile, { recursive: true, force: true });
+  const results: LaneResult[] = [];
+  for (const lane of lanes) {
+    results.push(await runLane(executable, pageUrls.get(lane)!, lane));
   }
+
+  const input = defineChromiumPerformanceInput({
+    observations: observations(results),
+    capsuleStructure: capsuleStructure(),
+    provenance: {
+      schemaVersion: 1,
+      chromiumRevision: commandOutput(
+        "git",
+        ["rev-parse", "HEAD"],
+        options.checkout,
+      ),
+      nativeTypescriptRevision: commandOutput(
+        "git",
+        ["rev-parse", "HEAD"],
+        repositoryRoot,
+      ),
+      scriptCRevision,
+      chromiumClangVersion: clangVersion,
+      contentShellDigest: sha256(executable),
+      scriptcCArchiveDigest: sha256(cArchive),
+      scriptcLlvmArchiveDigest: sha256(llvmArchive),
+      fixtureDigest: fixtureDigest(),
+      buildArguments: gnArguments,
+      recordedAt: new Date().toISOString(),
+    },
+  });
+  mkdirSync(dirname(options.result), { recursive: true });
+  writeFileSync(options.result, `${JSON.stringify(input, null, 2)}\n`);
+  process.stdout.write(
+    `Chromium benchmark raw input written to ${options.result}\n`,
+  );
 }
 
 try {

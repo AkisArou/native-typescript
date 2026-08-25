@@ -184,6 +184,14 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     join(packageRoot, "scripts/run-chromium-benchmark.ts"),
     "utf8",
   );
+  const benchmarkHost = readFileSync(
+    join(packageRoot, "chromium/overlay/nts_blink_benchmark_host.cc"),
+    "utf8",
+  );
+  const benchmarkV8 = readFileSync(
+    join(packageRoot, "benchmark/pages/v8.js"),
+    "utf8",
+  );
   const support = readFileSync(join(packageRoot, "scripts/support.ts"), "utf8");
   for (const builder of [counterBuilder, benchmarkBuilder]) {
     assert.match(builder, /--depot-tools/u);
@@ -196,6 +204,10 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkBuilder, /chrome_pgo_phase=0/u);
   assert.match(benchmarkRunner, /isTransientDomReadFailure/u);
   assert.match(benchmarkRunner, /Could not find/u);
+  assert.match(benchmarkRunner, /benchmarkIterations = 100_000/u);
+  assert.match(benchmarkRunner, /for \(const lane of lanes\)/u);
+  assert.match(benchmarkHost, /kIterations = 100000/u);
+  assert.match(benchmarkV8, /iterations = 100_000/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);
 

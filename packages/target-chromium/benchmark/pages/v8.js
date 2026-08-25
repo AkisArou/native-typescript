@@ -1,8 +1,8 @@
 "use strict";
 
-const iterations = 2000;
+const iterations = 100_000;
 const sampleCount = 30;
-const warmupIterations = 2000;
+const warmupIterations = 20_000;
 
 function createElements(count) {
   let checksum = 0;
