@@ -67,7 +67,7 @@
       "typescriptExport": "runSynchronousEventRoundTrips",
       "symbolStem": "run_synchronous_event_round_trips",
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
-      "perCallIterations": 5,
+      "perCallIterations": 1,
       "perCallWarmupIterations": 1,
       "compiledLoopIterations": 20,
       "compiledLoopWarmupIterations": 4,
