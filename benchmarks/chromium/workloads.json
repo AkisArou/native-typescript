@@ -187,14 +187,14 @@
         "scriptc-c": {
           "perCallIterations": 1,
           "perCallWarmupIterations": 1,
-          "compiledLoopIterations": 20,
-          "compiledLoopWarmupIterations": 4
+          "compiledLoopIterations": 5,
+          "compiledLoopWarmupIterations": 1
         },
         "scriptc-llvm": {
           "perCallIterations": 1,
           "perCallWarmupIterations": 1,
-          "compiledLoopIterations": 20,
-          "compiledLoopWarmupIterations": 4
+          "compiledLoopIterations": 5,
+          "compiledLoopWarmupIterations": 1
         },
         "v8": {
           "perCallIterations": 100,
