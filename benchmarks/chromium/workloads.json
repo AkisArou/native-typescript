@@ -37,8 +37,8 @@
       "typescriptExport": "createEightRowComponentLists",
       "symbolStem": "create_eight_row_component_lists",
       "cppFunction": "CreateEightRowComponentListsCpp",
-      "iterations": 10000,
-      "warmupIterations": 2000,
+      "iterations": 1000,
+      "warmupIterations": 200,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -47,8 +47,8 @@
       "typescriptExport": "runSelectorDrivenUpdates",
       "symbolStem": "run_selector_driven_updates",
       "cppFunction": "RunSelectorDrivenUpdatesCpp",
-      "iterations": 20000,
-      "warmupIterations": 4000,
+      "iterations": 5000,
+      "warmupIterations": 1000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -57,8 +57,8 @@
       "typescriptExport": "runSynchronousEventRoundTrips",
       "symbolStem": "run_synchronous_event_round_trips",
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
-      "iterations": 20000,
-      "warmupIterations": 4000,
+      "iterations": 5000,
+      "warmupIterations": 1000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -67,8 +67,8 @@
       "typescriptExport": "mountAttachedComponents",
       "symbolStem": "mount_attached_components",
       "cppFunction": "MountAttachedComponentsCpp",
-      "iterations": 5000,
-      "warmupIterations": 1000,
+      "iterations": 1000,
+      "warmupIterations": 200,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     }

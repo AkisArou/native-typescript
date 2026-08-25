@@ -130,6 +130,7 @@ const lanes = Object.freeze([
   "v8",
 ] as const);
 const operationTimeoutMilliseconds = 60_000;
+const workloadTimeoutMilliseconds = 10 * 60_000;
 const repositoryRoot = resolve(packageRoot, "../..");
 const benchmarkRoot = resolve(repositoryRoot, "benchmarks/chromium");
 
@@ -210,11 +211,15 @@ function parseOptions(arguments_: readonly string[]): Options | null {
   });
 }
 
-function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMilliseconds = operationTimeoutMilliseconds,
+): Promise<T> {
   return new Promise<T>((resolvePromise, rejectPromise) => {
     const timeout = setTimeout(() => {
       rejectPromise(new Error(`Timed out waiting for ${label}`));
-    }, operationTimeoutMilliseconds);
+    }, timeoutMilliseconds);
     promise.then(
       (value) => {
         clearTimeout(timeout);
@@ -289,7 +294,11 @@ class CdpClient {
     return withTimeout(response, method);
   }
 
-  waitForEvent<T>(method: string, sessionId?: string): Promise<T> {
+  waitForEvent<T>(
+    method: string,
+    sessionId?: string,
+    timeoutMilliseconds = operationTimeoutMilliseconds,
+  ): Promise<T> {
     const event = new Promise<T>((resolvePromise) => {
       this.#eventWaiters.add({
         method,
@@ -297,7 +306,7 @@ class CdpClient {
         resolve: (params) => resolvePromise(params as T),
       });
     });
-    return withTimeout(event, method);
+    return withTimeout(event, method, timeoutMilliseconds);
   }
 
   close(): void {
@@ -706,7 +715,13 @@ async function runLane(
     const startupMilliseconds = performance.now() - startedAt;
     const baseline = await captureRendererPhase(client, sessionId);
     const workloadStartedAt = performance.now();
+    const workloadLoaded = client.waitForEvent(
+      "Page.loadEventFired",
+      sessionId,
+      workloadTimeoutMilliseconds,
+    );
     await client.send("Page.navigate", { url: pageUrl }, sessionId);
+    await workloadLoaded;
     const result = await waitForLaneResult(client, sessionId, lane);
     const workloadMilliseconds = performance.now() - workloadStartedAt;
     const postWorkload = await captureRendererPhase(client, sessionId);
