@@ -184,18 +184,18 @@
           "compiledLoopIterations": 1000,
           "compiledLoopWarmupIterations": 200
         },
-        "scriptc-c": {
-          "perCallIterations": 1,
-          "perCallWarmupIterations": 1,
-          "compiledLoopIterations": 5,
-          "compiledLoopWarmupIterations": 1
-        },
-        "scriptc-llvm": {
-          "perCallIterations": 1,
-          "perCallWarmupIterations": 1,
-          "compiledLoopIterations": 5,
-          "compiledLoopWarmupIterations": 1
-        },
+      "scriptc-c": {
+        "perCallIterations": 100,
+        "perCallWarmupIterations": 20,
+        "compiledLoopIterations": 1000,
+        "compiledLoopWarmupIterations": 200
+      },
+      "scriptc-llvm": {
+        "perCallIterations": 100,
+        "perCallWarmupIterations": 20,
+        "compiledLoopIterations": 1000,
+        "compiledLoopWarmupIterations": 200
+      },
         "v8": {
           "perCallIterations": 100,
           "perCallWarmupIterations": 20,
