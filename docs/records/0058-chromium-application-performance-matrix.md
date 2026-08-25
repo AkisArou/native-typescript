@@ -33,9 +33,10 @@ callback queue.
 The two measurement shapes have independent budgets. The event per-call shape
 intentionally measures a small number of complete subscription/click/disposal
 lifecycles because that lifecycle is millisecond-scale in the current ScriptC
-bridge. Its compiled-loop shape retains a large batch so steady-state dispatch
-through one live listener remains a high-resolution measurement. This keeps
-the pain point visible without allowing it to monopolize the full matrix.
+bridge. Its compiled-loop shape uses a separately calibrated batch so
+steady-state dispatch through one live listener remains a high-resolution
+measurement. This keeps the pain point visible without allowing it to
+monopolize the full matrix or trip Chromium's hung-renderer protection.
 
 ## Oilpan interoperability diagnostics
 

@@ -69,8 +69,8 @@
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
       "perCallIterations": 5,
       "perCallWarmupIterations": 1,
-      "compiledLoopIterations": 500,
-      "compiledLoopWarmupIterations": 100,
+      "compiledLoopIterations": 20,
+      "compiledLoopWarmupIterations": 4,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
