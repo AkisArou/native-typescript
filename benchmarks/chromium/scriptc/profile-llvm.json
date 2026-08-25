@@ -1,0 +1,74 @@
+{
+  "profile_format": 1,
+  "name": "native-typescript-chromium-benchmark-llvm",
+  "entry": "app.ts",
+  "emission": "llvm",
+  "optimization": "release",
+  "abi": {
+    "prefix": "nts_chromium_scriptc_llvm_",
+    "init_symbol": "nts_chromium_scriptc_llvm_init",
+    "sink_register_symbol": "nts_chromium_scriptc_llvm_set_panic_sink",
+    "collect_symbol": null,
+    "result_reset_symbol": null,
+    "localize_runtime": true,
+    "instance_per_thread": true
+  },
+  "exports": [
+    {
+      "export": "createElements",
+      "symbol": "nts_chromium_scriptc_llvm_create_elements",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "createDetachedCounterTrees",
+      "symbol": "nts_chromium_scriptc_llvm_create_detached_counter_trees",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "updateRetainedAttachedText",
+      "symbol": "nts_chromium_scriptc_llvm_update_retained_attached_text",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "createEightRowComponentLists",
+      "symbol": "nts_chromium_scriptc_llvm_create_eight_row_component_lists",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "runSelectorDrivenUpdates",
+      "symbol": "nts_chromium_scriptc_llvm_run_selector_driven_updates",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "runSynchronousEventRoundTrips",
+      "symbol": "nts_chromium_scriptc_llvm_run_synchronous_event_round_trips",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    },
+    {
+      "export": "mountAttachedComponents",
+      "symbol": "nts_chromium_scriptc_llvm_mount_attached_components",
+      "params": [
+        "f64"
+      ],
+      "returns": "f64"
+    }
+  ]
+}

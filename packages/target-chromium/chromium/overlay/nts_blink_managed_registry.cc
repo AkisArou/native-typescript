@@ -303,6 +303,20 @@ void BlinkManagedRegistry::Invalidate() {
   }
 }
 
+BlinkManagedDiagnostics BlinkManagedRegistry::Diagnostics() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BlinkManagedDiagnostics result;
+  for (NtsWebNode* peer = nodes_; peer; peer = peer->next) {
+    ++result.node_peers;
+    result.node_claims += peer->claims;
+  }
+  for (NtsWebManagedSubscription* subscription = subscriptions_; subscription;
+       subscription = subscription->next) {
+    ++result.subscriptions;
+  }
+  return result;
+}
+
 void ReleaseManagedNode(NtsWebNode* handle) {
   if (!handle || !IsManagedWebNodeHandle(handle)) {
     return;

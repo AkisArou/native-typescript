@@ -6,9 +6,15 @@ export declare abstract class EventTarget {
 }
 export declare abstract class Node extends EventTarget {
   appendChild(node: Node): Node;
+  removeChild(child: Node): Node;
 }
-export declare abstract class Element extends Node {}
-export declare abstract class HTMLElement extends Element {}
+export declare abstract class Element extends Node {
+  querySelector(selectors: string): Element | null;
+  setAttribute(name: string, value: string): void;
+}
+export declare abstract class HTMLElement extends Element {
+  click(): void;
+}
 export declare abstract class CharacterData extends Node {
   set data(value: string);
 }

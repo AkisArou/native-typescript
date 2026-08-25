@@ -1,6 +1,7 @@
 #ifndef NTS_BLINK_MANAGED_REGISTRY_H
 #define NTS_BLINK_MANAGED_REGISTRY_H
 
+#include <cstddef>
 #include <cstdint>
 
 #include "base/memory/raw_ptr.h"
@@ -37,6 +38,12 @@ enum class ManagedWebType {
   kDocument,
 };
 
+struct BlinkManagedDiagnostics {
+  size_t node_peers = 0;
+  size_t node_claims = 0;
+  size_t subscriptions = 0;
+};
+
 /* Canonical pointer peers for ScriptC-managed handles. The registry owns no
  * claim: every AcquireNode() result is a +1 reference transferred to the
  * runtime, and ReleaseManagedNode() gives exactly one such claim back. */
@@ -59,6 +66,7 @@ class BlinkManagedRegistry final {
 
   void Invalidate();
   bool IsInvalidated() const { return invalidated_; }
+  BlinkManagedDiagnostics Diagnostics() const;
 
  private:
   void RemoveNode(NtsWebNode* peer);

@@ -25,6 +25,8 @@ import { commandOutput, packageRoot, reportError, runCommand } from "./support.t
 type Backend = "c" | "llvm";
 type WorkloadId = "benchmark" | "counter";
 
+const benchmarkRoot = resolve(packageRoot, "../../benchmarks/chromium");
+
 interface Options {
   readonly backend: Backend | "all";
   readonly workload: WorkloadId | "all";
@@ -207,7 +209,7 @@ async function buildLibrary(
 ): Promise<string> {
   const runtimeCompatibilityHeader = resolve(
     packageRoot,
-    "benchmark/scriptc",
+    "../../benchmarks/chromium/scriptc",
     "chromium-runtime-compat.h",
   );
   const { planLibraryCompilation, planLibraryExternalCBuild } =
@@ -435,6 +437,10 @@ async function main(arguments_: readonly string[]): Promise<void> {
       "web_document_create_element",
       "web_document_create_text_node",
       "web_node_append_child",
+      "web_node_remove_child",
+      "web_element_set_attribute",
+      "web_element_query_selector",
+      "web_html_element_click",
       "web_character_data_set_data",
       "web_event_target_listen",
       "web_subscription_release",
@@ -465,7 +471,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
     {
       workload: {
         id: "benchmark",
-        sourceRoot: resolve(packageRoot, "benchmark/scriptc"),
+        sourceRoot: resolve(benchmarkRoot, "scriptc"),
         externalTypes: {
           "@native-typescript/web-chromium": resolve(
             packageRoot,

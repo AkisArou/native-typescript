@@ -8,15 +8,23 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
+import {
+  defineChromiumBenchmarkContract,
+  type ChromiumBenchmarkContract,
+} from "../src/benchmark-contract.ts";
 import {
   defineChromiumPerformanceInput,
   type ChromiumBenchmarkLane,
   type ChromiumBenchmarkObservation,
+  type ChromiumProductShapeObservation,
+  type ChromiumRendererSnapshot,
 } from "../src/performance.ts";
 import { commandOutput, packageRoot, reportError, runCommand } from "./support.ts";
 
@@ -67,16 +75,45 @@ interface TargetInfo {
   readonly type: string;
 }
 
-interface LaneResult {
-  readonly lane: ChromiumBenchmarkLane;
+interface LaneWorkloadResult {
+  readonly id: string;
   readonly iterations: number;
-  readonly sampleCount: number;
   readonly warmupIterations: number;
   readonly checksum: number;
-  readonly createElementPerCall: readonly number[];
-  readonly createElementCompiledLoop: readonly number[];
-  readonly detachedCounterTreePerCall: readonly number[];
-  readonly detachedCounterTreeCompiledLoop: readonly number[];
+  readonly perCall: readonly number[];
+  readonly compiledLoop: readonly number[];
+  readonly interop: {
+    readonly managedNodePeers: number;
+    readonly managedNodeClaims: number;
+    readonly managedSubscriptions: number;
+  } | null;
+}
+
+interface LaneResult {
+  readonly lane: ChromiumBenchmarkLane;
+  readonly sampleCount: number;
+  readonly workloads: readonly LaneWorkloadResult[];
+}
+
+interface LaneExecution {
+  readonly result: LaneResult;
+  readonly productShape: ChromiumProductShapeObservation;
+}
+
+interface RendererProcessInfo {
+  readonly type: string;
+  readonly id: number;
+}
+
+interface RendererMemory {
+  readonly rssBytes: number;
+  readonly pssBytes: number;
+  readonly peakRssBytes: number;
+}
+
+interface RendererSnapshotCapture {
+  readonly snapshot: ChromiumRendererSnapshot;
+  readonly peakRssBytes: number;
 }
 
 const lanes = Object.freeze([
@@ -85,13 +122,26 @@ const lanes = Object.freeze([
   "scriptc-llvm",
   "v8",
 ] as const);
-const benchmarkIterations = 100_000;
-const benchmarkSampleCount = 30;
-const benchmarkWarmupIterations = 20_000;
-const benchmarkChecksum =
-  4 * benchmarkWarmupIterations +
-  4 * benchmarkSampleCount * benchmarkIterations;
 const operationTimeoutMilliseconds = 60_000;
+const repositoryRoot = resolve(packageRoot, "../..");
+const benchmarkRoot = resolve(repositoryRoot, "benchmarks/chromium");
+
+function readBenchmarkContract(): ChromiumBenchmarkContract {
+  return defineChromiumBenchmarkContract(JSON.parse(readFileSync(
+    resolve(benchmarkRoot, "workloads.json"),
+    "utf8",
+  )));
+}
+
+const benchmarkContract = readBenchmarkContract();
+
+function requireLinuxProductShapeMetrics(): void {
+  if (process.platform !== "linux") {
+    throw new Error(
+      "Chromium product-shape measurements require Linux /proc metrics",
+    );
+  }
+}
 
 function usage(): string {
   return [
@@ -339,28 +389,52 @@ function parseLaneResult(value: string, expectedLane: ChromiumBenchmarkLane): La
   const parsed = JSON.parse(value) as Partial<LaneResult>;
   if (
     parsed.lane !== expectedLane ||
-    parsed.iterations !== benchmarkIterations ||
-    parsed.sampleCount !== benchmarkSampleCount ||
-    parsed.warmupIterations !== benchmarkWarmupIterations ||
-    parsed.checksum !== benchmarkChecksum ||
-    !Array.isArray(parsed.createElementPerCall) ||
-    !Array.isArray(parsed.createElementCompiledLoop) ||
-    !Array.isArray(parsed.detachedCounterTreePerCall) ||
-    !Array.isArray(parsed.detachedCounterTreeCompiledLoop) ||
-    parsed.createElementPerCall.length !== benchmarkSampleCount ||
-    parsed.createElementCompiledLoop.length !== benchmarkSampleCount ||
-    parsed.detachedCounterTreePerCall.length !== benchmarkSampleCount ||
-    parsed.detachedCounterTreeCompiledLoop.length !== benchmarkSampleCount ||
-    [
-      ...parsed.createElementPerCall,
-      ...parsed.createElementCompiledLoop,
-      ...parsed.detachedCounterTreePerCall,
-      ...parsed.detachedCounterTreeCompiledLoop,
-    ].some(
-      (sample) => typeof sample !== "number" || !Number.isFinite(sample) || sample <= 0,
-    )
+    parsed.sampleCount !== benchmarkContract.sampleCount ||
+    !Array.isArray(parsed.workloads) ||
+    parsed.workloads.length !== benchmarkContract.workloads.length
   ) {
     throw new Error(`Invalid or mismatched benchmark result for ${expectedLane}`);
+  }
+  for (const [index, definition] of benchmarkContract.workloads.entries()) {
+    const workload = parsed.workloads[index] as Partial<LaneWorkloadResult>;
+    const expectedChecksum = 2 * definition.warmupIterations +
+      2 * benchmarkContract.sampleCount * definition.iterations;
+    const interop = workload?.interop;
+    const retainedWorkloadIndex = benchmarkContract.workloads.findIndex(
+      ({ id }) => id === "retained-attached-text-update",
+    );
+    const expectedManagedNodes = index >= retainedWorkloadIndex ? 1 : 0;
+    const interopValid = expectedLane === "scriptc-c" ||
+        expectedLane === "scriptc-llvm"
+      ? interop !== null && typeof interop === "object" &&
+        [
+          interop.managedNodePeers,
+          interop.managedNodeClaims,
+          interop.managedSubscriptions,
+        ].every((count) => Number.isSafeInteger(count) && count >= 0) &&
+        interop.managedNodePeers === expectedManagedNodes &&
+        interop.managedNodeClaims === expectedManagedNodes &&
+        interop.managedSubscriptions === 0
+      : interop === null;
+    if (
+      workload?.id !== definition.id ||
+      workload.iterations !== definition.iterations ||
+      workload.warmupIterations !== definition.warmupIterations ||
+      workload.checksum !== expectedChecksum ||
+      !interopValid ||
+      !Array.isArray(workload.perCall) ||
+      !Array.isArray(workload.compiledLoop) ||
+      workload.perCall.length !== benchmarkContract.sampleCount ||
+      workload.compiledLoop.length !== benchmarkContract.sampleCount ||
+      [...workload.perCall, ...workload.compiledLoop].some(
+        (sample) => typeof sample !== "number" ||
+          !Number.isFinite(sample) || sample <= 0,
+      )
+    ) {
+      throw new Error(
+        `Invalid or mismatched benchmark workload for ${expectedLane}/${definition.id}`,
+      );
+    }
   }
   return parsed as LaneResult;
 }
@@ -410,25 +484,28 @@ function sha256(path: string): string {
 
 function fixtureDigest(): string {
   const files = [
-    "chromium/overlay/generated/nts_webidl_capsules.cc",
-    "chromium/overlay/nts_blink_benchmark_host.cc",
-    "chromium/overlay/nts_blink_managed_registry.cc",
-    "chromium/overlay/nts_blink_scabi.cc",
-    "chromium/webidl/package.scabi.json",
-    "benchmark/scriptc/app.ts",
-    "benchmark/scriptc/profile-c.json",
-    "benchmark/scriptc/profile-llvm.json",
-    "benchmark/pages/cpp.html",
-    "benchmark/pages/scriptc-c.html",
-    "benchmark/pages/scriptc-llvm.html",
-    "benchmark/pages/v8.html",
-    "benchmark/pages/v8.js",
+    resolve(benchmarkRoot, "workloads.json"),
+    resolve(packageRoot, "chromium/overlay/generated/nts_benchmark_workloads.inc"),
+    resolve(packageRoot, "chromium/overlay/generated/nts_webidl_capsules.cc"),
+    resolve(packageRoot, "chromium/overlay/nts_blink_benchmark_host.cc"),
+    resolve(packageRoot, "chromium/overlay/nts_blink_managed_registry.cc"),
+    resolve(packageRoot, "chromium/overlay/nts_blink_scabi.cc"),
+    resolve(packageRoot, "chromium/webidl/package.scabi.json"),
+    resolve(benchmarkRoot, "scriptc/app.ts"),
+    resolve(benchmarkRoot, "scriptc/profile-c.json"),
+    resolve(benchmarkRoot, "scriptc/profile-llvm.json"),
+    resolve(benchmarkRoot, "pages/cpp.html"),
+    resolve(benchmarkRoot, "pages/scriptc-c.html"),
+    resolve(benchmarkRoot, "pages/scriptc-llvm.html"),
+    resolve(benchmarkRoot, "pages/v8.html"),
+    resolve(benchmarkRoot, "pages/workloads.js"),
+    resolve(benchmarkRoot, "pages/v8.js"),
   ];
   const hash = createHash("sha256");
-  for (const file of files) {
-    hash.update(file);
+  for (const path of files) {
+    hash.update(relative(repositoryRoot, path));
     hash.update("\0");
-    hash.update(readFileSync(resolve(packageRoot, file)));
+    hash.update(readFileSync(path));
     hash.update("\0");
   }
   return `sha256:${hash.digest("hex")}`;
@@ -456,43 +533,89 @@ function capsuleStructure(): {
 function observations(results: readonly LaneResult[]): readonly ChromiumBenchmarkObservation[] {
   return Object.freeze(lanes.flatMap((lane) => {
     const repetitions = results.filter((result) => result.lane === lane);
-    return [
+    return benchmarkContract.workloads.flatMap((definition, index) => [
       Object.freeze({
-        workload: "webidl-create-element-per-call",
-        category: "primitive" as const,
+        workload: `webidl-${definition.id}-per-call`,
+        category: definition.perCallCategory,
         lane,
-        samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) => result.createElementPerCall),
-        ),
+        samplesNanoseconds: Object.freeze(repetitions.flatMap((result) =>
+          result.workloads[index]!.perCall
+        )),
       }),
       Object.freeze({
-        workload: "webidl-create-element-compiled-loop",
-        category: "boundary-heavy" as const,
+        workload: `webidl-${definition.id}-compiled-loop`,
+        category: definition.compiledLoopCategory,
         lane,
-        samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) => result.createElementCompiledLoop),
-        ),
+        samplesNanoseconds: Object.freeze(repetitions.flatMap((result) =>
+          result.workloads[index]!.compiledLoop
+        )),
       }),
-      Object.freeze({
-        workload: "webidl-detached-counter-tree-per-call",
-        category: "mixed" as const,
-        lane,
-        samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) => result.detachedCounterTreePerCall),
-        ),
-      }),
-      Object.freeze({
-        workload: "webidl-detached-counter-tree-compiled-loop",
-        category: "boundary-heavy" as const,
-        lane,
-        samplesNanoseconds: Object.freeze(
-          repetitions.flatMap((result) =>
-            result.detachedCounterTreeCompiledLoop
-          ),
-        ),
-      }),
-    ];
+    ]);
   }));
+}
+
+function procKilobytes(contents: string, field: string, path: string): number {
+  const match = new RegExp(`^${field}:\\s+(\\d+)\\s+kB$`, "mu").exec(contents);
+  if (!match?.[1]) throw new Error(`${path} does not contain ${field}`);
+  const kilobytes = Number(match[1]);
+  if (!Number.isSafeInteger(kilobytes)) {
+    throw new Error(`${path} contains an invalid ${field}`);
+  }
+  return kilobytes * 1024;
+}
+
+function rendererMemory(processId: number): RendererMemory {
+  const processRoot = `/proc/${processId}`;
+  const smapsPath = resolve(processRoot, "smaps_rollup");
+  const statusPath = resolve(processRoot, "status");
+  const smaps = readFileSync(smapsPath, "utf8");
+  const status = readFileSync(statusPath, "utf8");
+  return Object.freeze({
+    rssBytes: procKilobytes(smaps, "Rss", smapsPath),
+    pssBytes: procKilobytes(smaps, "Pss", smapsPath),
+    peakRssBytes: procKilobytes(status, "VmHWM", statusPath),
+  });
+}
+
+async function rendererProcess(
+  client: CdpClient,
+): Promise<RendererProcessInfo> {
+  const processes = await client.send<{
+    readonly processInfo: readonly RendererProcessInfo[];
+  }>("SystemInfo.getProcessInfo");
+  const renderers = processes.processInfo.filter(
+    (process) => process.type === "renderer",
+  );
+  if (renderers.length !== 1) {
+    throw new Error(
+      `Expected one isolated renderer process, observed ${renderers.length}`,
+    );
+  }
+  return renderers[0]!;
+}
+
+async function captureRendererSnapshot(
+  client: CdpClient,
+  sessionId: string,
+): Promise<RendererSnapshotCapture> {
+  await client.send("HeapProfiler.collectGarbage", {}, sessionId);
+  const counters = await client.send<{
+    readonly documents: number;
+    readonly nodes: number;
+    readonly jsEventListeners: number;
+  }>("Memory.getDOMCounters", {}, sessionId);
+  const renderer = await rendererProcess(client);
+  const memory = rendererMemory(renderer.id);
+  return Object.freeze({
+    snapshot: Object.freeze({
+      rssBytes: memory.rssBytes,
+      pssBytes: memory.pssBytes,
+      documents: counters.documents,
+      nodes: counters.nodes,
+      jsEventListeners: counters.jsEventListeners,
+    }),
+    peakRssBytes: memory.peakRssBytes,
+  });
 }
 
 async function runLane(
@@ -500,7 +623,7 @@ async function runLane(
   pageUrl: string,
   lane: ChromiumBenchmarkLane,
   rendererCpuSet: string | null,
-): Promise<LaneResult> {
+): Promise<LaneExecution> {
   const profile = mkdtempSync(join(tmpdir(), "nts-chromium-benchmark-profile-"));
   const browserArguments = [
     "--native-typescript-benchmark",
@@ -511,13 +634,14 @@ async function runLane(
     ...(rendererCpuSet === null
       ? []
       : [`--renderer-cmd-prefix=/usr/bin/taskset -c ${rendererCpuSet}`]),
-    pageUrl,
+    "about:blank",
   ];
   const useXvfb = process.platform === "linux" && !process.env.DISPLAY;
   const command = useXvfb ? "xvfb-run" : executable;
   const commandArguments = useXvfb
     ? ["-a", executable, ...browserArguments]
     : browserArguments;
+  const startedAt = performance.now();
   const child = spawn(command, commandArguments, { stdio: "pipe" });
   let client: CdpClient | undefined;
 
@@ -531,7 +655,30 @@ async function runLane(
     );
     const sessionId = attached.sessionId;
     await client.send("DOM.enable", {}, sessionId);
+    await client.send("Page.enable", {}, sessionId);
+    const startupMilliseconds = performance.now() - startedAt;
+    const baseline = await captureRendererSnapshot(client, sessionId);
+    const workloadStartedAt = performance.now();
+    await client.send("Page.navigate", { url: pageUrl }, sessionId);
     const result = await waitForLaneResult(client, sessionId, lane);
+    const workloadMilliseconds = performance.now() - workloadStartedAt;
+    const postWorkload = await captureRendererSnapshot(client, sessionId);
+    const blankLoaded = client.waitForEvent("Page.loadEventFired", sessionId);
+    await client.send("Page.navigate", { url: "about:blank" }, sessionId);
+    await blankLoaded;
+    const postTeardown = await captureRendererSnapshot(client, sessionId);
+    const wallClockMilliseconds = performance.now() - startedAt;
+    const productShape = Object.freeze({
+      lane,
+      startupMilliseconds,
+      workloadMilliseconds,
+      wallClockMilliseconds,
+      rendererPeakRssBytes: postWorkload.peakRssBytes,
+      baseline: baseline.snapshot,
+      postWorkload: postWorkload.snapshot,
+      postTeardown: postTeardown.snapshot,
+      finalInterop: result.workloads.at(-1)!.interop,
+    });
 
     const exited = waitForExit(child);
     const closed = await client.send<{ readonly success: boolean }>(
@@ -540,7 +687,7 @@ async function runLane(
     );
     if (!closed.success) throw new Error(`Could not close the ${lane} target`);
     await exited;
-    return result;
+    return Object.freeze({ result, productShape });
   } finally {
     client?.close();
     if (child.exitCode === null && child.signalCode === null) {
@@ -555,6 +702,7 @@ async function runLane(
 async function main(arguments_: readonly string[]): Promise<void> {
   const options = parseOptions(arguments_);
   if (options === null) return;
+  requireLinuxProductShapeMetrics();
   if (options.rendererCpuSet !== null) {
     if (process.platform !== "linux") {
       throw new Error("--renderer-cpu-set is supported only on Linux");
@@ -563,7 +711,6 @@ async function main(arguments_: readonly string[]): Promise<void> {
       throw new Error("--renderer-cpu-set requires /usr/bin/taskset");
     }
   }
-  const repositoryRoot = resolve(packageRoot, "../..");
   if (commandOutput("git", ["status", "--porcelain"], repositoryRoot) !== "") {
     throw new Error("Chromium benchmark evidence requires a clean Native TypeScript worktree");
   }
@@ -634,15 +781,15 @@ async function main(arguments_: readonly string[]): Promise<void> {
     packageRoot,
   );
 
-  const pagesRoot = resolve(packageRoot, "benchmark/pages");
+  const pagesRoot = resolve(benchmarkRoot, "pages");
   const pageUrls = new Map<ChromiumBenchmarkLane, string>(lanes.map((lane) => [
     lane,
     pathToFileURL(resolve(pagesRoot, `${lane}.html`)).href,
   ]));
-  const results: LaneResult[] = [];
+  const executions: LaneExecution[] = [];
   for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
     for (const lane of lanes) {
-      results.push(await runLane(
+      executions.push(await runLane(
         executable,
         pageUrls.get(lane)!,
         lane,
@@ -652,14 +799,23 @@ async function main(arguments_: readonly string[]): Promise<void> {
   }
 
   const input = defineChromiumPerformanceInput({
-    observations: observations(results),
+    observations: observations(executions.map(({ result }) => result)),
+    productShape: executions.map(({ productShape }) => productShape),
+    artifactShape: {
+      sharedContentShellBytes: statSync(executable).size,
+      scriptcCArchiveBytes: statSync(cArchive).size,
+      scriptcLlvmArchiveBytes: statSync(llvmArchive).size,
+    },
     capsuleStructure: capsuleStructure(),
     provenance: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       benchmarkEnvironment: {
-        iterationsPerSample: benchmarkIterations,
-        samplesPerRepetition: benchmarkSampleCount,
-        warmupIterations: benchmarkWarmupIterations,
+        workloads: benchmarkContract.workloads.map((workload) => ({
+          id: workload.id,
+          iterationsPerSample: workload.iterations,
+          warmupIterations: workload.warmupIterations,
+        })),
+        samplesPerRepetition: benchmarkContract.sampleCount,
         repetitions: options.repetitions,
         laneIsolation: "fresh-renderer",
         rendererCpuSet: options.rendererCpuSet,

@@ -27,6 +27,18 @@ blink::Text* DocumentCreateTextNode(blink::Document& receiver,
 blink::Node* NodeAppendChild(blink::Node& receiver,
                              blink::Node& node,
                              blink::ExceptionState& exception_state);
+blink::Node* NodeRemoveChild(blink::Node& receiver,
+                             blink::Node& child,
+                             blink::ExceptionState& exception_state);
+void ElementSetAttribute(blink::Element& receiver,
+                         const blink::AtomicString& name,
+                         const blink::AtomicString& value,
+                         blink::ExceptionState& exception_state);
+blink::Element* ElementQuerySelector(
+    blink::Element& receiver,
+    const blink::AtomicString& selectors,
+    blink::ExceptionState& exception_state);
+void HTMLElementClick(blink::HTMLElement& receiver);
 void CharacterDataSetData(blink::CharacterData& receiver,
                           const blink::String& data);
 }  // namespace nts::blink_bridge::generated
@@ -58,6 +70,28 @@ extern "C" NtsWebNode* nts_web_node_append_child_managed(
     NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);
 extern "C" NtsWebNode* nts_web_node_append_child_frame(
     NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);
+extern "C" NtsWebNode* nts_web_node_remove_child_managed(
+    NtsWebNode* parent, NtsWebNode* child, NtsWebError** error);
+extern "C" NtsWebNode* nts_web_node_remove_child_frame(
+    NtsWebNode* parent, NtsWebNode* child, NtsWebError** error);
+extern "C" void nts_web_element_set_attribute(
+    NtsWebNode* element,
+    const uint8_t* name_data,
+    size_t name_length,
+    const uint8_t* value_data,
+    size_t value_length,
+    NtsWebError** error);
+extern "C" NtsWebNode* nts_web_element_query_selector_managed(
+    NtsWebNode* element,
+    const uint8_t* selectors_data,
+    size_t selectors_length,
+    NtsWebError** error);
+extern "C" NtsWebNode* nts_web_element_query_selector_frame(
+    NtsWebNode* element,
+    const uint8_t* selectors_data,
+    size_t selectors_length,
+    NtsWebError** error);
+extern "C" void nts_web_html_element_click(NtsWebNode* element);
 extern "C" void nts_web_character_data_set_data_managed(
     NtsWebNode* character_data, const uint8_t* data, size_t data_length);
 extern "C" NtsWebManagedSubscription* nts_web_event_target_listen(

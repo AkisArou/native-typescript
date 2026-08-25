@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "sampleCount": 30,
+  "workloads": [
+    {
+      "id": "create-element",
+      "typescriptExport": "createElements",
+      "symbolStem": "create_elements",
+      "cppFunction": "CreateElementsCpp",
+      "iterations": 100000,
+      "warmupIterations": 20000,
+      "perCallCategory": "primitive",
+      "compiledLoopCategory": "boundary-heavy"
+    },
+    {
+      "id": "detached-counter-tree",
+      "typescriptExport": "createDetachedCounterTrees",
+      "symbolStem": "create_detached_counter_trees",
+      "cppFunction": "CreateDetachedCounterTreesCpp",
+      "iterations": 100000,
+      "warmupIterations": 20000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "boundary-heavy"
+    },
+    {
+      "id": "retained-attached-text-update",
+      "typescriptExport": "updateRetainedAttachedText",
+      "symbolStem": "update_retained_attached_text",
+      "cppFunction": "UpdateRetainedAttachedTextCpp",
+      "iterations": 100000,
+      "warmupIterations": 20000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "mixed"
+    },
+    {
+      "id": "eight-row-component-list",
+      "typescriptExport": "createEightRowComponentLists",
+      "symbolStem": "create_eight_row_component_lists",
+      "cppFunction": "CreateEightRowComponentListsCpp",
+      "iterations": 10000,
+      "warmupIterations": 2000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "mixed"
+    },
+    {
+      "id": "selector-driven-update",
+      "typescriptExport": "runSelectorDrivenUpdates",
+      "symbolStem": "run_selector_driven_updates",
+      "cppFunction": "RunSelectorDrivenUpdatesCpp",
+      "iterations": 20000,
+      "warmupIterations": 4000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "mixed"
+    },
+    {
+      "id": "synchronous-event-round-trip",
+      "typescriptExport": "runSynchronousEventRoundTrips",
+      "symbolStem": "run_synchronous_event_round_trips",
+      "cppFunction": "RunSynchronousEventRoundTripsCpp",
+      "iterations": 20000,
+      "warmupIterations": 4000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "mixed"
+    },
+    {
+      "id": "attached-component-mount",
+      "typescriptExport": "mountAttachedComponents",
+      "symbolStem": "mount_attached_components",
+      "cppFunction": "MountAttachedComponentsCpp",
+      "iterations": 5000,
+      "warmupIterations": 1000,
+      "perCallCategory": "mixed",
+      "compiledLoopCategory": "mixed"
+    }
+  ]
+}

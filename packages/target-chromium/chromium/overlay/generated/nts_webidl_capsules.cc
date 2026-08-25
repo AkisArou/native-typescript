@@ -34,6 +34,32 @@ blink::Node* NodeAppendChild(blink::Node& receiver,
   return receiver.appendChild(&node, exception_state);
 }
 
+blink::Node* NodeRemoveChild(blink::Node& receiver,
+                             blink::Node& child,
+                             blink::ExceptionState& exception_state) {
+  return receiver.removeChild(&child, exception_state);
+}
+
+void ElementSetAttribute(blink::Element& receiver,
+                         const blink::AtomicString& name,
+                         const blink::AtomicString& value,
+                         blink::ExceptionState& exception_state) {
+  receiver.setAttribute(
+      name, value, exception_state);
+}
+
+blink::Element* ElementQuerySelector(
+    blink::Element& receiver,
+    const blink::AtomicString& selectors,
+    blink::ExceptionState& exception_state) {
+  return receiver.querySelector(
+      selectors, exception_state);
+}
+
+void HTMLElementClick(blink::HTMLElement& receiver) {
+  receiver.click();
+}
+
 void CharacterDataSetData(blink::CharacterData& receiver,
                           const blink::String& data) {
   receiver.setData(data);

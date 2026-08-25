@@ -189,7 +189,7 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     "utf8",
   );
   const benchmarkV8 = readFileSync(
-    join(packageRoot, "benchmark/pages/v8.js"),
+    join(packageRoot, "../../benchmarks/chromium/pages/v8.js"),
     "utf8",
   );
   const support = readFileSync(join(packageRoot, "scripts/support.ts"), "utf8");
@@ -204,21 +204,30 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkBuilder, /chrome_pgo_phase=0/u);
   assert.match(benchmarkRunner, /isTransientDomReadFailure/u);
   assert.match(benchmarkRunner, /Could not find/u);
-  assert.match(benchmarkRunner, /benchmarkIterations = 100_000/u);
+  assert.match(benchmarkRunner, /benchmarkContract\.workloads/u);
   assert.match(benchmarkRunner, /repetitions = 3/u);
   assert.match(benchmarkRunner, /for \(const lane of lanes\)/u);
   assert.match(benchmarkRunner, /renderer-cmd-prefix/u);
-  assert.match(benchmarkRunner, /schemaVersion: 2/u);
-  assert.match(benchmarkHost, /kIterations = 100000/u);
-  assert.match(benchmarkV8, /iterations = 100_000/u);
+  assert.match(benchmarkRunner, /schemaVersion: 3/u);
+  assert.match(benchmarkRunner, /captureRendererSnapshot/u);
+  assert.match(benchmarkRunner, /Page\.navigate/u);
+  assert.match(benchmarkRunner, /Page\.loadEventFired/u);
+  assert.match(benchmarkHost, /nts_benchmark_workloads\.inc/u);
+  assert.match(benchmarkHost, /kSampleCount = 30/u);
+  assert.match(benchmarkV8, /ntsBenchmarkContract\.workloads/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);
 
   for (const runner of ["run-chromium-counter.ts", "run-chromium-benchmark.ts"]) {
     const source = readFileSync(join(packageRoot, "scripts", runner), "utf8");
     assert.match(source, /Target\.closeTarget/u);
-    assert.doesNotMatch(source, /Browser\.close|Page\.loadEventFired/u);
+    assert.doesNotMatch(source, /Browser\.close/u);
   }
+  const counterRunner = readFileSync(
+    join(packageRoot, "scripts/run-chromium-counter.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(counterRunner, /Page\.loadEventFired/u);
 });
 
 function readSeries(name: string): readonly string[] {

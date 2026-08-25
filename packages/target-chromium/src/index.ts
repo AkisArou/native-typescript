@@ -10,6 +10,7 @@ export {
 } from "./performance.ts";
 export type {
   ChromiumBenchmarkCategory,
+  ChromiumArtifactShape,
   ChromiumBenchmarkLane,
   ChromiumBenchmarkMetrics,
   ChromiumBenchmarkObservation,
@@ -17,6 +18,9 @@ export type {
   ChromiumCapsuleStructure,
   ChromiumPerformanceInput,
   ChromiumPerformanceReport,
+  ChromiumInteropDiagnostics,
+  ChromiumProductShapeObservation,
+  ChromiumRendererSnapshot,
 } from "./performance.ts";
 export {
   chromiumBenchmarkNativeDeclarations,

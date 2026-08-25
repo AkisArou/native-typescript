@@ -4,10 +4,9 @@ export type ChromiumBenchmarkLane =
   | "scriptc-llvm"
   | "v8";
 
-export type ChromiumBenchmarkCategory =
-  | "primitive"
-  | "boundary-heavy"
-  | "mixed";
+import type { ChromiumBenchmarkCategory } from "./benchmark-contract.ts";
+
+export type { ChromiumBenchmarkCategory } from "./benchmark-contract.ts";
 
 export interface ChromiumBenchmarkObservation {
   readonly workload: string;
@@ -21,6 +20,38 @@ export interface ChromiumCapsuleStructure {
   readonly v8Values: boolean;
   readonly avoidableBoxing: boolean;
   readonly perCallHeapAllocation: boolean;
+}
+
+export interface ChromiumInteropDiagnostics {
+  readonly managedNodePeers: number;
+  readonly managedNodeClaims: number;
+  readonly managedSubscriptions: number;
+}
+
+export interface ChromiumRendererSnapshot {
+  readonly rssBytes: number;
+  readonly pssBytes: number;
+  readonly documents: number;
+  readonly nodes: number;
+  readonly jsEventListeners: number;
+}
+
+export interface ChromiumProductShapeObservation {
+  readonly lane: ChromiumBenchmarkLane;
+  readonly startupMilliseconds: number;
+  readonly workloadMilliseconds: number;
+  readonly wallClockMilliseconds: number;
+  readonly rendererPeakRssBytes: number;
+  readonly baseline: ChromiumRendererSnapshot;
+  readonly postWorkload: ChromiumRendererSnapshot;
+  readonly postTeardown: ChromiumRendererSnapshot;
+  readonly finalInterop: ChromiumInteropDiagnostics | null;
+}
+
+export interface ChromiumArtifactShape {
+  readonly sharedContentShellBytes: number;
+  readonly scriptcCArchiveBytes: number;
+  readonly scriptcLlvmArchiveBytes: number;
 }
 
 interface ChromiumBenchmarkProvenanceCommon {
@@ -50,20 +81,43 @@ export interface ChromiumBenchmarkEnvironment {
   readonly rendererCpuSet: string | null;
 }
 
+export interface ChromiumBenchmarkWorkloadEnvironment {
+  readonly id: string;
+  readonly iterationsPerSample: number;
+  readonly warmupIterations: number;
+}
+
+export interface ChromiumBenchmarkEnvironmentV3 {
+  readonly workloads: readonly ChromiumBenchmarkWorkloadEnvironment[];
+  readonly samplesPerRepetition: number;
+  readonly repetitions: number;
+  readonly laneIsolation: "fresh-renderer";
+  readonly rendererCpuSet: string | null;
+}
+
 export interface ChromiumBenchmarkProvenanceV2
   extends ChromiumBenchmarkProvenanceCommon {
   readonly schemaVersion: 2;
   readonly benchmarkEnvironment: ChromiumBenchmarkEnvironment;
 }
 
+export interface ChromiumBenchmarkProvenanceV3
+  extends ChromiumBenchmarkProvenanceCommon {
+  readonly schemaVersion: 3;
+  readonly benchmarkEnvironment: ChromiumBenchmarkEnvironmentV3;
+}
+
 export type ChromiumBenchmarkProvenance =
   | ChromiumBenchmarkProvenanceV1
-  | ChromiumBenchmarkProvenanceV2;
+  | ChromiumBenchmarkProvenanceV2
+  | ChromiumBenchmarkProvenanceV3;
 
 export interface ChromiumPerformanceInput {
   readonly observations: readonly ChromiumBenchmarkObservation[];
   readonly capsuleStructure: ChromiumCapsuleStructure;
   readonly provenance: ChromiumBenchmarkProvenance;
+  readonly productShape?: readonly ChromiumProductShapeObservation[];
+  readonly artifactShape?: ChromiumArtifactShape;
 }
 
 export interface ChromiumBenchmarkMetrics {
@@ -80,6 +134,8 @@ export interface ChromiumPerformanceReport {
   readonly metrics: readonly ChromiumBenchmarkMetrics[];
   readonly violations: readonly string[];
   readonly provenance: ChromiumBenchmarkProvenance;
+  readonly productShape: readonly ChromiumProductShapeObservation[];
+  readonly artifactShape: ChromiumArtifactShape | null;
 }
 
 const lanes = Object.freeze([
@@ -126,13 +182,33 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
+function assertRendererSnapshot(value: unknown, path: string): void {
+  assertRecord(value, path);
+  assertExactKeys(
+    value,
+    ["documents", "jsEventListeners", "nodes", "pssBytes", "rssBytes"],
+    path,
+  );
+  for (const [name, field] of Object.entries(value)) {
+    if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0) {
+      throw new TypeError(`${path}/${name} must be a non-negative integer`);
+    }
+  }
+}
+
 export function defineChromiumPerformanceInput(
   value: unknown,
 ): ChromiumPerformanceInput {
   assertRecord(value, "Chromium performance input");
   assertExactKeys(
     value,
-    ["capsuleStructure", "observations", "provenance"],
+    [
+      "capsuleStructure",
+      "observations",
+      "provenance",
+      ...(Object.hasOwn(value, "artifactShape") ? ["artifactShape"] : []),
+      ...(Object.hasOwn(value, "productShape") ? ["productShape"] : []),
+    ],
     "Chromium performance input",
   );
   if (!Array.isArray(value.observations)) {
@@ -187,18 +263,121 @@ export function defineChromiumPerformanceInput(
       );
     }
   }
+  if (Object.hasOwn(value, "artifactShape")) {
+    const path = "Chromium performance input/artifactShape";
+    assertRecord(value.artifactShape, path);
+    assertExactKeys(
+      value.artifactShape,
+      [
+        "scriptcCArchiveBytes",
+        "scriptcLlvmArchiveBytes",
+        "sharedContentShellBytes",
+      ],
+      path,
+    );
+    for (const [name, size] of Object.entries(value.artifactShape)) {
+      if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+        throw new TypeError(`${path}/${name} must be a positive integer`);
+      }
+    }
+  }
+  if (Object.hasOwn(value, "productShape")) {
+    if (!Array.isArray(value.productShape)) {
+      throw new TypeError("Chromium performance input/productShape must be an array");
+    }
+    for (const [index, observation] of value.productShape.entries()) {
+      const path = `Chromium performance input/productShape/${index}`;
+      assertRecord(observation, path);
+      assertExactKeys(
+        observation,
+        [
+          "baseline",
+          "finalInterop",
+          "lane",
+          "postTeardown",
+          "postWorkload",
+          "rendererPeakRssBytes",
+          "startupMilliseconds",
+          "wallClockMilliseconds",
+          "workloadMilliseconds",
+        ],
+        path,
+      );
+      if (!lanes.includes(observation.lane as ChromiumBenchmarkLane)) {
+        throw new TypeError(`${path}/lane is unsupported`);
+      }
+      const startupMilliseconds = observation.startupMilliseconds;
+      const workloadMilliseconds = observation.workloadMilliseconds;
+      const wallClockMilliseconds = observation.wallClockMilliseconds;
+      if (typeof startupMilliseconds !== "number" ||
+          !Number.isFinite(startupMilliseconds) || startupMilliseconds <= 0) {
+        throw new TypeError(`${path}/startupMilliseconds must be positive`);
+      }
+      if (typeof wallClockMilliseconds !== "number" ||
+          !Number.isFinite(wallClockMilliseconds) || wallClockMilliseconds <= 0) {
+        throw new TypeError(`${path}/wallClockMilliseconds must be positive`);
+      }
+      if (typeof workloadMilliseconds !== "number" ||
+          !Number.isFinite(workloadMilliseconds) || workloadMilliseconds <= 0) {
+        throw new TypeError(`${path}/workloadMilliseconds must be positive`);
+      }
+      if (wallClockMilliseconds < startupMilliseconds + workloadMilliseconds) {
+        throw new TypeError(
+          `${path}/wallClockMilliseconds must include startup and workload time`,
+        );
+      }
+      if (typeof observation.rendererPeakRssBytes !== "number" ||
+          !Number.isSafeInteger(observation.rendererPeakRssBytes) ||
+          observation.rendererPeakRssBytes < 0) {
+        throw new TypeError(
+          `${path}/rendererPeakRssBytes must be a non-negative integer`,
+        );
+      }
+      assertRendererSnapshot(observation.baseline, `${path}/baseline`);
+      assertRendererSnapshot(observation.postWorkload, `${path}/postWorkload`);
+      assertRendererSnapshot(observation.postTeardown, `${path}/postTeardown`);
+      if (observation.finalInterop !== null) {
+        assertRecord(observation.finalInterop, `${path}/finalInterop`);
+        assertExactKeys(
+          observation.finalInterop,
+          ["managedNodeClaims", "managedNodePeers", "managedSubscriptions"],
+          `${path}/finalInterop`,
+        );
+        for (const [name, field] of Object.entries(observation.finalInterop)) {
+          if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0) {
+            throw new TypeError(`${path}/finalInterop/${name} must be non-negative`);
+          }
+        }
+        if ((observation.finalInterop.managedNodeClaims as number) <
+            (observation.finalInterop.managedNodePeers as number)) {
+          throw new TypeError(
+            `${path}/finalInterop has fewer claims than managed peers`,
+          );
+        }
+      }
+      const isCompiled = observation.lane === "scriptc-c" ||
+        observation.lane === "scriptc-llvm";
+      if (isCompiled !== (observation.finalInterop !== null)) {
+        throw new TypeError(
+          `${path}/finalInterop must be present only for ScriptC lanes`,
+        );
+      }
+    }
+  }
   const provenancePath = "Chromium performance input/provenance";
   assertRecord(value.provenance, provenancePath);
   if (
     value.provenance.schemaVersion !== 1 &&
-    value.provenance.schemaVersion !== 2
+    value.provenance.schemaVersion !== 2 &&
+    value.provenance.schemaVersion !== 3
   ) {
-    throw new TypeError(`${provenancePath}/schemaVersion must be 1 or 2`);
+    throw new TypeError(`${provenancePath}/schemaVersion must be 1, 2, or 3`);
   }
   assertExactKeys(
     value.provenance,
     [
-      ...(value.provenance.schemaVersion === 2
+      ...(value.provenance.schemaVersion === 2 ||
+          value.provenance.schemaVersion === 3
         ? ["benchmarkEnvironment"]
         : []),
       "buildArguments",
@@ -257,6 +436,91 @@ export function defineChromiumPerformanceInput(
         !/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/u.test(cpuSet))
     ) {
       throw new TypeError(`${environmentPath}/rendererCpuSet is invalid`);
+    }
+  }
+  if (value.provenance.schemaVersion === 3) {
+    const environmentPath = `${provenancePath}/benchmarkEnvironment`;
+    assertRecord(value.provenance.benchmarkEnvironment, environmentPath);
+    assertExactKeys(
+      value.provenance.benchmarkEnvironment,
+      [
+        "laneIsolation",
+        "rendererCpuSet",
+        "repetitions",
+        "samplesPerRepetition",
+        "workloads",
+      ],
+      environmentPath,
+    );
+    for (const name of ["repetitions", "samplesPerRepetition"] as const) {
+      const field = value.provenance.benchmarkEnvironment[name];
+      if (typeof field !== "number" || !Number.isSafeInteger(field) || field <= 0) {
+        throw new TypeError(`${environmentPath}/${name} must be positive`);
+      }
+    }
+    if (value.provenance.benchmarkEnvironment.laneIsolation !== "fresh-renderer") {
+      throw new TypeError(
+        `${environmentPath}/laneIsolation must be fresh-renderer`,
+      );
+    }
+    const cpuSet = value.provenance.benchmarkEnvironment.rendererCpuSet;
+    if (cpuSet !== null &&
+        (typeof cpuSet !== "string" ||
+         !/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/u.test(cpuSet))) {
+      throw new TypeError(`${environmentPath}/rendererCpuSet is invalid`);
+    }
+    const workloads = value.provenance.benchmarkEnvironment.workloads;
+    if (!Array.isArray(workloads) || workloads.length === 0) {
+      throw new TypeError(`${environmentPath}/workloads must be non-empty`);
+    }
+    const workloadIds = new Set<string>();
+    for (const [index, workload] of workloads.entries()) {
+      const workloadPath = `${environmentPath}/workloads/${index}`;
+      assertRecord(workload, workloadPath);
+      assertExactKeys(
+        workload,
+        ["id", "iterationsPerSample", "warmupIterations"],
+        workloadPath,
+      );
+      if (typeof workload.id !== "string" || workload.id.length === 0 ||
+          workloadIds.has(workload.id)) {
+        throw new TypeError(`${workloadPath}/id must be unique and non-empty`);
+      }
+      workloadIds.add(workload.id);
+      for (const name of ["iterationsPerSample", "warmupIterations"] as const) {
+        const field = workload[name];
+        if (typeof field !== "number" || !Number.isSafeInteger(field) || field <= 0) {
+          throw new TypeError(`${workloadPath}/${name} must be positive`);
+        }
+      }
+    }
+    if (!Array.isArray(value.productShape) || value.productShape.length === 0) {
+      throw new TypeError(
+        "Chromium performance input/productShape is required for schema 3",
+      );
+    }
+    if (value.artifactShape === undefined) {
+      throw new TypeError(
+        "Chromium performance input/artifactShape is required for schema 3",
+      );
+    }
+    const repetitions =
+      value.provenance.benchmarkEnvironment.repetitions as number;
+    const expectedProductShapeCount = repetitions * lanes.length;
+    if (value.productShape.length !== expectedProductShapeCount) {
+      throw new TypeError(
+        `Chromium performance input/productShape must contain ${expectedProductShapeCount} observations`,
+      );
+    }
+    for (const lane of lanes) {
+      const count = value.productShape.filter(
+        (observation) => observation.lane === lane,
+      ).length;
+      if (count !== repetitions) {
+        throw new TypeError(
+          `Chromium performance input/productShape must contain one ${lane} observation per repetition`,
+        );
+      }
     }
   }
   for (const revision of [
@@ -463,10 +727,22 @@ export function evaluateChromiumPerformance(
     if (present) violations.push(`generated scalar capsule uses ${name}`);
   }
 
+  for (const observation of defined.productShape ?? []) {
+    const retainedSubscriptions =
+      observation.finalInterop?.managedSubscriptions;
+    if (retainedSubscriptions !== undefined && retainedSubscriptions !== 0) {
+      violations.push(
+        `${observation.lane} retained ${retainedSubscriptions} managed event subscriptions after its workload sequence`,
+      );
+    }
+  }
+
   return Object.freeze({
     passed: violations.length === 0,
     metrics: Object.freeze(metrics),
     violations: Object.freeze(violations),
     provenance: defined.provenance,
+    productShape: Object.freeze([...(defined.productShape ?? [])]),
+    artifactShape: defined.artifactShape ?? null,
   });
 }

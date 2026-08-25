@@ -9,6 +9,7 @@ import {
   type ChromiumBenchmarkCategory,
   type ChromiumBenchmarkLane,
   type ChromiumBenchmarkObservation,
+  type ChromiumProductShapeObservation,
 } from "@native-typescript/target-chromium";
 import {
   loadScriptCLibraryPlanners,
@@ -65,6 +66,37 @@ const provenance = Object.freeze({
   recordedAt: "2026-08-24T00:00:00.000Z",
 });
 
+function productShape(
+  lane: ChromiumBenchmarkLane,
+  managedSubscriptions = 0,
+): ChromiumProductShapeObservation {
+  const compiled = lane === "scriptc-c" || lane === "scriptc-llvm";
+  const snapshot = Object.freeze({
+    rssBytes: 100_000_000,
+    pssBytes: 90_000_000,
+    documents: 1,
+    nodes: 8,
+    jsEventListeners: 0,
+  });
+  return Object.freeze({
+    lane,
+    startupMilliseconds: 50,
+    workloadMilliseconds: 400,
+    wallClockMilliseconds: 500,
+    rendererPeakRssBytes: 120_000_000,
+    baseline: snapshot,
+    postWorkload: snapshot,
+    postTeardown: snapshot,
+    finalInterop: compiled
+      ? Object.freeze({
+        managedNodePeers: 1,
+        managedNodeClaims: 1,
+        managedSubscriptions,
+      })
+      : null,
+  });
+}
+
 test("Chromium performance input is exact and deeply frozen", () => {
   const input = defineChromiumPerformanceInput({
     observations: [
@@ -116,6 +148,87 @@ test("Chromium performance input is exact and deeply frozen", () => {
   );
 });
 
+test("schema 3 records one renderer product-shape sample per lane", () => {
+  const observations = [
+    ...workload("set-text", "primitive", {
+      cpp: 100,
+      "scriptc-c": 100,
+      "scriptc-llvm": 100,
+      v8: 100,
+    }),
+    ...workload("dom-batch", "boundary-heavy", {
+      cpp: 100,
+      "scriptc-c": 80,
+      "scriptc-llvm": 80,
+      v8: 100,
+    }),
+  ];
+  const schema3Provenance = {
+    ...provenance,
+    schemaVersion: 3 as const,
+    benchmarkEnvironment: {
+      workloads: [
+        { id: "set-text", iterationsPerSample: 100, warmupIterations: 20 },
+        { id: "dom-batch", iterationsPerSample: 10, warmupIterations: 2 },
+      ],
+      samplesPerRepetition: 20,
+      repetitions: 1,
+      laneIsolation: "fresh-renderer" as const,
+      rendererCpuSet: null,
+    },
+  };
+  const productShapeSamples = lanes.map((lane) => productShape(lane));
+  const report = evaluateChromiumPerformance({
+    observations,
+    capsuleStructure: cleanCapsule,
+    provenance: schema3Provenance,
+    productShape: productShapeSamples,
+    artifactShape: {
+      sharedContentShellBytes: 1_000_000,
+      scriptcCArchiveBytes: 10_000,
+      scriptcLlvmArchiveBytes: 12_000,
+    },
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.productShape.length, 4);
+  assert.equal(Object.isFrozen(report.productShape), true);
+  assert.throws(
+    () => defineChromiumPerformanceInput({
+      observations,
+      capsuleStructure: cleanCapsule,
+      provenance: schema3Provenance,
+      productShape: productShapeSamples.slice(1),
+      artifactShape: {
+        sharedContentShellBytes: 1_000_000,
+        scriptcCArchiveBytes: 10_000,
+        scriptcLlvmArchiveBytes: 12_000,
+      },
+    }),
+    /must contain 4 observations/u,
+  );
+
+  const leaking = evaluateChromiumPerformance({
+    observations,
+    capsuleStructure: cleanCapsule,
+    provenance: schema3Provenance,
+    productShape: productShapeSamples.map((observation) =>
+      observation.lane === "scriptc-c"
+        ? productShape("scriptc-c", 1)
+        : observation
+    ),
+    artifactShape: {
+      sharedContentShellBytes: 1_000_000,
+      scriptcCArchiveBytes: 10_000,
+      scriptcLlvmArchiveBytes: 12_000,
+    },
+  });
+  assert.equal(leaking.passed, false);
+  assert.ok(leaking.violations.some((violation) =>
+    violation.includes("retained 1 managed event subscriptions")
+  ));
+});
+
 test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => {
   const webIdlRoot = resolve(chromiumPackageRoot, "chromium/webidl");
   const manifest = assertScabiManifest(JSON.parse(readFileSync(
@@ -125,10 +238,17 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
   const translated = translateScabiNativeProgram(manifest, {
     imports: [
       "web_current_document",
+      "web_document_body",
       "web_document_create_element",
       "web_document_create_text_node",
       "web_node_append_child",
+      "web_node_remove_child",
+      "web_element_set_attribute",
+      "web_element_query_selector",
+      "web_html_element_click",
       "web_character_data_set_data",
+      "web_event_target_listen",
+      "web_subscription_release",
     ],
     exports: [],
   });
@@ -141,7 +261,7 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
   );
   if (!translated.ok) return;
 
-  const benchmarkRoot = resolve(chromiumPackageRoot, "benchmark/scriptc");
+  const benchmarkRoot = resolve(chromiumPackageRoot, "../../benchmarks/chromium/scriptc");
   const { planLibraryCompilation, planLibraryExternalCBuild } =
     await loadScriptCLibraryPlanners();
   for (const backend of ["c", "llvm"] as const) {
@@ -166,11 +286,20 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
       planned.plan.ir,
       /96324a4012fe62f48b9463a67486eeb645bc5c78#web_document_create_element/u,
     );
+    const profile = JSON.parse(readFileSync(
+      resolve(benchmarkRoot, `profile-${backend}.json`),
+      "utf8",
+    )) as {
+      readonly abi: {
+        readonly init_symbol: string;
+        readonly sink_register_symbol: string;
+      };
+      readonly exports: readonly { readonly symbol: string }[];
+    };
     assert.deepEqual(planned.plan.nativeBuild.localizeSymbols, [
-      `nts_chromium_scriptc_${backend}_init`,
-      `nts_chromium_scriptc_${backend}_set_panic_sink`,
-      `nts_chromium_scriptc_${backend}_create_elements`,
-      `nts_chromium_scriptc_${backend}_create_detached_counter_trees`,
+      profile.abi.init_symbol,
+      profile.abi.sink_register_symbol,
+      ...profile.exports.map(({ symbol }) => symbol),
     ]);
     const { localizeSymbols: _, ...unlocalizedNativeBuild } =
       planned.plan.nativeBuild;

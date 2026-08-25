@@ -1,6 +1,6 @@
 # Chromium feasibility package
 
-Status: first direct-Blink slice built and browser-accepted; not an implemented target provider
+Status: generated direct-Blink counter browser-accepted and release-measured; not an implemented target provider
 
 This package is the Native TypeScript home for the direct-Blink feasibility
 work originally developed in the temporary `electron-like` repository. It
@@ -50,6 +50,8 @@ The repository's normal tests prove:
   evidence;
 - equivalent ScriptC C and LLVM plans for the first benchmark kernel, with
   target-owned runtime localization so both archives can share one renderer.
+- compiler-selected frame-bounded DOM handles with managed rooted peers retained
+  for escaping identity and callback lifetimes.
 
 The networked patch verifier additionally proves that every selected product
 and fixture patch applies to the exact pinned Chromium sources.
@@ -62,8 +64,11 @@ script-free browser acceptance lane: the rendered counter changed from
 completed, the product path preserved distinct sanitized and privileged
 SecurityError messages, and navigation caused explicit host teardown.
 
-That is evidence for the direct-Blink C/C++ oracle and fixture host, not yet for
-a renderer-hosted ScriptC instance or a compiled TypeScript counter. The
+The same pinned debug browser now accepts the generated TypeScript counter
+through both ScriptC C and LLVM. Each backend creates and mutates real DOM,
+handles a real input event, preserves the reached exception projections, and
+tears down its realm-owned state on navigation. This is still a fixture-hosted
+ScriptC instance rather than a production renderer lifecycle. The
 `content_shell` target and its complete dependency graph were built; the larger
 `chrome` product target was not.
 
@@ -195,15 +200,21 @@ before invoking the build helper. This changes only transient tool files; the
 Chromium output directory and its incremental build cache remain unchanged.
 
 The release fixture contains handwritten C++, ScriptC C, ScriptC LLVM, and
-ordinary page-JavaScript lanes for the same hardcoded
-`document.createElement("div")` operation. Both generated archives are compiled
-with Chromium's pinned Clang and Linux sysroot; the target supplies the one
-runtime compatibility adapter needed by that baseline. The harness records raw
-primitive and batched samples plus Chromium, Native TypeScript, ScriptC,
-toolchain, binary, archive, fixture, GN, repetition, lane-isolation, and CPU-set
-identities. Each lane runs in a fresh renderer. On heterogeneous Linux CPUs,
-`--renderer-cpu-set` should select one measured core class without constraining
-the browser and display-server support processes.
+ordinary page-JavaScript lanes for a generated application-shaped matrix. Both
+generated archives are compiled with Chromium's pinned Clang and Linux sysroot.
+The harness records raw per-call and compiled-loop samples plus Chromium,
+Native TypeScript, ScriptC, toolchain, binary, archive, fixture, GN, repetition,
+lane-isolation, and CPU-set identities. Each lane runs in a fresh renderer. On
+heterogeneous Linux CPUs, `--renderer-cpu-set` should select one measured core
+class without constraining the browser and display-server support processes.
+
+The runner also records renderer-only RSS, PSS, peak RSS, live DOM/listener
+counts, startup/workload/teardown wall time, managed ScriptC/Oilpan peer and
+subscription counts, and shared-binary/archive sizes. It explicitly navigates
+from a measured blank baseline into the workload and back to blank for a
+post-collection teardown snapshot. See the
+[benchmark README](../../benchmarks/chromium/README.md) for the workload matrix,
+measurement protocol, and standards-test pyramid.
 
 At the pinned revision, the official non-component fixture has completed a
 full `content_shell` build with ThinLTO and `chrome_pgo_phase=0`. Structural
@@ -212,14 +223,28 @@ and both localized ScriptC archives, and that each archive exports exactly its
 three declared backend-specific symbols. That structural verification is
 separate from timing, which still requires a quiet-system window.
 
-The first controlled run at this pin used three repetitions, 30 samples per
-repetition, 100,000 operations per sample, a fresh renderer per lane, and
-renderer CPU set `0`. Its 90-sample report passes every initial gate. For the
-one-call primitive, ScriptC C is 1.045x C++ at median and 1.163x at p95;
-ScriptC LLVM is 1.028x and 0.978x. Their medians are 0.463x and 0.455x V8. For
-the compiled-loop batch, C and LLVM medians are 0.559x and 0.588x V8. This is a
-result for the initial `Document.createElement` falsifier only, not a general
-DOM-performance claim.
+The current generated-WebIDL run at this pin used three repetitions, 30 samples
+per repetition, 100,000 operations per sample, a fresh renderer per lane, and
+renderer CPU set `0`. Its 90-sample report passes every latency and structural
+gate:
+
+| Workload median | C++ | ScriptC C | ScriptC LLVM | V8 |
+| --- | ---: | ---: | ---: | ---: |
+| Create element, compiled loop | 53.64 ns | 61.96 ns | 61.58 ns | 97.50 ns |
+| Create element, per call | 51.83 ns | 63.02 ns | 64.60 ns | 112.50 ns |
+| Detached counter tree, compiled loop | 334.66 ns | 364.59 ns | 362.84 ns | 420.00 ns |
+| Detached counter tree, per call | 337.53 ns | 379.92 ns | 374.42 ns | 413.00 ns |
+
+The generated ScriptC medians are 1.084–1.246x handwritten C++ and
+0.560–0.920x V8. A second controlled run of the exact same source and binary
+also passed. The lifetime rule, before/after result, caveats, and exact local
+evidence coordinates are in
+[`record 0057`](../../docs/records/0057-direct-blink-frame-bounded-handles.md).
+This remains evidence for the earlier two-workload reached synchronous DOM
+surface, not a general DOM-performance claim. The expanded matrix and
+product-shape instrument are implemented and structurally validated but have
+not replaced this table until the optimized browser is rebuilt and measured;
+see [`record 0058`](../../docs/records/0058-chromium-application-performance-matrix.md).
 
 Those helpers are research tools. The product build must express checkout
 validation, patches, overlays, GN/Ninja tools, outputs, and provenance as
@@ -227,12 +252,11 @@ declared artifact-graph inputs and actions.
 
 ## Next gates
 
-1. Replace the now-browser-proven C oracle with compiled TypeScript through
-   both ScriptC backends.
-2. Reconcile Blink object roots with ScriptC handles and prove realm
-   invalidation.
-3. Project the captured DOM failure into the compiler-owned outcome model and
-   prove event identity/cancellation and
-   promise/microtask ordering.
-4. Extend the now-passing initial release falsifier from `createElement` to
-   representative mutation, query, event, and teardown workloads.
+1. Rebuild and accept the expanded application-shaped matrix, then record its
+   latency, renderer-memory, DOM-retention, and artifact-size results.
+2. Adapt reached Test262 and Web Platform Test semantics into the compiled
+   harness and add Speedometer-shaped end-to-end user journeys.
+3. Prove event payload identity and cancellation plus promise/microtask
+   ordering through the compiler-owned runtime.
+4. Replace the fixture host with a production renderer-owned ScriptC lifecycle
+   and declared Chromium application artifacts.

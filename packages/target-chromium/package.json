@@ -16,6 +16,7 @@
     "sync:chromium": "node scripts/sync-chromium.ts",
     "export:webidl": "node scripts/export-chromium-webidl.ts",
     "generate:webidl": "node scripts/generate-chromium-webidl.ts",
+    "generate:benchmark": "node scripts/generate-chromium-benchmark.ts",
     "verify:abi": "node scripts/verify-chromium-abi.ts",
     "build:benchmark-libraries": "node scripts/build-chromium-benchmark-libraries.ts",
     "build:benchmark": "node scripts/build-chromium-benchmark.ts",

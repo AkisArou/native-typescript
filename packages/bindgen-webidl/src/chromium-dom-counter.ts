@@ -37,8 +37,12 @@ interface CounterSelection {
   readonly documentBody: ChromiumWebIdlAttribute;
   readonly documentCreateElement: ChromiumWebIdlOperation;
   readonly documentCreateTextNode: ChromiumWebIdlOperation;
+  readonly elementQuerySelector: ChromiumWebIdlOperation;
+  readonly elementSetAttribute: ChromiumWebIdlOperation;
   readonly eventTargetAddEventListener: ChromiumWebIdlOperation;
+  readonly htmlElementClick: ChromiumWebIdlOperation;
   readonly nodeAppendChild: ChromiumWebIdlOperation;
+  readonly nodeRemoveChild: ChromiumWebIdlOperation;
   readonly interfaces: Readonly<Record<string, ChromiumWebIdlInterface>>;
 }
 
@@ -172,6 +176,69 @@ function selectCounterSurface(database: ChromiumWebIdlSlice): CounterSelection {
     throw new Error("NTS-WEBIDL-112: Node.appendChild has an unsupported Blink call shape");
   }
 
+  const removeChild = node.operations.find((candidate) =>
+    candidate.name === "removeChild" && candidate.arguments.length === 1
+  );
+  if (
+    removeChild === undefined || removeChild.static || removeChild.returnType !== "Node" ||
+    removeChild.arguments[0]?.name !== "child" ||
+    removeChild.arguments[0]?.type !== "Node" ||
+    removeChild.arguments[0]?.optionality !== "required" ||
+    removeChild.implementedAs !== "removeChild" ||
+    !sameStrings(removeChild.extendedAttributes, [
+      "CEReactions",
+      "RaisesException",
+      "RuntimeCallStatsCounter",
+    ])
+  ) {
+    throw new Error("NTS-WEBIDL-120: Node.removeChild has an unsupported Blink call shape");
+  }
+
+  const setAttribute = element.operations.find((candidate) =>
+    candidate.name === "setAttribute" &&
+    candidate.arguments.length === 2 &&
+    candidate.arguments[1]?.type === "DOMString"
+  );
+  if (
+    setAttribute === undefined || setAttribute.static ||
+    setAttribute.returnType !== "undefined" ||
+    setAttribute.arguments[0]?.name !== "name" ||
+    setAttribute.arguments[0]?.type !== "DOMString" ||
+    setAttribute.arguments[0]?.optionality !== "required" ||
+    setAttribute.arguments[1]?.name !== "value" ||
+    setAttribute.arguments[1]?.optionality !== "required" ||
+    setAttribute.implementedAs !== "setAttribute" ||
+    !sameStrings(setAttribute.extendedAttributes, ["CEReactions", "RaisesException"])
+  ) {
+    throw new Error("NTS-WEBIDL-121: Element.setAttribute has an unsupported Blink call shape");
+  }
+
+  const querySelector = element.operations.find((candidate) =>
+    candidate.name === "querySelector" && candidate.arguments.length === 1
+  );
+  if (
+    querySelector === undefined || querySelector.static ||
+    querySelector.returnType !== "Element?" ||
+    querySelector.arguments[0]?.name !== "selectors" ||
+    querySelector.arguments[0]?.type !== "DOMString" ||
+    querySelector.arguments[0]?.optionality !== "required" ||
+    querySelector.implementedAs !== "querySelector" ||
+    !sameStrings(querySelector.extendedAttributes, ["Affects", "RaisesException"])
+  ) {
+    throw new Error("NTS-WEBIDL-122: Element.querySelector has an unsupported Blink call shape");
+  }
+
+  const click = htmlElement.operations.find((candidate) =>
+    candidate.name === "click" && candidate.arguments.length === 0
+  );
+  if (
+    click === undefined || click.static || click.returnType !== "void" ||
+    click.implementedAs !== "click" ||
+    !sameStrings(click.extendedAttributes, ["RuntimeCallStatsCounter"])
+  ) {
+    throw new Error("NTS-WEBIDL-123: HTMLElement.click has an unsupported Blink call shape");
+  }
+
   const addEventListener = eventTarget.operations.find((candidate) =>
     candidate.name === "addEventListener"
   );
@@ -199,8 +266,12 @@ function selectCounterSurface(database: ChromiumWebIdlSlice): CounterSelection {
     documentBody: body,
     documentCreateElement: createElement,
     documentCreateTextNode: createTextNode,
+    elementQuerySelector: querySelector,
+    elementSetAttribute: setAttribute,
     eventTargetAddEventListener: addEventListener,
+    htmlElementClick: click,
     nodeAppendChild: appendChild,
+    nodeRemoveChild: removeChild,
     interfaces: {
       CharacterData: characterData,
       Document: document,
@@ -223,9 +294,15 @@ function declarations(): string {
     "}",
     "export declare abstract class Node extends EventTarget {",
     "  appendChild(node: Node): Node;",
+    "  removeChild(child: Node): Node;",
     "}",
-    "export declare abstract class Element extends Node {}",
-    "export declare abstract class HTMLElement extends Element {}",
+    "export declare abstract class Element extends Node {",
+    "  querySelector(selectors: string): Element | null;",
+    "  setAttribute(name: string, value: string): void;",
+    "}",
+    "export declare abstract class HTMLElement extends Element {",
+    "  click(): void;",
+    "}",
     "export declare abstract class CharacterData extends Node {",
     "  set data(value: string);",
     "}",
@@ -491,6 +568,54 @@ function generateManifest(
       error: errorContract,
       bindingDependencies: ["web_node_release", ...errorDependencies],
     }),
+    web_node_remove_child: callable({
+      kind: "method",
+      declaration: "Node.removeChild",
+      symbol: "nts_web_node_remove_child_managed",
+      parameters: [
+        borrowedHandle("parent", "node"),
+        borrowedHandle("child", "node"),
+      ],
+      result: ownedHandle("node", false, "nts_web_node_remove_child_frame"),
+      error: errorContract,
+      bindingDependencies: ["web_node_release", ...errorDependencies],
+    }),
+    web_element_set_attribute: callable({
+      kind: "method",
+      declaration: "Element.setAttribute",
+      symbol: "nts_web_element_set_attribute",
+      parameters: [
+        borrowedHandle("element", "element"),
+        ...utf8Parameters("name"),
+        ...utf8Parameters("value"),
+      ],
+      result: value("void"),
+      error: errorContract,
+      bindingDependencies: errorDependencies,
+    }),
+    web_element_query_selector: callable({
+      kind: "method",
+      declaration: "Element.querySelector",
+      symbol: "nts_web_element_query_selector_managed",
+      parameters: [
+        borrowedHandle("element", "element"),
+        ...utf8Parameters("selectors"),
+      ],
+      result: ownedHandle(
+        "element",
+        true,
+        "nts_web_element_query_selector_frame",
+      ),
+      error: errorContract,
+      bindingDependencies: ["web_node_release", ...errorDependencies],
+    }),
+    web_html_element_click: callable({
+      kind: "method",
+      declaration: "HTMLElement.click",
+      symbol: "nts_web_html_element_click",
+      parameters: [borrowedHandle("element", "html_element")],
+      result: value("void"),
+    }),
     web_character_data_set_data: callable({
       kind: "setter",
       declaration: "CharacterData.data",
@@ -519,7 +644,10 @@ function generateManifest(
             cancellationBinding: "web_subscription_release",
             contextParameter: "context",
             allowedInvocationExecutors: [{ kind: "same-as-caller" }],
-            synchronousReturn: false,
+            // DOM dispatch invokes listeners before click()/dispatchEvent()
+            // returns. The callback's own return is void, but delivery is
+            // still synchronous and must permit same-frame re-entry.
+            synchronousReturn: true,
             arguments: [],
             sourceArguments: [],
           },
@@ -569,8 +697,12 @@ function generateManifest(
         "Document.body(get)",
         "Document.createElement(DOMString)",
         "Document.createTextNode(DOMString)",
+        "Element.querySelector(DOMString)",
+        "Element.setAttribute(DOMString,DOMString)",
         "EventTarget.addEventListener(payload-free-owned-projection)",
+        "HTMLElement.click()",
         "Node.appendChild(Node)",
+        "Node.removeChild(Node)",
       ],
       inputDigests: [options.webIdlDatabaseDigest, options.typescriptLibraryDigest],
     },
@@ -665,8 +797,12 @@ function generateManifest(
           "Document.body(get)",
           "Document.createElement(DOMString)",
           "Document.createTextNode(DOMString)",
+          "Element.querySelector(DOMString)",
+          "Element.setAttribute(DOMString,DOMString)",
           "EventTarget.addEventListener(payload-free-owned-projection)",
+          "HTMLElement.click()",
           "Node.appendChild(Node)",
+          "Node.removeChild(Node)",
         ],
       },
     },
@@ -705,6 +841,18 @@ function capsuleHeader(): string {
     "blink::Node* NodeAppendChild(blink::Node& receiver,",
     "                             blink::Node& node,",
     "                             blink::ExceptionState& exception_state);",
+    "blink::Node* NodeRemoveChild(blink::Node& receiver,",
+    "                             blink::Node& child,",
+    "                             blink::ExceptionState& exception_state);",
+    "void ElementSetAttribute(blink::Element& receiver,",
+    "                         const blink::AtomicString& name,",
+    "                         const blink::AtomicString& value,",
+    "                         blink::ExceptionState& exception_state);",
+    "blink::Element* ElementQuerySelector(",
+    "    blink::Element& receiver,",
+    "    const blink::AtomicString& selectors,",
+    "    blink::ExceptionState& exception_state);",
+    "void HTMLElementClick(blink::HTMLElement& receiver);",
     "void CharacterDataSetData(blink::CharacterData& receiver,",
     "                          const blink::String& data);",
     "}  // namespace nts::blink_bridge::generated",
@@ -736,6 +884,28 @@ function capsuleHeader(): string {
     "    NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);",
     "extern \"C\" NtsWebNode* nts_web_node_append_child_frame(",
     "    NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_node_remove_child_managed(",
+    "    NtsWebNode* parent, NtsWebNode* child, NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_node_remove_child_frame(",
+    "    NtsWebNode* parent, NtsWebNode* child, NtsWebError** error);",
+    "extern \"C\" void nts_web_element_set_attribute(",
+    "    NtsWebNode* element,",
+    "    const uint8_t* name_data,",
+    "    size_t name_length,",
+    "    const uint8_t* value_data,",
+    "    size_t value_length,",
+    "    NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_element_query_selector_managed(",
+    "    NtsWebNode* element,",
+    "    const uint8_t* selectors_data,",
+    "    size_t selectors_length,",
+    "    NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_element_query_selector_frame(",
+    "    NtsWebNode* element,",
+    "    const uint8_t* selectors_data,",
+    "    size_t selectors_length,",
+    "    NtsWebError** error);",
+    "extern \"C\" void nts_web_html_element_click(NtsWebNode* element);",
     "extern \"C\" void nts_web_character_data_set_data_managed(",
     "    NtsWebNode* character_data, const uint8_t* data, size_t data_length);",
     "extern \"C\" NtsWebManagedSubscription* nts_web_event_target_listen(",
@@ -802,6 +972,32 @@ function capsuleSource(selection: CounterSelection): string {
     "                             blink::Node& node,",
     "                             blink::ExceptionState& exception_state) {",
     `  return receiver.${selection.nodeAppendChild.implementedAs}(&node, exception_state);`,
+    "}",
+    "",
+    "blink::Node* NodeRemoveChild(blink::Node& receiver,",
+    "                             blink::Node& child,",
+    "                             blink::ExceptionState& exception_state) {",
+    `  return receiver.${selection.nodeRemoveChild.implementedAs}(&child, exception_state);`,
+    "}",
+    "",
+    "void ElementSetAttribute(blink::Element& receiver,",
+    "                         const blink::AtomicString& name,",
+    "                         const blink::AtomicString& value,",
+    "                         blink::ExceptionState& exception_state) {",
+    `  receiver.${selection.elementSetAttribute.implementedAs}(`,
+    "      name, value, exception_state);",
+    "}",
+    "",
+    "blink::Element* ElementQuerySelector(",
+    "    blink::Element& receiver,",
+    "    const blink::AtomicString& selectors,",
+    "    blink::ExceptionState& exception_state) {",
+    `  return receiver.${selection.elementQuerySelector.implementedAs}(`,
+    "      selectors, exception_state);",
+    "}",
+    "",
+    "void HTMLElementClick(blink::HTMLElement& receiver) {",
+    `  receiver.${selection.htmlElementClick.implementedAs}();`,
     "}",
     "",
     "void CharacterDataSetData(blink::CharacterData& receiver,",

@@ -26,13 +26,19 @@ selection = {
         "attributes": {"body"},
         "operations": {"createElement", "createTextNode"},
     },
-    "Element": {"attributes": set(), "operations": set()},
+    "Element": {
+        "attributes": set(),
+        "operations": {"querySelector", "setAttribute"},
+    },
     "EventTarget": {
         "attributes": set(),
         "operations": {"addEventListener"},
     },
-    "HTMLElement": {"attributes": set(), "operations": set()},
-    "Node": {"attributes": set(), "operations": {"appendChild"}},
+    "HTMLElement": {"attributes": set(), "operations": {"click"}},
+    "Node": {
+        "attributes": set(),
+        "operations": {"appendChild", "removeChild"},
+    },
     "Text": {"attributes": set(), "operations": set()},
 }
 

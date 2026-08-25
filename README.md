@@ -269,6 +269,55 @@ resource-domain optimizations remain documented in
 reproducible instrument is described in
 [the Android benchmark README](benchmarks/android/README.md).
 
+### Chromium and direct Blink
+
+The first generated Chromium slice now compiles ordinary TypeScript through
+both ScriptC backends and calls Blink directly without V8 values, source
+evaluation, generic dispatch, or a JavaScript compatibility realm. The reached
+surface constructs and mutates DOM nodes, owns event subscriptions, projects
+native errors, and invalidates realm-owned state on navigation.
+
+#### Current Chromium benchmark
+
+The current official `content_shell` measurement compares handwritten C++,
+ScriptC C, ScriptC LLVM, and ordinary Chromium V8 JavaScript in one pinned
+optimized binary. Every lane performs identical Blink-visible work in a fresh
+renderer on CPU 0. These are medians from three repetitions with 30 samples
+per repetition, 100,000 operations per sample, and checked results. Lower is
+better.
+
+| Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Create element, compiled loop | 53.64 ns | 61.96 ns | 61.58 ns | 97.50 ns | 1.155x | 1.148x | **0.635x** | **0.632x** |
+| Create element, per call | 51.83 ns | 63.02 ns | 64.60 ns | 112.50 ns | 1.216x | 1.246x | **0.560x** | **0.574x** |
+| Detached counter tree, compiled loop | 334.66 ns | 364.59 ns | 362.84 ns | 420.00 ns | 1.089x | 1.084x | **0.868x** | **0.864x** |
+| Detached counter tree, per call | 337.53 ns | 379.92 ns | 374.42 ns | 413.00 ns | 1.126x | 1.109x | **0.920x** | **0.907x** |
+
+“Per call” includes one host-to-compiled-function call per DOM operation;
+“compiled loop” keeps the complete iteration loop inside the compared lane.
+The detached counter tree creates a button and text node, appends the text, and
+changes it from `Count: 0` to `Count: 1`. The generated lanes are within
+8.4–24.6% of handwritten C++ and are 8.0–44.0% faster than V8 in this repeated
+four-workload matrix.
+
+This is strong evidence for the reached synchronous DOM boundary, not a claim
+that arbitrary Native TypeScript DOM applications are faster than JavaScript.
+As a workload becomes dominated by the same Blink implementation, all four
+lanes should converge. The tiered raw-frame/managed-root lifetime rule,
+before-and-after measurements, acceptance evidence, exact provenance, and raw
+report coordinates are in
+[record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
+
+The next instrument expands that baseline to seven application-shaped workload
+families and adds renderer-only RSS/PSS/peak RSS, live DOM/listener counts,
+blank-page baseline and teardown snapshots, ScriptC/Oilpan peer diagnostics,
+and archive sizes. Its implementation checkpoint is
+[record 0058](docs/records/0058-chromium-application-performance-matrix.md),
+and its complete protocol lives in the
+[Chromium benchmark README](benchmarks/chromium/README.md). The expanded matrix
+is not shown in this performance table until its optimized browser build and
+quiet-system measurement complete.
+
 ### iOS
 
 UIKit remains available as an ordinary native target surface, with Objective-C

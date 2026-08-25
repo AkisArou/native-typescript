@@ -255,6 +255,101 @@ NtsWebNode* NodeAppendChild(NtsWebNode* parent,
   return ExposeNode(realm, result, lifetime);
 }
 
+NtsWebNode* NodeRemoveChild(NtsWebNode* parent,
+                            NtsWebNode* child,
+                            NtsWebError** error,
+                            ResultLifetime lifetime) {
+  if (error) {
+    *error = nullptr;
+  }
+  NtsWebRealm* realm = nullptr;
+  blink::Node* resolved_parent =
+      ResolveInput(parent, nts::blink_bridge::ManagedWebType::kNode, realm);
+  blink::Node* resolved_child =
+      ResolveInput(child, nts::blink_bridge::ManagedWebType::kNode, realm);
+  if (!resolved_parent || !resolved_child) {
+    SetError(error, "Node.removeChild receiver or argument is unavailable");
+    return nullptr;
+  }
+  BindingNeutralExceptionCapture capture;
+  blink::ExceptionState& exception_state = ExceptionState(capture);
+  blink::Node* result = nts::blink_bridge::generated::NodeRemoveChild(
+      *resolved_parent, *resolved_child, exception_state);
+  if (exception_state.HadException()) {
+    SetError(error, ExceptionMessage(capture));
+    return nullptr;
+  }
+  if (!result) {
+    SetError(error, "Node.removeChild returned no Node");
+    return nullptr;
+  }
+  return ExposeNode(realm, result, lifetime);
+}
+
+void ElementSetAttribute(NtsWebNode* element,
+                         const uint8_t* name_data,
+                         size_t name_length,
+                         const uint8_t* value_data,
+                         size_t value_length,
+                         NtsWebError** error) {
+  if (error) {
+    *error = nullptr;
+  }
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::Element>(
+      element, nts::blink_bridge::ManagedWebType::kElement, realm);
+  if (!resolved) {
+    SetError(error, "Element.setAttribute receiver is unavailable");
+    return;
+  }
+  const blink::AtomicString name = DecodeUtf8Atomic(name_data, name_length);
+  const blink::AtomicString value = DecodeUtf8Atomic(value_data, value_length);
+  if ((name.IsNull() && name_length != 0) ||
+      (value.IsNull() && value_length != 0)) {
+    SetError(error, "Element.setAttribute received invalid UTF-8");
+    return;
+  }
+  BindingNeutralExceptionCapture capture;
+  blink::ExceptionState& exception_state = ExceptionState(capture);
+  nts::blink_bridge::generated::ElementSetAttribute(
+      *resolved, name, value, exception_state);
+  if (exception_state.HadException()) {
+    SetError(error, ExceptionMessage(capture));
+  }
+}
+
+NtsWebNode* ElementQuerySelector(NtsWebNode* element,
+                                 const uint8_t* selectors_data,
+                                 size_t selectors_length,
+                                 NtsWebError** error,
+                                 ResultLifetime lifetime) {
+  if (error) {
+    *error = nullptr;
+  }
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::Element>(
+      element, nts::blink_bridge::ManagedWebType::kElement, realm);
+  if (!resolved) {
+    SetError(error, "Element.querySelector receiver is unavailable");
+    return nullptr;
+  }
+  const blink::AtomicString selectors =
+      DecodeUtf8Atomic(selectors_data, selectors_length);
+  if (selectors.IsNull() && selectors_length != 0) {
+    SetError(error, "Element.querySelector received invalid UTF-8");
+    return nullptr;
+  }
+  BindingNeutralExceptionCapture capture;
+  blink::ExceptionState& exception_state = ExceptionState(capture);
+  blink::Element* result = nts::blink_bridge::generated::ElementQuerySelector(
+      *resolved, selectors, exception_state);
+  if (exception_state.HadException()) {
+    SetError(error, ExceptionMessage(capture));
+    return nullptr;
+  }
+  return ExposeNode(realm, result, lifetime);
+}
+
 }  // namespace
 
 extern "C" NtsWebNode* nts_web_current_document() {
@@ -317,6 +412,56 @@ extern "C" NtsWebNode* nts_web_node_append_child_frame(NtsWebNode* parent,
                                                        NtsWebNode* node,
                                                        NtsWebError** error) {
   return NodeAppendChild(parent, node, error, ResultLifetime::kFrameBounded);
+}
+
+extern "C" NtsWebNode* nts_web_node_remove_child_managed(NtsWebNode* parent,
+                                                          NtsWebNode* child,
+                                                          NtsWebError** error) {
+  return NodeRemoveChild(parent, child, error, ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_node_remove_child_frame(NtsWebNode* parent,
+                                                        NtsWebNode* child,
+                                                        NtsWebError** error) {
+  return NodeRemoveChild(parent, child, error, ResultLifetime::kFrameBounded);
+}
+
+extern "C" void nts_web_element_set_attribute(
+    NtsWebNode* element,
+    const uint8_t* name_data,
+    size_t name_length,
+    const uint8_t* value_data,
+    size_t value_length,
+    NtsWebError** error) {
+  ElementSetAttribute(element, name_data, name_length, value_data, value_length,
+                      error);
+}
+
+extern "C" NtsWebNode* nts_web_element_query_selector_managed(
+    NtsWebNode* element,
+    const uint8_t* selectors_data,
+    size_t selectors_length,
+    NtsWebError** error) {
+  return ElementQuerySelector(element, selectors_data, selectors_length, error,
+                              ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_element_query_selector_frame(
+    NtsWebNode* element,
+    const uint8_t* selectors_data,
+    size_t selectors_length,
+    NtsWebError** error) {
+  return ElementQuerySelector(element, selectors_data, selectors_length, error,
+                              ResultLifetime::kFrameBounded);
+}
+
+extern "C" void nts_web_html_element_click(NtsWebNode* element) {
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::HTMLElement>(
+      element, nts::blink_bridge::ManagedWebType::kHTMLElement, realm);
+  if (resolved) {
+    nts::blink_bridge::generated::HTMLElementClick(*resolved);
+  }
 }
 
 extern "C" void nts_web_character_data_set_data_managed(
