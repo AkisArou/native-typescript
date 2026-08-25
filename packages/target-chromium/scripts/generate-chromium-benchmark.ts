@@ -54,13 +54,20 @@ function profile(
 function cppInclude(contract_: ChromiumBenchmarkContract): string {
   return [
     "// Generated from benchmarks/chromium/workloads.json; do not edit.",
-    ...contract_.workloads.map((workload) =>
-      `NTS_CHROMIUM_BENCHMARK_WORKLOAD(${JSON.stringify(workload.id)}, ` +
-      `${workload.cppFunction}, ${workload.symbolStem}, ` +
-      `${workload.perCallIterations}, ${workload.perCallWarmupIterations}, ` +
-      `${workload.compiledLoopIterations}, ` +
-      `${workload.compiledLoopWarmupIterations})`
-    ),
+    ...contract_.workloads.map((workload) => {
+      const budgets = [
+        workload.budgets.cpp,
+        workload.budgets["scriptc-c"],
+        workload.budgets["scriptc-llvm"],
+      ].flatMap((budget) => [
+        budget.perCallIterations,
+        budget.perCallWarmupIterations,
+        budget.compiledLoopIterations,
+        budget.compiledLoopWarmupIterations,
+      ]);
+      return `NTS_CHROMIUM_BENCHMARK_WORKLOAD(${JSON.stringify(workload.id)}, ` +
+        `${workload.cppFunction}, ${workload.symbolStem}, ${budgets.join(", ")})`;
+    }),
     "",
   ].join("\n");
 }
@@ -71,14 +78,14 @@ function browserContract(contract_: ChromiumBenchmarkContract): string {
     "\"use strict\";",
     `globalThis.ntsBenchmarkContract = Object.freeze(${JSON.stringify({
       sampleCount: contract_.sampleCount,
-      workloads: contract_.workloads.map((workload) => ({
-        id: workload.id,
-        function: workload.typescriptExport,
-        perCallIterations: workload.perCallIterations,
-        perCallWarmupIterations: workload.perCallWarmupIterations,
-        compiledLoopIterations: workload.compiledLoopIterations,
-        compiledLoopWarmupIterations: workload.compiledLoopWarmupIterations,
-      })),
+      workloads: contract_.workloads.map((workload) => {
+        const budget = workload.budgets.v8;
+        return {
+          id: workload.id,
+          function: workload.typescriptExport,
+          ...budget,
+        };
+      }),
     })});`,
     "",
   ].join("\n");

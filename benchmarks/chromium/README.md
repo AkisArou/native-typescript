@@ -44,11 +44,12 @@ the managed, Oilpan-rooted handles required for escaped identity.
 Each workload is measured in two shapes. `per-call` invokes a one-operation
 function repeatedly from the host, exposing call-boundary cost. `compiled-loop`
 keeps the whole loop in the lane, matching optimized application code more
-closely. The contract assigns independent iteration and warmup budgets to the
-two shapes. In particular, callback subscription setup/teardown uses a small
-per-call batch while steady-state dispatch through one subscription uses a
-separately calibrated compiled-loop batch. Neither shape alone is treated as
-the product result.
+closely. The contract assigns independent iteration and warmup budgets to each
+shape and lane, records every budget in provenance, and still normalizes every
+sample per operation. In particular, callback subscription setup/teardown uses
+a small ScriptC per-call batch while fast C++ and V8 lanes use larger batches
+for clock resolution. Steady-state dispatch through one subscription has its
+own calibrated batch. Neither shape alone is treated as the product result.
 
 ## Product-shape measurements
 

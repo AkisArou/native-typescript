@@ -34,9 +34,13 @@ extern "C" void nts_chromium_scriptc_c_init(void);
 extern "C" void nts_chromium_scriptc_llvm_init(void);
 
 #define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
-    id, cpp_function, symbol_stem, per_call_iterations,                        \
-    per_call_warmup_iterations, compiled_loop_iterations,                      \
-    compiled_loop_warmup_iterations)                                           \
+    id, cpp_function, symbol_stem, cpp_per_call_iterations,                    \
+    cpp_per_call_warmup_iterations, cpp_compiled_loop_iterations,              \
+    cpp_compiled_loop_warmup_iterations, c_per_call_iterations,                \
+    c_per_call_warmup_iterations, c_compiled_loop_iterations,                  \
+    c_compiled_loop_warmup_iterations, llvm_per_call_iterations,               \
+    llvm_per_call_warmup_iterations, llvm_compiled_loop_iterations,            \
+    llvm_compiled_loop_warmup_iterations)                                      \
   extern "C" double nts_chromium_scriptc_c_##symbol_stem(double);              \
   extern "C" double nts_chromium_scriptc_llvm_##symbol_stem(double);
 #include "third_party/blink/renderer/native_typescript/generated/nts_benchmark_workloads.inc"
@@ -334,29 +338,41 @@ struct KernelSamples {
   uint64_t checksum = 0;
 };
 
-struct WorkloadDefinition {
-  const char *id;
-  LaneFunction cpp;
-  LaneFunction scriptc_c;
-  LaneFunction scriptc_llvm;
+struct WorkloadBudget {
   int per_call_iterations;
   int per_call_warmup_iterations;
   int compiled_loop_iterations;
   int compiled_loop_warmup_iterations;
 };
 
+struct WorkloadDefinition {
+  const char *id;
+  LaneFunction cpp;
+  LaneFunction scriptc_c;
+  LaneFunction scriptc_llvm;
+  WorkloadBudget cpp_budget;
+  WorkloadBudget scriptc_c_budget;
+  WorkloadBudget scriptc_llvm_budget;
+};
+
 #define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
-    id, cpp_function, symbol_stem, per_call_iterations,                        \
-    per_call_warmup_iterations, compiled_loop_iterations,                      \
-    compiled_loop_warmup_iterations)                                           \
+    id, cpp_function, symbol_stem, cpp_per_call_iterations,                    \
+    cpp_per_call_warmup_iterations, cpp_compiled_loop_iterations,              \
+    cpp_compiled_loop_warmup_iterations, c_per_call_iterations,                \
+    c_per_call_warmup_iterations, c_compiled_loop_iterations,                  \
+    c_compiled_loop_warmup_iterations, llvm_per_call_iterations,               \
+    llvm_per_call_warmup_iterations, llvm_compiled_loop_iterations,            \
+    llvm_compiled_loop_warmup_iterations)                                      \
   {id,                                                                         \
    &cpp_function,                                                              \
    &nts_chromium_scriptc_c_##symbol_stem,                                      \
    &nts_chromium_scriptc_llvm_##symbol_stem,                                   \
-   per_call_iterations,                                                        \
-   per_call_warmup_iterations,                                                 \
-   compiled_loop_iterations,                                                   \
-   compiled_loop_warmup_iterations},
+   {cpp_per_call_iterations, cpp_per_call_warmup_iterations,                   \
+    cpp_compiled_loop_iterations, cpp_compiled_loop_warmup_iterations},        \
+   {c_per_call_iterations, c_per_call_warmup_iterations,                       \
+    c_compiled_loop_iterations, c_compiled_loop_warmup_iterations},            \
+   {llvm_per_call_iterations, llvm_per_call_warmup_iterations,                 \
+    llvm_compiled_loop_iterations, llvm_compiled_loop_warmup_iterations}},
 constexpr WorkloadDefinition kWorkloads[] = {
 #include "third_party/blink/renderer/native_typescript/generated/nts_benchmark_workloads.inc"
 };
@@ -364,6 +380,7 @@ constexpr WorkloadDefinition kWorkloads[] = {
 
 struct MeasuredWorkload {
   const WorkloadDefinition *definition;
+  const WorkloadBudget *budget;
   KernelSamples samples;
   nts::blink_bridge::BlinkManagedDiagnostics interop;
 };
@@ -412,6 +429,20 @@ LaneFunction FunctionForLane(const WorkloadDefinition &workload,
   return nullptr;
 }
 
+const WorkloadBudget *BudgetForLane(const WorkloadDefinition &workload,
+                                    const blink::String &lane) {
+  if (lane == "cpp") {
+    return &workload.cpp_budget;
+  }
+  if (lane == "scriptc-c") {
+    return &workload.scriptc_c_budget;
+  }
+  if (lane == "scriptc-llvm") {
+    return &workload.scriptc_llvm_budget;
+  }
+  return nullptr;
+}
+
 std::vector<MeasuredWorkload> MeasureLane(const blink::String &lane,
                                           const blink::String &workload_id) {
   std::vector<MeasuredWorkload> result;
@@ -421,13 +452,16 @@ std::vector<MeasuredWorkload> MeasureLane(const blink::String &lane,
       continue;
     }
     LaneFunction function = FunctionForLane(workload, lane);
+    const WorkloadBudget *budget = BudgetForLane(workload, lane);
     CHECK(function);
+    CHECK(budget);
     result.push_back(MeasuredWorkload{
         .definition = &workload,
-        .samples = MeasureKernel(function, workload.per_call_iterations,
-                                 workload.per_call_warmup_iterations,
-                                 workload.compiled_loop_iterations,
-                                 workload.compiled_loop_warmup_iterations),
+        .budget = budget,
+        .samples = MeasureKernel(function, budget->per_call_iterations,
+                                 budget->per_call_warmup_iterations,
+                                 budget->compiled_loop_iterations,
+                                 budget->compiled_loop_warmup_iterations),
         .interop = current_benchmark_realm->Managed().Diagnostics(),
     });
   }
@@ -462,13 +496,13 @@ blink::String SerializeResult(const blink::String &lane,
     builder.Append("{\"id\":\"");
     builder.Append(workload.definition->id);
     builder.Append("\",\"perCallIterations\":");
-    builder.AppendNumber(workload.definition->per_call_iterations);
+    builder.AppendNumber(workload.budget->per_call_iterations);
     builder.Append(",\"perCallWarmupIterations\":");
-    builder.AppendNumber(workload.definition->per_call_warmup_iterations);
+    builder.AppendNumber(workload.budget->per_call_warmup_iterations);
     builder.Append(",\"compiledLoopIterations\":");
-    builder.AppendNumber(workload.definition->compiled_loop_iterations);
+    builder.AppendNumber(workload.budget->compiled_loop_iterations);
     builder.Append(",\"compiledLoopWarmupIterations\":");
-    builder.AppendNumber(workload.definition->compiled_loop_warmup_iterations);
+    builder.AppendNumber(workload.budget->compiled_loop_warmup_iterations);
     builder.Append(",\"checksum\":");
     builder.AppendNumber(workload.samples.checksum);
     builder.Append(",\"perCall\":");

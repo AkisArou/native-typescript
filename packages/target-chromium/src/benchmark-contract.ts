@@ -3,21 +3,32 @@ export type ChromiumBenchmarkCategory =
   | "boundary-heavy"
   | "mixed";
 
+export interface ChromiumBenchmarkLaneBudget {
+  readonly perCallIterations: number;
+  readonly perCallWarmupIterations: number;
+  readonly compiledLoopIterations: number;
+  readonly compiledLoopWarmupIterations: number;
+}
+
+export interface ChromiumBenchmarkLaneBudgets {
+  readonly cpp: ChromiumBenchmarkLaneBudget;
+  readonly "scriptc-c": ChromiumBenchmarkLaneBudget;
+  readonly "scriptc-llvm": ChromiumBenchmarkLaneBudget;
+  readonly v8: ChromiumBenchmarkLaneBudget;
+}
+
 export interface ChromiumBenchmarkWorkload {
   readonly id: string;
   readonly typescriptExport: string;
   readonly symbolStem: string;
   readonly cppFunction: string;
-  readonly perCallIterations: number;
-  readonly perCallWarmupIterations: number;
-  readonly compiledLoopIterations: number;
-  readonly compiledLoopWarmupIterations: number;
+  readonly budgets: ChromiumBenchmarkLaneBudgets;
   readonly perCallCategory: ChromiumBenchmarkCategory;
   readonly compiledLoopCategory: ChromiumBenchmarkCategory;
 }
 
 export interface ChromiumBenchmarkContract {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly sampleCount: number;
   readonly workloads: readonly ChromiumBenchmarkWorkload[];
 }
@@ -28,6 +39,12 @@ const categories = Object.freeze([
   "primitive",
   "boundary-heavy",
   "mixed",
+] as const);
+const lanes = Object.freeze([
+  "cpp",
+  "scriptc-c",
+  "scriptc-llvm",
+  "v8",
 ] as const);
 
 function assertRecord(
@@ -69,8 +86,8 @@ export function defineChromiumBenchmarkContract(
     ["sampleCount", "schemaVersion", "workloads"],
     "Chromium benchmark contract",
   );
-  if (value.schemaVersion !== 2) {
-    throw new TypeError("Chromium benchmark contract/schemaVersion must be 2");
+  if (value.schemaVersion !== 3) {
+    throw new TypeError("Chromium benchmark contract/schemaVersion must be 3");
   }
   if (!Number.isSafeInteger(value.sampleCount) ||
       (value.sampleCount as number) < 20) {
@@ -86,14 +103,11 @@ export function defineChromiumBenchmarkContract(
     assertExactKeys(
       workload,
       [
+        "budgets",
         "compiledLoopCategory",
-        "compiledLoopIterations",
-        "compiledLoopWarmupIterations",
         "cppFunction",
         "id",
         "perCallCategory",
-        "perCallIterations",
-        "perCallWarmupIterations",
         "symbolStem",
         "typescriptExport",
       ],
@@ -114,15 +128,32 @@ export function defineChromiumBenchmarkContract(
         throw new TypeError(`${path}/${name} must be an identifier`);
       }
     }
-    for (const name of [
-      "compiledLoopIterations",
-      "compiledLoopWarmupIterations",
-      "perCallIterations",
-      "perCallWarmupIterations",
-    ] as const) {
-      if (!Number.isSafeInteger(workload[name]) ||
-          (workload[name] as number) <= 0) {
-        throw new TypeError(`${path}/${name} must be a positive integer`);
+    assertRecord(workload.budgets, `${path}/budgets`);
+    assertExactKeys(workload.budgets, lanes, `${path}/budgets`);
+    for (const lane of lanes) {
+      const budgetPath = `${path}/budgets/${lane}`;
+      const budget = workload.budgets[lane];
+      assertRecord(budget, budgetPath);
+      assertExactKeys(
+        budget,
+        [
+          "compiledLoopIterations",
+          "compiledLoopWarmupIterations",
+          "perCallIterations",
+          "perCallWarmupIterations",
+        ],
+        budgetPath,
+      );
+      for (const name of [
+        "compiledLoopIterations",
+        "compiledLoopWarmupIterations",
+        "perCallIterations",
+        "perCallWarmupIterations",
+      ] as const) {
+        if (!Number.isSafeInteger(budget[name]) ||
+            (budget[name] as number) <= 0) {
+          throw new TypeError(`${budgetPath}/${name} must be a positive integer`);
+        }
       }
     }
     for (const name of ["perCallCategory", "compiledLoopCategory"] as const) {

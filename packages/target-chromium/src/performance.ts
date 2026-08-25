@@ -82,12 +82,18 @@ export interface ChromiumBenchmarkEnvironment {
   readonly rendererCpuSet: string | null;
 }
 
+export interface ChromiumBenchmarkShapeBudget {
+  readonly perCallIterations: number;
+  readonly perCallWarmupIterations: number;
+  readonly compiledLoopIterations: number;
+  readonly compiledLoopWarmupIterations: number;
+}
+
 export interface ChromiumBenchmarkWorkloadEnvironment {
   readonly id: string;
-  readonly perCallIterationsPerSample: number;
-  readonly perCallWarmupIterations: number;
-  readonly compiledLoopIterationsPerSample: number;
-  readonly compiledLoopWarmupIterations: number;
+  readonly budgets: Readonly<
+    Record<ChromiumBenchmarkLane, ChromiumBenchmarkShapeBudget>
+  >;
 }
 
 export interface ChromiumBenchmarkEnvironmentV3 {
@@ -485,31 +491,40 @@ export function defineChromiumPerformanceInput(
     for (const [index, workload] of workloads.entries()) {
       const workloadPath = `${environmentPath}/workloads/${index}`;
       assertRecord(workload, workloadPath);
-      assertExactKeys(
-        workload,
-        [
-          "compiledLoopIterationsPerSample",
-          "compiledLoopWarmupIterations",
-          "id",
-          "perCallIterationsPerSample",
-          "perCallWarmupIterations",
-        ],
-        workloadPath,
-      );
+      assertExactKeys(workload, ["budgets", "id"], workloadPath);
       if (typeof workload.id !== "string" || workload.id.length === 0 ||
           workloadIds.has(workload.id)) {
         throw new TypeError(`${workloadPath}/id must be unique and non-empty`);
       }
       workloadIds.add(workload.id);
-      for (const name of [
-        "compiledLoopIterationsPerSample",
-        "compiledLoopWarmupIterations",
-        "perCallIterationsPerSample",
-        "perCallWarmupIterations",
-      ] as const) {
-        const field = workload[name];
-        if (typeof field !== "number" || !Number.isSafeInteger(field) || field <= 0) {
-          throw new TypeError(`${workloadPath}/${name} must be positive`);
+      const budgetsPath = `${workloadPath}/budgets`;
+      assertRecord(workload.budgets, budgetsPath);
+      assertExactKeys(workload.budgets, lanes, budgetsPath);
+      for (const lane of lanes) {
+        const budgetPath = `${budgetsPath}/${lane}`;
+        const budget = workload.budgets[lane];
+        assertRecord(budget, budgetPath);
+        assertExactKeys(
+          budget,
+          [
+            "compiledLoopIterations",
+            "compiledLoopWarmupIterations",
+            "perCallIterations",
+            "perCallWarmupIterations",
+          ],
+          budgetPath,
+        );
+        for (const name of [
+          "compiledLoopIterations",
+          "compiledLoopWarmupIterations",
+          "perCallIterations",
+          "perCallWarmupIterations",
+        ] as const) {
+          const field = budget[name];
+          if (typeof field !== "number" || !Number.isSafeInteger(field) ||
+              field <= 0) {
+            throw new TypeError(`${budgetPath}/${name} must be positive`);
+          }
         }
       }
     }

@@ -26,6 +26,25 @@ function samples(value: number): readonly number[] {
   return Object.freeze(Array.from({ length: 20 }, () => value));
 }
 
+function benchmarkBudget(
+  perCallIterations: number,
+  perCallWarmupIterations: number,
+  compiledLoopIterations = perCallIterations,
+  compiledLoopWarmupIterations = perCallWarmupIterations,
+): Readonly<{
+  perCallIterations: number;
+  perCallWarmupIterations: number;
+  compiledLoopIterations: number;
+  compiledLoopWarmupIterations: number;
+}> {
+  return Object.freeze({
+    perCallIterations,
+    perCallWarmupIterations,
+    compiledLoopIterations,
+    compiledLoopWarmupIterations,
+  });
+}
+
 function workload(
   name: string,
   category: ChromiumBenchmarkCategory,
@@ -172,17 +191,21 @@ test("schema 3 records product shape per workload and lane", () => {
       workloads: [
         {
           id: "set-text",
-          perCallIterationsPerSample: 100,
-          perCallWarmupIterations: 20,
-          compiledLoopIterationsPerSample: 100,
-          compiledLoopWarmupIterations: 20,
+          budgets: {
+            cpp: benchmarkBudget(100, 20),
+            "scriptc-c": benchmarkBudget(100, 20),
+            "scriptc-llvm": benchmarkBudget(100, 20),
+            v8: benchmarkBudget(100, 20),
+          },
         },
         {
           id: "dom-batch",
-          perCallIterationsPerSample: 10,
-          perCallWarmupIterations: 2,
-          compiledLoopIterationsPerSample: 20,
-          compiledLoopWarmupIterations: 4,
+          budgets: {
+            cpp: benchmarkBudget(10, 2, 20, 4),
+            "scriptc-c": benchmarkBudget(1, 1, 5, 1),
+            "scriptc-llvm": benchmarkBudget(1, 1, 5, 1),
+            v8: benchmarkBudget(10, 2, 20, 4),
+          },
         },
       ],
       samplesPerRepetition: 20,

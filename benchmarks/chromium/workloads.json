@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "sampleCount": 30,
   "workloads": [
     {
@@ -7,10 +7,32 @@
       "typescriptExport": "createElements",
       "symbolStem": "create_elements",
       "cppFunction": "CreateElementsCpp",
-      "perCallIterations": 100000,
-      "perCallWarmupIterations": 20000,
-      "compiledLoopIterations": 100000,
-      "compiledLoopWarmupIterations": 20000,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-c": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "v8": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        }
+      },
       "perCallCategory": "primitive",
       "compiledLoopCategory": "boundary-heavy"
     },
@@ -19,10 +41,32 @@
       "typescriptExport": "createDetachedCounterTrees",
       "symbolStem": "create_detached_counter_trees",
       "cppFunction": "CreateDetachedCounterTreesCpp",
-      "perCallIterations": 100000,
-      "perCallWarmupIterations": 20000,
-      "compiledLoopIterations": 100000,
-      "compiledLoopWarmupIterations": 20000,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-c": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "v8": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "boundary-heavy"
     },
@@ -31,10 +75,32 @@
       "typescriptExport": "updateRetainedAttachedText",
       "symbolStem": "update_retained_attached_text",
       "cppFunction": "UpdateRetainedAttachedTextCpp",
-      "perCallIterations": 100000,
-      "perCallWarmupIterations": 20000,
-      "compiledLoopIterations": 100000,
-      "compiledLoopWarmupIterations": 20000,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-c": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        },
+        "v8": {
+          "perCallIterations": 100000,
+          "perCallWarmupIterations": 20000,
+          "compiledLoopIterations": 100000,
+          "compiledLoopWarmupIterations": 20000
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -43,10 +109,32 @@
       "typescriptExport": "createEightRowComponentLists",
       "symbolStem": "create_eight_row_component_lists",
       "cppFunction": "CreateEightRowComponentListsCpp",
-      "perCallIterations": 1000,
-      "perCallWarmupIterations": 200,
-      "compiledLoopIterations": 1000,
-      "compiledLoopWarmupIterations": 200,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "scriptc-c": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "v8": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -55,10 +143,32 @@
       "typescriptExport": "runSelectorDrivenUpdates",
       "symbolStem": "run_selector_driven_updates",
       "cppFunction": "RunSelectorDrivenUpdatesCpp",
-      "perCallIterations": 5000,
-      "perCallWarmupIterations": 1000,
-      "compiledLoopIterations": 5000,
-      "compiledLoopWarmupIterations": 1000,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 5000,
+          "perCallWarmupIterations": 1000,
+          "compiledLoopIterations": 5000,
+          "compiledLoopWarmupIterations": 1000
+        },
+        "scriptc-c": {
+          "perCallIterations": 5000,
+          "perCallWarmupIterations": 1000,
+          "compiledLoopIterations": 5000,
+          "compiledLoopWarmupIterations": 1000
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 5000,
+          "perCallWarmupIterations": 1000,
+          "compiledLoopIterations": 5000,
+          "compiledLoopWarmupIterations": 1000
+        },
+        "v8": {
+          "perCallIterations": 5000,
+          "perCallWarmupIterations": 1000,
+          "compiledLoopIterations": 5000,
+          "compiledLoopWarmupIterations": 1000
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -67,10 +177,32 @@
       "typescriptExport": "runSynchronousEventRoundTrips",
       "symbolStem": "run_synchronous_event_round_trips",
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
-      "perCallIterations": 1,
-      "perCallWarmupIterations": 1,
-      "compiledLoopIterations": 20,
-      "compiledLoopWarmupIterations": 4,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 100,
+          "perCallWarmupIterations": 20,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "scriptc-c": {
+          "perCallIterations": 1,
+          "perCallWarmupIterations": 1,
+          "compiledLoopIterations": 20,
+          "compiledLoopWarmupIterations": 4
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 1,
+          "perCallWarmupIterations": 1,
+          "compiledLoopIterations": 20,
+          "compiledLoopWarmupIterations": 4
+        },
+        "v8": {
+          "perCallIterations": 100,
+          "perCallWarmupIterations": 20,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -79,10 +211,32 @@
       "typescriptExport": "mountAttachedComponents",
       "symbolStem": "mount_attached_components",
       "cppFunction": "MountAttachedComponentsCpp",
-      "perCallIterations": 1000,
-      "perCallWarmupIterations": 200,
-      "compiledLoopIterations": 1000,
-      "compiledLoopWarmupIterations": 200,
+      "budgets": {
+        "cpp": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "scriptc-c": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "scriptc-llvm": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        },
+        "v8": {
+          "perCallIterations": 1000,
+          "perCallWarmupIterations": 200,
+          "compiledLoopIterations": 1000,
+          "compiledLoopWarmupIterations": 200
+        }
+      },
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     }

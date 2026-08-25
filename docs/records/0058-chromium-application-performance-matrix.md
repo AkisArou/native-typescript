@@ -30,13 +30,14 @@ Synchronous DOM event dispatch now enters the ScriptC callback before `click`
 returns, matching Blink's actual ordering rather than relying on an external
 callback queue.
 
-The two measurement shapes have independent budgets. The event per-call shape
-intentionally measures a small number of complete subscription/click/disposal
-lifecycles because that lifecycle is millisecond-scale in the current ScriptC
-bridge. Its compiled-loop shape uses a separately calibrated batch so
+The two measurement shapes and four lanes have independent, provenance-recorded
+budgets, with every result normalized per operation. The event per-call shape
+intentionally measures one complete subscription/click/disposal lifecycle per
+ScriptC sample because batching that expensive lifecycle trips Chromium's
+hung-renderer protection. Faster C++ and V8 lanes use larger batches for clock
+resolution. The compiled-loop shape has a separately calibrated batch so
 steady-state dispatch through one live listener remains a high-resolution
-measurement. This keeps the pain point visible without allowing it to
-monopolize the full matrix or trip Chromium's hung-renderer protection.
+measurement without monopolizing the full matrix.
 
 ## Oilpan interoperability diagnostics
 

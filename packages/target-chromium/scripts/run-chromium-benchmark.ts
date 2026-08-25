@@ -421,12 +421,13 @@ function parseLaneResult(
     ({ id }) => id === expectedWorkload,
   );
   if (!definition) throw new Error(`Unknown benchmark workload: ${expectedWorkload}`);
+  const budget = definition.budgets[expectedLane];
   {
     const workload = parsed.workloads[0] as Partial<LaneWorkloadResult>;
-    const expectedChecksum = definition.perCallWarmupIterations +
-      benchmarkContract.sampleCount * definition.perCallIterations +
-      definition.compiledLoopWarmupIterations +
-      benchmarkContract.sampleCount * definition.compiledLoopIterations;
+    const expectedChecksum = budget.perCallWarmupIterations +
+      benchmarkContract.sampleCount * budget.perCallIterations +
+      budget.compiledLoopWarmupIterations +
+      benchmarkContract.sampleCount * budget.compiledLoopIterations;
     const interop = workload?.interop;
     const expectedManagedNodes =
       definition.id === "retained-attached-text-update" ? 1 : 0;
@@ -448,22 +449,22 @@ function parseLaneResult(
       [
         "perCallIterations",
         workload.perCallIterations,
-        definition.perCallIterations,
+        budget.perCallIterations,
       ],
       [
         "perCallWarmupIterations",
         workload.perCallWarmupIterations,
-        definition.perCallWarmupIterations,
+        budget.perCallWarmupIterations,
       ],
       [
         "compiledLoopIterations",
         workload.compiledLoopIterations,
-        definition.compiledLoopIterations,
+        budget.compiledLoopIterations,
       ],
       [
         "compiledLoopWarmupIterations",
         workload.compiledLoopWarmupIterations,
-        definition.compiledLoopWarmupIterations,
+        budget.compiledLoopWarmupIterations,
       ],
       ["checksum", workload.checksum, expectedChecksum],
     ] as const) {
@@ -941,10 +942,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
       benchmarkEnvironment: {
         workloads: benchmarkContract.workloads.map((workload) => ({
           id: workload.id,
-          perCallIterationsPerSample: workload.perCallIterations,
-          perCallWarmupIterations: workload.perCallWarmupIterations,
-          compiledLoopIterationsPerSample: workload.compiledLoopIterations,
-          compiledLoopWarmupIterations: workload.compiledLoopWarmupIterations,
+          budgets: workload.budgets,
         })),
         samplesPerRepetition: benchmarkContract.sampleCount,
         repetitions: options.repetitions,
