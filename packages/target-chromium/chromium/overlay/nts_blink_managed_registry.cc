@@ -36,27 +36,17 @@ struct NtsWebNode final {
 namespace nts::blink_bridge {
 namespace {
 
-/* Public managed-node handles carry this tag; frame-bounded handles are raw
- * Blink Node pointers. Keeping the frame form untagged lets Oilpan's
- * conservative stack scan see and retain detached nodes across synchronous
- * calls without allocating a Persistent peer. */
-constexpr uintptr_t kManagedPeerTag = 1;
-
-bool IsManagedPeerHandle(const NtsWebNode* handle) {
-  return (reinterpret_cast<uintptr_t>(handle) & kManagedPeerTag) != 0;
-}
-
 NtsWebNode* EncodeManagedPeer(NtsWebNode* peer) {
   CHECK(peer);
   const uintptr_t address = reinterpret_cast<uintptr_t>(peer);
-  CHECK_EQ(address & kManagedPeerTag, 0u);
-  return reinterpret_cast<NtsWebNode*>(address | kManagedPeerTag);
+  CHECK_EQ(address & kManagedWebNodeHandleTag, 0u);
+  return reinterpret_cast<NtsWebNode*>(address | kManagedWebNodeHandleTag);
 }
 
 NtsWebNode* DecodeManagedPeer(NtsWebNode* handle) {
-  CHECK(IsManagedPeerHandle(handle));
+  CHECK(IsManagedWebNodeHandle(handle));
   return reinterpret_cast<NtsWebNode*>(reinterpret_cast<uintptr_t>(handle) &
-                                       ~kManagedPeerTag);
+                                       ~kManagedWebNodeHandleTag);
 }
 
 class BlinkManagedEventListener final : public blink::NativeEventListener {
@@ -195,7 +185,7 @@ blink::Node* BlinkManagedRegistry::ResolveNode(NtsWebNode* handle,
   if (invalidated_ || !handle) {
     return nullptr;
   }
-  if (!IsManagedPeerHandle(handle)) {
+  if (!IsManagedWebNodeHandle(handle)) {
     auto* node = reinterpret_cast<blink::Node*>(handle);
     if (!realm_ || !realm_->Document() ||
         &node->GetDocument() != realm_->Document() ||
@@ -314,7 +304,7 @@ void BlinkManagedRegistry::Invalidate() {
 }
 
 void ReleaseManagedNode(NtsWebNode* handle) {
-  if (!handle || !IsManagedPeerHandle(handle)) {
+  if (!handle || !IsManagedWebNodeHandle(handle)) {
     return;
   }
   NtsWebNode* peer = DecodeManagedPeer(handle);

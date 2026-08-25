@@ -64,6 +64,14 @@ blink::String DecodeUtf8(const uint8_t* data, size_t length) {
   return blink::String::FromUtf8(UNSAFE_BUFFERS(base::span(data, length)));
 }
 
+blink::AtomicString DecodeUtf8Atomic(const uint8_t* data, size_t length) {
+  if (!data && length != 0) {
+    return blink::AtomicString();
+  }
+  return blink::AtomicString::FromUtf8(
+      UNSAFE_BUFFERS(base::span(data, length)));
+}
+
 void SetError(NtsWebError** out_error, const blink::String& message) {
   if (!out_error) {
     return;
@@ -86,17 +94,53 @@ blink::Node* Resolve(NtsWebRealm* realm,
 
 enum class ResultLifetime { kManaged, kFrameBounded };
 
-NtsWebNode* ExposeNode(NtsWebRealm* realm,
+NtsWebRealm* EnsureActiveRealm(NtsWebRealm*& realm) {
+  if (!realm) {
+    realm = ActiveRealm();
+  }
+  return realm;
+}
+
+blink::Node* ResolveInput(NtsWebNode* handle,
+                          nts::blink_bridge::ManagedWebType expected,
+                          NtsWebRealm*& realm) {
+  if (!handle) {
+    return nullptr;
+  }
+  if (!nts::blink_bridge::IsManagedWebNodeHandle(handle)) {
+    // Raw handles are emitted only for compiler-proven synchronous frame
+    // values. Their static ScriptC type already establishes the binding type;
+    // retaining the untagged pointer also lets Oilpan find it on the stack.
+    return reinterpret_cast<blink::Node*>(handle);
+  }
+  return Resolve(EnsureActiveRealm(realm), handle, expected);
+}
+
+template <typename T>
+T* ResolveInputAs(NtsWebNode* handle,
+                  nts::blink_bridge::ManagedWebType expected,
+                  NtsWebRealm*& realm) {
+  blink::Node* node = ResolveInput(handle, expected, realm);
+  if (!node) {
+    return nullptr;
+  }
+  // ResolveNode has already checked managed peers against `expected`; raw
+  // frame handles carry the corresponding compiler-established static type.
+  return static_cast<T*>(node);
+}
+
+NtsWebNode* ExposeNode(NtsWebRealm*& realm,
                        blink::Node* node,
                        ResultLifetime lifetime) {
-  if (!realm || !node) {
+  if (!node) {
     return nullptr;
   }
   if (lifetime == ResultLifetime::kManaged) {
-    return realm->Managed().AcquireNode(node);
+    NtsWebRealm* active_realm = EnsureActiveRealm(realm);
+    return active_realm ? active_realm->Managed().AcquireNode(node) : nullptr;
   }
   const uintptr_t address = reinterpret_cast<uintptr_t>(node);
-  CHECK_EQ(address & 1u, 0u);
+  CHECK_EQ(address & nts::blink_bridge::kManagedWebNodeHandleTag, 0u);
   return reinterpret_cast<NtsWebNode*>(address);
 }
 
@@ -106,9 +150,9 @@ NtsWebNode* CurrentDocument(ResultLifetime lifetime) {
 }
 
 NtsWebNode* DocumentBody(NtsWebNode* document, ResultLifetime lifetime) {
-  NtsWebRealm* realm = ActiveRealm();
-  auto* resolved = blink::DynamicTo<blink::Document>(
-      Resolve(realm, document, nts::blink_bridge::ManagedWebType::kDocument));
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::Document>(
+      document, nts::blink_bridge::ManagedWebType::kDocument, realm);
   if (!resolved) {
     return nullptr;
   }
@@ -124,15 +168,15 @@ NtsWebNode* DocumentCreateElement(NtsWebNode* document,
   if (error) {
     *error = nullptr;
   }
-  NtsWebRealm* realm = ActiveRealm();
-  auto* resolved = blink::DynamicTo<blink::Document>(
-      Resolve(realm, document, nts::blink_bridge::ManagedWebType::kDocument));
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::Document>(
+      document, nts::blink_bridge::ManagedWebType::kDocument, realm);
   if (!resolved) {
     SetError(error, "Document.createElement receiver is unavailable");
     return nullptr;
   }
-  const blink::String local_name =
-      DecodeUtf8(local_name_data, local_name_length);
+  const blink::AtomicString local_name =
+      DecodeUtf8Atomic(local_name_data, local_name_length);
   if (local_name.IsNull() && local_name_length != 0) {
     SetError(error, "Document.createElement received invalid UTF-8");
     return nullptr;
@@ -140,7 +184,7 @@ NtsWebNode* DocumentCreateElement(NtsWebNode* document,
   BindingNeutralExceptionCapture capture;
   blink::ExceptionState& exception_state = ExceptionState(capture);
   blink::Element* element = nts::blink_bridge::generated::DocumentCreateElement(
-      *resolved, blink::AtomicString(local_name), exception_state);
+      *resolved, local_name, exception_state);
   if (exception_state.HadException()) {
     SetError(error, ExceptionMessage(capture));
     return nullptr;
@@ -156,9 +200,9 @@ NtsWebNode* DocumentCreateTextNode(NtsWebNode* document,
                                    const uint8_t* data,
                                    size_t data_length,
                                    ResultLifetime lifetime) {
-  NtsWebRealm* realm = ActiveRealm();
-  auto* resolved = blink::DynamicTo<blink::Document>(
-      Resolve(realm, document, nts::blink_bridge::ManagedWebType::kDocument));
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::Document>(
+      document, nts::blink_bridge::ManagedWebType::kDocument, realm);
   if (!resolved) {
     return nullptr;
   }
@@ -179,11 +223,11 @@ NtsWebNode* NodeAppendChild(NtsWebNode* parent,
   if (error) {
     *error = nullptr;
   }
-  NtsWebRealm* realm = ActiveRealm();
+  NtsWebRealm* realm = nullptr;
   blink::Node* resolved_parent =
-      Resolve(realm, parent, nts::blink_bridge::ManagedWebType::kNode);
+      ResolveInput(parent, nts::blink_bridge::ManagedWebType::kNode, realm);
   blink::Node* resolved_node =
-      Resolve(realm, node, nts::blink_bridge::ManagedWebType::kNode);
+      ResolveInput(node, nts::blink_bridge::ManagedWebType::kNode, realm);
   if (!resolved_parent || !resolved_node) {
     SetError(error, "Node.appendChild receiver or argument is unavailable");
     return nullptr;
@@ -271,10 +315,9 @@ extern "C" void nts_web_character_data_set_data_managed(
     NtsWebNode* character_data,
     const uint8_t* data,
     size_t data_length) {
-  NtsWebRealm* realm = ActiveRealm();
-  auto* resolved = blink::DynamicTo<blink::CharacterData>(
-      Resolve(realm, character_data,
-              nts::blink_bridge::ManagedWebType::kCharacterData));
+  NtsWebRealm* realm = nullptr;
+  auto* resolved = ResolveInputAs<blink::CharacterData>(
+      character_data, nts::blink_bridge::ManagedWebType::kCharacterData, realm);
   if (!resolved) {
     return;
   }
@@ -291,9 +334,9 @@ extern "C" NtsWebManagedSubscription* nts_web_event_target_listen(
     size_t type_length,
     NtsWebEventCallback callback,
     void* context) {
-  NtsWebRealm* realm = ActiveRealm();
-  blink::Node* resolved =
-      Resolve(realm, target, nts::blink_bridge::ManagedWebType::kEventTarget);
+  NtsWebRealm* realm = nullptr;
+  blink::Node* resolved = ResolveInput(
+      target, nts::blink_bridge::ManagedWebType::kEventTarget, realm);
   if (!resolved || !callback) {
     return nullptr;
   }
@@ -301,8 +344,11 @@ extern "C" NtsWebManagedSubscription* nts_web_event_target_listen(
   if (type.IsNull() && type_length != 0) {
     return nullptr;
   }
-  return realm->Managed().Listen(static_cast<blink::EventTarget*>(resolved),
-                                 blink::AtomicString(type), callback, context);
+  NtsWebRealm* active_realm = EnsureActiveRealm(realm);
+  return active_realm ? active_realm->Managed().Listen(
+                            static_cast<blink::EventTarget*>(resolved),
+                            blink::AtomicString(type), callback, context)
+                      : nullptr;
 }
 
 extern "C" void nts_web_node_release(NtsWebNode* node) {

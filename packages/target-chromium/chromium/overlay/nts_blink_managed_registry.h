@@ -1,6 +1,8 @@
 #ifndef NTS_BLINK_MANAGED_REGISTRY_H
 #define NTS_BLINK_MANAGED_REGISTRY_H
 
+#include <cstdint>
+
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 
@@ -15,6 +17,15 @@ class Node;
 }  // namespace blink
 
 namespace nts::blink_bridge {
+
+/* Managed peers are tagged so generated frame-bounded values can remain raw
+ * Blink Node pointers. The latter are deliberately visible to Oilpan's
+ * conservative stack scan and require no registry allocation. */
+inline constexpr uintptr_t kManagedWebNodeHandleTag = 1;
+
+inline bool IsManagedWebNodeHandle(const NtsWebNode* handle) {
+  return (reinterpret_cast<uintptr_t>(handle) & kManagedWebNodeHandleTag) != 0;
+}
 
 enum class ManagedWebType {
   kEventTarget,
