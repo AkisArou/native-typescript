@@ -180,12 +180,20 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     join(packageRoot, "scripts/build-chromium-benchmark.ts"),
     "utf8",
   );
+  const benchmarkLibraryBuilder = readFileSync(
+    join(packageRoot, "scripts/build-chromium-benchmark-libraries.ts"),
+    "utf8",
+  );
   const benchmarkRunner = readFileSync(
     join(packageRoot, "scripts/run-chromium-benchmark.ts"),
     "utf8",
   );
   const benchmarkHost = readFileSync(
     join(packageRoot, "chromium/overlay/nts_blink_benchmark_host.cc"),
+    "utf8",
+  );
+  const managedRegistry = readFileSync(
+    join(packageRoot, "chromium/overlay/nts_blink_managed_registry.cc"),
     "utf8",
   );
   const benchmarkV8 = readFileSync(
@@ -215,6 +223,13 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkRunner, /Page\.loadEventFired/u);
   assert.match(benchmarkHost, /nts_benchmark_workloads\.inc/u);
   assert.match(benchmarkHost, /kSampleCount = 30/u);
+  assert.match(benchmarkHost, /ConfigureScriptCCallbacks/u);
+  assert.match(benchmarkHost, /ReportScriptCPanic/u);
+  assert.match(managedRegistry, /DISABLE_CFI_ICALL void InvokeScriptCCallback/u);
+  assert.match(
+    benchmarkLibraryBuilder,
+    /nts_chromium_scriptc_\$\{backend\}_callbacks/u,
+  );
   assert.match(benchmarkV8, /ntsBenchmarkContract\.workloads/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);

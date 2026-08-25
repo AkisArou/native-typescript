@@ -53,7 +53,7 @@ interface Workload {
   readonly archiveStem: string;
 }
 
-const counterCallbackOperations = Object.freeze([
+const callbackOperations = Object.freeze([
   "configure",
   "dispatch",
   "stop_accepting",
@@ -61,11 +61,13 @@ const counterCallbackOperations = Object.freeze([
   "destroy",
 ] as const);
 
-function counterCallbackPrefix(backend: Backend): string {
-  return `nts_chromium_counter_scriptc_${backend}_callbacks`;
+function callbackPrefix(workload: WorkloadId, backend: Backend): string {
+  return workload === "counter"
+    ? `nts_chromium_counter_scriptc_${backend}_callbacks`
+    : `nts_chromium_scriptc_${backend}_callbacks`;
 }
 
-function counterCallbackShim(prefix: string): string {
+function callbackShim(prefix: string): string {
   return [
     '#include "scr_runtime.h"',
     "",
@@ -300,41 +302,37 @@ async function buildLibrary(
     );
   }
 
-  let callbackShimObject: string | undefined;
-  let keepSymbols = [...plannedKeepSymbols];
-  if (workload.id === "counter") {
-    const prefix = counterCallbackPrefix(backend);
-    const callbackShimSource = resolve(backendRoot, "callback-host.c");
-    callbackShimObject = resolve(objectRoot, "callback-host.o");
-    writeFileSync(callbackShimSource, counterCallbackShim(prefix));
-    runCommand(
-      clang,
-      [
-        `--target=${target.triple}`,
-        `--sysroot=${sysroot}`,
-        ...reproduciblePathArguments,
-        "-std=c11",
-        "-D_GNU_SOURCE",
-        "-DSCR_LIB",
-        "-DSCR_THREAD_INSTANCES",
-        "-O2",
-        "-fPIC",
-        "-include",
-        runtimeCompatibilityHeader,
-        "-I",
-        resolve(external.bindings.runtimeDirectory, "src"),
-        "-c",
-        callbackShimSource,
-        "-o",
-        callbackShimObject,
-      ],
-      backendRoot,
-    );
-    keepSymbols = [
-      ...keepSymbols,
-      ...counterCallbackOperations.map((operation) => `${prefix}_${operation}`),
-    ];
-  }
+  const prefix = callbackPrefix(workload.id, backend);
+  const callbackShimSource = resolve(backendRoot, "callback-host.c");
+  const callbackShimObject = resolve(objectRoot, "callback-host.o");
+  writeFileSync(callbackShimSource, callbackShim(prefix));
+  runCommand(
+    clang,
+    [
+      `--target=${target.triple}`,
+      `--sysroot=${sysroot}`,
+      ...reproduciblePathArguments,
+      "-std=c11",
+      "-D_GNU_SOURCE",
+      "-DSCR_LIB",
+      "-DSCR_THREAD_INSTANCES",
+      "-O2",
+      "-fPIC",
+      "-include",
+      runtimeCompatibilityHeader,
+      "-I",
+      resolve(external.bindings.runtimeDirectory, "src"),
+      "-c",
+      callbackShimSource,
+      "-o",
+      callbackShimObject,
+    ],
+    backendRoot,
+  );
+  const keepSymbols = [
+    ...plannedKeepSymbols,
+    ...callbackOperations.map((operation) => `${prefix}_${operation}`),
+  ];
 
   const [programObject, ...runtimeObjects] = external.objects;
   if (programObject === undefined || !programObject.fileName.startsWith("program.")) {
@@ -367,7 +365,7 @@ async function buildLibrary(
       "-r",
       "--force-group-allocation",
       inputs.get(programObject.id)!,
-      ...(callbackShimObject === undefined ? [] : [callbackShimObject]),
+      callbackShimObject,
       staging,
       "-o",
       combined,

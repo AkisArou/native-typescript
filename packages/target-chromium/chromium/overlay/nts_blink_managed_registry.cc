@@ -5,6 +5,7 @@
 #include <new>
 
 #include "base/check.h"
+#include "base/compiler_specific.h"
 #include "third_party/blink/renderer/core/dom/character_data.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -35,6 +36,11 @@ struct NtsWebNode final {
 
 namespace nts::blink_bridge {
 namespace {
+
+DISABLE_CFI_ICALL void InvokeScriptCCallback(void (*callback)(void*),
+                                             void* context) {
+  callback(context);
+}
 
 NtsWebNode* EncodeManagedPeer(NtsWebNode* peer) {
   CHECK(peer);
@@ -68,7 +74,7 @@ class BlinkManagedEventListener final : public blink::NativeEventListener {
       return;
     }
     ScopedCurrentWebRealm active_realm(realm_);
-    callback_(context_);
+    InvokeScriptCCallback(callback_, context_);
   }
 
   void Trace(blink::Visitor* visitor) const override {

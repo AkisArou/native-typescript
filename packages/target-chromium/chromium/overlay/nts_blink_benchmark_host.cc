@@ -1,6 +1,7 @@
 #include "third_party/blink/renderer/native_typescript/nts_blink_benchmark_host.h"
 
 #include <array>
+#include <cstdio>
 #include <cstdint>
 #include <vector>
 
@@ -33,6 +34,28 @@
 extern "C" void nts_chromium_scriptc_c_init(void);
 extern "C" void nts_chromium_scriptc_llvm_init(void);
 
+using ScriptCPanicSink = void (*)(void *context,
+                                  const uint8_t *message,
+                                  size_t message_length,
+                                  uint64_t address);
+extern "C" void nts_chromium_scriptc_c_set_panic_sink(ScriptCPanicSink sink,
+                                                        void *context);
+extern "C" void nts_chromium_scriptc_llvm_set_panic_sink(
+    ScriptCPanicSink sink,
+    void *context);
+extern "C" int nts_chromium_scriptc_c_callbacks_configure(
+    void (*wake)(void *),
+    void *context);
+extern "C" void nts_chromium_scriptc_c_callbacks_stop_accepting(void);
+extern "C" size_t nts_chromium_scriptc_c_callbacks_discard(void);
+extern "C" int nts_chromium_scriptc_c_callbacks_destroy(void);
+extern "C" int nts_chromium_scriptc_llvm_callbacks_configure(
+    void (*wake)(void *),
+    void *context);
+extern "C" void nts_chromium_scriptc_llvm_callbacks_stop_accepting(void);
+extern "C" size_t nts_chromium_scriptc_llvm_callbacks_discard(void);
+extern "C" int nts_chromium_scriptc_llvm_callbacks_destroy(void);
+
 #define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
     id, cpp_function, symbol_stem, cpp_per_call_iterations,                    \
     cpp_per_call_warmup_iterations, cpp_compiled_loop_iterations,              \
@@ -64,6 +87,39 @@ using Samples = std::array<double, kSampleCount>;
 
 thread_local NtsWebRealm *current_benchmark_realm = nullptr;
 thread_local blink::Persistent<blink::Text> *retained_attached_text = nullptr;
+
+void ReportScriptCPanic(void *,
+                        const uint8_t *message,
+                        size_t message_length,
+                        uint64_t address) {
+  UNSAFE_TODO(std::fputs("\n[Native TypeScript ScriptC panic] ", stderr));
+  if (message && message_length != 0) {
+    UNSAFE_TODO(
+        std::fwrite(message, sizeof(uint8_t), message_length, stderr));
+  }
+  std::fprintf(stderr, " [trap address: 0x%llx]\n",
+               static_cast<unsigned long long>(address));
+  std::fflush(stderr);
+}
+
+bool ConfigureScriptCCallbacks(const blink::String &lane) {
+  if (lane == "scriptc-c") {
+    return nts_chromium_scriptc_c_callbacks_configure(nullptr, nullptr) != 0;
+  }
+  return nts_chromium_scriptc_llvm_callbacks_configure(nullptr, nullptr) != 0;
+}
+
+void ShutdownScriptCCallbacks(const blink::String &lane) {
+  if (lane == "scriptc-c") {
+    nts_chromium_scriptc_c_callbacks_stop_accepting();
+    CHECK_EQ(nts_chromium_scriptc_c_callbacks_discard(), 0u);
+    CHECK(nts_chromium_scriptc_c_callbacks_destroy());
+    return;
+  }
+  nts_chromium_scriptc_llvm_callbacks_stop_accepting();
+  CHECK_EQ(nts_chromium_scriptc_llvm_callbacks_discard(), 0u);
+  CHECK(nts_chromium_scriptc_llvm_callbacks_destroy());
+}
 
 uint32_t CreateElementOnce(blink::Document *document) {
   if (!document) {
@@ -555,12 +611,7 @@ bool RunDocumentCreateElementBenchmark(blink::Document *document) {
     return true;
   }
 
-  if (lane == "cpp") {
-  } else if (lane == "scriptc-c") {
-    nts_chromium_scriptc_c_init();
-  } else if (lane == "scriptc-llvm") {
-    nts_chromium_scriptc_llvm_init();
-  } else {
+  if (lane != "cpp" && lane != "scriptc-c" && lane != "scriptc-llvm") {
     return false;
   }
 
@@ -573,7 +624,19 @@ bool RunDocumentCreateElementBenchmark(blink::Document *document) {
   std::vector<MeasuredWorkload> samples;
   {
     ScopedCurrentWebRealm active_realm(realm);
+    if (lane == "scriptc-c") {
+      nts_chromium_scriptc_c_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_c_init();
+      CHECK(ConfigureScriptCCallbacks(lane));
+    } else if (lane == "scriptc-llvm") {
+      nts_chromium_scriptc_llvm_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_llvm_init();
+      CHECK(ConfigureScriptCCallbacks(lane));
+    }
     samples = MeasureLane(lane, workload_id);
+    if (lane != "cpp") {
+      ShutdownScriptCCallbacks(lane);
+    }
   }
   delete retained_attached_text;
   retained_attached_text = nullptr;
