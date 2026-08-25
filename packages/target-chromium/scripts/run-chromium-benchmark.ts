@@ -133,6 +133,7 @@ const lanes = Object.freeze([
 ] as const);
 const operationTimeoutMilliseconds = 60_000;
 const workloadTimeoutMilliseconds = 10 * 60_000;
+const childOutputTailLimit = 64 * 1024;
 const repositoryRoot = resolve(packageRoot, "../..");
 const benchmarkRoot = resolve(repositoryRoot, "benchmarks/chromium");
 
@@ -299,16 +300,26 @@ class CdpClient {
   waitForEvent<T>(
     method: string,
     sessionId?: string,
-    timeoutMilliseconds = operationTimeoutMilliseconds,
+    timeoutMilliseconds: number | null = operationTimeoutMilliseconds,
   ): Promise<T> {
-    const event = new Promise<T>((resolvePromise) => {
-      this.#eventWaiters.add({
+    return new Promise<T>((resolvePromise, rejectPromise) => {
+      let waiter: EventWaiter;
+      const timeout = timeoutMilliseconds === null
+        ? undefined
+        : setTimeout(() => {
+          this.#eventWaiters.delete(waiter);
+          rejectPromise(new Error(`Timed out waiting for ${method}`));
+        }, timeoutMilliseconds);
+      waiter = {
         method,
         sessionId,
-        resolve: (params) => resolvePromise(params as T),
-      });
+        resolve: (params) => {
+          if (timeout !== undefined) clearTimeout(timeout);
+          resolvePromise(params as T);
+        },
+      };
+      this.#eventWaiters.add(waiter);
     });
-    return withTimeout(event, method, timeoutMilliseconds);
   }
 
   close(): void {
@@ -339,11 +350,16 @@ class CdpClient {
   }
 }
 
-function waitForDevTools(child: ChildProcessWithoutNullStreams): Promise<string> {
+function waitForDevTools(
+  child: ChildProcessWithoutNullStreams,
+  onOutput: (text: string) => void,
+): Promise<string> {
   return withTimeout(new Promise<string>((resolvePromise, rejectPromise) => {
     let output = "";
     function accept(chunk: Buffer): void {
-      output += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      onOutput(text);
+      output = `${output}${text}`.slice(-8_192);
       const match = /DevTools listening on (ws:\/\/\S+)/u.exec(output);
       if (match?.[1]) resolvePromise(match[1]);
     }
@@ -756,9 +772,12 @@ async function runLane(
   const startedAt = performance.now();
   const child = spawn(command, commandArguments, { stdio: "pipe" });
   let client: CdpClient | undefined;
+  let childOutputTail = "";
 
   try {
-    const endpoint = await waitForDevTools(child);
+    const endpoint = await waitForDevTools(child, (text) => {
+      childOutputTail = `${childOutputTail}${text}`.slice(-childOutputTailLimit);
+    });
     client = await CdpClient.connect(endpoint);
     const target = await waitForPageTarget(client);
     const attached = await client.send<{ readonly sessionId: string }>(
@@ -768,6 +787,16 @@ async function runLane(
     const sessionId = attached.sessionId;
     await client.send("DOM.enable", {}, sessionId);
     await client.send("Page.enable", {}, sessionId);
+    await client.send("Inspector.enable", {}, sessionId);
+    const rendererCrashed = client.waitForEvent<void>(
+      "Inspector.targetCrashed",
+      sessionId,
+      null,
+    ).then(() => {
+      throw new Error(
+        `Renderer crashed during ${workload}/${lane}`,
+      );
+    });
     const startupMilliseconds = performance.now() - startedAt;
     const baseline = await captureRendererPhase(client, sessionId);
     const workloadStartedAt = performance.now();
@@ -777,8 +806,11 @@ async function runLane(
       workloadTimeoutMilliseconds,
     );
     await client.send("Page.navigate", { url: pageUrl }, sessionId);
-    await workloadLoaded;
-    const result = await waitForLaneResult(client, sessionId, lane, workload);
+    await Promise.race([workloadLoaded, rendererCrashed]);
+    const result = await Promise.race([
+      waitForLaneResult(client, sessionId, lane, workload),
+      rendererCrashed,
+    ]);
     const workloadMilliseconds = performance.now() - workloadStartedAt;
     const postWorkload = await captureRendererPhase(client, sessionId);
     const measuredRendererId = workloadRendererId(baseline, postWorkload);
@@ -810,6 +842,12 @@ async function runLane(
     if (!closed.success) throw new Error(`Could not close the ${lane} target`);
     await exited;
     return Object.freeze({ result, productShape });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const output = childOutputTail.trim();
+    throw new Error(output.length === 0
+      ? message
+      : `${message}\ncontent_shell output tail:\n${output}`);
   } finally {
     client?.close();
     if (child.exitCode === null && child.signalCode === null) {
