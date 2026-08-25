@@ -50,6 +50,11 @@ sample per operation. The synchronous-event workload uses equal 100-event
 per-call and 1,000-event compiled-loop budgets in all four lanes. Neither shape
 alone is treated as the product result.
 
+Lane order rotates deterministically with both workload and repetition. This
+prevents one lane from always inheriting the same thermal, frequency, cache, or
+desktop position while keeping the complete execution schedule reproducible
+from the recorded product observations and provenance.
+
 ## Product-shape measurements
 
 Latency samples and product-shape measurements are separate report dimensions.

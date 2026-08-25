@@ -204,7 +204,8 @@ ordinary page-JavaScript lanes for a generated application-shaped matrix. Both
 generated archives are compiled with Chromium's pinned Clang and Linux sysroot.
 The harness records raw per-call and compiled-loop samples plus Chromium,
 Native TypeScript, ScriptC, toolchain, binary, archive, fixture, GN, repetition,
-lane-isolation, and CPU-set identities. Each lane runs in a fresh renderer. On
+lane-isolation, deterministic rotating lane schedule, and CPU-set identities.
+Each lane runs in a fresh renderer. On
 heterogeneous Linux CPUs, `--renderer-cpu-set` should select one measured core
 class without constraining the browser and display-server support processes.
 

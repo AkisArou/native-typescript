@@ -980,8 +980,12 @@ async function main(arguments_: readonly string[]): Promise<void> {
   ]));
   const executions: LaneExecution[] = [];
   for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
-    for (const workload of workloads) {
-      for (const lane of lanes) {
+    for (const [workloadIndex, workload] of workloads.entries()) {
+      const laneOffset = (repetition + workloadIndex) % lanes.length;
+      const laneOrder = lanes.map(
+        (_, laneIndex) => lanes[(laneIndex + laneOffset) % lanes.length]!,
+      );
+      for (const lane of laneOrder) {
         process.stdout.write(
           `Running repetition ${repetition + 1}/${options.repetitions}: ${workload.id}/${lane}\n`,
         );
@@ -1007,7 +1011,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
     },
     capsuleStructure: capsuleStructure(),
     provenance: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       benchmarkEnvironment: {
         workloads: workloads.map((workload) => ({
           id: workload.id,
@@ -1016,6 +1020,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
         samplesPerRepetition: benchmarkContract.sampleCount,
         repetitions: options.repetitions,
         laneIsolation: "fresh-renderer",
+        laneScheduling: "workload-repetition-rotation",
         rendererCpuSet: options.rendererCpuSet,
       },
       chromiumRevision: commandOutput(

@@ -251,6 +251,47 @@ test("schema 3 records product shape per workload and lane", () => {
   assert.equal(report.passed, true);
   assert.equal(report.productShape.length, 8);
   assert.equal(Object.isFrozen(report.productShape), true);
+
+  const schema4 = defineChromiumPerformanceInput({
+    observations,
+    capsuleStructure: cleanCapsule,
+    provenance: {
+      ...schema3Provenance,
+      schemaVersion: 4,
+      benchmarkEnvironment: {
+        ...schema3Provenance.benchmarkEnvironment,
+        laneScheduling: "workload-repetition-rotation",
+      },
+    },
+    productShape: productShapeSamples,
+    artifactShape: {
+      sharedContentShellBytes: 1_000_000,
+      scriptcCArchiveBytes: 10_000,
+      scriptcLlvmArchiveBytes: 12_000,
+    },
+  });
+  assert.equal(schema4.provenance.schemaVersion, 4);
+  if (schema4.provenance.schemaVersion !== 4) {
+    assert.fail("schema 4 provenance was not preserved");
+  }
+  const schema4Provenance = schema4.provenance;
+  assert.equal(
+    schema4Provenance.benchmarkEnvironment.laneScheduling,
+    "workload-repetition-rotation",
+  );
+  assert.throws(
+    () => defineChromiumPerformanceInput({
+      ...schema4,
+      provenance: {
+        ...schema4Provenance,
+        benchmarkEnvironment: {
+          ...schema4Provenance.benchmarkEnvironment,
+          laneScheduling: "fixed",
+        },
+      },
+    }),
+    /laneScheduling must be workload-repetition-rotation/u,
+  );
   assert.throws(
     () => defineChromiumPerformanceInput({
       observations,

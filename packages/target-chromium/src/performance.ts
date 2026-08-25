@@ -105,6 +105,11 @@ export interface ChromiumBenchmarkEnvironmentV3 {
   readonly rendererCpuSet: string | null;
 }
 
+export interface ChromiumBenchmarkEnvironmentV4
+  extends ChromiumBenchmarkEnvironmentV3 {
+  readonly laneScheduling: "workload-repetition-rotation";
+}
+
 export interface ChromiumBenchmarkProvenanceV2
   extends ChromiumBenchmarkProvenanceCommon {
   readonly schemaVersion: 2;
@@ -117,10 +122,17 @@ export interface ChromiumBenchmarkProvenanceV3
   readonly benchmarkEnvironment: ChromiumBenchmarkEnvironmentV3;
 }
 
+export interface ChromiumBenchmarkProvenanceV4
+  extends ChromiumBenchmarkProvenanceCommon {
+  readonly schemaVersion: 4;
+  readonly benchmarkEnvironment: ChromiumBenchmarkEnvironmentV4;
+}
+
 export type ChromiumBenchmarkProvenance =
   | ChromiumBenchmarkProvenanceV1
   | ChromiumBenchmarkProvenanceV2
-  | ChromiumBenchmarkProvenanceV3;
+  | ChromiumBenchmarkProvenanceV3
+  | ChromiumBenchmarkProvenanceV4;
 
 export interface ChromiumPerformanceInput {
   readonly observations: readonly ChromiumBenchmarkObservation[];
@@ -394,15 +406,17 @@ export function defineChromiumPerformanceInput(
   if (
     value.provenance.schemaVersion !== 1 &&
     value.provenance.schemaVersion !== 2 &&
-    value.provenance.schemaVersion !== 3
+    value.provenance.schemaVersion !== 3 &&
+    value.provenance.schemaVersion !== 4
   ) {
-    throw new TypeError(`${provenancePath}/schemaVersion must be 1, 2, or 3`);
+    throw new TypeError(`${provenancePath}/schemaVersion must be 1, 2, 3, or 4`);
   }
   assertExactKeys(
     value.provenance,
     [
       ...(value.provenance.schemaVersion === 2 ||
-          value.provenance.schemaVersion === 3
+          value.provenance.schemaVersion === 3 ||
+          value.provenance.schemaVersion === 4
         ? ["benchmarkEnvironment"]
         : []),
       "buildArguments",
@@ -463,13 +477,15 @@ export function defineChromiumPerformanceInput(
       throw new TypeError(`${environmentPath}/rendererCpuSet is invalid`);
     }
   }
-  if (value.provenance.schemaVersion === 3) {
+  if (value.provenance.schemaVersion === 3 ||
+      value.provenance.schemaVersion === 4) {
     const environmentPath = `${provenancePath}/benchmarkEnvironment`;
     assertRecord(value.provenance.benchmarkEnvironment, environmentPath);
     assertExactKeys(
       value.provenance.benchmarkEnvironment,
       [
         "laneIsolation",
+        ...(value.provenance.schemaVersion === 4 ? ["laneScheduling"] : []),
         "rendererCpuSet",
         "repetitions",
         "samplesPerRepetition",
@@ -486,6 +502,13 @@ export function defineChromiumPerformanceInput(
     if (value.provenance.benchmarkEnvironment.laneIsolation !== "fresh-renderer") {
       throw new TypeError(
         `${environmentPath}/laneIsolation must be fresh-renderer`,
+      );
+    }
+    if (value.provenance.schemaVersion === 4 &&
+        value.provenance.benchmarkEnvironment.laneScheduling !==
+          "workload-repetition-rotation") {
+      throw new TypeError(
+        `${environmentPath}/laneScheduling must be workload-repetition-rotation`,
       );
     }
     const cpuSet = value.provenance.benchmarkEnvironment.rendererCpuSet;
@@ -541,12 +564,12 @@ export function defineChromiumPerformanceInput(
     }
     if (!Array.isArray(value.productShape) || value.productShape.length === 0) {
       throw new TypeError(
-        "Chromium performance input/productShape is required for schema 3",
+        "Chromium performance input/productShape is required for schema 3 or 4",
       );
     }
     if (value.artifactShape === undefined) {
       throw new TypeError(
-        "Chromium performance input/artifactShape is required for schema 3",
+        "Chromium performance input/artifactShape is required for schema 3 or 4",
       );
     }
     const repetitions =
