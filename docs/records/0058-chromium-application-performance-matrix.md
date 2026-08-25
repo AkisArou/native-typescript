@@ -1,6 +1,6 @@
 # 0058 — Establish the Chromium application performance matrix
 
-Status: instrument implementation and structural validation complete; release browser rebuild and measurement pending  
+Status: optimized browser integration and structural validation complete; quiet-system measurement pending  
 Recorded: 2026-08-25
 
 Record 0057 reduced the generated WebIDL boundary to within 1.084–1.246x
@@ -31,13 +31,29 @@ returns, matching Blink's actual ordering rather than relying on an external
 callback queue.
 
 The two measurement shapes and four lanes have independent, provenance-recorded
-budgets, with every result normalized per operation. The event per-call shape
-intentionally measures one complete subscription/click/disposal lifecycle per
-ScriptC sample because batching that expensive lifecycle trips Chromium's
-hung-renderer protection. Faster C++ and V8 lanes use larger batches for clock
-resolution. The compiled-loop shape has a separately calibrated batch so
-steady-state dispatch through one live listener remains a high-resolution
-measurement without monopolizing the full matrix.
+budgets, with every result normalized per operation. Workload-specific budgets
+preserve clock resolution without allowing a single application-shaped case to
+dominate the matrix. The synchronous-event workload uses the same 100-event
+per-call and 1,000-event compiled-loop budgets in all four lanes, so its ratios
+compare equal amounts of subscription, dispatch, callback, and disposal work.
+
+## Callback integration findings
+
+The first complete event run appeared to leave each ScriptC window open for
+more than 50 seconds. That was not execution time: the renderer crashed almost
+immediately and the browser remained visible while Chromium processed the
+crash. A bounded ScriptC panic sink exposed the first cause: the benchmark
+archives had not installed ScriptC's retained-callback service before creating
+the event listener. The benchmark host now configures that service inside the
+active realm and proves a clean zero-discard shutdown.
+
+The next diagnostic run exposed Chromium control-flow integrity rejecting the
+indirect callback target from the separately compiled ScriptC archive. The
+registry now uses one narrowly scoped `DISABLE_CFI_ICALL` ABI bridge around
+that callback invocation; Chromium CFI remains enabled everywhere else. The
+runner also subscribes to renderer-crash notifications and includes a bounded
+`content_shell` output tail in failures, preventing a crash from being
+misreported as a long benchmark.
 
 ## Oilpan interoperability diagnostics
 
@@ -81,14 +97,15 @@ The repository TypeScript build passes. Twenty-two focused Chromium tests pass,
 including exact generated WebIDL, both ScriptC planners, schema-3 product-shape
 validation, leak failure behavior, portable bridge execution, and runner
 protocol structure. Both benchmark and WebIDL generators report that committed
-artifacts are current.
+artifacts are current. The overlay and both current ScriptC archives are linked
+into the pinned official release `content_shell`.
 
-No expanded-matrix performance or memory number is recorded here. The overlay
-still needs to be applied to the pinned checkout, the optimized browser rebuilt
-incrementally, both ScriptC browser lanes accepted, and the four-lane run
-performed on an otherwise quiet machine. Until that completes, record 0057 is
-the current performance result and this record is an unmeasured instrument
-checkpoint.
+A diagnostic one-repetition run completed all 28 workload/lane combinations in
+about 22 seconds, with every checked result accepted and all final managed
+subscription counts at zero. Its numbers are deliberately not recorded as
+performance evidence: a three-repetition run on the quiet system is still
+required. Until that completes, record 0057 remains the current published
+performance result and this record remains an instrument checkpoint.
 
 The complete workload rationale, protocol, commands, and standards-test
 relationship are documented in the

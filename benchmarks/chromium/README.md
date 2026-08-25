@@ -46,10 +46,9 @@ function repeatedly from the host, exposing call-boundary cost. `compiled-loop`
 keeps the whole loop in the lane, matching optimized application code more
 closely. The contract assigns independent iteration and warmup budgets to each
 shape and lane, records every budget in provenance, and still normalizes every
-sample per operation. In particular, callback subscription setup/teardown uses
-a small ScriptC per-call batch while fast C++ and V8 lanes use larger batches
-for clock resolution. Steady-state dispatch through one subscription has its
-own calibrated batch. Neither shape alone is treated as the product result.
+sample per operation. The synchronous-event workload uses equal 100-event
+per-call and 1,000-event compiled-loop budgets in all four lanes. Neither shape
+alone is treated as the product result.
 
 ## Product-shape measurements
 
@@ -84,6 +83,14 @@ Subscription retention is an acceptance failure. Memory and startup values
 remain measurements until repeated quiet-system runs provide a defensible
 baseline and variance envelope; they are not mixed into the nanoseconds/op
 pass/fail score.
+
+Renderer crashes are also immediate failures. The runner listens for DevTools
+crash notifications and includes a bounded `content_shell` output tail in its
+diagnostic, rather than waiting for a missing benchmark result until timeout.
+The ScriptC host installs its retained-callback service inside the active realm,
+and the Blink registry's separately compiled callback entry uses one narrowly
+scoped CFI ABI bridge. Chromium's control-flow integrity remains enabled for
+the rest of the browser.
 
 ## Commands
 
