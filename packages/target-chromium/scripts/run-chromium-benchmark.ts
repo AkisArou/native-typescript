@@ -979,6 +979,8 @@ async function main(arguments_: readonly string[]): Promise<void> {
     pathToFileURL(resolve(pagesRoot, `${lane}.html`)).href,
   ]));
   const executions: LaneExecution[] = [];
+  const laneCount = options.repetitions * workloads.length * lanes.length;
+  let laneOrdinal = 0;
   for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
     for (const [workloadIndex, workload] of workloads.entries()) {
       const laneOffset = (repetition + workloadIndex) % lanes.length;
@@ -986,17 +988,25 @@ async function main(arguments_: readonly string[]): Promise<void> {
         (_, laneIndex) => lanes[(laneIndex + laneOffset) % lanes.length]!,
       );
       for (const lane of laneOrder) {
+        laneOrdinal += 1;
         process.stdout.write(
-          `Running repetition ${repetition + 1}/${options.repetitions}: ${workload.id}/${lane}\n`,
+          `Running lane ${laneOrdinal}/${laneCount}, repetition ` +
+            `${repetition + 1}/${options.repetitions}: ${workload.id}/${lane}\n`,
         );
-        executions.push(await runLane(
+        const execution = await runLane(
           executable,
           blankPageUrl,
           `${pageUrls.get(lane)!}#${encodeURIComponent(workload.id)}`,
           lane,
           workload.id,
           options.rendererCpuSet,
-        ));
+        );
+        executions.push(execution);
+        process.stdout.write(
+          `Finished lane ${laneOrdinal}/${laneCount}: ${workload.id}/${lane}; ` +
+            `content_shell exited after ` +
+            `${(execution.productShape.wallClockMilliseconds / 1_000).toFixed(3)} s\n`,
+        );
       }
     }
   }

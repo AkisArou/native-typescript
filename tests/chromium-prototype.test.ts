@@ -220,9 +220,12 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkRunner, /repetitions = 3/u);
   assert.match(benchmarkRunner, /--workload/u);
   assert.match(benchmarkRunner, /selectedWorkloads/u);
-  assert.match(benchmarkRunner, /for \(const lane of lanes\)/u);
+  assert.match(benchmarkRunner, /const laneOrder = lanes\.map/u);
+  assert.match(benchmarkRunner, /for \(const lane of laneOrder\)/u);
+  assert.match(benchmarkRunner, /Finished lane/u);
+  assert.match(benchmarkRunner, /content_shell exited after/u);
   assert.match(benchmarkRunner, /renderer-cmd-prefix/u);
-  assert.match(benchmarkRunner, /schemaVersion: 3/u);
+  assert.match(benchmarkRunner, /schemaVersion: 4/u);
   assert.match(benchmarkRunner, /captureRendererPhase/u);
   assert.match(benchmarkRunner, /workloadRendererId/u);
   assert.match(benchmarkRunner, /shutdownMilliseconds/u);
