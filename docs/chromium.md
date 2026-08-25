@@ -346,8 +346,19 @@ unchanged. No event-listener patch is required.
 The same pin has also completed the official non-component release fixture.
 Its resolved arguments include `is_official_build=true`, `is_debug=false`, and
 `is_component_build=false`; both ScriptC backend archives and all four lane
-selectors are present in the final artifact graph. No timed benchmark has been
-run, so no latency or admission-gate claim follows from this build.
+selectors are present in the final artifact graph.
+
+The first controlled performance run passes all initial admission gates. It
+uses three repetitions with 30 samples each, 100,000 operations per sample, a
+fresh renderer/profile for every lane, and renderer CPU affinity to one
+performance core; all of those conditions are stored in provenance schema 2.
+For the exported one-call primitive, ScriptC C is 1.045x handwritten C++ at
+median and 1.163x at p95, while ScriptC LLVM is 1.028x and 0.978x. Their
+primitive medians are 0.463x and 0.455x V8. For the compiled-loop
+boundary-heavy shape, their medians are 0.559x and 0.588x V8. The structural
+capsule checks also pass. This admits only the initial
+`Document.createElement` falsifier; representative mixed DOM workloads remain
+required before a general performance conclusion.
 
 The first closed normalized WebIDL slice reaches exactly
 `Document.createElement(DOMString)`. It deterministically generates TypeScript
@@ -373,8 +384,8 @@ Stage B therefore remain open until this repository can:
 4. prove duplicate event identity, cancellation, and teardown through the
    product callback gateway;
 5. prove one Blink promise and ScriptC microtask ordering;
-6. build and pass the C++, ScriptC C, ScriptC LLVM, and V8 release-performance
-   falsifier.
+6. extend the now-passing initial release falsifier to representative mixed DOM
+   workloads.
 
 Only then does the coexistence stage decide whether direct Blink remains a
 maintained target, a system WebView bridge is preferred, or both are supported.

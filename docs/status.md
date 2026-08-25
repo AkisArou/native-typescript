@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned debug acceptance passes and official four-lane `content_shell` fixture builds; timings and product renderer target remain open |
+| DOM/Chromium | pinned debug acceptance and controlled initial four-lane release-performance gate pass; mixed workloads and product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -1274,7 +1274,7 @@ component-debug build for both the stock exception path and the product path.
 The product run also proves distinct sanitized and privileged SecurityError
 capture without a V8 value.
 
-The first performance falsifier is also implemented but has not been run. One
+The first performance falsifier is implemented and has passed. One
 TypeScript kernel plans through both ScriptC backends; a TypeScript build helper
 materializes both archives with pinned Chromium clang and its Linux sysroot,
 and gives each a private, localized ScriptC runtime so they coexist in one
@@ -1286,7 +1286,12 @@ compiled LLVM, and static-page V8
 lanes for `document.createElement("div")`, and the evaluator enforces the
 documented C++/V8 ratios plus the no-generic-dispatch/no-V8/no-boxing/no-heap
 structural gate. Raw result inputs require exact revisions, GN arguments, clang
-identity, and binary/archive/fixture digests. No latency result is claimed.
+identity, binary/archive/fixture digests, repetition policy, fresh-renderer lane
+isolation, and renderer CPU affinity. The final controlled input has 90 samples
+per lane. ScriptC C and LLVM primitive medians are 1.045x and 1.028x handwritten
+C++, their p95 ratios are 1.163x and 0.978x, and their batch medians are 0.559x
+and 0.588x V8. All initial latency and structural gates pass. This is evidence
+for `Document.createElement` only, not a general DOM-performance claim.
 
 `packages/bindgen-webidl` now validates a deterministic closed slice exported
 from Chromium's normalized WebIDL database and generates the first reached
@@ -1308,14 +1313,14 @@ ScriptC's product native-handle ownership.
 The complete symbol-light component-debug and official non-component release
 `content_shell` dependency graphs have compiled at the pin. The debug fixture's
 rendered counter, real click delivery, DOMException probe, and browser teardown
-have passed; the release fixture has only been structurally verified and has
-not been timed. These are not builds of the larger `chrome` product target.
+have passed; the release fixture's initial controlled performance falsifier has
+also passed. These are not builds of the larger `chrome` product target.
 More importantly, the accepted running host is still the fixture-owned C/C++
 oracle rather than a production renderer-hosted ScriptC lifecycle.
 The imported slot table, UTF-8 ABI, handwritten DOM members, callback token,
 and counter host remain prototype evidence. There is no Chromium
-target/provider definition, release-performance result, or DOM compatibility
-claim.
+target/provider definition, representative mixed-workload result, or DOM
+compatibility claim.
 
 ## Building an application
 

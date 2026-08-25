@@ -1068,9 +1068,11 @@ dependency graph now builds at the pin, and its direct-Blink C/C++ oracle passes
 script-free rendered DOM, real click, exception-capture, and navigation-teardown
 acceptance. The official non-component release fixture also completes with
 ThinLTO and links both localized ScriptC backend archives into the same binary;
-timed evidence remains pending. This does not yet prove a production ScriptC
-renderer lifecycle or satisfy either stage. The detailed, SCABI-aligned
-research design is in [Chromium and direct Blink feasibility](chromium.md).
+the controlled 90-sample `Document.createElement` falsifier passes its C++,
+V8, and structural gates for both compiled backends. Representative mixed DOM
+workloads remain pending. This does not yet prove a production ScriptC renderer
+lifecycle or satisfy either stage. The detailed, SCABI-aligned research design
+is in [Chromium and direct Blink feasibility](chromium.md).
 
 ### Stage A: embedding
 

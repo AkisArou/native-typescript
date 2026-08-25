@@ -183,7 +183,8 @@ node packages/target-chromium/scripts/build-chromium-benchmark.ts \
   /path/to/chromium/src --depot-tools /path/to/depot_tools
 # Run only on an otherwise quiet machine:
 node packages/target-chromium/scripts/run-chromium-benchmark.ts \
-  /path/to/chromium/src --output /path/to/raw-input.json
+  /path/to/chromium/src --repetitions 3 --renderer-cpu-set 0 \
+  --output /path/to/raw-input.json
 node packages/target-chromium/scripts/evaluate-chromium-performance.ts \
   /path/to/raw-input.json --output /path/to/report.json
 ```
@@ -199,15 +200,26 @@ ordinary page-JavaScript lanes for the same hardcoded
 with Chromium's pinned Clang and Linux sysroot; the target supplies the one
 runtime compatibility adapter needed by that baseline. The harness records raw
 primitive and batched samples plus Chromium, Native TypeScript, ScriptC,
-toolchain, binary, archive, fixture, and GN identities. The run command has not
-been executed and no performance claim is recorded here.
+toolchain, binary, archive, fixture, GN, repetition, lane-isolation, and CPU-set
+identities. Each lane runs in a fresh renderer. On heterogeneous Linux CPUs,
+`--renderer-cpu-set` should select one measured core class without constraining
+the browser and display-server support processes.
 
 At the pinned revision, the official non-component fixture has completed a
 full `content_shell` build with ThinLTO and `chrome_pgo_phase=0`. Structural
 verification confirms that the final link includes the native benchmark host
 and both localized ScriptC archives, and that each archive exports exactly its
-three declared backend-specific symbols. This is build evidence only; the
-timed runner still requires a quiet-system window.
+three declared backend-specific symbols. That structural verification is
+separate from timing, which still requires a quiet-system window.
+
+The first controlled run at this pin used three repetitions, 30 samples per
+repetition, 100,000 operations per sample, a fresh renderer per lane, and
+renderer CPU set `0`. Its 90-sample report passes every initial gate. For the
+one-call primitive, ScriptC C is 1.045x C++ at median and 1.163x at p95;
+ScriptC LLVM is 1.028x and 0.978x. Their medians are 0.463x and 0.455x V8. For
+the compiled-loop batch, C and LLVM medians are 0.559x and 0.588x V8. This is a
+result for the initial `Document.createElement` falsifier only, not a general
+DOM-performance claim.
 
 Those helpers are research tools. The product build must express checkout
 validation, patches, overlays, GN/Ninja tools, outputs, and provenance as
@@ -222,6 +234,5 @@ declared artifact-graph inputs and actions.
 3. Project the captured DOM failure into the compiler-owned outcome model and
    prove event identity/cancellation and
    promise/microtask ordering.
-4. Run the built official non-component release fixture with matched
-   handwritten C++, ScriptC C, ScriptC LLVM, and Chromium V8 benchmark lanes,
-   then enforce the gates in `docs/chromium.md`.
+4. Extend the now-passing initial release falsifier from `createElement` to
+   representative mutation, query, event, and teardown workloads.
