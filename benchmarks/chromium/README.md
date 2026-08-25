@@ -48,11 +48,13 @@ closely. Neither shape alone is treated as the product result.
 ## Product-shape measurements
 
 Latency samples and product-shape measurements are separate report dimensions.
-For every repetition and lane, the runner starts a fresh renderer on
-`about:blank`, attaches DevTools, and records a baseline. It then navigates to
+For every repetition and lane, the runner starts a fresh renderer on a
+script-free blank fixture, attaches DevTools, and records a baseline. It then navigates to
 the fixture, waits for its checked result, forces a collection, records the
 post-workload state, navigates back to `about:blank`, forces another collection,
-and records teardown state.
+and records teardown state. When Chromium has spare renderer processes, the
+runner attributes the lane to the stable PID whose CPU time advanced during the
+workload and refuses to combine or guess across processes.
 
 The report contains:
 

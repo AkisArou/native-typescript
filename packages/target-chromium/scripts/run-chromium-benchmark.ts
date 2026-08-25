@@ -103,6 +103,7 @@ interface LaneExecution {
 interface RendererProcessInfo {
   readonly type: string;
   readonly id: number;
+  readonly cpuTime: number;
 }
 
 interface RendererMemory {
@@ -111,9 +112,15 @@ interface RendererMemory {
   readonly peakRssBytes: number;
 }
 
-interface RendererSnapshotCapture {
-  readonly snapshot: ChromiumRendererSnapshot;
-  readonly peakRssBytes: number;
+interface RendererProcessCapture extends RendererProcessInfo {
+  readonly memory: RendererMemory;
+}
+
+interface RendererPhaseCapture {
+  readonly documents: number;
+  readonly nodes: number;
+  readonly jsEventListeners: number;
+  readonly processes: readonly RendererProcessCapture[];
 }
 
 const lanes = Object.freeze([
@@ -494,6 +501,7 @@ function fixtureDigest(): string {
     resolve(benchmarkRoot, "scriptc/app.ts"),
     resolve(benchmarkRoot, "scriptc/profile-c.json"),
     resolve(benchmarkRoot, "scriptc/profile-llvm.json"),
+    resolve(benchmarkRoot, "pages/blank.html"),
     resolve(benchmarkRoot, "pages/cpp.html"),
     resolve(benchmarkRoot, "pages/scriptc-c.html"),
     resolve(benchmarkRoot, "pages/scriptc-llvm.html"),
@@ -577,49 +585,88 @@ function rendererMemory(processId: number): RendererMemory {
   });
 }
 
-async function rendererProcess(
+async function rendererProcesses(
   client: CdpClient,
-): Promise<RendererProcessInfo> {
+): Promise<readonly RendererProcessInfo[]> {
   const processes = await client.send<{
     readonly processInfo: readonly RendererProcessInfo[];
   }>("SystemInfo.getProcessInfo");
   const renderers = processes.processInfo.filter(
     (process) => process.type === "renderer",
   );
-  if (renderers.length !== 1) {
-    throw new Error(
-      `Expected one isolated renderer process, observed ${renderers.length}`,
-    );
+  if (renderers.length === 0) {
+    throw new Error("The isolated benchmark target has no renderer process");
   }
-  return renderers[0]!;
+  return Object.freeze(renderers);
 }
 
-async function captureRendererSnapshot(
+async function captureRendererPhase(
   client: CdpClient,
   sessionId: string,
-): Promise<RendererSnapshotCapture> {
+): Promise<RendererPhaseCapture> {
   await client.send("HeapProfiler.collectGarbage", {}, sessionId);
   const counters = await client.send<{
     readonly documents: number;
     readonly nodes: number;
     readonly jsEventListeners: number;
   }>("Memory.getDOMCounters", {}, sessionId);
-  const renderer = await rendererProcess(client);
-  const memory = rendererMemory(renderer.id);
+  const processes = await rendererProcesses(client);
   return Object.freeze({
-    snapshot: Object.freeze({
-      rssBytes: memory.rssBytes,
-      pssBytes: memory.pssBytes,
-      documents: counters.documents,
-      nodes: counters.nodes,
-      jsEventListeners: counters.jsEventListeners,
-    }),
-    peakRssBytes: memory.peakRssBytes,
+    ...counters,
+    processes: Object.freeze(processes.map((process) => Object.freeze({
+      ...process,
+      memory: rendererMemory(process.id),
+    }))),
+  });
+}
+
+function workloadRendererId(
+  baseline: RendererPhaseCapture,
+  postWorkload: RendererPhaseCapture,
+): number {
+  const baselineById = new Map(
+    baseline.processes.map((process) => [process.id, process] as const),
+  );
+  const candidates = postWorkload.processes
+    .map((process) => {
+      const before = baselineById.get(process.id);
+      return before === undefined
+        ? null
+        : { id: process.id, cpuDelta: process.cpuTime - before.cpuTime };
+    })
+    .filter((candidate) => candidate !== null)
+    .sort((left, right) => right.cpuDelta - left.cpuDelta);
+  const selected = candidates[0];
+  if (!selected || selected.cpuDelta <= 0) {
+    throw new Error(
+      "Could not attribute the workload to a stable renderer process",
+    );
+  }
+  return selected.id;
+}
+
+function rendererSnapshot(
+  phase: RendererPhaseCapture,
+  processId: number,
+): ChromiumRendererSnapshot {
+  const process = phase.processes.find((candidate) => candidate.id === processId);
+  if (!process) {
+    throw new Error(
+      `Measured renderer ${processId} did not survive the full lane protocol`,
+    );
+  }
+  return Object.freeze({
+    rssBytes: process.memory.rssBytes,
+    pssBytes: process.memory.pssBytes,
+    documents: phase.documents,
+    nodes: phase.nodes,
+    jsEventListeners: phase.jsEventListeners,
   });
 }
 
 async function runLane(
   executable: string,
+  blankPageUrl: string,
   pageUrl: string,
   lane: ChromiumBenchmarkLane,
   rendererCpuSet: string | null,
@@ -634,7 +681,7 @@ async function runLane(
     ...(rendererCpuSet === null
       ? []
       : [`--renderer-cmd-prefix=/usr/bin/taskset -c ${rendererCpuSet}`]),
-    "about:blank",
+    blankPageUrl,
   ];
   const useXvfb = process.platform === "linux" && !process.env.DISPLAY;
   const command = useXvfb ? "xvfb-run" : executable;
@@ -657,26 +704,29 @@ async function runLane(
     await client.send("DOM.enable", {}, sessionId);
     await client.send("Page.enable", {}, sessionId);
     const startupMilliseconds = performance.now() - startedAt;
-    const baseline = await captureRendererSnapshot(client, sessionId);
+    const baseline = await captureRendererPhase(client, sessionId);
     const workloadStartedAt = performance.now();
     await client.send("Page.navigate", { url: pageUrl }, sessionId);
     const result = await waitForLaneResult(client, sessionId, lane);
     const workloadMilliseconds = performance.now() - workloadStartedAt;
-    const postWorkload = await captureRendererSnapshot(client, sessionId);
+    const postWorkload = await captureRendererPhase(client, sessionId);
+    const measuredRendererId = workloadRendererId(baseline, postWorkload);
     const blankLoaded = client.waitForEvent("Page.loadEventFired", sessionId);
-    await client.send("Page.navigate", { url: "about:blank" }, sessionId);
+    await client.send("Page.navigate", { url: blankPageUrl }, sessionId);
     await blankLoaded;
-    const postTeardown = await captureRendererSnapshot(client, sessionId);
+    const postTeardown = await captureRendererPhase(client, sessionId);
     const wallClockMilliseconds = performance.now() - startedAt;
     const productShape = Object.freeze({
       lane,
       startupMilliseconds,
       workloadMilliseconds,
       wallClockMilliseconds,
-      rendererPeakRssBytes: postWorkload.peakRssBytes,
-      baseline: baseline.snapshot,
-      postWorkload: postWorkload.snapshot,
-      postTeardown: postTeardown.snapshot,
+      rendererPeakRssBytes: postWorkload.processes.find(
+        ({ id }) => id === measuredRendererId,
+      )!.memory.peakRssBytes,
+      baseline: rendererSnapshot(baseline, measuredRendererId),
+      postWorkload: rendererSnapshot(postWorkload, measuredRendererId),
+      postTeardown: rendererSnapshot(postTeardown, measuredRendererId),
       finalInterop: result.workloads.at(-1)!.interop,
     });
 
@@ -782,6 +832,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
   );
 
   const pagesRoot = resolve(benchmarkRoot, "pages");
+  const blankPageUrl = pathToFileURL(resolve(pagesRoot, "blank.html")).href;
   const pageUrls = new Map<ChromiumBenchmarkLane, string>(lanes.map((lane) => [
     lane,
     pathToFileURL(resolve(pagesRoot, `${lane}.html`)).href,
@@ -791,6 +842,7 @@ async function main(arguments_: readonly string[]): Promise<void> {
     for (const lane of lanes) {
       executions.push(await runLane(
         executable,
+        blankPageUrl,
         pageUrls.get(lane)!,
         lane,
         options.rendererCpuSet,

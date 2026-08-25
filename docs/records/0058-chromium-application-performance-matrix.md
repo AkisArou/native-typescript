@@ -47,8 +47,8 @@ and be released before the workload returns.
 
 ## Product-shape protocol
 
-Every repetition uses a fresh renderer. The runner first attaches on
-`about:blank` and records a baseline, explicitly navigates into the selected
+Every repetition uses a fresh renderer. The runner first attaches on a
+script-free blank fixture and records a baseline, explicitly navigates into the selected
 lane, then navigates back to blank after the checked result. Forced collection
 precedes baseline, post-workload, and post-teardown snapshots.
 
@@ -57,7 +57,9 @@ documents/nodes/JavaScript listeners, startup time, workload wall time, total
 start-through-teardown time, and the ScriptC registry state. It also records
 the shared `content_shell` size and the C and LLVM archive sizes. Whole-browser
 and Xvfb memory are excluded, and the shared browser binary is not falsely
-attributed to every lane.
+attributed to every lane. Spare renderers are not summed: the measured PID is
+the stable renderer whose CPU time advances across the workload, and the run
+fails if that PID cannot be followed through teardown.
 
 Subscription retention is already a failing gate. Memory numbers are recorded
 separately from latency and deliberately have no threshold until repeated
