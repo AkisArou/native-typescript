@@ -270,6 +270,12 @@ one favorable run: adjacent A/B/A measurements did not repeat the win, so the
 exact parser remains. The instrument, semantic counterexamples, and rejected
 optimization are recorded in
 [record 0054](../../docs/records/0054-direct-jvm-numeric-parser-probes.md).
+The latest complete four-application run is the 30-scenario schema-14 matrix
+in [record 0055](../../docs/records/0055-current-android-performance-matrix.md).
+Schema 15 adds one matched `array-copying` workload for `slice`, `reverse`,
+`toReversed`, and `with`; its source contract and Direct JVM lowering are
+complete, while its device measurement is deliberately deferred in
+[record 0056](../../docs/records/0056-direct-jvm-array-copying.md).
 
 ## Research references
 

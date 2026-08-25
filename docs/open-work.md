@@ -158,6 +158,38 @@ that changed output nobody asserts on.
 and left alone: seven genuinely different conversions whose decisions already
 live in the form. Uniformity is not the target; one decision in one place is.
 
+### Source positions, transformation origins, and native debug products
+
+An outside performance/debuggability audit found a correctness defect before
+the larger tooling gap. `SrcLoc` calls its positions byte offsets, while the
+frontend fills them from TypeScript's UTF-16 code-unit positions. The C
+emitter's entry-file line calculation happens to use the same unit because it
+indexes a JavaScript string, but it has one source text and prints
+`mod.sourceFile` rather than `loc.file`; an imported function can therefore be
+labelled with both the wrong file and the wrong line table. LLVM emits no debug
+metadata, and the artifact graph has no concrete debug-symbol, line-table,
+source-map, or symbol-index products.
+
+**The first slice is admitted as correctness work.** State UTF-16 code units
+truthfully, make source identity/line tables multi-file and deterministic, and
+falsify the result with non-ASCII, CRLF, and imported-file fixtures. This is
+smaller than a debugger and should land before transformations begin creating
+operations whose origin is not one source span.
+
+**The next slice is admitted by resource domains.** Escape-selected promotion
+will create a synthetic promotion and cleanup at a different position from the
+call that produced the object. Before that lowering lands, introduce the
+minimum interned origin relation that can distinguish source, foreign call,
+promotion, and cleanup while retaining a parent source origin. Do not add
+inlining, async ancestry, Java mappings, or a bespoke map encoding until a
+fixture needs them.
+
+C `#line`, LLVM DWARF, separate symbol artifacts, Java source-debug mappings,
+stack symbolication, DAP, and ownership inspection then proceed as distinct
+end-to-end capabilities. [0013](records/0013-performance-and-debuggability-audit.md)
+records which audit findings support this order and which proposed schemas
+remain sketches rather than contracts.
+
 ### JNI resource domains: local, stable, weak
 
 The largest measured performance win available, from this project's own

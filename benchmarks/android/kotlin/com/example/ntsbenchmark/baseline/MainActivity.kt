@@ -34,6 +34,7 @@ private const val STRING_RESULT_ITERATIONS = 10000
 private const val STRING_OPERATION_ITERATIONS = 10000
 private const val ARRAY_OPERATION_ITERATIONS = 20000
 private const val ARRAY_PIPELINE_ITERATIONS = 20000
+private const val ARRAY_COPYING_ITERATIONS = 20000
 private const val RECORD_OBJECT_ITERATIONS = 50000
 private const val OPTIONAL_VALUE_ITERATIONS = 50000
 private const val MAP_OPERATION_ITERATIONS = 50000
@@ -340,6 +341,26 @@ class MainActivity : Activity() {
                     "array-pipeline",
                     sample,
                     ARRAY_PIPELINE_ITERATIONS,
+                    elapsed,
+                    checksum,
+                )
+                sample += 1
+            }
+        } else if ("array-copying".equals(scenario)) {
+            var warmup = 0
+            while (warmup < WARMUP_SAMPLES) {
+                runArrayCopying()
+                warmup += 1
+            }
+            var sample = 0
+            while (sample < MEASURED_SAMPLES) {
+                val started = SystemClock.elapsedRealtimeNanos()
+                val checksum = runArrayCopying()
+                val elapsed = SystemClock.elapsedRealtimeNanos() - started
+                logSample(
+                    "array-copying",
+                    sample,
+                    ARRAY_COPYING_ITERATIONS,
                     elapsed,
                     checksum,
                 )
@@ -860,6 +881,23 @@ class MainActivity : Activity() {
                 .filter { value -> value > 7 }
                 .fold(0) { sum, value -> sum + value }
             checksum += result
+            index += 1
+        }
+        return checksum
+    }
+
+    private fun runArrayCopying(): Int {
+        var checksum = 0
+        var index = 0
+        while (index < ARRAY_COPYING_ITERATIONS) {
+            val source = arrayListOf(index and 255, 2, 3, 4, 5, 6, 7, 8)
+            val middle = source.slice(2 until 7).toMutableList()
+            middle.reverse()
+            val restored = middle.reversed()
+            val changed = restored.toMutableList()
+            changed[changed.size - 2] = (index and 255) + 10
+            checksum += source[0] + middle[0] + restored[0] + changed[3] +
+                changed[4] + middle.size + restored.size + changed.size
             index += 1
         }
         return checksum

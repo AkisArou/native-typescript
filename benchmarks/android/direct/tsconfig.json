@@ -8,6 +8,7 @@
     "./activity.ts",
     "./array-operations.ts",
     "./array-pipeline.ts",
+    "./array-copying.ts",
     "./byte-array.ts",
     "./constructor.ts",
     "./handle-result.ts",

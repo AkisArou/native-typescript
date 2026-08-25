@@ -10,7 +10,7 @@
 export const ANDROID_BENCHMARK_API = 35;
 
 export const androidBenchmarkWorkload = Object.freeze({
-  version: 14,
+  version: 15,
   warmupSamples: 3,
   measuredSamples: 7,
   lightObjectIterations: 50_000,
@@ -23,6 +23,7 @@ export const androidBenchmarkWorkload = Object.freeze({
   stringOperationIterations: 10_000,
   arrayOperationIterations: 20_000,
   arrayPipelineIterations: 20_000,
+  arrayCopyingIterations: 20_000,
   recordObjectIterations: 50_000,
   optionalValueIterations: 50_000,
   mapOperationIterations: 50_000,
@@ -84,6 +85,10 @@ function arrayPipelineChecksum(iterations: number): number {
     }
   }
   return checksum;
+}
+
+function arrayCopyingChecksum(iterations: number): number {
+  return iterations * 42 + 2 * maskedCycleChecksum(iterations, 255);
 }
 
 function recordObjectChecksum(iterations: number): number {
@@ -430,6 +435,17 @@ export const androidBenchmarkScenarios = Object.freeze([
     warmupSamples: workload.warmupSamples,
     measuredSamples: workload.measuredSamples,
     expectedChecksum: arrayPipelineChecksum(workload.arrayPipelineIterations),
+  },
+  {
+    name: "array-copying",
+    layer: "language-runtime",
+    hotspot:
+      "relative-index slice, in-place reverse, copying reverse, and immutable replacement",
+    operationUnit: "four array transformations",
+    iterations: workload.arrayCopyingIterations,
+    warmupSamples: workload.warmupSamples,
+    measuredSamples: workload.measuredSamples,
+    expectedChecksum: arrayCopyingChecksum(workload.arrayCopyingIterations),
   },
   {
     name: "record-objects",

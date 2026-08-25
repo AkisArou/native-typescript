@@ -19,6 +19,7 @@ const STRING_RESULT_ITERATIONS = 10000;
 const STRING_OPERATION_ITERATIONS = 10000;
 const ARRAY_OPERATION_ITERATIONS = 20000;
 const ARRAY_PIPELINE_ITERATIONS = 20000;
+const ARRAY_COPYING_ITERATIONS = 20000;
 const RECORD_OBJECT_ITERATIONS = 50000;
 const OPTIONAL_VALUE_ITERATIONS = 50000;
 const MAP_OPERATION_ITERATIONS = 50000;
@@ -225,6 +226,22 @@ function runArrayPipeline(): number {
       .filter((value) => value > 7)
       .reduce((sum, value) => sum + value, 0);
     checksum += result;
+    index += 1;
+  }
+  return checksum;
+}
+
+function runArrayCopying(): number {
+  let checksum = 0;
+  let index = 0;
+  while (index < ARRAY_COPYING_ITERATIONS) {
+    const source = [index & 255, 2, 3, 4, 5, 6, 7, 8];
+    const middle = source.slice(-6, -1);
+    middle.reverse();
+    const restored = middle.toReversed();
+    const changed = restored.with(-2, (index & 255) + 10);
+    checksum += source[0]! + middle[0]! + restored[0]! + changed[3]! +
+      changed[4]! + middle.length + restored.length + changed.length;
     index += 1;
   }
   return checksum;
@@ -765,6 +782,26 @@ function buildBenchmarkView(context: android.content.Context): android.view.View
         "array-pipeline",
         sample,
         ARRAY_PIPELINE_ITERATIONS,
+        elapsed,
+        checksum,
+      );
+      sample += 1;
+    }
+  } else if (scenario === "array-copying") {
+    let warmup = 0;
+    while (warmup < WARMUP_SAMPLES) {
+      runArrayCopying();
+      warmup += 1;
+    }
+    let sample = 0;
+    while (sample < MEASURED_SAMPLES) {
+      const started = android.os.SystemClock.elapsedRealtimeNanos();
+      const checksum = runArrayCopying();
+      const elapsed = android.os.SystemClock.elapsedRealtimeNanos() - started;
+      logSample(
+        "array-copying",
+        sample,
+        ARRAY_COPYING_ITERATIONS,
         elapsed,
         checksum,
       );

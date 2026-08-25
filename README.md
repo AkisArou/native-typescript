@@ -95,40 +95,56 @@ better. Ratios below compare the Direct JVM tier with Kotlin and NativeScript.
 
 | Workload | Native/JNI | Direct JVM | Kotlin | NativeScript | Direct/Kotlin | Direct/NS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| View-tree child | 101,546.11 ns | 175,123.23 ns | 64,668.13 ns | 46,687.16 ns | 2.71x | 3.75x |
-| Lightweight object | 242.36 ns | 0.68 ns | 0.34 ns | 3,759.45 ns | 2.01x | 0.00018x |
-| Managed-class dispatch | 59.62 ns | 1.48 ns | 1.31 ns | 2.20 ns | 1.13x | 0.67x |
-| Widget construction | 29,173.87 ns | 26,080.33 ns | 24,191.67 ns | 30,892.12 ns | 1.08x | 0.84x |
-| Stable scalar setter | 78.01 ns | 63.38 ns | 18.68 ns | 362.58 ns | 3.39x | 0.17x |
-| Same-thread callback | 189.99 ns | 20.87 ns | 20.01 ns | 1,617.98 ns | 1.04x | 0.013x |
-| Two string arguments | 628.27 ns | 67.17 ns | 32.53 ns | 1,505.59 ns | 2.07x | 0.045x |
-| Fresh string result | 662.50 ns | 224.17 ns | 230.47 ns | 773.62 ns | 0.97x | 0.29x |
-| String operations | 661.69 ns | 2,652.96 ns | 2,393.09 ns | 341.81 ns | 1.11x | 7.76x |
-| Array operations | 207.71 ns | 230.62 ns | 126.50 ns | 71.16 ns | 1.82x | 3.24x |
-| Array pipeline | 673.91 ns | 460.55 ns | 295.55 ns | 171.19 ns | 1.56x | 2.69x |
-| Fixed record | 88.61 ns | 69.32 ns | 1.42 ns | 0.90 ns | 48.90x | 77.13x |
-| Optional values | 101.04 ns | 67.14 ns | 7.30 ns | 1.78 ns | 9.20x | 37.66x |
-| Map operations | 116.27 ns | 90.26 ns | 38.02 ns | 21.60 ns | 2.37x | 4.18x |
-| Set operations | 72.29 ns | 101.07 ns | 12.57 ns | 12.64 ns | 8.04x | 8.00x |
-| Math operations | 30.41 ns | 75.62 ns | 26.27 ns | 8.74 ns | 2.88x | 8.65x |
-| Number parsing | 111.61 ns | 250.10 ns | 161.01 ns | 102.47 ns | 1.55x | 2.44x |
-| 256-byte array encoding | 1,479.62 ns | 609.06 ns | 525.18 ns | 8,693.67 ns | 1.16x | 0.070x |
-| Nullable object result | 222.66 ns | 36.48 ns | 3.69 ns | 785.93 ns | 9.89x | 0.046x |
-| Callback payload | 265.72 ns | 21.34 ns | 26.76 ns | 2,300.74 ns | 0.80x | 0.0093x |
-| Captured callback | 361.49 ns | 26.03 ns | 27.72 ns | 2,394.53 ns | 0.94x | 0.0109x |
-| Dynamic text update | 503.91 ns | 510.20 ns | 292.44 ns | 1,754.65 ns | 1.74x | 0.29x |
-| Composite screen row | 154,681.97 ns | 110,294.72 ns | 118,639.09 ns | 148,144.09 ns | 0.93x | 0.74x |
+| View-tree child | 296,889.29 ns | 105,223.45 ns | 103,479.02 ns | 96,709.61 ns | 1.02x | 1.09x |
+| Lightweight object | 257.88 ns | 0.57 ns | 0.33 ns | 5,863.11 ns | 1.74x | 0.000098x |
+| Managed-class dispatch | 87.72 ns | 1.45 ns | 1.41 ns | 2.18 ns | 1.03x | 0.67x |
+| Widget construction | 37,591.50 ns | 28,334.43 ns | 31,299.18 ns | 36,283.74 ns | 0.91x | 0.78x |
+| Stable scalar setter | 112.75 ns | 20.69 ns | 24.55 ns | 357.86 ns | 0.84x | 0.058x |
+| Same-thread callback | 215.13 ns | 27.29 ns | 25.75 ns | 1,954.35 ns | 1.06x | 0.014x |
+| Two string arguments | 621.76 ns | 34.38 ns | 36.74 ns | 1,353.43 ns | 0.94x | 0.025x |
+| Fresh string result | 811.99 ns | 247.95 ns | 289.54 ns | 763.92 ns | 0.86x | 0.32x |
+| String operations | 723.05 ns | 2,590.67 ns | 2,679.62 ns | 383.09 ns | 0.97x | 6.76x |
+| String normalization | 478.73 ns | 2,146.55 ns | 2,161.09 ns | 253.21 ns | 0.99x | 8.48x |
+| String slicing | 83.27 ns | 70.16 ns | 78.47 ns | 43.34 ns | 0.89x | 1.62x |
+| String padding | 90.49 ns | 260.34 ns | 238.99 ns | 34.10 ns | 1.09x | 7.63x |
+| String search | 19.55 ns | 25.47 ns | 25.59 ns | 1.47 ns | 1.00x | 17.35x |
+| Array operations | 220.78 ns | 161.52 ns | 156.29 ns | 106.85 ns | 1.03x | 1.51x |
+| Array pipeline | 924.61 ns | 394.73 ns | 475.41 ns | 268.47 ns | 0.83x | 1.47x |
+| Fixed record | 98.73 ns | 2.45 ns | 1.42 ns | 0.91 ns | 1.72x | 2.68x |
+| Optional values | 133.62 ns | 1.56 ns | 9.74 ns | 1.04 ns | 0.16x | 1.50x |
+| Map operations | 159.19 ns | 27.69 ns | 55.22 ns | 22.57 ns | 0.50x | 1.23x |
+| Set operations | 81.13 ns | 23.52 ns | 14.47 ns | 12.69 ns | 1.63x | 1.85x |
+| Math operations | 39.45 ns | 22.58 ns | 25.91 ns | 8.16 ns | 0.87x | 2.77x |
+| Number parsing | 102.20 ns | 234.89 ns | 208.77 ns | 102.98 ns | 1.13x | 2.28x |
+| `parseInt` | 38.77 ns | 16.63 ns | 15.74 ns | 10.13 ns | 1.06x | 1.64x |
+| `parseFloat` | 45.03 ns | 107.32 ns | 103.21 ns | 28.69 ns | 1.04x | 3.74x |
+| `Number(string)` | 39.80 ns | 87.24 ns | 77.78 ns | 33.76 ns | 1.12x | 2.58x |
+| 256-byte array encoding | 1,939.24 ns | 666.26 ns | 652.56 ns | 7,725.97 ns | 1.02x | 0.086x |
+| Nullable object result | 207.28 ns | 3.11 ns | 3.45 ns | 715.76 ns | 0.90x | 0.004x |
+| Callback payload | 250.13 ns | 23.27 ns | 19.04 ns | 2,150.08 ns | 1.22x | 0.011x |
+| Captured callback | 384.84 ns | 21.70 ns | 22.40 ns | 2,096.09 ns | 0.97x | 0.010x |
+| Dynamic text update | 543.69 ns | 216.60 ns | 277.75 ns | 1,247.02 ns | 0.78x | 0.17x |
+| Composite screen row | 94,892.94 ns | 99,855.56 ns | 180,632.75 ns | 137,005.44 ns | 0.55x | 0.73x |
 
-Direct JVM is already within 16% of Kotlin for managed dispatch, widget
-construction, callbacks, string results, byte arrays, string operations, and
-the composite screen. It wins the measured string-result, callback-payload,
-callback-capture, and screen-row comparisons. The largest actionable Direct
-JVM gaps in this complete baseline were fixed records (48.90x), returned
-handles (9.89x), optionals
-(9.20x), sets (8.04x), stable setters (3.39x), Math (2.88x), maps (2.37x),
-string arguments (2.07x), arrays (1.56–1.82x), and number parsing (1.55x).
-NativeScript's mature V8 runtime wins several pure JavaScript kernels, while
-Direct JVM is far faster on the measured Android boundary and callback paths.
+This is the complete schema-14 matrix recorded on 2026-08-25, not a merge of
+focused runs. Direct JVM is at or within 22% of Kotlin in every scenario. The
+two largest ratios, lightweight objects and fixed records, differ by less than
+1.1 ns in loops ART heavily eliminates. The largest remaining measured
+absolute deficits are 26.12 ns for the three-parser aggregate, 21.35 ns for
+string padding, 9.46 ns for `Number(string)`, 9.05 ns for sets, and 4.23 ns for
+callback payload consumption. Direct JVM wins the measured widget
+construction, setter, string argument/result, array pipeline, optional, map,
+Math, handle-result, captured-callback, text-update, and composite-screen
+comparisons. NativeScript's mature V8 runtime wins several pure JavaScript
+kernels, while Direct JVM is much faster on the measured Android boundary and
+callback paths. The raw report identity and interpretation are in
+[record 0055](docs/records/0055-current-android-performance-matrix.md).
+
+Workload schema 15 adds a matched `array-copying` case for relative-index
+`slice`, in-place `reverse`, copying `toReversed`, and immutable `with` across
+all four applications. Its compiler and benchmark observers are complete, but
+it is deliberately absent from the measured table until the paused device run
+resumes; no schema-15 result has been inferred from the schema-14 matrix.
 
 The first compiler optimization selected from that matrix is now measured in
 a focused five-round run. Closed helpers whose every caller supplies a proved
@@ -137,8 +153,8 @@ signed integer use an internal Java `int` parameter while public TypeScript
 3.13 ns (48.90x Kotlin to 1.56x), sets from 101.07 ns to 23.41 ns (8.04x to
 1.67x), and Math from 75.62 ns to 32.86 ns (2.88x to 1.27x). The proof,
 safety boundary, complete focused table, and raw report are in
-[record 0045](docs/records/0045-direct-jvm-integer-parameters.md); the table
-above remains the last complete 23-scenario application matrix.
+[record 0045](docs/records/0045-direct-jvm-integer-parameters.md). Those
+historical before/after numbers explain how the current matrix was reached.
 
 A second focused optimization now keeps `number | null | undefined` in one
 primitive JVM word instead of allocating a tagged object. Optional lookups
@@ -226,11 +242,11 @@ The complete matrix also measured application shape:
 
 | Measurement | Native/JNI | Direct JVM | Kotlin | NativeScript |
 | --- | ---: | ---: | ---: | ---: |
-| Process launch | 461 ms | 477 ms | 456 ms | 796 ms |
-| Warm foreground | 89 ms | 68 ms | 28 ms | 37 ms |
-| Total PSS | 18,503 KiB | 17,586 KiB | 18,673 KiB | 76,102 KiB |
-| Total RSS | 143,816 KiB | 141,480 KiB | 142,948 KiB | 203,140 KiB |
-| APK size | 811,291 B | 61,648 B | 2,461,904 B | 28,640,616 B |
+| Process launch | 763 ms | 767 ms | 756 ms | 1,308 ms |
+| Warm foreground | 76 ms | 47 ms | 164 ms | 62 ms |
+| Total PSS | 20,560 KiB | 19,217 KiB | 19,207 KiB | 76,343 KiB |
+| Total RSS | 144,168 KiB | 141,868 KiB | 142,592 KiB | 202,252 KiB |
+| APK size | 819,483 B | 65,744 B | 2,466,000 B | 28,640,920 B |
 
 The sub-nanosecond lightweight-object results describe an optimized loop, not
 literal allocation latency. `view-tree` has only three high-variance emulator
@@ -239,8 +255,12 @@ observation. APK sizes reflect different product shapes and the Kotlin APK now
 includes its reached standard library. These are measurements of this pinned
 fixture, not general platform rankings.
 
-The complete contract, raw-run coordinates, operation counts, and next
+The current complete contract, raw-run coordinates, operation counts, and next
 optimization priorities are recorded in
+[record 0055](docs/records/0055-current-android-performance-matrix.md). The
+next matched workload and its unmeasured implementation checkpoint are in
+[record 0056](docs/records/0056-direct-jvm-array-copying.md). The
+original 23-scenario baseline remains in
 [record 0044](docs/records/0044-first-complete-direct-jvm-matrix.md). The
 JavaScript-exact parser and its device result are in
 [record 0043](docs/records/0043-direct-jvm-number-parsing.md). Earlier JNI

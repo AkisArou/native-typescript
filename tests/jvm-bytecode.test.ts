@@ -68,6 +68,10 @@ const integerParameterFixture = join(
   scriptcRoot,
   "tests/corpus/122-jvm-integer-parameters.ts",
 );
+const arrayCopyingFixture = join(
+  scriptcRoot,
+  "tests/corpus/123-jvm-array-copying.ts",
+);
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const javaHome = discoverJavaHome();
 
@@ -673,6 +677,106 @@ test(
       assert.match(
         ownerBytecode,
         /ntsArrayLiteral\d+:\(DDD\)Ldev\/nts\/generated\/ArrayValues\$NtsArray\d+;/u,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "direct JVM array copies preserve JavaScript bounds and mutation semantics",
+  { skip: javaHome === null ? "no JDK on this host" : false },
+  async () => {
+    execFileSync(pnpm, ["--dir", scriptcRoot, "--filter", "@scriptc/compiler", "build"]);
+    const roots = ["copiedNumbers", "copyingEdges"];
+    const planned = (await loadScriptCExecutablePlanners())
+      .planExecutableCompilation(arrayCopyingFixture, {
+        backend: "c",
+        externalFunctionRoots: roots,
+      });
+    assert.equal(
+      planned.ok,
+      true,
+      planned.ok ? undefined : planned.diagnostics.map(({ message }) => message).join("\n"),
+    );
+    if (!planned.ok) return;
+
+    const packageName = "dev.nts.generated";
+    const simpleName = "ArrayCopying";
+    const source = (await loadScriptCJvmEmitter()).emitJvmSerializedModule(
+      planned.plan.ir,
+      {
+        packageName,
+        className: simpleName,
+        functionExports: roots.map((functionName) => ({
+          functionName,
+          methodName: functionName,
+        })),
+      },
+    );
+    const root = mkdtempSync(join(tmpdir(), "nts-jvm-array-copying-"));
+    try {
+      const sourceDirectory = join(root, "sources", ...packageName.split("."));
+      const classes = join(root, "classes");
+      mkdirSync(sourceDirectory, { recursive: true });
+      mkdirSync(classes);
+      const sourcePath = join(sourceDirectory, `${simpleName}.java`);
+      const harnessPath = join(sourceDirectory, "ArrayCopyingHarness.java");
+      writeFileSync(sourcePath, source);
+      writeFileSync(
+        harnessPath,
+        `package ${packageName};\n` +
+          "public final class ArrayCopyingHarness {\n" +
+          "  public static void main(String[] args) {\n" +
+          `    System.out.println(${simpleName}.copiedNumbers(10.0d));\n` +
+          `    System.out.println(${simpleName}.copyingEdges());\n` +
+          "  }\n" +
+          "}\n",
+      );
+      execFileSync(join(javaHome!, "bin/javac"), [
+        "--release",
+        "17",
+        "-d",
+        classes,
+        sourcePath,
+        harnessPath,
+      ]);
+      const run = spawnSync(
+        join(javaHome!, "bin/java"),
+        ["-cp", classes, `${packageName}.ArrayCopyingHarness`],
+        { encoding: "utf8" },
+      );
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stdout, "62.0\n20.0\n");
+
+      const ownerBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        ["-classpath", classes, "-c", "-p", `${packageName}.${simpleName}`],
+        { encoding: "utf8" },
+      );
+      const arrayClassFile = readdirSync(
+        join(classes, ...packageName.split(".")),
+      ).find((entry) => entry.startsWith(`${simpleName}$NtsArray`));
+      assert.ok(arrayClassFile, "expected a specialized generated array class");
+      const arrayBytecode = execFileSync(
+        join(javaHome!, "bin/javap"),
+        [
+          "-classpath",
+          classes,
+          "-c",
+          "-p",
+          `${packageName}.${arrayClassFile.slice(0, -".class".length)}`,
+        ],
+        { encoding: "utf8" },
+      );
+      assert.match(arrayBytecode, /java\/util\/Arrays\.copyOfRange/u);
+      assert.match(ownerBytecode, /NtsArray\d+\.reverse:\(\)L/u);
+      assert.match(ownerBytecode, /NtsArray\d+\.toReversed:\(\)L/u);
+      assert.match(ownerBytecode, /NtsArray\d+\.with:\(DD\)L/u);
+      assert.doesNotMatch(
+        `${ownerBytecode}\n${arrayBytecode}`,
+        /Double\.valueOf|ArrayList/u,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

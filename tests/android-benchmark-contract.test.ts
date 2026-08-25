@@ -48,6 +48,10 @@ interface AndroidLanguageContract {
   readonly stringSearchExpectedChecksum: number;
   readonly stringSearchActualChecksum: number;
   readonly stringSearchRepeated: boolean;
+  readonly arrayCopyingIterations: number;
+  readonly arrayCopyingExpectedChecksum: number;
+  readonly arrayCopyingActualChecksum: number;
+  readonly arrayCopyingRepeated: boolean;
   readonly directApplicationId: string;
   readonly directActivityBinaryName: string;
   readonly nativeApplicationId: string;
@@ -73,6 +77,9 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
   const stringOperationWorkloadUrl = pathToFileURL(
     join(workspace, "benchmarks/android/direct/string-operations.ts"),
   ).href;
+  const arrayCopyingWorkloadUrl = pathToFileURL(
+    join(workspace, "benchmarks/android/direct/array-copying.ts"),
+  ).href;
   const program = `
     import {
       androidBenchmarkScenarios,
@@ -97,6 +104,7 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       runStringSearchWorkload,
       runStringSliceWorkload,
     } from ${JSON.stringify(stringOperationWorkloadUrl)};
+    import { runArrayCopyingWorkload } from ${JSON.stringify(arrayCopyingWorkloadUrl)};
     const scenario = androidBenchmarkScenarios.find(
       ({ name }) => name === "map-operations",
     );
@@ -141,6 +149,10 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
       ({ name }) => name === "string-search",
     );
     if (stringSearchScenario === undefined) throw new Error("string search scenario is absent");
+    const arrayCopyingScenario = androidBenchmarkScenarios.find(
+      ({ name }) => name === "array-copying",
+    );
+    if (arrayCopyingScenario === undefined) throw new Error("array copying scenario is absent");
     process.stdout.write(JSON.stringify({
       version: androidBenchmarkWorkload.version,
       scenarioCount: androidBenchmarkScenarios.length,
@@ -196,6 +208,10 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
         stringSearchScenario.iterations,
       ),
       stringSearchRepeated: repeatedAndroidBenchmarkScenarios.includes("string-search"),
+      arrayCopyingIterations: arrayCopyingScenario.iterations,
+      arrayCopyingExpectedChecksum: arrayCopyingScenario.expectedChecksum,
+      arrayCopyingActualChecksum: runArrayCopyingWorkload(arrayCopyingScenario.iterations),
+      arrayCopyingRepeated: repeatedAndroidBenchmarkScenarios.includes("array-copying"),
       directApplicationId: directJvmBenchmarkApplication.applicationId,
       directActivityBinaryName: directJvmBenchmarkApplication.activityBinaryName,
       nativeApplicationId: nativeTypescriptBenchmarkProject.android.applicationId,
@@ -213,8 +229,8 @@ function readAndroidLanguageContract(): AndroidLanguageContract {
 
 test("the Android language benchmarks are one matched four-application contract", () => {
   const contract = readAndroidLanguageContract();
-  assert.equal(contract.version, 14);
-  assert.equal(contract.scenarioCount, 30);
+  assert.equal(contract.version, 15);
+  assert.equal(contract.scenarioCount, 31);
   assert.equal(contract.uniqueScenarioCount, contract.scenarioCount);
   assert.equal(contract.iterations, 50_000);
   assert.equal(contract.expectedChecksum, 83_989_039);
@@ -270,6 +286,13 @@ test("the Android language benchmarks are one matched four-application contract"
     contract.stringSearchExpectedChecksum,
   );
   assert.equal(contract.stringSearchRepeated, true);
+  assert.equal(contract.arrayCopyingIterations, 20_000);
+  assert.equal(contract.arrayCopyingExpectedChecksum, 5_932_832);
+  assert.equal(
+    contract.arrayCopyingActualChecksum,
+    contract.arrayCopyingExpectedChecksum,
+  );
+  assert.equal(contract.arrayCopyingRepeated, true);
   assert.ok(
     contract.directActivityBinaryName.replaceAll("/", ".")
       .startsWith(`${contract.directApplicationId}.`),
@@ -303,6 +326,7 @@ test("the Android language benchmarks are one matched four-application contract"
     setConstant,
     mathConstant,
     numberParsingConstant,
+    arrayCopyingConstant,
   ] of [
     [
       "native-typescript",
@@ -311,6 +335,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
       /const NUMBER_PARSING_ITERATIONS = 50000;/u,
+      /const ARRAY_COPYING_ITERATIONS = 20000;/u,
     ],
     [
       "native-typescript-jvm",
@@ -319,6 +344,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
       /const NUMBER_PARSING_ITERATIONS = 50000;/u,
+      /const ARRAY_COPYING_ITERATIONS = 20000;/u,
     ],
     [
       "kotlin",
@@ -327,6 +353,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /private const val SET_OPERATION_ITERATIONS = 50000/u,
       /private const val MATH_OPERATION_ITERATIONS = 100000/u,
       /private const val NUMBER_PARSING_ITERATIONS = 50000/u,
+      /private const val ARRAY_COPYING_ITERATIONS = 20000/u,
     ],
     [
       "nativescript",
@@ -335,6 +362,7 @@ test("the Android language benchmarks are one matched four-application contract"
       /const SET_OPERATION_ITERATIONS = 50000;/u,
       /const MATH_OPERATION_ITERATIONS = 100000;/u,
       /const NUMBER_PARSING_ITERATIONS = 50000;/u,
+      /const ARRAY_COPYING_ITERATIONS = 20000;/u,
     ],
   ] as const) {
     const source = readFileSync(join(workspace, relativePath), "utf8");
@@ -345,6 +373,11 @@ test("the Android language benchmarks are one matched four-application contract"
       source,
       numberParsingConstant,
       `${implementation} number parsing iteration count drifted`,
+    );
+    assert.match(
+      source,
+      arrayCopyingConstant,
+      `${implementation} array copying iteration count drifted`,
     );
     assert.match(
       source,
@@ -400,6 +433,11 @@ test("the Android language benchmarks are one matched four-application contract"
       source,
       /string-search/u,
       `${implementation} does not route the string search probe`,
+    );
+    assert.match(
+      source,
+      /array-copying/u,
+      `${implementation} does not route the array copying probe`,
     );
   }
 });
