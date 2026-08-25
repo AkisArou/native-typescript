@@ -113,7 +113,9 @@ The timing runner requires a clean Native TypeScript worktree, an exact
 ScriptC gitlink, the pinned clean Chromium revision, and the official release
 GN preset. Raw evidence belongs under the ignored local
 `.native-typescript/benchmarks/chromium/` tree; conclusions and hashes belong
-in numbered [`docs/records`](../../docs/records/).
+in numbered [`docs/records`](../../docs/records/). The current seven-workload
+latency, peak-RSS, PSS, startup, lifetime, and failed-gate baseline is recorded
+in [record 0058](../../docs/records/0058-chromium-application-performance-matrix.md).
 
 ## Standards and larger suites
 

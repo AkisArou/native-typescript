@@ -279,12 +279,14 @@ native errors, and invalidates realm-owned state on navigation.
 
 #### Current Chromium benchmark
 
-The current official `content_shell` measurement compares handwritten C++,
+The first official `content_shell` measurement compares handwritten C++,
 ScriptC C, ScriptC LLVM, and ordinary Chromium V8 JavaScript in one pinned
 optimized binary. Every lane performs identical Blink-visible work in a fresh
 renderer on CPU 0. These are medians from three repetitions with 30 samples
 per repetition, 100,000 operations per sample, and checked results. Lower is
 better.
+
+Boundary-only baseline from record 0057:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -308,15 +310,41 @@ before-and-after measurements, acceptance evidence, exact provenance, and raw
 report coordinates are in
 [record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
 
-The next instrument expands that baseline to seven application-shaped workload
-families and adds renderer-only RSS/PSS/peak RSS, live DOM/listener counts,
-blank-page baseline and teardown snapshots, ScriptC/Oilpan peer diagnostics,
-and archive sizes. Its implementation checkpoint is
-[record 0058](docs/records/0058-chromium-application-performance-matrix.md),
-and its complete protocol lives in the
-[Chromium benchmark README](benchmarks/chromium/README.md). The expanded matrix
-is not shown in this performance table until its optimized browser build and
-quiet-system measurement complete.
+The current application matrix adds five application-shaped families and
+measures both host-per-call and compiled-loop shapes. The compiled-loop medians
+from the same three-repetition, 90-sample policy are:
+
+| Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Create element | 54.33 ns | 42.67 ns | 47.39 ns | 104.00 ns | 0.410x | 0.456x |
+| Detached counter tree | 417.78 ns | 457.67 ns | 455.38 ns | 398.50 ns | 1.148x | 1.143x |
+| Retained attached-text update | 119.15 ns | 135.13 ns | 135.38 ns | 84.00 ns | 1.609x | 1.612x |
+| Eight-row component list | 5,854.5 ns | 11,440.0 ns | 11,660.5 ns | 7,650.0 ns | 1.495x | 1.524x |
+| Selector-driven update | 133.50 ns | 161.20 ns | 161.50 ns | 120.00 ns | 1.343x | 1.346x |
+| Synchronous event round trip | 763.00 ns | 810.50 ns | 795.00 ns | 1,200.0 ns | 0.675x | 0.663x |
+| Attached component mount | 1,382.0 ns | 2,509.0 ns | 2,480.0 ns | 1,800.0 ns | 1.394x | 1.378x |
+
+The strict performance gate fails on 22 checks. That result supplies the next
+optimization map: component construction, retained-handle mutation, and
+per-subscription event lifecycle. Steady-state compiled event dispatch is
+already within 4.2–6.2% of handwritten C++ and 32.5–33.7% faster than V8.
+
+Median renderer peak RSS by workload exposes a separate Oilpan integration
+target:
+
+| Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
+| --- | ---: | ---: | ---: | ---: |
+| Detached counter tree | 1,161.0 MiB | 1,162.4 MiB | 1,162.0 MiB | 210.1 MiB |
+| Eight-row component list | 278.5 MiB | 382.7 MiB | 383.0 MiB | 181.6 MiB |
+
+The detached-tree high-water mark also occurs in handwritten C++, implicating
+native-loop Oilpan collection scheduling rather than ScriptC alone. All 84
+runs returned to blank DOM/listener counts and all ScriptC event subscriptions
+were released. Full per-call results, every peak-RSS workload, PSS/startup
+measurements, exact evidence hashes, and the failed-gate interpretation are in
+[record 0058](docs/records/0058-chromium-application-performance-matrix.md).
+The complete protocol lives in the
+[Chromium benchmark README](benchmarks/chromium/README.md).
 
 ### iOS
 
