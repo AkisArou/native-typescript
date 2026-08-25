@@ -38,6 +38,7 @@ export interface ChromiumRendererSnapshot {
 
 export interface ChromiumProductShapeObservation {
   readonly lane: ChromiumBenchmarkLane;
+  readonly workload: string;
   readonly startupMilliseconds: number;
   readonly workloadMilliseconds: number;
   readonly wallClockMilliseconds: number;
@@ -299,12 +300,17 @@ export function defineChromiumPerformanceInput(
           "rendererPeakRssBytes",
           "startupMilliseconds",
           "wallClockMilliseconds",
+          "workload",
           "workloadMilliseconds",
         ],
         path,
       );
       if (!lanes.includes(observation.lane as ChromiumBenchmarkLane)) {
         throw new TypeError(`${path}/lane is unsupported`);
+      }
+      if (typeof observation.workload !== "string" ||
+          observation.workload.length === 0) {
+        throw new TypeError(`${path}/workload must be non-empty`);
       }
       const startupMilliseconds = observation.startupMilliseconds;
       const workloadMilliseconds = observation.workloadMilliseconds;
@@ -506,20 +512,24 @@ export function defineChromiumPerformanceInput(
     }
     const repetitions =
       value.provenance.benchmarkEnvironment.repetitions as number;
-    const expectedProductShapeCount = repetitions * lanes.length;
+    const expectedProductShapeCount =
+      repetitions * lanes.length * workloadIds.size;
     if (value.productShape.length !== expectedProductShapeCount) {
       throw new TypeError(
         `Chromium performance input/productShape must contain ${expectedProductShapeCount} observations`,
       );
     }
-    for (const lane of lanes) {
-      const count = value.productShape.filter(
-        (observation) => observation.lane === lane,
-      ).length;
-      if (count !== repetitions) {
-        throw new TypeError(
-          `Chromium performance input/productShape must contain one ${lane} observation per repetition`,
-        );
+    for (const workload of workloadIds) {
+      for (const lane of lanes) {
+        const count = value.productShape.filter(
+          (observation) => observation.lane === lane &&
+            observation.workload === workload,
+        ).length;
+        if (count !== repetitions) {
+          throw new TypeError(
+            `Chromium performance input/productShape must contain one ${workload}/${lane} observation per repetition`,
+          );
+        }
       }
     }
   }
@@ -732,7 +742,7 @@ export function evaluateChromiumPerformance(
       observation.finalInterop?.managedSubscriptions;
     if (retainedSubscriptions !== undefined && retainedSubscriptions !== 0) {
       violations.push(
-        `${observation.lane} retained ${retainedSubscriptions} managed event subscriptions after its workload sequence`,
+        `${observation.workload}/${observation.lane} retained ${retainedSubscriptions} managed event subscriptions after its workload`,
       );
     }
   }

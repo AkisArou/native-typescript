@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 extern "C" void nts_chromium_scriptc_c_init(void);
 extern "C" void nts_chromium_scriptc_llvm_init(void);
@@ -395,10 +396,14 @@ LaneFunction FunctionForLane(const WorkloadDefinition& workload,
   return nullptr;
 }
 
-std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane) {
+std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane,
+                                          const blink::String& workload_id) {
   std::vector<MeasuredWorkload> result;
-  result.reserve(std::size(kWorkloads));
+  result.reserve(1);
   for (const WorkloadDefinition& workload : kWorkloads) {
+    if (workload_id != workload.id) {
+      continue;
+    }
     LaneFunction function = FunctionForLane(workload, lane);
     CHECK(function);
     result.push_back(MeasuredWorkload{
@@ -408,6 +413,7 @@ std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane) {
         .interop = current_benchmark_realm->Managed().Diagnostics(),
     });
   }
+  CHECK_EQ(result.size(), 1u);
   return result;
 }
 
@@ -484,6 +490,11 @@ bool RunDocumentCreateElementBenchmark(blink::Document* document) {
   blink::HTMLElement* body = document->body();
   const blink::AtomicString lane_attribute("data-nts-benchmark-lane");
   const blink::String lane = body->getAttribute(lane_attribute);
+  const blink::String workload_id =
+      document->Url().FragmentIdentifier().ToString();
+  if (workload_id.empty()) {
+    return false;
+  }
   if (lane == "v8") {
     return true;
   }
@@ -506,7 +517,7 @@ bool RunDocumentCreateElementBenchmark(blink::Document* document) {
   std::vector<MeasuredWorkload> samples;
   {
     ScopedCurrentWebRealm active_realm(realm);
-    samples = MeasureLane(lane);
+    samples = MeasureLane(lane, workload_id);
   }
   delete retained_attached_text;
   retained_attached_text = nullptr;

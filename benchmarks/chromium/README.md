@@ -34,9 +34,10 @@ The current matrix contains:
 | `attached-component-mount` | Build, attach, and remove a small card | Attached tree lifecycle and teardown |
 
 Every workload has an independently checked result. The ScriptC lanes also
-publish registry diagnostics after every workload. Before the retained-text
-case there must be no managed peers; afterward there must be exactly one peer
-and one claim. Every workload boundary must have zero managed subscriptions.
+publish registry diagnostics for every workload. Each workload/lane pair runs
+in a fresh renderer: non-retaining cases must finish with no managed peers,
+while the retained-text case must finish with exactly one peer and one claim.
+Every workload boundary must have zero managed subscriptions.
 Those checks distinguish compiler-proved frame-bounded Blink pointers from
 the managed, Oilpan-rooted handles required for escaped identity.
 
@@ -48,13 +49,15 @@ closely. Neither shape alone is treated as the product result.
 ## Product-shape measurements
 
 Latency samples and product-shape measurements are separate report dimensions.
-For every repetition and lane, the runner starts a fresh renderer on a
+For every repetition, workload, and lane, the runner starts a fresh renderer on a
 script-free blank fixture, attaches DevTools, and records a baseline. It then navigates to
 the fixture, waits for its checked result, forces a collection, records the
 post-workload state, navigates back to `about:blank`, forces another collection,
 and records teardown state. When Chromium has spare renderer processes, the
 runner attributes the lane to the stable PID whose CPU time advanced during the
-workload and refuses to combine or guess across processes.
+workload and refuses to combine or guess across processes. Workload isolation
+also prevents detached garbage from one case from changing the memory or GC
+behavior of a later case.
 
 The report contains:
 

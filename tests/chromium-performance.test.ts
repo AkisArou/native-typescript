@@ -68,6 +68,7 @@ const provenance = Object.freeze({
 
 function productShape(
   lane: ChromiumBenchmarkLane,
+  workloadName: string,
   managedSubscriptions = 0,
 ): ChromiumProductShapeObservation {
   const compiled = lane === "scriptc-c" || lane === "scriptc-llvm";
@@ -80,6 +81,7 @@ function productShape(
   });
   return Object.freeze({
     lane,
+    workload: workloadName,
     startupMilliseconds: 50,
     workloadMilliseconds: 400,
     wallClockMilliseconds: 500,
@@ -148,7 +150,7 @@ test("Chromium performance input is exact and deeply frozen", () => {
   );
 });
 
-test("schema 3 records one renderer product-shape sample per lane", () => {
+test("schema 3 records product shape per workload and lane", () => {
   const observations = [
     ...workload("set-text", "primitive", {
       cpp: 100,
@@ -177,7 +179,9 @@ test("schema 3 records one renderer product-shape sample per lane", () => {
       rendererCpuSet: null,
     },
   };
-  const productShapeSamples = lanes.map((lane) => productShape(lane));
+  const productShapeSamples = ["set-text", "dom-batch"].flatMap(
+    (workloadName) => lanes.map((lane) => productShape(lane, workloadName)),
+  );
   const report = evaluateChromiumPerformance({
     observations,
     capsuleStructure: cleanCapsule,
@@ -191,7 +195,7 @@ test("schema 3 records one renderer product-shape sample per lane", () => {
   });
 
   assert.equal(report.passed, true);
-  assert.equal(report.productShape.length, 4);
+  assert.equal(report.productShape.length, 8);
   assert.equal(Object.isFrozen(report.productShape), true);
   assert.throws(
     () => defineChromiumPerformanceInput({
@@ -205,7 +209,7 @@ test("schema 3 records one renderer product-shape sample per lane", () => {
         scriptcLlvmArchiveBytes: 12_000,
       },
     }),
-    /must contain 4 observations/u,
+    /must contain 8 observations/u,
   );
 
   const leaking = evaluateChromiumPerformance({
@@ -214,7 +218,7 @@ test("schema 3 records one renderer product-shape sample per lane", () => {
     provenance: schema3Provenance,
     productShape: productShapeSamples.map((observation) =>
       observation.lane === "scriptc-c"
-        ? productShape("scriptc-c", 1)
+        ? productShape("scriptc-c", observation.workload, 1)
         : observation
     ),
     artifactShape: {

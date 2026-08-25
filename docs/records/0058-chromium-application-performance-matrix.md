@@ -35,8 +35,8 @@ callback queue.
 The Blink managed registry exposes workload-boundary diagnostics for live node
 peers, total claims, and event subscriptions. The benchmark contract requires:
 
-- zero managed nodes before the retained attached-text workload;
-- exactly one peer and one claim after that workload;
+- zero managed nodes after every non-retaining workload;
+- exactly one peer and one claim after the retained attached-text workload;
 - zero surviving managed subscriptions at every workload boundary.
 
 This makes the intended tiering observable. Temporary DOM values must remain
@@ -47,7 +47,7 @@ and be released before the workload returns.
 
 ## Product-shape protocol
 
-Every repetition uses a fresh renderer. The runner first attaches on a
+Every repetition/workload/lane tuple uses a fresh renderer. The runner first attaches on a
 script-free blank fixture and records a baseline, explicitly navigates into the selected
 lane, then navigates back to blank after the checked result. Forced collection
 precedes baseline, post-workload, and post-teardown snapshots.
@@ -59,7 +59,8 @@ the shared `content_shell` size and the C and LLVM archive sizes. Whole-browser
 and Xvfb memory are excluded, and the shared browser binary is not falsely
 attributed to every lane. Spare renderers are not summed: the measured PID is
 the stable renderer whose CPU time advances across the workload, and the run
-fails if that PID cannot be followed through teardown.
+fails if that PID cannot be followed through teardown. This isolation also
+keeps detached garbage and GC pressure from one case out of later cases.
 
 Subscription retention is already a failing gate. Memory numbers are recorded
 separately from latency and deliberately have no threshold until repeated

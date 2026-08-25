@@ -143,7 +143,15 @@ function measure(function_, iterations, warmupIterations) {
   return { checksum, perCall, compiledLoop };
 }
 
-const workloads = ntsBenchmarkContract.workloads.map((definition) => {
+const selectedWorkload = decodeURIComponent(location.hash.slice(1));
+const selectedDefinitions = ntsBenchmarkContract.workloads.filter(
+  (definition) => definition.id === selectedWorkload,
+);
+if (selectedDefinitions.length !== 1) {
+  throw new Error(`Unknown V8 benchmark workload: ${selectedWorkload}`);
+}
+
+const workloads = selectedDefinitions.map((definition) => {
   const function_ = functions[definition.function];
   if (typeof function_ !== "function") {
     throw new Error(`Missing V8 benchmark function: ${definition.function}`);

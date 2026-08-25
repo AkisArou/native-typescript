@@ -401,25 +401,31 @@ function isTransientDomReadFailure(error: unknown): boolean {
     );
 }
 
-function parseLaneResult(value: string, expectedLane: ChromiumBenchmarkLane): LaneResult {
+function parseLaneResult(
+  value: string,
+  expectedLane: ChromiumBenchmarkLane,
+  expectedWorkload: string,
+): LaneResult {
   const parsed = JSON.parse(value) as Partial<LaneResult>;
   if (
     parsed.lane !== expectedLane ||
     parsed.sampleCount !== benchmarkContract.sampleCount ||
     !Array.isArray(parsed.workloads) ||
-    parsed.workloads.length !== benchmarkContract.workloads.length
+    parsed.workloads.length !== 1
   ) {
     throw new Error(`Invalid or mismatched benchmark result for ${expectedLane}`);
   }
-  for (const [index, definition] of benchmarkContract.workloads.entries()) {
-    const workload = parsed.workloads[index] as Partial<LaneWorkloadResult>;
+  const definition = benchmarkContract.workloads.find(
+    ({ id }) => id === expectedWorkload,
+  );
+  if (!definition) throw new Error(`Unknown benchmark workload: ${expectedWorkload}`);
+  {
+    const workload = parsed.workloads[0] as Partial<LaneWorkloadResult>;
     const expectedChecksum = 2 * definition.warmupIterations +
       2 * benchmarkContract.sampleCount * definition.iterations;
     const interop = workload?.interop;
-    const retainedWorkloadIndex = benchmarkContract.workloads.findIndex(
-      ({ id }) => id === "retained-attached-text-update",
-    );
-    const expectedManagedNodes = index >= retainedWorkloadIndex ? 1 : 0;
+    const expectedManagedNodes =
+      definition.id === "retained-attached-text-update" ? 1 : 0;
     const interopValid = expectedLane === "scriptc-c" ||
         expectedLane === "scriptc-llvm"
       ? interop !== null && typeof interop === "object" &&
@@ -459,6 +465,7 @@ async function waitForLaneResult(
   client: CdpClient,
   sessionId: string,
   lane: ChromiumBenchmarkLane,
+  workload: string,
 ): Promise<LaneResult> {
   const deadline = Date.now() + operationTimeoutMilliseconds;
   while (Date.now() < deadline) {
@@ -477,7 +484,7 @@ async function waitForLaneResult(
     if (attributes.get("data-nts-benchmark-ready") === "true") {
       const result = attributes.get("data-nts-benchmark-result");
       if (result === undefined) throw new Error(`${lane} published no result`);
-      return parseLaneResult(result, lane);
+      return parseLaneResult(result, lane, workload);
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
   }
@@ -549,14 +556,17 @@ function capsuleStructure(): {
 
 function observations(results: readonly LaneResult[]): readonly ChromiumBenchmarkObservation[] {
   return Object.freeze(lanes.flatMap((lane) => {
-    const repetitions = results.filter((result) => result.lane === lane);
-    return benchmarkContract.workloads.flatMap((definition, index) => [
+    return benchmarkContract.workloads.flatMap((definition) => {
+      const repetitions = results.filter((result) =>
+        result.lane === lane && result.workloads[0]?.id === definition.id
+      );
+      return [
       Object.freeze({
         workload: `webidl-${definition.id}-per-call`,
         category: definition.perCallCategory,
         lane,
         samplesNanoseconds: Object.freeze(repetitions.flatMap((result) =>
-          result.workloads[index]!.perCall
+          result.workloads[0]!.perCall
         )),
       }),
       Object.freeze({
@@ -564,10 +574,11 @@ function observations(results: readonly LaneResult[]): readonly ChromiumBenchmar
         category: definition.compiledLoopCategory,
         lane,
         samplesNanoseconds: Object.freeze(repetitions.flatMap((result) =>
-          result.workloads[index]!.compiledLoop
+          result.workloads[0]!.compiledLoop
         )),
       }),
-    ]);
+      ];
+    });
   }));
 }
 
@@ -678,6 +689,7 @@ async function runLane(
   blankPageUrl: string,
   pageUrl: string,
   lane: ChromiumBenchmarkLane,
+  workload: string,
   rendererCpuSet: string | null,
 ): Promise<LaneExecution> {
   const profile = mkdtempSync(join(tmpdir(), "nts-chromium-benchmark-profile-"));
@@ -722,7 +734,7 @@ async function runLane(
     );
     await client.send("Page.navigate", { url: pageUrl }, sessionId);
     await workloadLoaded;
-    const result = await waitForLaneResult(client, sessionId, lane);
+    const result = await waitForLaneResult(client, sessionId, lane, workload);
     const workloadMilliseconds = performance.now() - workloadStartedAt;
     const postWorkload = await captureRendererPhase(client, sessionId);
     const measuredRendererId = workloadRendererId(baseline, postWorkload);
@@ -733,6 +745,7 @@ async function runLane(
     const wallClockMilliseconds = performance.now() - startedAt;
     const productShape = Object.freeze({
       lane,
+      workload,
       startupMilliseconds,
       workloadMilliseconds,
       wallClockMilliseconds,
@@ -854,14 +867,20 @@ async function main(arguments_: readonly string[]): Promise<void> {
   ]));
   const executions: LaneExecution[] = [];
   for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
-    for (const lane of lanes) {
-      executions.push(await runLane(
-        executable,
-        blankPageUrl,
-        pageUrls.get(lane)!,
-        lane,
-        options.rendererCpuSet,
-      ));
+    for (const workload of benchmarkContract.workloads) {
+      for (const lane of lanes) {
+        process.stdout.write(
+          `Running repetition ${repetition + 1}/${options.repetitions}: ${workload.id}/${lane}\n`,
+        );
+        executions.push(await runLane(
+          executable,
+          blankPageUrl,
+          `${pageUrls.get(lane)!}#${encodeURIComponent(workload.id)}`,
+          lane,
+          workload.id,
+          options.rendererCpuSet,
+        ));
+      }
     }
   }
 
