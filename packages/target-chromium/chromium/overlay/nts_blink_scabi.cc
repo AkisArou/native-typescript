@@ -54,14 +54,20 @@ const blink::String& ExceptionMessage(
 
 NtsWebRealm* ActiveRealm() {
   NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();
-  return realm && realm->IsCurrent() && realm->IsAlive() ? realm : nullptr;
+  // ScopedCurrentWebRealm can install a realm only on its checked owner
+  // sequence, so the thread-local lookup already establishes IsCurrent().
+  return realm && realm->IsAlive() ? realm : nullptr;
 }
 
 blink::String DecodeUtf8(const uint8_t* data, size_t length) {
   if (!data && length != 0) {
     return blink::String();
   }
-  return blink::String::FromUtf8(UNSAFE_BUFFERS(base::span(data, length)));
+  // The generated SCABI caller establishes the pointer/length extent. Use
+  // Chromium's explicit unchecked-span form so PartitionAlloc does not
+  // repeat an allocator-bounds query for every string argument.
+  return blink::String::FromUtf8(
+      UNSAFE_BUFFERS(base::span(base::unchecked, data, length)));
 }
 
 blink::AtomicString DecodeUtf8Atomic(const uint8_t* data, size_t length) {
@@ -69,7 +75,7 @@ blink::AtomicString DecodeUtf8Atomic(const uint8_t* data, size_t length) {
     return blink::AtomicString();
   }
   return blink::AtomicString::FromUtf8(
-      UNSAFE_BUFFERS(base::span(data, length)));
+      UNSAFE_BUFFERS(base::span(base::unchecked, data, length)));
 }
 
 void SetError(NtsWebError** out_error, const blink::String& message) {
@@ -145,7 +151,9 @@ NtsWebNode* ExposeNode(NtsWebRealm*& realm,
 }
 
 NtsWebNode* CurrentDocument(ResultLifetime lifetime) {
-  NtsWebRealm* realm = ActiveRealm();
+  // Document() is the single owner-sequence/aliveness gate needed here and
+  // returns null after navigation invalidates the realm.
+  NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();
   return ExposeNode(realm, realm ? realm->Document() : nullptr, lifetime);
 }
 
