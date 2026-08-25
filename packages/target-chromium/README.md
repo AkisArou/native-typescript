@@ -220,7 +220,7 @@ At the pinned revision, the official non-component fixture has completed a
 full `content_shell` build with ThinLTO and `chrome_pgo_phase=0`. Structural
 verification confirms that the final link includes the native benchmark host
 and both localized ScriptC archives, and that each archive exports exactly its
-three declared backend-specific symbols. That structural verification is
+declared backend-specific symbols. That structural verification is
 separate from timing, which still requires a quiet-system window.
 
 The current generated-WebIDL run at this pin used three repetitions, 30 samples

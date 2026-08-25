@@ -8,14 +8,16 @@ export interface ChromiumBenchmarkWorkload {
   readonly typescriptExport: string;
   readonly symbolStem: string;
   readonly cppFunction: string;
-  readonly iterations: number;
-  readonly warmupIterations: number;
+  readonly perCallIterations: number;
+  readonly perCallWarmupIterations: number;
+  readonly compiledLoopIterations: number;
+  readonly compiledLoopWarmupIterations: number;
   readonly perCallCategory: ChromiumBenchmarkCategory;
   readonly compiledLoopCategory: ChromiumBenchmarkCategory;
 }
 
 export interface ChromiumBenchmarkContract {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sampleCount: number;
   readonly workloads: readonly ChromiumBenchmarkWorkload[];
 }
@@ -67,8 +69,8 @@ export function defineChromiumBenchmarkContract(
     ["sampleCount", "schemaVersion", "workloads"],
     "Chromium benchmark contract",
   );
-  if (value.schemaVersion !== 1) {
-    throw new TypeError("Chromium benchmark contract/schemaVersion must be 1");
+  if (value.schemaVersion !== 2) {
+    throw new TypeError("Chromium benchmark contract/schemaVersion must be 2");
   }
   if (!Number.isSafeInteger(value.sampleCount) ||
       (value.sampleCount as number) < 20) {
@@ -85,13 +87,15 @@ export function defineChromiumBenchmarkContract(
       workload,
       [
         "compiledLoopCategory",
+        "compiledLoopIterations",
+        "compiledLoopWarmupIterations",
         "cppFunction",
         "id",
-        "iterations",
         "perCallCategory",
+        "perCallIterations",
+        "perCallWarmupIterations",
         "symbolStem",
         "typescriptExport",
-        "warmupIterations",
       ],
       path,
     );
@@ -110,7 +114,12 @@ export function defineChromiumBenchmarkContract(
         throw new TypeError(`${path}/${name} must be an identifier`);
       }
     }
-    for (const name of ["iterations", "warmupIterations"] as const) {
+    for (const name of [
+      "compiledLoopIterations",
+      "compiledLoopWarmupIterations",
+      "perCallIterations",
+      "perCallWarmupIterations",
+    ] as const) {
       if (!Number.isSafeInteger(workload[name]) ||
           (workload[name] as number) <= 0) {
         throw new TypeError(`${path}/${name} must be a positive integer`);

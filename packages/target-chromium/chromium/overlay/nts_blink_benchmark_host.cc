@@ -25,28 +25,30 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
+#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
-#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 extern "C" void nts_chromium_scriptc_c_init(void);
 extern "C" void nts_chromium_scriptc_llvm_init(void);
 
-#define NTS_CHROMIUM_BENCHMARK_WORKLOAD(id, cpp_function, symbol_stem,         \
-                                        iterations, warmup_iterations)         \
-  extern "C" double nts_chromium_scriptc_c_##symbol_stem(double);             \
+#define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
+    id, cpp_function, symbol_stem, per_call_iterations,                        \
+    per_call_warmup_iterations, compiled_loop_iterations,                      \
+    compiled_loop_warmup_iterations)                                           \
+  extern "C" double nts_chromium_scriptc_c_##symbol_stem(double);              \
   extern "C" double nts_chromium_scriptc_llvm_##symbol_stem(double);
 #include "third_party/blink/renderer/native_typescript/generated/nts_benchmark_workloads.inc"
 #undef NTS_CHROMIUM_BENCHMARK_WORKLOAD
 
-extern "C" void nts_chromium_scriptc_random_bytes(void* output, size_t length) {
+extern "C" void nts_chromium_scriptc_random_bytes(void *output, size_t length) {
   if (length == 0) {
     return;
   }
   CHECK(output);
   base::RandBytes(
-      UNSAFE_BUFFERS(base::span(static_cast<uint8_t*>(output), length)));
+      UNSAFE_BUFFERS(base::span(static_cast<uint8_t *>(output), length)));
 }
 
 namespace {
@@ -56,15 +58,15 @@ constexpr int kSampleCount = 30;
 using LaneFunction = double (*)(double iterations);
 using Samples = std::array<double, kSampleCount>;
 
-thread_local NtsWebRealm* current_benchmark_realm = nullptr;
-thread_local blink::Persistent<blink::Text>* retained_attached_text = nullptr;
+thread_local NtsWebRealm *current_benchmark_realm = nullptr;
+thread_local blink::Persistent<blink::Text> *retained_attached_text = nullptr;
 
-uint32_t CreateElementOnce(blink::Document* document) {
+uint32_t CreateElementOnce(blink::Document *document) {
   if (!document) {
     return 0;
   }
   blink::DummyExceptionStateForTesting exception_state;
-  blink::Element* element = nts::blink_bridge::generated::DocumentCreateElement(
+  blink::Element *element = nts::blink_bridge::generated::DocumentCreateElement(
       *document, blink::AtomicString("div"), exception_state);
   return element != nullptr && !exception_state.HadException() ? 1u : 0u;
 }
@@ -77,22 +79,22 @@ double CreateElementsCpp(double iterations) {
   return checksum;
 }
 
-uint32_t CreateDetachedCounterTreeOnce(blink::Document* document) {
+uint32_t CreateDetachedCounterTreeOnce(blink::Document *document) {
   if (!document) {
     return 0;
   }
   blink::DummyExceptionStateForTesting exception_state;
-  blink::Element* button = nts::blink_bridge::generated::DocumentCreateElement(
+  blink::Element *button = nts::blink_bridge::generated::DocumentCreateElement(
       *document, blink::AtomicString("button"), exception_state);
   if (!button || exception_state.HadException()) {
     return 0;
   }
-  blink::Text* label = nts::blink_bridge::generated::DocumentCreateTextNode(
+  blink::Text *label = nts::blink_bridge::generated::DocumentCreateTextNode(
       *document, "Count: 0");
   if (!label) {
     return 0;
   }
-  blink::Node* appended = nts::blink_bridge::generated::NodeAppendChild(
+  blink::Node *appended = nts::blink_bridge::generated::NodeAppendChild(
       *button, *label, exception_state);
   if (appended != label || exception_state.HadException()) {
     return 0;
@@ -111,19 +113,19 @@ double CreateDetachedCounterTreesCpp(double iterations) {
 }
 
 double UpdateRetainedAttachedTextCpp(double iterations) {
-  blink::Document* document = current_benchmark_realm->Document();
+  blink::Document *document = current_benchmark_realm->Document();
   if (!document || !document->body()) {
     return 0;
   }
-  blink::Text* label = retained_attached_text
-      ? retained_attached_text->Get()
-      : nullptr;
+  blink::Text *label =
+      retained_attached_text ? retained_attached_text->Get() : nullptr;
   if (!label) {
     blink::DummyExceptionStateForTesting exception_state;
-    blink::Element* output = nts::blink_bridge::generated::DocumentCreateElement(
-        *document, blink::AtomicString("output"), exception_state);
-    label = nts::blink_bridge::generated::DocumentCreateTextNode(
-        *document, "Count: 0");
+    blink::Element *output =
+        nts::blink_bridge::generated::DocumentCreateElement(
+            *document, blink::AtomicString("output"), exception_state);
+    label = nts::blink_bridge::generated::DocumentCreateTextNode(*document,
+                                                                 "Count: 0");
     if (!output || !label || exception_state.HadException() ||
         nts::blink_bridge::generated::NodeAppendChild(
             *output, *label, exception_state) != label ||
@@ -137,22 +139,22 @@ double UpdateRetainedAttachedTextCpp(double iterations) {
   double checksum = 0;
   for (int index = 0; index < static_cast<int>(iterations); ++index) {
     nts::blink_bridge::generated::CharacterDataSetData(
-        *label, index % 2 == 0 ? blink::String("Count: 1")
-                              : blink::String("Count: 2"));
+        *label,
+        index % 2 == 0 ? blink::String("Count: 1") : blink::String("Count: 2"));
     checksum += 1;
   }
   return checksum;
 }
 
 double CreateEightRowComponentListsCpp(double iterations) {
-  blink::Document* document = current_benchmark_realm->Document();
+  blink::Document *document = current_benchmark_realm->Document();
   if (!document) {
     return 0;
   }
   double checksum = 0;
   for (int index = 0; index < static_cast<int>(iterations); ++index) {
     blink::DummyExceptionStateForTesting exception_state;
-    blink::Element* list = nts::blink_bridge::generated::DocumentCreateElement(
+    blink::Element *list = nts::blink_bridge::generated::DocumentCreateElement(
         *document, blink::AtomicString("ul"), exception_state);
     if (!list || exception_state.HadException()) {
       return checksum;
@@ -161,20 +163,19 @@ double CreateEightRowComponentListsCpp(double iterations) {
         *list, blink::AtomicString("class"), blink::AtomicString("results"),
         exception_state);
     for (int row_index = 0; row_index < 8; ++row_index) {
-      blink::Element* row = nts::blink_bridge::generated::DocumentCreateElement(
+      blink::Element *row = nts::blink_bridge::generated::DocumentCreateElement(
           *document, blink::AtomicString("li"), exception_state);
-      blink::Element* label =
+      blink::Element *label =
           nts::blink_bridge::generated::DocumentCreateElement(
               *document, blink::AtomicString("span"), exception_state);
-      blink::Text* text =
-          nts::blink_bridge::generated::DocumentCreateTextNode(
-              *document, "Native TypeScript result");
+      blink::Text *text = nts::blink_bridge::generated::DocumentCreateTextNode(
+          *document, "Native TypeScript result");
       if (!row || !label || !text || exception_state.HadException()) {
         return checksum;
       }
       nts::blink_bridge::generated::ElementSetAttribute(
-          *row, blink::AtomicString("class"),
-          blink::AtomicString("result-row"), exception_state);
+          *row, blink::AtomicString("class"), blink::AtomicString("result-row"),
+          exception_state);
       nts::blink_bridge::generated::ElementSetAttribute(
           *row, blink::AtomicString("data-state"),
           row_index % 2 == 0 ? blink::AtomicString("active")
@@ -196,15 +197,15 @@ double CreateEightRowComponentListsCpp(double iterations) {
 }
 
 double RunSelectorDrivenUpdatesCpp(double iterations) {
-  blink::Document* document = current_benchmark_realm->Document();
+  blink::Document *document = current_benchmark_realm->Document();
   if (!document) {
     return 0;
   }
   blink::DummyExceptionStateForTesting exception_state;
-  blink::Element* component =
+  blink::Element *component =
       nts::blink_bridge::generated::DocumentCreateElement(
           *document, blink::AtomicString("section"), exception_state);
-  blink::Element* status = nts::blink_bridge::generated::DocumentCreateElement(
+  blink::Element *status = nts::blink_bridge::generated::DocumentCreateElement(
       *document, blink::AtomicString("span"), exception_state);
   if (!component || !status || exception_state.HadException()) {
     return 0;
@@ -222,7 +223,7 @@ double RunSelectorDrivenUpdatesCpp(double iterations) {
   }
   double checksum = 0;
   for (int index = 0; index < static_cast<int>(iterations); ++index) {
-    blink::Element* selected =
+    blink::Element *selected =
         nts::blink_bridge::generated::ElementQuerySelector(
             *component, blink::AtomicString("[data-role=status]"),
             exception_state);
@@ -243,31 +244,32 @@ double RunSelectorDrivenUpdatesCpp(double iterations) {
 }
 
 class CountingEventListener final : public blink::NativeEventListener {
- public:
-  explicit CountingEventListener(double* checksum) : checksum_(checksum) {
+public:
+  explicit CountingEventListener(double *checksum) : checksum_(checksum) {
     CHECK(checksum_);
   }
 
-  void Invoke(blink::ExecutionContext*, blink::Event*) override {
+  void Invoke(blink::ExecutionContext *, blink::Event *) override {
     *checksum_ += 1;
   }
 
-  void Trace(blink::Visitor* visitor) const override {
+  void Trace(blink::Visitor *visitor) const override {
     blink::NativeEventListener::Trace(visitor);
   }
 
- private:
+private:
   raw_ptr<double> checksum_;
 };
 
 double RunSynchronousEventRoundTripsCpp(double iterations) {
-  blink::Document* document = current_benchmark_realm->Document();
+  blink::Document *document = current_benchmark_realm->Document();
   if (!document || !document->body()) {
     return 0;
   }
-  blink::HTMLElement* button = document->body();
+  blink::HTMLElement *button = document->body();
   double checksum = 0;
-  auto* listener = blink::MakeGarbageCollected<CountingEventListener>(&checksum);
+  auto *listener =
+      blink::MakeGarbageCollected<CountingEventListener>(&checksum);
   const blink::AtomicString event_type("click");
   if (!button->addEventListener(event_type, listener, false)) {
     return 0;
@@ -280,24 +282,25 @@ double RunSynchronousEventRoundTripsCpp(double iterations) {
 }
 
 double MountAttachedComponentsCpp(double iterations) {
-  blink::Document* document = current_benchmark_realm->Document();
+  blink::Document *document = current_benchmark_realm->Document();
   if (!document || !document->body()) {
     return 0;
   }
   double checksum = 0;
   for (int index = 0; index < static_cast<int>(iterations); ++index) {
     blink::DummyExceptionStateForTesting exception_state;
-    blink::Element* card = nts::blink_bridge::generated::DocumentCreateElement(
+    blink::Element *card = nts::blink_bridge::generated::DocumentCreateElement(
         *document, blink::AtomicString("article"), exception_state);
-    blink::Element* title = nts::blink_bridge::generated::DocumentCreateElement(
+    blink::Element *title = nts::blink_bridge::generated::DocumentCreateElement(
         *document, blink::AtomicString("h2"), exception_state);
-    blink::Element* value = nts::blink_bridge::generated::DocumentCreateElement(
+    blink::Element *value = nts::blink_bridge::generated::DocumentCreateElement(
         *document, blink::AtomicString("output"), exception_state);
-    blink::Text* title_text =
-        nts::blink_bridge::generated::DocumentCreateTextNode(*document, "Result");
-    blink::Text* value_text =
-        nts::blink_bridge::generated::DocumentCreateTextNode(
-            *document, "Count: 1");
+    blink::Text *title_text =
+        nts::blink_bridge::generated::DocumentCreateTextNode(*document,
+                                                             "Result");
+    blink::Text *value_text =
+        nts::blink_bridge::generated::DocumentCreateTextNode(*document,
+                                                             "Count: 1");
     if (!card || !title || !value || !title_text || !value_text ||
         exception_state.HadException()) {
       return checksum;
@@ -332,58 +335,71 @@ struct KernelSamples {
 };
 
 struct WorkloadDefinition {
-  const char* id;
+  const char *id;
   LaneFunction cpp;
   LaneFunction scriptc_c;
   LaneFunction scriptc_llvm;
-  int iterations;
-  int warmup_iterations;
+  int per_call_iterations;
+  int per_call_warmup_iterations;
+  int compiled_loop_iterations;
+  int compiled_loop_warmup_iterations;
 };
 
-#define NTS_CHROMIUM_BENCHMARK_WORKLOAD(id, cpp_function, symbol_stem,         \
-                                        iterations, warmup_iterations)         \
-  {id, &cpp_function, &nts_chromium_scriptc_c_##symbol_stem,                  \
-   &nts_chromium_scriptc_llvm_##symbol_stem, iterations, warmup_iterations},
+#define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
+    id, cpp_function, symbol_stem, per_call_iterations,                        \
+    per_call_warmup_iterations, compiled_loop_iterations,                      \
+    compiled_loop_warmup_iterations)                                           \
+  {id,                                                                         \
+   &cpp_function,                                                              \
+   &nts_chromium_scriptc_c_##symbol_stem,                                      \
+   &nts_chromium_scriptc_llvm_##symbol_stem,                                   \
+   per_call_iterations,                                                        \
+   per_call_warmup_iterations,                                                 \
+   compiled_loop_iterations,                                                   \
+   compiled_loop_warmup_iterations},
 constexpr WorkloadDefinition kWorkloads[] = {
 #include "third_party/blink/renderer/native_typescript/generated/nts_benchmark_workloads.inc"
 };
 #undef NTS_CHROMIUM_BENCHMARK_WORKLOAD
 
 struct MeasuredWorkload {
-  const WorkloadDefinition* definition;
+  const WorkloadDefinition *definition;
   KernelSamples samples;
   nts::blink_bridge::BlinkManagedDiagnostics interop;
 };
 
-KernelSamples MeasureKernel(LaneFunction function,
-                            int iterations,
-                            int warmup_iterations) {
+KernelSamples MeasureKernel(LaneFunction function, int per_call_iterations,
+                            int per_call_warmup_iterations,
+                            int compiled_loop_iterations,
+                            int compiled_loop_warmup_iterations) {
   KernelSamples result;
-  for (int iteration = 0; iteration < warmup_iterations; ++iteration) {
+  for (int iteration = 0; iteration < per_call_warmup_iterations; ++iteration) {
     result.checksum += static_cast<uint64_t>(function(1));
   }
   for (int sample = 0; sample < kSampleCount; ++sample) {
     const base::TimeTicks start = base::TimeTicks::Now();
-    for (int iteration = 0; iteration < iterations; ++iteration) {
+    for (int iteration = 0; iteration < per_call_iterations; ++iteration) {
       result.checksum += static_cast<uint64_t>(function(1));
     }
     result.per_call[sample] =
         static_cast<double>((base::TimeTicks::Now() - start).InNanoseconds()) /
-        iterations;
+        per_call_iterations;
   }
-  result.checksum += static_cast<uint64_t>(function(warmup_iterations));
+  result.checksum +=
+      static_cast<uint64_t>(function(compiled_loop_warmup_iterations));
   for (int sample = 0; sample < kSampleCount; ++sample) {
     const base::TimeTicks start = base::TimeTicks::Now();
-    result.checksum += static_cast<uint64_t>(function(iterations));
+    result.checksum +=
+        static_cast<uint64_t>(function(compiled_loop_iterations));
     result.compiled_loop[sample] =
         static_cast<double>((base::TimeTicks::Now() - start).InNanoseconds()) /
-        iterations;
+        compiled_loop_iterations;
   }
   return result;
 }
 
-LaneFunction FunctionForLane(const WorkloadDefinition& workload,
-                             const blink::String& lane) {
+LaneFunction FunctionForLane(const WorkloadDefinition &workload,
+                             const blink::String &lane) {
   if (lane == "cpp") {
     return workload.cpp;
   }
@@ -396,11 +412,11 @@ LaneFunction FunctionForLane(const WorkloadDefinition& workload,
   return nullptr;
 }
 
-std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane,
-                                          const blink::String& workload_id) {
+std::vector<MeasuredWorkload> MeasureLane(const blink::String &lane,
+                                          const blink::String &workload_id) {
   std::vector<MeasuredWorkload> result;
   result.reserve(1);
-  for (const WorkloadDefinition& workload : kWorkloads) {
+  for (const WorkloadDefinition &workload : kWorkloads) {
     if (workload_id != workload.id) {
       continue;
     }
@@ -408,8 +424,10 @@ std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane,
     CHECK(function);
     result.push_back(MeasuredWorkload{
         .definition = &workload,
-        .samples = MeasureKernel(function, workload.iterations,
-                                 workload.warmup_iterations),
+        .samples = MeasureKernel(function, workload.per_call_iterations,
+                                 workload.per_call_warmup_iterations,
+                                 workload.compiled_loop_iterations,
+                                 workload.compiled_loop_warmup_iterations),
         .interop = current_benchmark_realm->Managed().Diagnostics(),
     });
   }
@@ -417,7 +435,7 @@ std::vector<MeasuredWorkload> MeasureLane(const blink::String& lane,
   return result;
 }
 
-void AppendSamples(blink::StringBuilder& builder, const Samples& samples) {
+void AppendSamples(blink::StringBuilder &builder, const Samples &samples) {
   builder.Append('[');
   for (int index = 0; index < kSampleCount; ++index) {
     if (index != 0) {
@@ -428,8 +446,8 @@ void AppendSamples(blink::StringBuilder& builder, const Samples& samples) {
   builder.Append(']');
 }
 
-blink::String SerializeResult(const blink::String& lane,
-                              const std::vector<MeasuredWorkload>& workloads) {
+blink::String SerializeResult(const blink::String &lane,
+                              const std::vector<MeasuredWorkload> &workloads) {
   blink::StringBuilder builder;
   builder.Append("{\"lane\":\"");
   builder.Append(lane);
@@ -440,13 +458,17 @@ blink::String SerializeResult(const blink::String& lane,
     if (index != 0) {
       builder.Append(',');
     }
-    const MeasuredWorkload& workload = workloads[index];
+    const MeasuredWorkload &workload = workloads[index];
     builder.Append("{\"id\":\"");
     builder.Append(workload.definition->id);
-    builder.Append("\",\"iterations\":");
-    builder.AppendNumber(workload.definition->iterations);
-    builder.Append(",\"warmupIterations\":");
-    builder.AppendNumber(workload.definition->warmup_iterations);
+    builder.Append("\",\"perCallIterations\":");
+    builder.AppendNumber(workload.definition->per_call_iterations);
+    builder.Append(",\"perCallWarmupIterations\":");
+    builder.AppendNumber(workload.definition->per_call_warmup_iterations);
+    builder.Append(",\"compiledLoopIterations\":");
+    builder.AppendNumber(workload.definition->compiled_loop_iterations);
+    builder.Append(",\"compiledLoopWarmupIterations\":");
+    builder.AppendNumber(workload.definition->compiled_loop_warmup_iterations);
     builder.Append(",\"checksum\":");
     builder.AppendNumber(workload.samples.checksum);
     builder.Append(",\"perCall\":");
@@ -472,7 +494,7 @@ blink::String SerializeResult(const blink::String& lane,
   return builder.ToString();
 }
 
-}  // namespace
+} // namespace
 
 extern "C" uint32_t nts_chromium_benchmark_create_element_once(void) {
   if (!current_benchmark_realm || !current_benchmark_realm->IsAlive()) {
@@ -483,11 +505,11 @@ extern "C" uint32_t nts_chromium_benchmark_create_element_once(void) {
 
 namespace nts::blink_bridge {
 
-bool RunDocumentCreateElementBenchmark(blink::Document* document) {
+bool RunDocumentCreateElementBenchmark(blink::Document *document) {
   if (!document || !document->GetExecutionContext() || !document->body()) {
     return false;
   }
-  blink::HTMLElement* body = document->body();
+  blink::HTMLElement *body = document->body();
   const blink::AtomicString lane_attribute("data-nts-benchmark-lane");
   const blink::String lane = body->getAttribute(lane_attribute);
   const blink::String workload_id =
@@ -508,7 +530,7 @@ bool RunDocumentCreateElementBenchmark(blink::Document* document) {
     return false;
   }
 
-  NtsWebRealm* realm = CreateWebRealm(document);
+  NtsWebRealm *realm = CreateWebRealm(document);
   if (!realm) {
     return false;
   }
@@ -531,4 +553,4 @@ bool RunDocumentCreateElementBenchmark(blink::Document* document) {
   return true;
 }
 
-}  // namespace nts::blink_bridge
+} // namespace nts::blink_bridge

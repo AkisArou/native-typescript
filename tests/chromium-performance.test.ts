@@ -170,8 +170,20 @@ test("schema 3 records product shape per workload and lane", () => {
     schemaVersion: 3 as const,
     benchmarkEnvironment: {
       workloads: [
-        { id: "set-text", iterationsPerSample: 100, warmupIterations: 20 },
-        { id: "dom-batch", iterationsPerSample: 10, warmupIterations: 2 },
+        {
+          id: "set-text",
+          perCallIterationsPerSample: 100,
+          perCallWarmupIterations: 20,
+          compiledLoopIterationsPerSample: 100,
+          compiledLoopWarmupIterations: 20,
+        },
+        {
+          id: "dom-batch",
+          perCallIterationsPerSample: 10,
+          perCallWarmupIterations: 2,
+          compiledLoopIterationsPerSample: 20,
+          compiledLoopWarmupIterations: 4,
+        },
       ],
       samplesPerRepetition: 20,
       repetitions: 1,

@@ -84,8 +84,10 @@ export interface ChromiumBenchmarkEnvironment {
 
 export interface ChromiumBenchmarkWorkloadEnvironment {
   readonly id: string;
-  readonly iterationsPerSample: number;
-  readonly warmupIterations: number;
+  readonly perCallIterationsPerSample: number;
+  readonly perCallWarmupIterations: number;
+  readonly compiledLoopIterationsPerSample: number;
+  readonly compiledLoopWarmupIterations: number;
 }
 
 export interface ChromiumBenchmarkEnvironmentV3 {
@@ -485,7 +487,13 @@ export function defineChromiumPerformanceInput(
       assertRecord(workload, workloadPath);
       assertExactKeys(
         workload,
-        ["id", "iterationsPerSample", "warmupIterations"],
+        [
+          "compiledLoopIterationsPerSample",
+          "compiledLoopWarmupIterations",
+          "id",
+          "perCallIterationsPerSample",
+          "perCallWarmupIterations",
+        ],
         workloadPath,
       );
       if (typeof workload.id !== "string" || workload.id.length === 0 ||
@@ -493,7 +501,12 @@ export function defineChromiumPerformanceInput(
         throw new TypeError(`${workloadPath}/id must be unique and non-empty`);
       }
       workloadIds.add(workload.id);
-      for (const name of ["iterationsPerSample", "warmupIterations"] as const) {
+      for (const name of [
+        "compiledLoopIterationsPerSample",
+        "compiledLoopWarmupIterations",
+        "perCallIterationsPerSample",
+        "perCallWarmupIterations",
+      ] as const) {
         const field = workload[name];
         if (typeof field !== "number" || !Number.isSafeInteger(field) || field <= 0) {
           throw new TypeError(`${workloadPath}/${name} must be positive`);

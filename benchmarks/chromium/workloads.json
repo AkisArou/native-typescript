@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sampleCount": 30,
   "workloads": [
     {
@@ -7,8 +7,10 @@
       "typescriptExport": "createElements",
       "symbolStem": "create_elements",
       "cppFunction": "CreateElementsCpp",
-      "iterations": 100000,
-      "warmupIterations": 20000,
+      "perCallIterations": 100000,
+      "perCallWarmupIterations": 20000,
+      "compiledLoopIterations": 100000,
+      "compiledLoopWarmupIterations": 20000,
       "perCallCategory": "primitive",
       "compiledLoopCategory": "boundary-heavy"
     },
@@ -17,8 +19,10 @@
       "typescriptExport": "createDetachedCounterTrees",
       "symbolStem": "create_detached_counter_trees",
       "cppFunction": "CreateDetachedCounterTreesCpp",
-      "iterations": 100000,
-      "warmupIterations": 20000,
+      "perCallIterations": 100000,
+      "perCallWarmupIterations": 20000,
+      "compiledLoopIterations": 100000,
+      "compiledLoopWarmupIterations": 20000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "boundary-heavy"
     },
@@ -27,8 +31,10 @@
       "typescriptExport": "updateRetainedAttachedText",
       "symbolStem": "update_retained_attached_text",
       "cppFunction": "UpdateRetainedAttachedTextCpp",
-      "iterations": 100000,
-      "warmupIterations": 20000,
+      "perCallIterations": 100000,
+      "perCallWarmupIterations": 20000,
+      "compiledLoopIterations": 100000,
+      "compiledLoopWarmupIterations": 20000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -37,8 +43,10 @@
       "typescriptExport": "createEightRowComponentLists",
       "symbolStem": "create_eight_row_component_lists",
       "cppFunction": "CreateEightRowComponentListsCpp",
-      "iterations": 1000,
-      "warmupIterations": 200,
+      "perCallIterations": 1000,
+      "perCallWarmupIterations": 200,
+      "compiledLoopIterations": 1000,
+      "compiledLoopWarmupIterations": 200,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -47,8 +55,10 @@
       "typescriptExport": "runSelectorDrivenUpdates",
       "symbolStem": "run_selector_driven_updates",
       "cppFunction": "RunSelectorDrivenUpdatesCpp",
-      "iterations": 5000,
-      "warmupIterations": 1000,
+      "perCallIterations": 5000,
+      "perCallWarmupIterations": 1000,
+      "compiledLoopIterations": 5000,
+      "compiledLoopWarmupIterations": 1000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -57,8 +67,10 @@
       "typescriptExport": "runSynchronousEventRoundTrips",
       "symbolStem": "run_synchronous_event_round_trips",
       "cppFunction": "RunSynchronousEventRoundTripsCpp",
-      "iterations": 100,
-      "warmupIterations": 20,
+      "perCallIterations": 5,
+      "perCallWarmupIterations": 1,
+      "compiledLoopIterations": 5000,
+      "compiledLoopWarmupIterations": 1000,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     },
@@ -67,8 +79,10 @@
       "typescriptExport": "mountAttachedComponents",
       "symbolStem": "mount_attached_components",
       "cppFunction": "MountAttachedComponentsCpp",
-      "iterations": 1000,
-      "warmupIterations": 200,
+      "perCallIterations": 1000,
+      "perCallWarmupIterations": 200,
+      "compiledLoopIterations": 1000,
+      "compiledLoopWarmupIterations": 200,
       "perCallCategory": "mixed",
       "compiledLoopCategory": "mixed"
     }

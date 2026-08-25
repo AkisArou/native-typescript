@@ -77,8 +77,10 @@ interface TargetInfo {
 
 interface LaneWorkloadResult {
   readonly id: string;
-  readonly iterations: number;
-  readonly warmupIterations: number;
+  readonly perCallIterations: number;
+  readonly perCallWarmupIterations: number;
+  readonly compiledLoopIterations: number;
+  readonly compiledLoopWarmupIterations: number;
   readonly checksum: number;
   readonly perCall: readonly number[];
   readonly compiledLoop: readonly number[];
@@ -421,8 +423,10 @@ function parseLaneResult(
   if (!definition) throw new Error(`Unknown benchmark workload: ${expectedWorkload}`);
   {
     const workload = parsed.workloads[0] as Partial<LaneWorkloadResult>;
-    const expectedChecksum = 2 * definition.warmupIterations +
-      2 * benchmarkContract.sampleCount * definition.iterations;
+    const expectedChecksum = definition.perCallWarmupIterations +
+      benchmarkContract.sampleCount * definition.perCallIterations +
+      definition.compiledLoopWarmupIterations +
+      benchmarkContract.sampleCount * definition.compiledLoopIterations;
     const interop = workload?.interop;
     const expectedManagedNodes =
       definition.id === "retained-attached-text-update" ? 1 : 0;
@@ -440,8 +444,11 @@ function parseLaneResult(
       : interop === null;
     if (
       workload?.id !== definition.id ||
-      workload.iterations !== definition.iterations ||
-      workload.warmupIterations !== definition.warmupIterations ||
+      workload.perCallIterations !== definition.perCallIterations ||
+      workload.perCallWarmupIterations !== definition.perCallWarmupIterations ||
+      workload.compiledLoopIterations !== definition.compiledLoopIterations ||
+      workload.compiledLoopWarmupIterations !==
+        definition.compiledLoopWarmupIterations ||
       workload.checksum !== expectedChecksum ||
       !interopValid ||
       !Array.isArray(workload.perCall) ||
@@ -898,8 +905,10 @@ async function main(arguments_: readonly string[]): Promise<void> {
       benchmarkEnvironment: {
         workloads: benchmarkContract.workloads.map((workload) => ({
           id: workload.id,
-          iterationsPerSample: workload.iterations,
-          warmupIterations: workload.warmupIterations,
+          perCallIterationsPerSample: workload.perCallIterations,
+          perCallWarmupIterations: workload.perCallWarmupIterations,
+          compiledLoopIterationsPerSample: workload.compiledLoopIterations,
+          compiledLoopWarmupIterations: workload.compiledLoopWarmupIterations,
         })),
         samplesPerRepetition: benchmarkContract.sampleCount,
         repetitions: options.repetitions,

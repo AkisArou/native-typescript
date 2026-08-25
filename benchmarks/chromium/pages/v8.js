@@ -119,26 +119,36 @@ const functions = Object.freeze({
   mountAttachedComponents,
 });
 
-function measure(function_, iterations, warmupIterations) {
+function measure(
+  function_,
+  perCallIterations,
+  perCallWarmupIterations,
+  compiledLoopIterations,
+  compiledLoopWarmupIterations,
+) {
   const perCall = [];
   let checksum = 0;
-  for (let index = 0; index < warmupIterations; index += 1) {
+  for (let index = 0; index < perCallWarmupIterations; index += 1) {
     checksum += function_(1);
   }
   for (let sample = 0; sample < ntsBenchmarkContract.sampleCount; sample += 1) {
     const start = performance.now();
-    for (let index = 0; index < iterations; index += 1) {
+    for (let index = 0; index < perCallIterations; index += 1) {
       checksum += function_(1);
     }
-    perCall.push((performance.now() - start) * 1_000_000 / iterations);
+    perCall.push(
+      (performance.now() - start) * 1_000_000 / perCallIterations,
+    );
   }
 
   const compiledLoop = [];
-  checksum += function_(warmupIterations);
+  checksum += function_(compiledLoopWarmupIterations);
   for (let sample = 0; sample < ntsBenchmarkContract.sampleCount; sample += 1) {
     const start = performance.now();
-    checksum += function_(iterations);
-    compiledLoop.push((performance.now() - start) * 1_000_000 / iterations);
+    checksum += function_(compiledLoopIterations);
+    compiledLoop.push(
+      (performance.now() - start) * 1_000_000 / compiledLoopIterations,
+    );
   }
   return { checksum, perCall, compiledLoop };
 }
@@ -158,13 +168,17 @@ const workloads = selectedDefinitions.map((definition) => {
   }
   return {
     id: definition.id,
-    iterations: definition.iterations,
-    warmupIterations: definition.warmupIterations,
+    perCallIterations: definition.perCallIterations,
+    perCallWarmupIterations: definition.perCallWarmupIterations,
+    compiledLoopIterations: definition.compiledLoopIterations,
+    compiledLoopWarmupIterations: definition.compiledLoopWarmupIterations,
     interop: null,
     ...measure(
       function_,
-      definition.iterations,
-      definition.warmupIterations,
+      definition.perCallIterations,
+      definition.perCallWarmupIterations,
+      definition.compiledLoopIterations,
+      definition.compiledLoopWarmupIterations,
     ),
   };
 });

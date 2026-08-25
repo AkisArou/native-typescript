@@ -56,8 +56,10 @@ function cppInclude(contract_: ChromiumBenchmarkContract): string {
     "// Generated from benchmarks/chromium/workloads.json; do not edit.",
     ...contract_.workloads.map((workload) =>
       `NTS_CHROMIUM_BENCHMARK_WORKLOAD(${JSON.stringify(workload.id)}, ` +
-      `${workload.cppFunction}, ${workload.symbolStem}, ${workload.iterations}, ` +
-      `${workload.warmupIterations})`
+      `${workload.cppFunction}, ${workload.symbolStem}, ` +
+      `${workload.perCallIterations}, ${workload.perCallWarmupIterations}, ` +
+      `${workload.compiledLoopIterations}, ` +
+      `${workload.compiledLoopWarmupIterations})`
     ),
     "",
   ].join("\n");
@@ -72,8 +74,10 @@ function browserContract(contract_: ChromiumBenchmarkContract): string {
       workloads: contract_.workloads.map((workload) => ({
         id: workload.id,
         function: workload.typescriptExport,
-        iterations: workload.iterations,
-        warmupIterations: workload.warmupIterations,
+        perCallIterations: workload.perCallIterations,
+        perCallWarmupIterations: workload.perCallWarmupIterations,
+        compiledLoopIterations: workload.compiledLoopIterations,
+        compiledLoopWarmupIterations: workload.compiledLoopWarmupIterations,
       })),
     })});`,
     "",

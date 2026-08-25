@@ -14,8 +14,8 @@ and cleanup costs that will dominate a real application.
 The Chromium fixture now lives with the other product benchmarks under
 `benchmarks/chromium`. One exact JSON contract generates the ScriptC C and LLVM
 profiles, the Blink host declarations, and the V8 workload contract. The
-runner rejects lane, order, sample-count, iteration-count, checksum, or
-diagnostic drift.
+runner rejects lane, order, sample-count, per-call/compiled-loop iteration and
+warmup counts, checksum, or diagnostic drift.
 
 Seven matched workload families cover element creation, a detached counter
 tree, retained attached text, an eight-row component list, selector-driven
@@ -29,6 +29,13 @@ The reached generated WebIDL surface adds `Node.removeChild`,
 Synchronous DOM event dispatch now enters the ScriptC callback before `click`
 returns, matching Blink's actual ordering rather than relying on an external
 callback queue.
+
+The two measurement shapes have independent budgets. The event per-call shape
+intentionally measures a small number of complete subscription/click/disposal
+lifecycles because that lifecycle is millisecond-scale in the current ScriptC
+bridge. Its compiled-loop shape retains a large batch so steady-state dispatch
+through one live listener remains a high-resolution measurement. This keeps
+the pain point visible without allowing it to monopolize the full matrix.
 
 ## Oilpan interoperability diagnostics
 
