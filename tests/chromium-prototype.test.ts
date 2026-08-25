@@ -205,7 +205,10 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkRunner, /isTransientDomReadFailure/u);
   assert.match(benchmarkRunner, /Could not find/u);
   assert.match(benchmarkRunner, /benchmarkIterations = 100_000/u);
+  assert.match(benchmarkRunner, /repetitions = 3/u);
   assert.match(benchmarkRunner, /for \(const lane of lanes\)/u);
+  assert.match(benchmarkRunner, /renderer-cmd-prefix/u);
+  assert.match(benchmarkRunner, /schemaVersion: 2/u);
   assert.match(benchmarkHost, /kIterations = 100000/u);
   assert.match(benchmarkV8, /iterations = 100_000/u);
   assert.match(support, /python-bin\/python3/u);

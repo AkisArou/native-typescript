@@ -24,6 +24,8 @@ interface Options {
   readonly checkout: string;
   readonly outputDirectory: string;
   readonly result: string;
+  readonly repetitions: number;
+  readonly rendererCpuSet: string | null;
 }
 
 interface CdpMessage {
@@ -93,6 +95,7 @@ function usage(): string {
   return [
     "Usage: node scripts/run-chromium-benchmark.ts /path/to/chromium/src",
     "  --output chromium-benchmark-input.json [--out out/nts-benchmark]",
+    "  [--repetitions 3] [--renderer-cpu-set 0-3]",
     "",
     "This command executes timed benchmark workloads.",
   ].join("\n");
@@ -109,15 +112,33 @@ function parseOptions(arguments_: readonly string[]): Options | null {
   }
   let outputDirectory = "out/nts-benchmark";
   let result: string | undefined;
+  let repetitions = 3;
+  let rendererCpuSet: string | null = null;
   for (let index = 1; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
-    if (argument !== "--out" && argument !== "--output") {
+    if (
+      argument !== "--out" &&
+      argument !== "--output" &&
+      argument !== "--repetitions" &&
+      argument !== "--renderer-cpu-set"
+    ) {
       throw new Error(`Unknown argument: ${argument}\n${usage()}`);
     }
     const value = arguments_[index + 1];
     if (value === undefined) throw new Error(`${argument} requires a value`);
     if (argument === "--out") outputDirectory = value;
-    else result = resolve(value);
+    else if (argument === "--output") result = resolve(value);
+    else if (argument === "--repetitions") {
+      repetitions = Number(value);
+      if (!Number.isSafeInteger(repetitions) || repetitions <= 0) {
+        throw new Error("--repetitions must be a positive integer");
+      }
+    } else {
+      if (!/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/u.test(value)) {
+        throw new Error("--renderer-cpu-set must be a taskset CPU list");
+      }
+      rendererCpuSet = value;
+    }
     index += 1;
   }
   if (result === undefined) throw new Error(`--output is required\n${usage()}`);
@@ -125,6 +146,8 @@ function parseOptions(arguments_: readonly string[]): Options | null {
     checkout: resolve(checkoutArgument),
     outputDirectory,
     result,
+    repetitions,
+    rendererCpuSet,
   });
 }
 
@@ -414,26 +437,34 @@ function capsuleStructure(): {
 }
 
 function observations(results: readonly LaneResult[]): readonly ChromiumBenchmarkObservation[] {
-  return Object.freeze(results.flatMap((result) => [
-    Object.freeze({
-      workload: "document-create-element-primitive",
-      category: "primitive" as const,
-      lane: result.lane,
-      samplesNanoseconds: Object.freeze([...result.primitive]),
-    }),
-    Object.freeze({
-      workload: "document-create-element-batch",
-      category: "boundary-heavy" as const,
-      lane: result.lane,
-      samplesNanoseconds: Object.freeze([...result.boundaryHeavy]),
-    }),
-  ]));
+  return Object.freeze(lanes.flatMap((lane) => {
+    const repetitions = results.filter((result) => result.lane === lane);
+    return [
+      Object.freeze({
+        workload: "document-create-element-primitive",
+        category: "primitive" as const,
+        lane,
+        samplesNanoseconds: Object.freeze(
+          repetitions.flatMap((result) => result.primitive),
+        ),
+      }),
+      Object.freeze({
+        workload: "document-create-element-batch",
+        category: "boundary-heavy" as const,
+        lane,
+        samplesNanoseconds: Object.freeze(
+          repetitions.flatMap((result) => result.boundaryHeavy),
+        ),
+      }),
+    ];
+  }));
 }
 
 async function runLane(
   executable: string,
   pageUrl: string,
   lane: ChromiumBenchmarkLane,
+  rendererCpuSet: string | null,
 ): Promise<LaneResult> {
   const profile = mkdtempSync(join(tmpdir(), "nts-chromium-benchmark-profile-"));
   const browserArguments = [
@@ -442,6 +473,9 @@ async function runLane(
     `--user-data-dir=${profile}`,
     "--disable-gpu",
     "--no-first-run",
+    ...(rendererCpuSet === null
+      ? []
+      : [`--renderer-cmd-prefix=/usr/bin/taskset -c ${rendererCpuSet}`]),
     pageUrl,
   ];
   const useXvfb = process.platform === "linux" && !process.env.DISPLAY;
@@ -486,6 +520,14 @@ async function runLane(
 async function main(arguments_: readonly string[]): Promise<void> {
   const options = parseOptions(arguments_);
   if (options === null) return;
+  if (options.rendererCpuSet !== null) {
+    if (process.platform !== "linux") {
+      throw new Error("--renderer-cpu-set is supported only on Linux");
+    }
+    if (!existsSync("/usr/bin/taskset")) {
+      throw new Error("--renderer-cpu-set requires /usr/bin/taskset");
+    }
+  }
   const repositoryRoot = resolve(packageRoot, "../..");
   if (commandOutput("git", ["status", "--porcelain"], repositoryRoot) !== "") {
     throw new Error("Chromium benchmark evidence requires a clean Native TypeScript worktree");
@@ -563,15 +605,30 @@ async function main(arguments_: readonly string[]): Promise<void> {
     pathToFileURL(resolve(pagesRoot, `${lane}.html`)).href,
   ]));
   const results: LaneResult[] = [];
-  for (const lane of lanes) {
-    results.push(await runLane(executable, pageUrls.get(lane)!, lane));
+  for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
+    for (const lane of lanes) {
+      results.push(await runLane(
+        executable,
+        pageUrls.get(lane)!,
+        lane,
+        options.rendererCpuSet,
+      ));
+    }
   }
 
   const input = defineChromiumPerformanceInput({
     observations: observations(results),
     capsuleStructure: capsuleStructure(),
     provenance: {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      benchmarkEnvironment: {
+        iterationsPerSample: benchmarkIterations,
+        samplesPerRepetition: benchmarkSampleCount,
+        warmupIterations: benchmarkWarmupIterations,
+        repetitions: options.repetitions,
+        laneIsolation: "fresh-renderer",
+        rendererCpuSet: options.rendererCpuSet,
+      },
       chromiumRevision: commandOutput(
         "git",
         ["rev-parse", "HEAD"],

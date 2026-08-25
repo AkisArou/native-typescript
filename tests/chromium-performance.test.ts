@@ -92,6 +92,29 @@ test("Chromium performance input is exact and deeply frozen", () => {
     () => defineChromiumPerformanceInput({ ...input, ambientPath: "/tmp/run" }),
     /fields must be exactly/u,
   );
+
+  const controlled = defineChromiumPerformanceInput({
+    ...input,
+    provenance: {
+      ...provenance,
+      schemaVersion: 2,
+      benchmarkEnvironment: {
+        iterationsPerSample: 100_000,
+        samplesPerRepetition: 30,
+        warmupIterations: 20_000,
+        repetitions: 3,
+        laneIsolation: "fresh-renderer",
+        rendererCpuSet: "0-3",
+      },
+    },
+  });
+  assert.equal(controlled.provenance.schemaVersion, 2);
+  assert.equal(
+    controlled.provenance.schemaVersion === 2
+      ? controlled.provenance.benchmarkEnvironment.rendererCpuSet
+      : undefined,
+    "0-3",
+  );
 });
 
 test("both ScriptC benchmark lanes plan the same native-call kernel", async () => {

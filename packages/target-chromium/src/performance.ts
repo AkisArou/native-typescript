@@ -23,8 +23,7 @@ export interface ChromiumCapsuleStructure {
   readonly perCallHeapAllocation: boolean;
 }
 
-export interface ChromiumBenchmarkProvenance {
-  readonly schemaVersion: 1;
+interface ChromiumBenchmarkProvenanceCommon {
   readonly chromiumRevision: string;
   readonly nativeTypescriptRevision: string;
   readonly scriptCRevision: string;
@@ -36,6 +35,30 @@ export interface ChromiumBenchmarkProvenance {
   readonly buildArguments: readonly string[];
   readonly recordedAt: string;
 }
+
+export interface ChromiumBenchmarkProvenanceV1
+  extends ChromiumBenchmarkProvenanceCommon {
+  readonly schemaVersion: 1;
+}
+
+export interface ChromiumBenchmarkEnvironment {
+  readonly iterationsPerSample: number;
+  readonly samplesPerRepetition: number;
+  readonly warmupIterations: number;
+  readonly repetitions: number;
+  readonly laneIsolation: "fresh-renderer";
+  readonly rendererCpuSet: string | null;
+}
+
+export interface ChromiumBenchmarkProvenanceV2
+  extends ChromiumBenchmarkProvenanceCommon {
+  readonly schemaVersion: 2;
+  readonly benchmarkEnvironment: ChromiumBenchmarkEnvironment;
+}
+
+export type ChromiumBenchmarkProvenance =
+  | ChromiumBenchmarkProvenanceV1
+  | ChromiumBenchmarkProvenanceV2;
 
 export interface ChromiumPerformanceInput {
   readonly observations: readonly ChromiumBenchmarkObservation[];
@@ -166,9 +189,18 @@ export function defineChromiumPerformanceInput(
   }
   const provenancePath = "Chromium performance input/provenance";
   assertRecord(value.provenance, provenancePath);
+  if (
+    value.provenance.schemaVersion !== 1 &&
+    value.provenance.schemaVersion !== 2
+  ) {
+    throw new TypeError(`${provenancePath}/schemaVersion must be 1 or 2`);
+  }
   assertExactKeys(
     value.provenance,
     [
+      ...(value.provenance.schemaVersion === 2
+        ? ["benchmarkEnvironment"]
+        : []),
       "buildArguments",
       "chromiumClangVersion",
       "chromiumRevision",
@@ -183,8 +215,49 @@ export function defineChromiumPerformanceInput(
     ],
     provenancePath,
   );
-  if (value.provenance.schemaVersion !== 1) {
-    throw new TypeError(`${provenancePath}/schemaVersion must be 1`);
+  if (value.provenance.schemaVersion === 2) {
+    const environmentPath = `${provenancePath}/benchmarkEnvironment`;
+    assertRecord(value.provenance.benchmarkEnvironment, environmentPath);
+    assertExactKeys(
+      value.provenance.benchmarkEnvironment,
+      [
+        "iterationsPerSample",
+        "laneIsolation",
+        "rendererCpuSet",
+        "repetitions",
+        "samplesPerRepetition",
+        "warmupIterations",
+      ],
+      environmentPath,
+    );
+    for (const name of [
+      "iterationsPerSample",
+      "repetitions",
+      "samplesPerRepetition",
+      "warmupIterations",
+    ] as const) {
+      const field = value.provenance.benchmarkEnvironment[name];
+      if (
+        typeof field !== "number" ||
+        !Number.isSafeInteger(field) ||
+        field <= 0
+      ) {
+        throw new TypeError(`${environmentPath}/${name} must be positive`);
+      }
+    }
+    if (value.provenance.benchmarkEnvironment.laneIsolation !== "fresh-renderer") {
+      throw new TypeError(
+        `${environmentPath}/laneIsolation must be fresh-renderer`,
+      );
+    }
+    const cpuSet = value.provenance.benchmarkEnvironment.rendererCpuSet;
+    if (
+      cpuSet !== null &&
+      (typeof cpuSet !== "string" ||
+        !/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/u.test(cpuSet))
+    ) {
+      throw new TypeError(`${environmentPath}/rendererCpuSet is invalid`);
+    }
   }
   for (const revision of [
     "chromiumRevision",
