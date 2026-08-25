@@ -1,5 +1,7 @@
+#include <cstdint>
 #include <string>
 
+#include "base/check.h"
 #include "base/containers/span.h"
 #include "third_party/blink/renderer/core/dom/character_data.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -82,29 +84,43 @@ blink::Node* Resolve(NtsWebRealm* realm,
   return realm ? realm->Managed().ResolveNode(peer, expected) : nullptr;
 }
 
-}  // namespace
+enum class ResultLifetime { kManaged, kFrameBounded };
 
-extern "C" NtsWebNode* nts_web_current_document() {
-  NtsWebRealm* realm = ActiveRealm();
-  return realm ? realm->Managed().AcquireNode(realm->Document()) : nullptr;
+NtsWebNode* ExposeNode(NtsWebRealm* realm,
+                       blink::Node* node,
+                       ResultLifetime lifetime) {
+  if (!realm || !node) {
+    return nullptr;
+  }
+  if (lifetime == ResultLifetime::kManaged) {
+    return realm->Managed().AcquireNode(node);
+  }
+  const uintptr_t address = reinterpret_cast<uintptr_t>(node);
+  CHECK_EQ(address & 1u, 0u);
+  return reinterpret_cast<NtsWebNode*>(address);
 }
 
-extern "C" NtsWebNode* nts_web_document_body_managed(NtsWebNode* document) {
+NtsWebNode* CurrentDocument(ResultLifetime lifetime) {
+  NtsWebRealm* realm = ActiveRealm();
+  return ExposeNode(realm, realm ? realm->Document() : nullptr, lifetime);
+}
+
+NtsWebNode* DocumentBody(NtsWebNode* document, ResultLifetime lifetime) {
   NtsWebRealm* realm = ActiveRealm();
   auto* resolved = blink::DynamicTo<blink::Document>(
       Resolve(realm, document, nts::blink_bridge::ManagedWebType::kDocument));
   if (!resolved) {
     return nullptr;
   }
-  return realm->Managed().AcquireNode(
-      nts::blink_bridge::generated::DocumentBody(*resolved));
+  return ExposeNode(
+      realm, nts::blink_bridge::generated::DocumentBody(*resolved), lifetime);
 }
 
-extern "C" NtsWebNode* nts_web_document_create_element_managed(
-    NtsWebNode* document,
-    const uint8_t* local_name_data,
-    size_t local_name_length,
-    NtsWebError** error) {
+NtsWebNode* DocumentCreateElement(NtsWebNode* document,
+                                  const uint8_t* local_name_data,
+                                  size_t local_name_length,
+                                  NtsWebError** error,
+                                  ResultLifetime lifetime) {
   if (error) {
     *error = nullptr;
   }
@@ -133,13 +149,13 @@ extern "C" NtsWebNode* nts_web_document_create_element_managed(
     SetError(error, "Document.createElement returned no Element");
     return nullptr;
   }
-  return realm->Managed().AcquireNode(element);
+  return ExposeNode(realm, element, lifetime);
 }
 
-extern "C" NtsWebNode* nts_web_document_create_text_node_managed(
-    NtsWebNode* document,
-    const uint8_t* data,
-    size_t data_length) {
+NtsWebNode* DocumentCreateTextNode(NtsWebNode* document,
+                                   const uint8_t* data,
+                                   size_t data_length,
+                                   ResultLifetime lifetime) {
   NtsWebRealm* realm = ActiveRealm();
   auto* resolved = blink::DynamicTo<blink::Document>(
       Resolve(realm, document, nts::blink_bridge::ManagedWebType::kDocument));
@@ -150,13 +166,16 @@ extern "C" NtsWebNode* nts_web_document_create_text_node_managed(
   if (text.IsNull() && data_length != 0) {
     return nullptr;
   }
-  return realm->Managed().AcquireNode(
-      nts::blink_bridge::generated::DocumentCreateTextNode(*resolved, text));
+  return ExposeNode(
+      realm,
+      nts::blink_bridge::generated::DocumentCreateTextNode(*resolved, text),
+      lifetime);
 }
 
-extern "C" NtsWebNode* nts_web_node_append_child_managed(NtsWebNode* parent,
-                                                         NtsWebNode* node,
-                                                         NtsWebError** error) {
+NtsWebNode* NodeAppendChild(NtsWebNode* parent,
+                            NtsWebNode* node,
+                            NtsWebError** error,
+                            ResultLifetime lifetime) {
   if (error) {
     *error = nullptr;
   }
@@ -181,7 +200,71 @@ extern "C" NtsWebNode* nts_web_node_append_child_managed(NtsWebNode* parent,
     SetError(error, "Node.appendChild returned no Node");
     return nullptr;
   }
-  return realm->Managed().AcquireNode(result);
+  return ExposeNode(realm, result, lifetime);
+}
+
+}  // namespace
+
+extern "C" NtsWebNode* nts_web_current_document() {
+  return CurrentDocument(ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_current_document_frame() {
+  return CurrentDocument(ResultLifetime::kFrameBounded);
+}
+
+extern "C" NtsWebNode* nts_web_document_body_managed(NtsWebNode* document) {
+  return DocumentBody(document, ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_document_body_frame(NtsWebNode* document) {
+  return DocumentBody(document, ResultLifetime::kFrameBounded);
+}
+
+extern "C" NtsWebNode* nts_web_document_create_element_managed(
+    NtsWebNode* document,
+    const uint8_t* local_name_data,
+    size_t local_name_length,
+    NtsWebError** error) {
+  return DocumentCreateElement(document, local_name_data, local_name_length,
+                               error, ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_document_create_element_frame(
+    NtsWebNode* document,
+    const uint8_t* local_name_data,
+    size_t local_name_length,
+    NtsWebError** error) {
+  return DocumentCreateElement(document, local_name_data, local_name_length,
+                               error, ResultLifetime::kFrameBounded);
+}
+
+extern "C" NtsWebNode* nts_web_document_create_text_node_managed(
+    NtsWebNode* document,
+    const uint8_t* data,
+    size_t data_length) {
+  return DocumentCreateTextNode(document, data, data_length,
+                                ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_document_create_text_node_frame(
+    NtsWebNode* document,
+    const uint8_t* data,
+    size_t data_length) {
+  return DocumentCreateTextNode(document, data, data_length,
+                                ResultLifetime::kFrameBounded);
+}
+
+extern "C" NtsWebNode* nts_web_node_append_child_managed(NtsWebNode* parent,
+                                                         NtsWebNode* node,
+                                                         NtsWebError** error) {
+  return NodeAppendChild(parent, node, error, ResultLifetime::kManaged);
+}
+
+extern "C" NtsWebNode* nts_web_node_append_child_frame(NtsWebNode* parent,
+                                                       NtsWebNode* node,
+                                                       NtsWebError** error) {
+  return NodeAppendChild(parent, node, error, ResultLifetime::kFrameBounded);
 }
 
 extern "C" void nts_web_character_data_set_data_managed(
@@ -225,6 +308,8 @@ extern "C" NtsWebManagedSubscription* nts_web_event_target_listen(
 extern "C" void nts_web_node_release(NtsWebNode* node) {
   nts::blink_bridge::ReleaseManagedNode(node);
 }
+
+extern "C" void nts_web_node_release_frame(NtsWebNode*) {}
 
 extern "C" void nts_web_subscription_release(
     NtsWebManagedSubscription* subscription) {

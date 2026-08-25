@@ -1,6 +1,7 @@
 #include "third_party/blink/renderer/native_typescript/nts_blink_managed_registry.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <new>
 
 #include "base/check.h"
@@ -34,6 +35,29 @@ struct NtsWebNode final {
 
 namespace nts::blink_bridge {
 namespace {
+
+/* Public managed-node handles carry this tag; frame-bounded handles are raw
+ * Blink Node pointers. Keeping the frame form untagged lets Oilpan's
+ * conservative stack scan see and retain detached nodes across synchronous
+ * calls without allocating a Persistent peer. */
+constexpr uintptr_t kManagedPeerTag = 1;
+
+bool IsManagedPeerHandle(const NtsWebNode* handle) {
+  return (reinterpret_cast<uintptr_t>(handle) & kManagedPeerTag) != 0;
+}
+
+NtsWebNode* EncodeManagedPeer(NtsWebNode* peer) {
+  CHECK(peer);
+  const uintptr_t address = reinterpret_cast<uintptr_t>(peer);
+  CHECK_EQ(address & kManagedPeerTag, 0u);
+  return reinterpret_cast<NtsWebNode*>(address | kManagedPeerTag);
+}
+
+NtsWebNode* DecodeManagedPeer(NtsWebNode* handle) {
+  CHECK(IsManagedPeerHandle(handle));
+  return reinterpret_cast<NtsWebNode*>(reinterpret_cast<uintptr_t>(handle) &
+                                       ~kManagedPeerTag);
+}
 
 class BlinkManagedEventListener final : public blink::NativeEventListener {
  public:
@@ -149,7 +173,7 @@ NtsWebNode* BlinkManagedRegistry::AcquireNode(blink::Node* node) {
     if (peer->node.Get() == node) {
       CHECK_GT(peer->claims, 0u);
       ++peer->claims;
-      return peer;
+      return EncodeManagedPeer(peer);
     }
   }
   auto* peer = new (std::nothrow) NtsWebNode{
@@ -162,13 +186,26 @@ NtsWebNode* BlinkManagedRegistry::AcquireNode(blink::Node* node) {
     return nullptr;
   }
   nodes_ = peer;
-  return peer;
+  return EncodeManagedPeer(peer);
 }
 
-blink::Node* BlinkManagedRegistry::ResolveNode(NtsWebNode* peer,
+blink::Node* BlinkManagedRegistry::ResolveNode(NtsWebNode* handle,
                                                ManagedWebType expected) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (invalidated_ || !peer || peer->registry != this || !peer->node.Get() ||
+  if (invalidated_ || !handle) {
+    return nullptr;
+  }
+  if (!IsManagedPeerHandle(handle)) {
+    auto* node = reinterpret_cast<blink::Node*>(handle);
+    if (!realm_ || !realm_->Document() ||
+        &node->GetDocument() != realm_->Document() ||
+        !Accepts(*node, expected)) {
+      return nullptr;
+    }
+    return node;
+  }
+  NtsWebNode* peer = DecodeManagedPeer(handle);
+  if (peer->registry != this || !peer->node.Get() ||
       !Accepts(*peer->node.Get(), expected)) {
     return nullptr;
   }
@@ -276,10 +313,11 @@ void BlinkManagedRegistry::Invalidate() {
   }
 }
 
-void ReleaseManagedNode(NtsWebNode* peer) {
-  if (!peer) {
+void ReleaseManagedNode(NtsWebNode* handle) {
+  if (!handle || !IsManagedPeerHandle(handle)) {
     return;
   }
+  NtsWebNode* peer = DecodeManagedPeer(handle);
   if (peer->registry) {
     peer->registry->ReleaseNode(peer);
     return;

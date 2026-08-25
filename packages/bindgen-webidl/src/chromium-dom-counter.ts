@@ -274,11 +274,23 @@ function generateManifest(
     nullable: false,
     ownership: { kind: "borrowed" as const, scope: "call" as const },
   });
-  const ownedHandle = (type: string, nullable = false) => ({
+  const ownedHandle = (
+    type: string,
+    nullable = false,
+    frameEntry?: string,
+  ) => ({
     type,
     passMode: "pointer" as const,
     nullable,
     ownership: { kind: "owned" as const, transfer: "to-runtime" as const },
+    ...(frameEntry === undefined
+      ? {}
+      : {
+          frameBounded: {
+            entry: frameEntry,
+            release: "nts_web_node_release_frame",
+          },
+        }),
   });
   const utf8Parameters = (stem: string) => [
     {
@@ -421,7 +433,7 @@ function generateManifest(
       declaration: "currentDocument",
       symbol: "nts_web_current_document",
       parameters: [],
-      result: ownedHandle("document", true),
+      result: ownedHandle("document", true, "nts_web_current_document_frame"),
       bindingDependencies: ["web_node_release"],
     }),
     web_document_body: callable({
@@ -429,7 +441,11 @@ function generateManifest(
       declaration: "Document.body",
       symbol: "nts_web_document_body_managed",
       parameters: [borrowedHandle("document", "document")],
-      result: ownedHandle("html_element", true),
+      result: ownedHandle(
+        "html_element",
+        true,
+        "nts_web_document_body_frame",
+      ),
       bindingDependencies: ["web_node_release"],
     }),
     web_document_create_element: callable({
@@ -440,7 +456,11 @@ function generateManifest(
         borrowedHandle("document", "document"),
         ...utf8Parameters("local_name"),
       ],
-      result: ownedHandle("element"),
+      result: ownedHandle(
+        "element",
+        false,
+        "nts_web_document_create_element_frame",
+      ),
       error: errorContract,
       bindingDependencies: ["web_node_release", ...errorDependencies],
     }),
@@ -452,7 +472,11 @@ function generateManifest(
         borrowedHandle("document", "document"),
         ...utf8Parameters("data"),
       ],
-      result: ownedHandle("text"),
+      result: ownedHandle(
+        "text",
+        false,
+        "nts_web_document_create_text_node_frame",
+      ),
       bindingDependencies: ["web_node_release"],
     }),
     web_node_append_child: callable({
@@ -463,7 +487,7 @@ function generateManifest(
         borrowedHandle("parent", "node"),
         borrowedHandle("node", "node"),
       ],
-      result: ownedHandle("node"),
+      result: ownedHandle("node", false, "nts_web_node_append_child_frame"),
       error: errorContract,
       bindingDependencies: ["web_node_release", ...errorDependencies],
     }),
@@ -691,15 +715,26 @@ function capsuleHeader(): string {
     "using NtsWebEventCallback = void (*)(void* context);",
     "",
     "extern \"C\" NtsWebNode* nts_web_current_document();",
+    "extern \"C\" NtsWebNode* nts_web_current_document_frame();",
     "extern \"C\" NtsWebNode* nts_web_document_body_managed(NtsWebNode* document);",
+    "extern \"C\" NtsWebNode* nts_web_document_body_frame(NtsWebNode* document);",
     "extern \"C\" NtsWebNode* nts_web_document_create_element_managed(",
+    "    NtsWebNode* document,",
+    "    const uint8_t* local_name_data,",
+    "    size_t local_name_length,",
+    "    NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_document_create_element_frame(",
     "    NtsWebNode* document,",
     "    const uint8_t* local_name_data,",
     "    size_t local_name_length,",
     "    NtsWebError** error);",
     "extern \"C\" NtsWebNode* nts_web_document_create_text_node_managed(",
     "    NtsWebNode* document, const uint8_t* data, size_t data_length);",
+    "extern \"C\" NtsWebNode* nts_web_document_create_text_node_frame(",
+    "    NtsWebNode* document, const uint8_t* data, size_t data_length);",
     "extern \"C\" NtsWebNode* nts_web_node_append_child_managed(",
+    "    NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);",
+    "extern \"C\" NtsWebNode* nts_web_node_append_child_frame(",
     "    NtsWebNode* parent, NtsWebNode* node, NtsWebError** error);",
     "extern \"C\" void nts_web_character_data_set_data_managed(",
     "    NtsWebNode* character_data, const uint8_t* data, size_t data_length);",
@@ -710,6 +745,7 @@ function capsuleHeader(): string {
     "    NtsWebEventCallback callback,",
     "    void* context);",
     "extern \"C\" void nts_web_node_release(NtsWebNode* node);",
+    "extern \"C\" void nts_web_node_release_frame(NtsWebNode* node);",
     "extern \"C\" void nts_web_subscription_release(",
     "    NtsWebManagedSubscription* subscription);",
     "extern \"C\" const uint8_t* nts_web_error_message(NtsWebError* error);",
