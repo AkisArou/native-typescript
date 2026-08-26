@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; optimized application matrix cuts strict failures from 22 to 8, component construction is near C++, and focused event lifecycle beats V8; retained-text profiling and the product renderer target remain open |
+| DOM/Chromium | pinned debug acceptance and release application matrix pass all correctness/lifetime gates; conditional static string identities cut strict performance failures from 22 to 3, retained text matches V8, and component construction is near C++; two create-element tail checks and the product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -1355,14 +1355,23 @@ for C/LLVM and 0.655x/0.675x V8, reducing absolute ScriptC latency by
 55.9–56.3% from the application-matrix baseline. The focused evaluator passes;
 the complete optimized matrix has now also been remeasured.
 
-The optimized 84-renderer application matrix reduces strict performance
-violations from 22 to 8. Eight-row component construction moves from
-1.954–1.992x handwritten C++ to 1.074–1.080x, attached mount reaches 1.052x,
-and the boundary-heavy aggregate passes at 0.775–0.781x V8. Component-list
-ScriptC peak RSS falls from about 383 MiB to 260 MiB, below the 277 MiB C++
-lane. The remaining median failures are retained attached-text mutation at
-1.109–1.120x C++ but 1.462–1.590x V8, plus compiled selector mutation at about
-1.12x V8; those now define the next profiling target.
+The final 84-renderer application matrix reduces strict performance violations
+from 22 to 3. The compiler now preserves the selected string object's identity
+when a runtime conditional can produce only immortal literals; the C and LLVM
+native-call projections pass that identity to Blink instead of zero. Retained
+attached-text compiled medians fall from 128.14/128.81 ns to 79.25/79.17 ns,
+or 0.978x/0.977x V8 and 0.683x handwritten C++. Selector compiled medians are
+1.084x/1.063x V8, while their per-call shapes are 0.820x/0.813x V8.
+Eight-row component construction is 1.053–1.054x handwritten C++, attached
+mount is 1.028–1.036x, and ScriptC component-list peak RSS is about 259 MiB,
+below the 276 MiB C++ lane.
+
+All 84 renderer runs pass correctness, teardown, and product-shape checks. Two
+remaining reproducible failures are the create-element per-call p95 ratios at
+1.299x/1.313x C++; its medians pass and remain roughly 35% faster than V8. One
+full-matrix LLVM event median measured 1.137x V8, but a focused rerun of the
+exact artifacts passes at 1.046x, identifying sampling variance rather than a
+new event-path regression.
 
 The accepted host remains fixture-owned rather than the final Content embedder,
 and broad async control flow, typed Blink promise resolvers, DOMString code-unit

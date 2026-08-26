@@ -403,17 +403,23 @@ Its resolved arguments include `is_official_build=true`, `is_debug=false`, and
 `is_component_build=false`; both ScriptC backend archives and all four lane
 selectors are present in the final artifact graph.
 
-The first controlled performance run passes all initial admission gates. It
-uses three repetitions with 30 samples each, 100,000 operations per sample, a
-fresh renderer/profile for every lane, and renderer CPU affinity to one
-performance core; all of those conditions are stored in provenance schema 2.
-For the exported one-call primitive, ScriptC C is 1.045x handwritten C++ at
-median and 1.163x at p95, while ScriptC LLVM is 1.028x and 0.978x. Their
-primitive medians are 0.463x and 0.455x V8. For the compiled-loop
-boundary-heavy shape, their medians are 0.559x and 0.588x V8. The structural
-capsule checks also pass. This admits only the initial
-`Document.createElement` falsifier; representative mixed DOM workloads remain
-required before a general performance conclusion.
+The first controlled performance run passed all initial admission gates. The
+subsequent application matrix now covers create, detached and attached DOM
+construction, retained text, selector mutation, synchronous event lifecycle,
+and component-shaped lists in both exported-per-call and compiled-loop shapes.
+Every tuple uses a fresh renderer, CPU affinity to one performance core,
+rotated lane order, three repetitions, and 30 checked samples per repetition.
+
+Compiler-proven frame callback storage and conditional static string identities
+reduce strict performance violations from the initial matrix's 22 to 3.
+Retained text compiled medians are 0.683x handwritten C++ and about 0.98x V8;
+eight-row construction is 1.053–1.054x C++ and 0.731–0.732x V8; attached mount
+is 1.028–1.036x C++ and 0.777–0.783x V8. Two reproducible failures are the
+create-element per-call p95 ratios at 1.299x/1.313x C++. The third full-matrix
+failure, an LLVM event median at 1.137x V8, passes at 1.046x in a focused rerun
+of the exact artifacts and remains recorded as variance rather than being
+discarded. This is representative evidence for the reached surface, not a
+general DOM-performance or compatibility claim.
 
 The first closed normalized WebIDL slice reaches exactly
 `Document.createElement(DOMString)`. It deterministically generates TypeScript
@@ -425,22 +431,18 @@ status/handle envelope; projecting its detailed DOMException payload into the
 compiler-owned public outcome algebra remains open.
 
 These fixtures build the complete `content_shell` dependency graph, not the
-larger `chrome` product target. They prove the fixture-owned C/C++ oracle and
-that both compiled ScriptC lanes can be linked into the renderer; they do not
-prove a production renderer-hosted ScriptC instance lifecycle. Stage A and
-Stage B therefore remain open until this repository can:
+larger `chrome` product target. They now prove a renderer-hosted ScriptC runtime
+for both backends, ScriptC-owned Oilpan peers with O(1) identity interning and
+realm invalidation, detailed DOM failure capture, direct native event
+delivery and teardown, stackless typed awaits on Blink's shared microtask
+queue, and the representative matrix above.
 
-1. attach a real ScriptC runtime and compile the counter from TypeScript through
-   both backends;
-2. replace the oracle slot table with ScriptC-owned handles backed by Oilpan,
-   then prove stable identity and realm-wide invalidation;
-3. project the now-captured detailed DOM failure into the compiler-owned
-   outcome algebra;
-4. prove duplicate event identity, cancellation, and teardown through the
-   product callback gateway;
-5. prove one Blink promise and ScriptC microtask ordering;
-6. extend the now-passing initial release falsifier to representative mixed DOM
-   workloads.
-
-Only then does the coexistence stage decide whether direct Blink remains a
-maintained target, a system WebView bridge is preferred, or both are supported.
+The host remains fixture-owned rather than the final Content embedder. Product
+work therefore remains: attach the existing renderer runtime personality
+through a final Content lifecycle provider, broaden reached-only WebIDL
+generation, project captured detailed DOM failures, complete DOMString
+code-unit semantics and event options/identity, add typed native resolvers for
+suitable asynchronous Web APIs, and expose only finite browser-process
+capabilities through Mojo. Hard V8-semantic APIs may use a visible
+compatibility tier, but the reached synchronous DOM path remains typed direct
+Blink.
