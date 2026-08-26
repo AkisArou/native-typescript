@@ -483,6 +483,20 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
     assert.match(generated, /nts_web_subscription_release_frame/u);
     assert.doesNotMatch(
       generated,
+      backend === "c"
+        ? /nts_web_character_data_set_data_managed\([^;\n]+, \(size_t\)0\)/u
+        : /call void @nts_web_character_data_set_data_managed\([^\n]+, i64 0\)/u,
+      "a finite literal choice in retained text mutation must preserve the selected static identity",
+    );
+    assert.doesNotMatch(
+      generated,
+      backend === "c"
+        ? /nts_web_element_set_attribute\([^;\n]+, \(size_t\)0, &/u
+        : /call void @nts_web_element_set_attribute\([^\n]+, i64 0, ptr/u,
+      "a finite literal choice in attribute mutation must preserve the selected static identity",
+    );
+    assert.doesNotMatch(
+      generated,
       /scr_direct_callback_create_owned/u,
       "the scoped event registration must transfer its closure without allocating a callback wrapper",
     );
