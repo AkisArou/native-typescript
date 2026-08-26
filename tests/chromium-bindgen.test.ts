@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
   CHROMIUM_WEBIDL_INPUT_SCHEMA_VERSION,
@@ -15,8 +16,16 @@ import {
 import { canonicalizeJson, validateScabiManifest } from "@native-typescript/scabi";
 import {
   loadScriptCLibraryPlanners,
+  scriptCCompilerDistribution,
+  type ScriptCLibraryCompilationPlan,
   translateScabiNativeProgram,
 } from "@native-typescript/scriptc";
+
+interface ScriptCLibraryEmitter {
+  readonly emitLibraryCompilationPlan: (
+    plan: ScriptCLibraryCompilationPlan,
+  ) => string;
+}
 
 const zeroDigest = `sha256:${"0".repeat(64)}` as const;
 const oneDigest = `sha256:${"1".repeat(64)}` as const;
@@ -24,6 +33,24 @@ const chromiumPackageRoot = resolve(
   import.meta.dirname,
   "../packages/target-chromium",
 );
+
+function collectRecords(
+  value: unknown,
+  predicate: (record: Readonly<Record<string, unknown>>) => boolean,
+  output: Readonly<Record<string, unknown>>[] = [],
+): Readonly<Record<string, unknown>>[] {
+  if (value === null || typeof value !== "object") return output;
+  if (Array.isArray(value)) {
+    for (const item of value) collectRecords(item, predicate, output);
+    return output;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  if (predicate(record)) output.push(record);
+  for (const child of Object.values(record)) {
+    collectRecords(child, predicate, output);
+  }
+  return output;
+}
 
 test("Chromium WebIDL input pins both implementation and source authorities", () => {
   const input = defineChromiumWebIdlInput({
@@ -366,9 +393,30 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
       callback?.callback?.cancellationBinding,
       "web_subscription_release",
     );
+    assert.deepEqual(callback?.callback?.frameBoundedContext, {
+      releaseParameter: "context_release",
+    });
+    assert.deepEqual(listen.signature.result.frameBounded, {
+      entry: "nts_web_event_target_listen_frame",
+      release: "nts_web_subscription_release_frame",
+    });
+  }
+  if (translated.ok) {
+    const translatedListen = translated.input.bindings.find(
+      (binding) => binding.id.endsWith("#web_event_target_listen"),
+    );
+    assert.ok(translatedListen);
+    assert.equal(
+      translatedListen.parameters.filter(
+        (parameter) => parameter.projection.kind === "callbackContextRelease",
+      ).length,
+      1,
+    );
   }
   assert.match(generated.declarations, /createTextNode\(data: string\): Text/u);
   assert.match(generated.declarations, /listen\(type: string, callback:/u);
+  assert.match(generated.capsuleHeader, /nts_web_event_target_listen_frame/u);
+  assert.match(generated.capsuleHeader, /nts_web_subscription_release_frame/u);
   assert.doesNotMatch(
     `${generated.capsuleHeader}\n${generated.capsuleSource}`,
     /\bv8::|genericDispatch|malloc|new\s/u,
@@ -439,6 +487,10 @@ test("compiled DOM counter plans through both ScriptC backends", async () => {
   if (!native.ok) return;
 
   const { planLibraryCompilation } = await loadScriptCLibraryPlanners();
+  const compiler = await import(
+    pathToFileURL(resolve(scriptCCompilerDistribution(), "index.js")).href
+  ) as Partial<ScriptCLibraryEmitter>;
+  assert.equal(typeof compiler.emitLibraryCompilationPlan, "function");
   for (const backend of ["c", "llvm"] as const) {
     const planned = await planLibraryCompilation({
       profilePath: resolve(
@@ -456,10 +508,54 @@ test("compiled DOM counter plans through both ScriptC backends", async () => {
       planned.ok ? undefined : JSON.stringify(planned.diagnostics),
     );
     if (planned.ok) {
+      const plannedIr = JSON.parse(planned.plan.ir) as unknown;
+      const listenerCalls = collectRecords(
+        plannedIr,
+        (record) =>
+          record.kind === "nativeCall" &&
+          typeof record.binding === "string" &&
+          record.binding.endsWith("#web_event_target_listen"),
+      );
+      assert.equal(listenerCalls.length, 1);
+      assert.equal(
+        listenerCalls[0]?.resultMode,
+        undefined,
+        "a listener stored across exported start/stop calls must retain stable ScriptC and Oilpan ownership",
+      );
+      const frameListenerResources = collectRecords(
+        plannedIr,
+        (record) =>
+          typeof record.nativeFrame === "object" &&
+          record.nativeFrame !== null &&
+          (record.nativeFrame as Record<string, unknown>).release ===
+            "nts_web_subscription_release_frame",
+      );
+      assert.equal(frameListenerResources.length, 0);
+
+      const generated = compiler.emitLibraryCompilationPlan!(planned.plan);
+      assert.match(
+        generated,
+        /scr_native_handle_prepare_direct_callback_fused/u,
+      );
+      if (backend === "c") {
+        assert.match(generated, /=\s*nts_web_event_target_listen\(/u);
+        assert.doesNotMatch(
+          generated,
+          /=\s*nts_web_event_target_listen_frame\(/u,
+        );
+      } else {
+        assert.match(generated, /call ptr @nts_web_event_target_listen\(/u);
+        assert.doesNotMatch(
+          generated,
+          /call ptr @nts_web_event_target_listen_frame\(/u,
+        );
+      }
       assert.deepEqual(planned.plan.nativeBuild.localizeSymbols, [
         `nts_chromium_counter_scriptc_${backend}_init`,
         `nts_chromium_counter_scriptc_${backend}_set_panic_sink`,
         `nts_chromium_counter_scriptc_${backend}_collect`,
+        `nts_chromium_counter_scriptc_${backend}_hosted_scheduler_configure`,
+        `nts_chromium_counter_scriptc_${backend}_hosted_scheduler_stop`,
         `nts_chromium_counter_scriptc_${backend}_start`,
         `nts_chromium_counter_scriptc_${backend}_stop`,
       ]);

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://native-typescript.dev/schema/scabi/v12",
-  "title": "Native TypeScript SCABI v1",
+  "$id": "https://native-typescript.dev/schema/scabi/v14",
+  "title": "Native TypeScript SCABI v14",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -23,7 +23,7 @@
       "const": "native-typescript.scabi"
     },
     "schemaVersion": {
-      "const": 13
+      "const": 14
     },
     "package": {
       "$ref": "#/$defs/packageIdentity"
@@ -1226,6 +1226,9 @@
                 }
               ]
             },
+            "staticIdentity": {
+              "$ref": "#/$defs/parameterLength"
+            },
             "termination": {
               "enum": [
                 "none",
@@ -1434,6 +1437,18 @@
         },
         "contextParameter": {
           "$ref": "#/$defs/id"
+        },
+        "frameBoundedContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "releaseParameter"
+          ],
+          "properties": {
+            "releaseParameter": {
+              "$ref": "#/$defs/id"
+            }
+          }
         },
         "allowedInvocationExecutors": {
           "type": "array",

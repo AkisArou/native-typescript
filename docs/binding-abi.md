@@ -570,6 +570,16 @@ idempotent repeated calls. Normal cancellation keeps the closure alive until
 admitted leases drain; collector cancellation suppresses those already-admitted
 deliveries before reclaiming their closure.
 
+A synchronous result-owned registration may additionally declare
+`frameBoundedContext.releaseParameter`. The named physical parameter is a
+nullable, registration-borrowed `void (*)(void *)` function. It transfers
+ownership of the callback context to the native result: registration failure,
+explicit cancellation, and owner teardown must each converge on one exact
+release after callback admission is closed. ScriptC may select this form only
+when the result has a frame-bounded entry/release pair and escape analysis
+proves terminal cancellation in the same synchronous frame. Otherwise the
+ordinary stable managed-handle lifecycle remains mandatory.
+
 `sourceArguments` is an explicit logical projection. A
 `callback-parameter` entry selects one physical callback parameter; a
 `registration-owner` entry injects the existing managed receiver identity
@@ -744,6 +754,11 @@ declarations, manifest bindings, target pointer width, Native IR, C symbols,
 and both ScriptC backends now agree end to end. The fixture's borrowed UTF-8
 binding additionally proves single source evaluation, exact byte length,
 Unicode encoding, embedded NUL preservation, and zero-copy data projection.
+SCABI v14 may also name an unsigned pointer-width sibling carrying an opaque
+static identity. Both emitters provide a non-zero process-lifetime token only
+for compiler-proven immortal literal storage and zero for dynamic strings; a
+callee may retain and compare the token as a cache key but may not dereference
+it. The data/length pair remains authoritative.
 The checked C-string variant uses a distinct implicit-NUL length contract:
 ScriptC passes the already terminated storage as one pointer and raises a
 `TypeError` before native entry if the logical string contains an embedded NUL.

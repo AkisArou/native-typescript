@@ -41,6 +41,8 @@ function profile(
       result_reset_symbol: null,
       localize_runtime: true,
       instance_per_thread: true,
+      hosted_scheduler_configure_symbol: `${prefix}hosted_scheduler_configure`,
+      hosted_scheduler_stop_symbol: `${prefix}hosted_scheduler_stop`,
     },
     exports: contract_.workloads.map((workload) => ({
       export: workload.typescriptExport,

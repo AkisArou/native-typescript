@@ -277,6 +277,48 @@ evaluation, generic dispatch, or a JavaScript compatibility realm. The reached
 surface constructs and mutates DOM nodes, owns event subscriptions, projects
 native errors, and invalidates realm-owned state on navigation.
 
+Renderer `async` is now a Chromium-hosted runtime personality shared by the C
+and LLVM backends: eager prefixes execute inline, suspension stores only typed
+locals and rooted handles in cycle-traced heap continuation frames, and Blink's
+microtask queue resumes them. Native executable targets keep ScriptC fibers;
+renderer profiles never call `scr_async_spawn`. The current correctness slice
+covers ordered typed awaits, non-Promise await hops, lifted captures,
+suspending branches, shared V8/ScriptC FIFO order, and teardown cancellation.
+Unsupported async shapes fail at compilation rather than selecting a slower
+renderer fallback.
+
+Compiler-proven string literals now retain an opaque process-lifetime identity
+through SCABI v14. Blink caches their decoded `String` or `AtomicString` value
+inside the current realm; computed strings take the unchanged dynamic path,
+and navigation clears the cache. This removes repeated literal UTF-8 decoding
+and atomization without exposing ScriptC's string layout or retaining borrowed
+bytes. The implementation and browser-build evidence are in
+[record 0060](docs/records/0060-direct-blink-static-string-identities.md);
+four-lane measurement is intentionally pending.
+
+Synchronous event registrations now use the same proof-driven lifetime
+tiering as DOM handles. A listener stored across calls retains the stable,
+cycle-traced ScriptC/Blink lifecycle. A local listener with proven terminal
+disposal transfers one closure retain directly to Blink and avoids both the
+stable native-handle cell and a separate callback wrapper; explicit disposal,
+registration failure, and realm teardown all release it exactly once. Both
+ScriptC backends pass the real script-free counter lifecycle. The evidence is in
+[record 0061](docs/records/0061-direct-blink-scoped-event-registrations.md);
+its performance effect has not yet been measured.
+
+That local tier now also places the closure header and eligible mutable scalar
+capture boxes in the declaring native frame. Native IR selects this only for a
+fully synchronous, same-sequence, non-escaping callback lifetime and rejects
+shared heap-closure captures; C and LLVM retain the ordinary closure ABI and
+fall back to heap storage whenever the proof is absent. Its Oilpan listener
+also serves directly as the frame result, removing the separate off-heap
+subscription and two `Persistent` roots that escaping registrations still
+need. The official release artifacts and an untimed browser gate prove the
+exact C/LLVM path, including reentrant ownership, realm invalidation, and zero
+surviving subscriptions. The implementation and safety evidence are in
+[record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md);
+the performance table remains unchanged until controlled remeasurement.
+
 #### Current Chromium benchmark
 
 The first official `content_shell` measurement compares handwritten C++,

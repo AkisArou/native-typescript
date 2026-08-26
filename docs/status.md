@@ -1,7 +1,7 @@
 # Implementation Status
 
 Status: current implementation state  
-Last revised: 2026-08-25
+Last revised: 2026-08-26
 
 This document records what is **built and proven**, and by which gate. The
 normative specifications say what must be true; this says how far the
@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned debug acceptance and controlled initial four-lane release-performance gate pass; mixed workloads and product renderer target remain open |
+| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; application matrix correctness passes while its strict performance gate fails; optimized remeasurement and product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -558,7 +558,7 @@ offset is a field late is exactly the defect the probe exists to prevent.
 
 ### The manifest format
 
-SCABI is at schema version 9, and every version since 4 was bought by a
+SCABI is at schema version 14, and every version since 4 was bought by a
 program that needed it:
 
 - **v4** deleted `entry.kind`, which said whether a symbol came from the SDK or
@@ -573,6 +573,12 @@ program that needed it:
 - **v8** made a span's length say what it counts, rather than assuming bytes.
 - **v9** made a string result's length optional, so text that may contain NUL
   crosses with a length instead of a terminator.
+- **v10–v13** added explicit ownerless registrations, managed-peer/native
+  subclass facts, and compiler-proven frame-bounded handle and callback
+  mechanics.
+- **v14** lets an input UTF-8 span carry an optional opaque static identity so
+  a target can cache representation conversion without retaining borrowed
+  bytes or learning the ScriptC string layout.
 
 A bump invalidates incompatible caches by design, and the version is exported
 as `SCABI_SCHEMA_VERSION` so no producer carries the literal. Two generators
@@ -1315,12 +1321,43 @@ The complete symbol-light component-debug and official non-component release
 rendered counter, real click delivery, DOMException probe, and browser teardown
 have passed; the release fixture's initial controlled performance falsifier has
 also passed. These are not builds of the larger `chrome` product target.
-More importantly, the accepted running host is still the fixture-owned C/C++
-oracle rather than a production renderer-hosted ScriptC lifecycle.
-The imported slot table, UTF-8 ABI, handwritten DOM members, callback token,
-and counter host remain prototype evidence. There is no Chromium
-target/provider definition, representative mixed-workload result, or DOM
-compatibility claim.
+The renderer now also installs PromiseCore on Blink's microtask queue and runs
+C and LLVM continuations as stackless, cycle-traced heap frames. Focused native
+archive gates cover eager prefixes, two ordered typed awaits, non-Promise await
+hops, lifted captures, suspending `if`/`else`, and teardown cancellation; the
+Chromium FIFO gate observes identical `JAEBj` ordering in both lanes and no
+post-navigation callback. Renderer profiles contain no `scr_async_spawn` call.
+The managed Blink peer registry now interns repeated nodes in expected O(1)
+time by stable realm-local DOM node ID rather than scanning every live peer.
+Compiler-proven local event registrations now transfer a direct callback
+closure into a frame-owned Blink subscription without a wrapper allocation and
+release it exactly once;
+registrations escaping across exported calls continue to use the stable fused
+handle/callback lifecycle. Both choices are checked in C and LLVM output, and
+both compiled counter lanes pass click delivery and navigation teardown in the
+pinned browser.
+
+For the synchronous local tier, the closure header and eligible mutable scalar
+capture boxes now use compiler-proven native-frame storage as well. A
+whole-function proof excludes asynchronous or foreign-thread delivery,
+escaping callbacks, shared heap-closure boxes, generators, inherited captures,
+TDZ state, and traced values; validation recomputes the proof and absent proof
+keeps heap storage. The C emitter reserves each syntactic slot in the function
+prologue so repeated evaluation cannot grow the stack, and LLVM emits the same
+entry-block shape. The same proven tier now returns its Oilpan listener as the
+opaque cancellable frame result, avoiding the extra off-heap subscription and
+two `Persistent` roots used by escaping listeners; a realm-local intrusive list
+still guarantees invalidation. Sanitized Native IR and runtime gates pass, the
+pinned release browser rebuilds, and both release lanes execute the exact event
+path with checksum 192 and zero retained subscriptions. Performance remains
+unmeasured after this change.
+
+The accepted host remains fixture-owned rather than the final Content embedder,
+and broad async control flow, typed Blink promise resolvers, DOMString code-unit
+semantics, full event identity/options, generated API coverage, and Mojo product
+capabilities remain open. The imported slot table, handwritten DOM members,
+callback token, and counter host remain prototype evidence. There is no general
+DOM compatibility claim.
 
 ## Building an application
 

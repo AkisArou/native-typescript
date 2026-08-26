@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { assertScabiManifest } from "@native-typescript/scabi";
 import {
@@ -13,8 +14,14 @@ import {
 } from "@native-typescript/target-chromium";
 import {
   loadScriptCLibraryPlanners,
+  scriptCCompilerDistribution,
   translateScabiNativeProgram,
+  type ScriptCLibraryCompilationPlan,
 } from "@native-typescript/scriptc";
+
+interface ScriptCLibraryEmitter {
+  readonly emitLibraryCompilationPlan: (plan: ScriptCLibraryCompilationPlan) => string;
+}
 
 const lanes = ["cpp", "scriptc-c", "scriptc-llvm", "v8"] as const;
 const chromiumPackageRoot = resolve(
@@ -363,6 +370,10 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
   const benchmarkRoot = resolve(chromiumPackageRoot, "../../benchmarks/chromium/scriptc");
   const { planLibraryCompilation, planLibraryExternalCBuild } =
     await loadScriptCLibraryPlanners();
+  const compiler = await import(
+    pathToFileURL(resolve(scriptCCompilerDistribution(), "index.js")).href
+  ) as Partial<ScriptCLibraryEmitter>;
+  assert.equal(typeof compiler.emitLibraryCompilationPlan, "function");
   for (const backend of ["c", "llvm"] as const) {
     const planned = await planLibraryCompilation({
       profilePath: resolve(benchmarkRoot, `profile-${backend}.json`),
@@ -399,6 +410,87 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
       4,
       "nested borrowed text nodes must not allocate managed ScriptC/Oilpan peers",
     );
+    const listenerCalls = collectRecords(
+      plannedIr,
+      (record) =>
+        record.kind === "nativeCall" &&
+        typeof record.binding === "string" &&
+        record.binding.endsWith("#web_event_target_listen"),
+    );
+    assert.equal(listenerCalls.length, 1);
+    assert.equal(
+      listenerCalls[0]?.resultMode,
+      "frameBounded",
+      "a synchronous local listener with terminal dispose must transfer its callback context directly to Blink",
+    );
+    const frameResources = collectRecords(
+      plannedIr,
+      (record) =>
+        typeof record.nativeFrame === "object" &&
+        record.nativeFrame !== null &&
+        (record.nativeFrame as Record<string, unknown>).release ===
+          "nts_web_subscription_release_frame",
+    );
+    assert.equal(frameResources.length, 1);
+    const frameContexts = collectRecords(
+      plannedIr,
+      (record) => record.kind === "closure" && record.nativeFrameContext === true,
+    );
+    assert.equal(
+      frameContexts.length,
+      1,
+      "the scoped listener closure itself must use the proven stack context",
+    );
+    const frameCaptures = collectRecords(
+      plannedIr,
+      (record) => record.nativeFrameCapture === true,
+    );
+    assert.equal(
+      frameCaptures.length,
+      1,
+      "the listener checksum must use a stack capture box rather than a heap box",
+    );
+    const generated = compiler.emitLibraryCompilationPlan!(planned.plan);
+    assert.match(generated, /sc_native_cb_[0-9]+_frame/u);
+    assert.match(generated, /scr_closure_retain(?:_v)?/u);
+    assert.match(generated, /nts_web_event_target_listen_frame/u);
+    assert.match(generated, /scr_closure_release_v/u);
+    assert.match(generated, /scr_box_init_frame/u);
+    assert.match(generated, /scr_closure_init_frame/u);
+    if (backend === "c") {
+      assert.match(
+        generated,
+        /void \*sc_frame_closure_storage_0 = SCR_STACK_ALLOC\(SCR_CLOSURE_FRAME_BYTES\(1\)\);/u,
+        "C must reserve one callback slot in the function prologue",
+      );
+      assert.match(
+        generated,
+        /scr_closure_init_frame\(sc_frame_closure_storage_0,/u,
+        "each evaluation must reinitialize its function-entry slot",
+      );
+      assert.doesNotMatch(
+        generated,
+        /scr_closure_init_frame\(SCR_STACK_ALLOC/u,
+        "loop evaluation must not grow the native stack",
+      );
+    } else {
+      assert.match(
+        generated,
+        /alloca \[5 x ptr\]/u,
+        "LLVM must reserve its closure header and one capture at function entry",
+      );
+    }
+    assert.match(generated, /nts_web_subscription_release_frame/u);
+    assert.doesNotMatch(
+      generated,
+      /scr_direct_callback_create_owned/u,
+      "the scoped event registration must transfer its closure without allocating a callback wrapper",
+    );
+    assert.doesNotMatch(
+      generated,
+      /scr_native_handle_prepare_direct_callback(?:_fused)?/u,
+      "the scoped event registration must not construct a stable callback lifecycle cell",
+    );
     const profile = JSON.parse(readFileSync(
       resolve(benchmarkRoot, `profile-${backend}.json`),
       "utf8",
@@ -406,12 +498,16 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
       readonly abi: {
         readonly init_symbol: string;
         readonly sink_register_symbol: string;
+        readonly hosted_scheduler_configure_symbol: string;
+        readonly hosted_scheduler_stop_symbol: string;
       };
       readonly exports: readonly { readonly symbol: string }[];
     };
     assert.deepEqual(planned.plan.nativeBuild.localizeSymbols, [
       profile.abi.init_symbol,
       profile.abi.sink_register_symbol,
+      profile.abi.hosted_scheduler_configure_symbol,
+      profile.abi.hosted_scheduler_stop_symbol,
       ...profile.exports.map(({ symbol }) => symbol),
     ]);
     const { localizeSymbols: _, ...unlocalizedNativeBuild } =
@@ -432,6 +528,41 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
       `archive/scriptc/${backend}`,
     );
   }
+});
+
+test("the scoped Blink event result reuses its Oilpan listener", () => {
+  const registry = readFileSync(
+    resolve(
+      chromiumPackageRoot,
+      "chromium/overlay/nts_blink_managed_registry.cc",
+    ),
+    "utf8",
+  );
+  const scabi = readFileSync(
+    resolve(chromiumPackageRoot, "chromium/overlay/nts_blink_scabi.cc"),
+    "utf8",
+  );
+  const frameListen = /NtsWebManagedSubscription \*BlinkManagedRegistry::ListenFrame\([\s\S]*?\n\}\n\nvoid BlinkManagedRegistry::RemoveSubscription/u.exec(
+    registry,
+  )?.[0];
+  assert.ok(frameListen, "the frame-only listener implementation must exist");
+  assert.match(
+    frameListen,
+    /MakeGarbageCollected<BlinkFrameEventListener>/u,
+  );
+  assert.match(
+    frameListen,
+    /reinterpret_cast<NtsWebManagedSubscription \*>\(listener\)/u,
+  );
+  assert.doesNotMatch(frameListen, /new \(std::nothrow\)|Persistent</u);
+  assert.match(
+    scabi,
+    /nts_web_subscription_release_frame\([\s\S]*?ReleaseFrameSubscription\(subscription\)/u,
+  );
+  assert.match(
+    scabi,
+    /nts_web_subscription_release\([\s\S]*?ReleaseManagedSubscription\(subscription\)/u,
+  );
 });
 
 test("Chromium performance contract accepts near-C++ compiled lanes", () => {

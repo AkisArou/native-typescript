@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -59,6 +60,7 @@ const callbackOperations = Object.freeze([
   "stop_accepting",
   "discard",
   "destroy",
+  "hosted_post",
 ] as const);
 
 function callbackPrefix(workload: WorkloadId, backend: Backend): string {
@@ -70,6 +72,25 @@ function callbackPrefix(workload: WorkloadId, backend: Backend): string {
 function callbackShim(prefix: string): string {
   return [
     '#include "scr_runtime.h"',
+    "#include <stdlib.h>",
+    "",
+    "typedef void (*NtsHostedProbeCallback)(void *context);",
+    "typedef struct {",
+    "  NtsHostedProbeCallback callback;",
+    "  void *context;",
+    "} NtsHostedProbeFrame;",
+    "",
+    `static void ${prefix}_hosted_probe_release(void *opaque) {`,
+    "  free(opaque);",
+    "}",
+    `static void ${prefix}_hosted_probe_resume(void *opaque, ScrPromise *settled) {`,
+    "  (void)settled;",
+    "  NtsHostedProbeFrame *frame = (NtsHostedProbeFrame *)opaque;",
+    "  NtsHostedProbeCallback callback = frame->callback;",
+    "  void *context = frame->context;",
+    "  free(frame);",
+    "  callback(context);",
+    "}",
     "",
     `int ${prefix}_configure(ScrOwnerGatewayWakeFn wake, void *context) {`,
     "  return scr_retained_callbacks_configure(wake, context) ? 1 : 0;",
@@ -85,6 +106,19 @@ function callbackShim(prefix: string): string {
     "}",
     `int ${prefix}_destroy(void) {`,
     "  return scr_retained_callbacks_destroy() ? 1 : 0;",
+    "}",
+    `int ${prefix}_hosted_post(NtsHostedProbeCallback callback, void *context) {`,
+    "  if (callback == NULL) return 0;",
+    "  NtsHostedProbeFrame *frame =",
+    "      (NtsHostedProbeFrame *)malloc(sizeof *frame);",
+    "  if (frame == NULL) return 0;",
+    "  frame->callback = callback;",
+    "  frame->context = context;",
+    "  return scr_hosted_scheduler_post(scr_hosted_scheduler_current(),",
+    `                                   &${prefix}_hosted_probe_resume, frame,`,
+    `                                   &${prefix}_hosted_probe_release)`,
+    "      ? 1",
+    "      : 0;",
     "}",
     "",
   ].join("\n");
@@ -516,6 +550,23 @@ async function main(arguments_: readonly string[]): Promise<void> {
       ));
     }
   }
+  /* The archives live under root_out_dir but are intentionally materialized
+   * by this repository rather than a GN action. GN permits their absolute
+   * names in `libs`, yet does not add those external files to Ninja's input
+   * graph; listing them in `inputs` is rejected because no GN target declares
+   * the outputs. Mark the one source_set that owns the libraries dirty only
+   * after every requested archive has passed compilation/localization. That
+   * preserves every object cache while guaranteeing the next Ninja build
+   * recompiles the host and relinks content_shell with these exact archives. */
+  const relinkTrigger = resolve(
+    options.checkout,
+    "third_party/blink/renderer/native_typescript/nts_blink_benchmark_host.cc",
+  );
+  if (!existsSync(relinkTrigger)) {
+    throw new Error(`Chromium ScriptC relink trigger is absent: ${relinkTrigger}`);
+  }
+  const now = new Date();
+  utimesSync(relinkTrigger, now, now);
   process.stdout.write(
     [
       "",

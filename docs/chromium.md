@@ -143,6 +143,35 @@ posting an asynchronous task.
 Chromium remains the scheduler. ScriptC participates in declared task and
 microtask checkpoints; it does not run a competing browser event loop.
 
+### Renderer runtime personality and suspension
+
+`chromium-renderer` is a library/runtime personality over the existing C and
+LLVM backends, not a third machine-code backend. The frontend still produces
+the same Native IR and both backends consume one shared hosted-async transform.
+Native executable profiles retain ScriptC's stackful fiber implementation;
+renderer profiles do not link or invoke it.
+
+The hosted transform splits a suspending `async` function into ordinary typed
+step functions. A synthetic cycle-traced record owns the locals live at each
+`await`, the result promise, the awaited promise, and—when the function is
+lifted—the closure environment. PromiseCore owns that record while suspended.
+Settlement enqueues one native continuation through Blink's
+`EventLoop::EnqueueMicrotask`, so ScriptC reactions and page/V8 microtasks share
+one FIFO checkpoint. No raw Blink or frame-bounded handle may enter a
+continuation record.
+
+The first executable lowering supports eager async prefixes, typed promises,
+non-Promise await hops, multiple/nested awaits, lifted closure environments,
+and suspending `if`/`else` control flow. Unsupported lazy expressions, loops,
+promise-or-unit/dynamic awaits, boxed locals, generators, and suspension across
+`try`/`catch`/`finally` fail closed at compilation. Those cases are admitted
+only as the shared state-machine vocabulary grows; neither backend may fall
+back to a fiber in a renderer profile.
+
+Realm invalidation first closes scheduler admission and cancels every parked
+continuation frame. A Blink microtask accepted before invalidation still runs
+the runtime cancellation job, but cannot re-enter an invalid realm.
+
 Navigation, frame detachment, or context destruction closes admission,
 cancels registrations and pending async work where permitted, invalidates all
 realm-backed managed handles, releases Oilpan roots on the owner sequence,
@@ -162,6 +191,19 @@ those cells with Oilpan roots and generated type descriptors. It must provide:
 - generated exact-type checks and WebIDL upcasts;
 - release of the corresponding Oilpan edge at the final managed release;
 - deterministic teardown on the owner sequence.
+
+The current managed node peer uses Blink's stable `DOMNodeId` as a realm-local
+hash key, so repeated acquisition is expected O(1). The hash is non-owning;
+the canonical peer's `Persistent<Node>` remains the sole Oilpan root, and the
+entry is removed before that root is released or invalidated.
+
+Compiler-proven immortal UTF-8 strings use a parallel value-boundary fast
+path. SCABI supplies an opaque non-zero static identity beside the borrowed
+data and length; computed strings supply zero. Each realm caches decoded Blink
+`String` and `AtomicString` values by that token and clears both caches during
+invalidation. The token is never dereferenced and the ordinary bytes remain
+the semantic value, so this avoids exposing ScriptC's string layout while
+removing repeated literal decoding and atomization.
 
 The imported prototype's independent table is retained only as an executable
 oracle. Its handles now carry realm, slot, and generation so the oracle can
@@ -234,6 +276,19 @@ and options, unregister the exact Blink listener, and then release the retained
 callback. Realm shutdown cancels every connection before callback storage is
 destroyed. The prototype's one-new-listener-per-registration subscription token
 does not yet prove duplicate-listener or `removeEventListener` semantics.
+
+There are two compiler-selected ownership tiers. A registration that escapes
+its synchronous function uses a stable ScriptC native-handle cell and a traced
+callback edge. When Native IR proves that a local registration is cancelled
+exactly once before return, with no suspension, escape, mutation, or later use,
+the C and LLVM backends transfer a direct callback context to Blink and retain
+only the raw frame-owned subscription. Blink removes the listener, closes
+callback admission, and invokes the supplied context release exactly once on
+explicit cancellation, registration failure, or realm teardown. This scoped
+path stores the retained closure directly in Blink's subscription, removing
+both the stable handle/lifecycle allocation and a standalone callback wrapper
+without weakening the escaping path or allowing a raw Oilpan pointer across
+`await`.
 
 Blink promises settle ScriptC promises directly through a binding-neutral
 resolver. Compatibility evidence must pin observable ordering between the

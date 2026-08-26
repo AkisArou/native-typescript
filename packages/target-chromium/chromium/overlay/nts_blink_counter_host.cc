@@ -72,6 +72,10 @@ extern "C" int nts_chromium_counter_scriptc_c_callbacks_dispatch(void);
 extern "C" void nts_chromium_counter_scriptc_c_callbacks_stop_accepting(void);
 extern "C" size_t nts_chromium_counter_scriptc_c_callbacks_discard(void);
 extern "C" int nts_chromium_counter_scriptc_c_callbacks_destroy(void);
+extern "C" int32_t nts_chromium_counter_scriptc_c_hosted_scheduler_configure(
+    ScriptCHostedEnqueue enqueue,
+    void* context);
+extern "C" void nts_chromium_counter_scriptc_c_hosted_scheduler_stop(void);
 extern "C" void nts_chromium_counter_scriptc_llvm_init(void);
 extern "C" void nts_chromium_counter_scriptc_llvm_collect(void);
 extern "C" double nts_chromium_counter_scriptc_llvm_start(void);
@@ -84,6 +88,34 @@ extern "C" void nts_chromium_counter_scriptc_llvm_callbacks_stop_accepting(
     void);
 extern "C" size_t nts_chromium_counter_scriptc_llvm_callbacks_discard(void);
 extern "C" int nts_chromium_counter_scriptc_llvm_callbacks_destroy(void);
+extern "C" int32_t nts_chromium_counter_scriptc_llvm_hosted_scheduler_configure(
+    ScriptCHostedEnqueue enqueue,
+    void* context);
+extern "C" void nts_chromium_counter_scriptc_llvm_hosted_scheduler_stop(void);
+
+namespace {
+
+int32_t ConfigureScriptCCHostedScheduler(ScriptCHostedEnqueue enqueue,
+                                         void* context) {
+  return nts_chromium_counter_scriptc_c_hosted_scheduler_configure(enqueue,
+                                                                   context);
+}
+
+void StopScriptCCHostedScheduler() {
+  nts_chromium_counter_scriptc_c_hosted_scheduler_stop();
+}
+
+int32_t ConfigureScriptCLlvmHostedScheduler(ScriptCHostedEnqueue enqueue,
+                                            void* context) {
+  return nts_chromium_counter_scriptc_llvm_hosted_scheduler_configure(enqueue,
+                                                                      context);
+}
+
+void StopScriptCLlvmHostedScheduler() {
+  nts_chromium_counter_scriptc_llvm_hosted_scheduler_stop();
+}
+
+}  // namespace
 
 bool VerifyBindingNeutralSecurityErrorCapture() {
 #if defined(NTS_BLINK_HAS_EXCEPTION_STATE_CAPTURE)
@@ -131,7 +163,7 @@ class BlinkCounterHost final {
         }
       } else {
         InitializeScriptCRuntime();
-        if (ConfigureScriptCCallbacks()) {
+        if (ConfigureScriptCHostedScheduler() && ConfigureScriptCCallbacks()) {
           callbacks_configured_ = true;
           scriptc_start_called_ = true;
           started_ = StartScriptCProgram() == 1.0;
@@ -221,6 +253,16 @@ class BlinkCounterHost final {
                      &WakeScriptCCallbacks, this) != 0;
   }
 
+  bool ConfigureScriptCHostedScheduler() {
+    return lane_ == CounterLane::kScriptCC
+               ? realm_->ConfigureScriptCHostedScheduler(
+                     &ConfigureScriptCCHostedScheduler,
+                     &StopScriptCCHostedScheduler)
+               : realm_->ConfigureScriptCHostedScheduler(
+                     &ConfigureScriptCLlvmHostedScheduler,
+                     &StopScriptCLlvmHostedScheduler);
+  }
+
   double StartScriptCProgram() {
     return lane_ == CounterLane::kScriptCC
                ? nts_chromium_counter_scriptc_c_start()
@@ -268,6 +310,9 @@ class BlinkCounterHost final {
       StopScriptCProgram();
     }
     scriptc_start_called_ = false;
+    if (realm_) {
+      realm_->StopScriptCHostedScheduler();
+    }
     if (callbacks_configured_) {
       ShutdownScriptCCallbacks();
     }

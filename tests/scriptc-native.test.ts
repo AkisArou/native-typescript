@@ -675,6 +675,51 @@ test("SCABI projects one borrowed UTF-8 string into pointer and byte-length ABI 
   ]);
 });
 
+test("SCABI projects an optional UTF-8 static identity from the same source string", () => {
+  const withIdentity = structuredClone(manifest);
+  const binding = withIdentity.bindings.hash_utf8;
+  assert.notEqual(binding?.kind, "constant");
+  if (binding === undefined || binding.kind === "constant") return;
+  const data = binding.signature.parameters[0];
+  assert.equal(data?.marshal?.kind, "string");
+  if (data?.marshal?.kind !== "string") return;
+  Object.assign(data.marshal, {
+    staticIdentity: {
+      kind: "parameter" as const,
+      parameter: "static_identity",
+    },
+  });
+  Object.assign(binding.signature, {
+    parameters: [
+      ...binding.signature.parameters,
+      {
+        name: "static_identity",
+        type: "usize",
+        passMode: "value" as const,
+        nullable: false,
+        ownership: { kind: "value" as const },
+      },
+    ],
+  });
+
+  const result = translateScabiNativeProgram(
+    withIdentity,
+    selectImports(["hash_utf8"]),
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.input.bindings[0]?.parameters.at(-1), {
+    name: "static_identity",
+    type: { kind: "nativeScalar", scalar: "usize" },
+    passMode: "value",
+    ownership: { kind: "value" },
+    projection: { kind: "utf8StaticIdentity", argument: 0 },
+  });
+  assert.deepEqual(result.input.bindings[0]?.arguments, [
+    { name: "data", type: { kind: "string" } },
+  ]);
+});
+
 test("SCABI projects a checked NUL-terminated UTF-8 string into one C pointer", () => {
   const terminated = structuredClone(manifest);
   const binding = terminated.bindings.hash_utf8;
@@ -1018,7 +1063,10 @@ test("SCABI translates an until-cancelled callback with exact result ownership",
     nativeName: "NtsSubscription",
     threadSafety: "shared",
     identity: "pointer",
-    cycleCollection: "none",
+    /* The result owns the callback closure, which may capture the result.
+     * That self-cycle is collector-visible even without a receiver-owned
+     * registration edge. */
+    cycleCollection: "traceable",
     upcasts: [],
   }]);
   assert.deepEqual(result.input.bindings[0], {

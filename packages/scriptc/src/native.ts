@@ -700,6 +700,9 @@ function positionUnsupported(
 type BorrowedDataParameterPair = {
   readonly kind: "utf8" | "bytes";
   readonly lengthIndex: number;
+  /** Optional compiler-supplied stable identity slot. Only UTF-8 strings may
+   * request one; byte spans always carry null here. */
+  readonly staticIdentityIndex: number | null;
   readonly pointee: "i8" | "u8";
   /** What the length counts. A UTF-8 span's is bytes by definition; a typed
    * array's is whatever its contract says. */
@@ -740,6 +743,7 @@ function supportedBorrowedStringResult(
     : undefined;
   if (
     marshal?.kind !== "string" ||
+    marshal.staticIdentity !== undefined ||
     marshal.encoding !== "utf-8" ||
     marshal.length?.kind !== "nul" ||
     marshal.termination !== "nul" ||
@@ -865,6 +869,7 @@ function carriesNumber(scalar: ScriptCNativeScalar): boolean {
 type SupportedCallbackPair = {
   readonly functionIndex: number;
   readonly contextIndex: number;
+  readonly frameContextReleaseIndex: number | null;
   readonly parameterTypeIds: readonly NativeTypeId[];
   readonly sourceArguments: readonly (
     | {
@@ -1087,6 +1092,7 @@ function supportedCallScopedCallbackPair(
   return {
     functionIndex: callbackIndex,
     contextIndex,
+    frameContextReleaseIndex: null,
     parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
     sourceArguments,
     resultTypeId: callbackType.signature.result.type,
@@ -1230,6 +1236,66 @@ function supportedRetainedCallbackPair(
     contextPointee?.kind !== "void"
   ) {
     return `callback context '${contract.contextParameter}' must name a non-null registration-borrowed address-space-zero void pointer anchored to '${parameter.name}'`;
+  }
+  let frameContextReleaseIndex: number | null = null;
+  if (contract.frameBoundedContext !== undefined) {
+    frameContextReleaseIndex = binding.signature.parameters.findIndex(
+      ({ name }) => name === contract.frameBoundedContext!.releaseParameter,
+    );
+    const release = binding.signature.parameters[frameContextReleaseIndex];
+    const releaseType = release === undefined ? undefined : manifest.types[release.type];
+    const releaseArgument = releaseType?.kind === "callback"
+      ? releaseType.signature.parameters[0]
+      : undefined;
+    const releaseArgumentType = releaseArgument === undefined
+      ? undefined
+      : manifest.types[releaseArgument.type];
+    const releasePointee = releaseArgumentType?.kind === "pointer"
+      ? manifest.types[releaseArgumentType.pointee]
+      : undefined;
+    const releaseResultType = releaseType?.kind === "callback"
+      ? manifest.types[releaseType.signature.result.type]
+      : undefined;
+    if (
+      contract.registrationOwner !== "result" ||
+      !contract.synchronousReturn ||
+      binding.signature.result.frameBounded === undefined ||
+      frameContextReleaseIndex < 0 ||
+      frameContextReleaseIndex === callbackIndex ||
+      frameContextReleaseIndex === contextIndex ||
+      release === undefined ||
+      release.passMode !== "pointer" ||
+      !release.nullable ||
+      release.ownership.kind !== "borrowed" ||
+      release.ownership.scope !== "registration" ||
+      release.ownership.anchor !== parameter.name ||
+      release.marshal !== undefined ||
+      release.callback !== undefined ||
+      releaseType?.kind !== "callback" ||
+      releaseType.context.placement !== "none" ||
+      releaseType.context.type !== undefined ||
+      releaseType.signature.callingConvention !== "c" ||
+      releaseType.signature.variadic ||
+      releaseType.signature.parameters.length !== 1 ||
+      releaseArgument === undefined ||
+      releaseArgument.type !== callbackType.context.type ||
+      releaseArgument.passMode !== "pointer" ||
+      releaseArgument.nullable ||
+      releaseArgument.ownership.kind !== "borrowed" ||
+      releaseArgument.ownership.scope !== "call" ||
+      releaseArgument.marshal !== undefined ||
+      releaseArgument.callback !== undefined ||
+      releaseArgumentType?.kind !== "pointer" ||
+      releaseArgumentType.addressSpace !== 0 ||
+      releasePointee?.kind !== "void" ||
+      releaseResultType?.kind !== "void" ||
+      releaseType.signature.result.passMode !== "value" ||
+      releaseType.signature.result.nullable ||
+      releaseType.signature.result.ownership.kind !== "value" ||
+      releaseType.signature.result.marshal !== undefined
+    ) {
+      return `frame-bounded callback context release '${contract.frameBoundedContext.releaseParameter}' must be a nullable registration-borrowed void (*)(void *) sibling on a synchronous result-owned registration with a frame-bounded result`;
+    }
   }
   /* An enumeration is its underlying integer at the ABI, and its members are
    * proven constants of that integer. Passing one by value is passing that
@@ -1444,6 +1510,7 @@ function supportedRetainedCallbackPair(
     return {
       functionIndex: callbackIndex,
       contextIndex,
+      frameContextReleaseIndex,
       parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
       sourceArguments,
       resultTypeId: callbackType.signature.result.type,
@@ -1469,6 +1536,7 @@ function supportedRetainedCallbackPair(
     return {
       functionIndex: callbackIndex,
       contextIndex,
+      frameContextReleaseIndex,
       parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
       sourceArguments,
       resultTypeId: callbackType.signature.result.type,
@@ -1484,6 +1552,7 @@ function supportedRetainedCallbackPair(
   return {
     functionIndex: callbackIndex,
     contextIndex,
+    frameContextReleaseIndex,
     parameterTypeIds: callbackType.signature.parameters.map((position) => position.type),
     sourceArguments,
     resultTypeId: callbackType.signature.result.type,
@@ -1651,6 +1720,12 @@ function supportedBorrowedDataPair(
   }
   if (marshal?.kind === "string") {
     if (
+      marshal.staticIdentity !== undefined &&
+      marshal.length?.kind !== "parameter"
+    ) {
+      return "a UTF-8 static identity is supported only for a length-delimited input string";
+    }
+    if (
       marshal.encoding === "utf-8" &&
       marshal.termination === "nul" &&
       marshal.embeddedNul === "reject" &&
@@ -1727,9 +1802,36 @@ function supportedBorrowedDataPair(
   ) {
     return `${marshal.kind === "string" ? "UTF-8 byte" : "byte"} length '${spanLength.parameter}' must name an un-marshalled usize value parameter`;
   }
+  let staticIdentityIndex: number | null = null;
+  if (marshal.kind === "string" && marshal.staticIdentity !== undefined) {
+    staticIdentityIndex = binding.signature.parameters.findIndex(
+      (parameter) => parameter.name === marshal.staticIdentity!.parameter,
+    );
+    const identity = binding.signature.parameters[staticIdentityIndex];
+    const identityType = identity === undefined
+      ? undefined
+      : manifest.types[identity.type];
+    if (
+      staticIdentityIndex < 0 ||
+      staticIdentityIndex === dataIndex ||
+      staticIdentityIndex === lengthIndex ||
+      identity === undefined ||
+      identity.passMode !== "value" ||
+      identity.nullable ||
+      identity.ownership.kind !== "value" ||
+      identity.marshal !== undefined ||
+      identity.callback !== undefined ||
+      identityType?.kind !== "integer" ||
+      identityType.signed ||
+      identityType.bits !== "pointer"
+    ) {
+      return `UTF-8 static identity '${marshal.staticIdentity.parameter}' must name a distinct un-marshalled usize value parameter`;
+    }
+  }
   return {
     kind: marshal.kind === "string" ? "utf8" : "bytes",
     lengthIndex,
+    staticIdentityIndex,
     pointee: pointee.signed ? "i8" : "u8",
     /* A UTF-8 span's elements ARE bytes, so its length counts both and the
      * contract does not ask. A typed array's contract says. */
@@ -2288,16 +2390,25 @@ export function translateScabiNativeProgram(
     }
   }
 
-  /* A receiver-owned registration creates managed owner -> result and
-   * result -> closure edges. Mark both nominal handle types collector-
-   * visible, then propagate over identity upcasts because all connected
-   * declarations can denote the same managed cell. */
+  /* Every result-owned callback creates a result -> closure edge, and the
+   * closure may capture that same result. A receiver-owned registration adds
+   * owner -> result as well. Mark every participating nominal handle
+   * collector-visible, then propagate over identity upcasts because all
+   * connected declarations can denote the same managed cell. A prior version
+   * marked only receiver-owned registrations, leaving the simpler
+   * result-owned self-cycle invisible to trial deletion. */
   for (const bindingId of reachable) {
     const binding = manifest.bindings[bindingId];
     if (binding === undefined || binding.kind === "constant") continue;
     for (const parameter of binding.signature.parameters) {
       const ownerName = parameter.callback?.registrationOwner;
-      if (ownerName === undefined || ownerName === "native-call" || ownerName === "result") {
+      if (ownerName === undefined || ownerName === "native-call" || ownerName === "process") {
+        continue;
+      }
+      if (ownerName === "result") {
+        if (manifest.types[binding.signature.result.type]?.kind === "handle") {
+          traceableHandleTypeIds.add(binding.signature.result.type);
+        }
         continue;
       }
       const owner = binding.signature.parameters.find(({ name }) => name === ownerName);
@@ -2599,8 +2710,10 @@ export function translateScabiNativeProgram(
     const parameters: Array<ScriptCNativeBinding["parameters"][number]> = [];
     const borrowedByData = new Map<number, BorrowedDataParameterPair>();
     const borrowedByLength = new Map<number, BorrowedDataParameterPair>();
+    const borrowedByStaticIdentity = new Map<number, BorrowedDataParameterPair>();
     const callbackByFunction = new Map<number, SupportedCallbackPair>();
     const callbackByContext = new Map<number, SupportedCallbackPair>();
+    const callbackByFrameContextRelease = new Map<number, SupportedCallbackPair>();
     const callbackSignatures = new Map<number, ScriptCNativeCallbackSignature>();
     const directTypes = new Map<number, ScriptCNativeValueType>();
     const booleanTypes = new Map<number, {
@@ -2636,9 +2749,28 @@ export function translateScabiNativeProgram(
         valid = false;
         continue;
       }
+      if (
+        !singleSlot && pair.staticIdentityIndex !== null &&
+        (borrowedByData.has(pair.staticIdentityIndex) ||
+          borrowedByLength.has(pair.staticIdentityIndex) ||
+          borrowedByStaticIdentity.has(pair.staticIdentityIndex))
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "NTS3002",
+            `${path}/signature/parameters/${index}/marshal/staticIdentity`,
+            "A physical static-identity parameter cannot describe multiple source arguments",
+          ),
+        );
+        valid = false;
+        continue;
+      }
       borrowedByData.set(index, pair);
       if (!singleSlot) {
         borrowedByLength.set(pair.lengthIndex, pair);
+        if (pair.staticIdentityIndex !== null) {
+          borrowedByStaticIdentity.set(pair.staticIdentityIndex, pair);
+        }
       }
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
@@ -2653,10 +2785,19 @@ export function translateScabiNativeProgram(
       }
       if (
         callbackByContext.has(pair.contextIndex) ||
+        (pair.frameContextReleaseIndex !== null &&
+          callbackByFrameContextRelease.has(pair.frameContextReleaseIndex)) ||
         borrowedByData.has(index) ||
         borrowedByLength.has(index) ||
+        borrowedByStaticIdentity.has(index) ||
         borrowedByData.has(pair.contextIndex) ||
-        borrowedByLength.has(pair.contextIndex)
+        borrowedByLength.has(pair.contextIndex) ||
+        borrowedByStaticIdentity.has(pair.contextIndex) ||
+        (pair.frameContextReleaseIndex !== null &&
+          (borrowedByData.has(pair.frameContextReleaseIndex) ||
+            borrowedByLength.has(pair.frameContextReleaseIndex) ||
+            borrowedByStaticIdentity.has(pair.frameContextReleaseIndex) ||
+            callbackByContext.has(pair.frameContextReleaseIndex)))
       ) {
         diagnostics.push(
           diagnostic(
@@ -2670,10 +2811,18 @@ export function translateScabiNativeProgram(
       }
       callbackByFunction.set(index, pair);
       callbackByContext.set(pair.contextIndex, pair);
+      if (pair.frameContextReleaseIndex !== null) {
+        callbackByFrameContextRelease.set(pair.frameContextReleaseIndex, pair);
+      }
     }
     for (const [index, parameter] of binding.signature.parameters.entries()) {
       const parameterPath = `${path}/signature/parameters/${index}`;
-      if (borrowedByLength.has(index) || callbackByContext.has(index)) continue;
+      if (
+        borrowedByLength.has(index) ||
+        borrowedByStaticIdentity.has(index) ||
+        callbackByContext.has(index) ||
+        callbackByFrameContextRelease.has(index)
+      ) continue;
       const declaredParameterType = manifest.types[parameter.type];
       if (declaredParameterType?.kind === "boolean") {
         const unsupportedPosition = positionUnsupported(
@@ -2741,6 +2890,9 @@ export function translateScabiNativeProgram(
         argumentByParameter.set(index, argument);
         if (borrowed.kind !== "utf8-c-string" && borrowed.kind !== "utf8-c-string-vector") {
           argumentByParameter.set(borrowed.lengthIndex, argument);
+          if (borrowed.staticIdentityIndex !== null) {
+            argumentByParameter.set(borrowed.staticIdentityIndex, argument);
+          }
         }
         continue;
       }
@@ -2973,6 +3125,9 @@ export function translateScabiNativeProgram(
         }));
         argumentByParameter.set(index, argument);
         argumentByParameter.set(callback.contextIndex, argument);
+        if (callback.frameContextReleaseIndex !== null) {
+          argumentByParameter.set(callback.frameContextReleaseIndex, argument);
+        }
         continue;
       }
       if (parameter.marshal !== undefined) continue;
@@ -3056,6 +3211,7 @@ export function translateScabiNativeProgram(
         }
         const borrowedData = borrowedByData.get(index);
         const borrowedLength = borrowedByLength.get(index);
+        const borrowedStaticIdentity = borrowedByStaticIdentity.get(index);
         const callbackFunction = callbackByFunction.get(index);
         if (callbackFunction !== undefined) {
           const signature = callbackSignatures.get(index);
@@ -3079,6 +3235,28 @@ export function translateScabiNativeProgram(
             passMode: "pointer",
             ownership: Object.freeze({ kind: "callback" } as const),
             projection: Object.freeze({ kind: "callbackContext", argument } as const),
+          }));
+          continue;
+        }
+        const callbackFrameContextRelease = callbackByFrameContextRelease.get(index);
+        if (callbackFrameContextRelease !== undefined) {
+          parameters.push(Object.freeze({
+            name: parameter.name,
+            type: Object.freeze({
+              kind: "nativeCallback",
+              signature: Object.freeze({
+                parameters: Object.freeze([
+                  Object.freeze({ kind: "nativeContext", addressSpace: 0 } as const),
+                ]),
+                result: Object.freeze({ kind: "void" } as const),
+              }),
+            } as const),
+            passMode: "pointer",
+            ownership: Object.freeze({ kind: "callback" } as const),
+            projection: Object.freeze({
+              kind: "callbackContextRelease",
+              argument,
+            } as const),
           }));
           continue;
         }
@@ -3158,6 +3336,17 @@ export function translateScabiNativeProgram(
                             : "bytes",
                         } as const),
                   }
+                : borrowedStaticIdentity !== undefined
+                  ? {
+                      name: parameter.name,
+                      type: Object.freeze({ kind: "nativeScalar", scalar: "usize" } as const),
+                      passMode: "value" as const,
+                      ownership: Object.freeze({ kind: "value" as const }),
+                      projection: Object.freeze({
+                        kind: "utf8StaticIdentity",
+                        argument,
+                      } as const),
+                    }
                 : {
                     name: parameter.name,
                     type: directType!,
@@ -3312,6 +3501,7 @@ export function translateScabiNativeProgram(
         : undefined;
       if (
         marshal.encoding !== "utf-8" ||
+        marshal.staticIdentity !== undefined ||
         marshal.termination !== "none" ||
         marshal.embeddedNul !== "allow" ||
         binding.signature.result.passMode !== "pointer" ||
