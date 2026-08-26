@@ -369,7 +369,8 @@ commands only and records raw samples with build and artifact digests. The
 official non-component `content_shell` fixture has completed a full ThinLTO
 build with `chrome_pgo_phase=0`; its final link includes both localized
 archives, whose exported symbols exactly match their declared surfaces. This
-is verified build evidence, not measured performance evidence.
+artifact has now completed the controlled application matrix and passes every
+current performance, structure, and lifetime gate.
 
 For each initial synchronous primitive, both compiled TypeScript lanes must
 have median and p95 latency no more than 25% above handwritten C++. Across the
@@ -410,16 +411,17 @@ and component-shaped lists in both exported-per-call and compiled-loop shapes.
 Every tuple uses a fresh renderer, CPU affinity to one performance core,
 rotated lane order, three repetitions, and 30 checked samples per repetition.
 
-Compiler-proven frame callback storage and conditional static string identities
-reduce strict performance violations from the initial matrix's 22 to 3.
-Retained text compiled medians are 0.683x handwritten C++ and about 0.98x V8;
-eight-row construction is 1.053–1.054x C++ and 0.731–0.732x V8; attached mount
-is 1.028–1.036x C++ and 0.777–0.783x V8. Two reproducible failures are the
-create-element per-call p95 ratios at 1.299x/1.313x C++. The third full-matrix
-failure, an LLVM event median at 1.137x V8, passes at 1.046x in a focused rerun
-of the exact artifacts and remains recorded as variance rather than being
-discarded. This is representative evidence for the reached surface, not a
-general DOM-performance or compatibility claim.
+Compiler-proven frame callback storage, conditional static string identities,
+ThinLTO archive localization, borrowed immortal frame callbacks, and release
+LLVM attribute normalization reduce strict performance violations from the
+initial matrix's 22 to zero. Create-element compiled medians are 0.459–0.511x
+V8; eight-row construction is 1.027–1.039x C++ and 0.709–0.718x V8; attached
+mount is 1.012–1.016x C++ and 0.772–0.775x V8. Reused-listener event dispatch
+is 1.041–1.048x C++ and 1.066–1.074x V8, while its complete per-call lifecycle
+is 0.638–0.653x V8. The exact release result and conservative attribution are
+in [record 0065](records/0065-chromium-release-ipo-and-frame-callback-borrows.md).
+This is representative evidence for the reached surface, not a general
+DOM-performance or compatibility claim.
 
 The first closed normalized WebIDL slice reaches exactly
 `Document.createElement(DOMString)`. It deterministically generates TypeScript

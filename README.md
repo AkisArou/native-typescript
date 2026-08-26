@@ -353,28 +353,30 @@ before-and-after measurements, acceptance evidence, exact provenance, and raw
 report coordinates are in
 [record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
 
-The current optimized application matrix adds five application-shaped families
-and measures both host-per-call and compiled-loop shapes. The compiled-loop
-medians from the same three-repetition, 90-sample policy are:
+The current release-IPO application matrix adds five application-shaped
+families and measures both host-per-call and compiled-loop shapes. The
+compiled-loop medians from the same three-repetition, 90-sample policy are:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/V8 | LLVM/V8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Create element | 44.11 ns | 42.70 ns | 50.42 ns | 94.50 ns | **0.452x** | **0.534x** |
-| Detached counter tree | 395.63 ns | 334.10 ns | 334.96 ns | 378.50 ns | **0.883x** | **0.885x** |
-| Retained attached-text update | 115.95 ns | 79.25 ns | 79.17 ns | 81.00 ns | **0.978x** | **0.977x** |
-| Eight-row component list | 5,105.5 ns | 5,380.0 ns | 5,374.5 ns | 7,350.0 ns | **0.732x** | **0.731x** |
-| Selector-driven update | 130.00 ns | 130.10 ns | 127.60 ns | 120.00 ns | 1.084x | 1.063x |
-| Synchronous event round trip | 905.20 ns | 963.25 ns | 1,006.6 ns | 885.00 ns | 1.088x | 1.137x |
-| Attached component mount | 1,360.0 ns | 1,398.0 ns | 1,409.5 ns | 1,800.0 ns | **0.777x** | **0.783x** |
+| Create element | 47.01 ns | 51.06 ns | 45.87 ns | 100.00 ns | **0.511x** | **0.459x** |
+| Detached counter tree | 393.28 ns | 331.63 ns | 330.66 ns | 385.50 ns | **0.860x** | **0.858x** |
+| Retained attached-text update | 114.97 ns | 79.41 ns | 80.53 ns | 82.00 ns | **0.968x** | **0.982x** |
+| Eight-row component list | 5,178.0 ns | 5,318.0 ns | 5,382.5 ns | 7,500.0 ns | **0.709x** | **0.718x** |
+| Selector-driven update | 132.40 ns | 130.60 ns | 129.20 ns | 120.00 ns | 1.088x | 1.077x |
+| Synchronous event round trip | 962.65 ns | 1,002.4 ns | 1,009.2 ns | 940.00 ns | 1.066x | 1.074x |
+| Attached component mount | 1,373.5 ns | 1,389.5 ns | 1,395.5 ns | 1,800.0 ns | **0.772x** | **0.775x** |
 
-The strict performance gate now reports 3 checks instead of 22. Component-list
-construction is 1.053–1.054x handwritten C++, attached mount is
-1.028–1.036x, and their compiled shapes are 21.7–26.9% faster than V8.
-Retained text is 31.7% faster than handwritten C++ and effectively matches V8.
-Two reproducible failures are create-element per-call p95 ratios of 1.299x and
-1.313x C++; its medians still pass and are about 35% faster than V8. The third
-is a noisy LLVM/V8 compiled-event median: the exact same artifacts pass that
-gate in a focused confirmation run at 1.046x V8.
+The strict performance gate now passes every check. Create-element compiled
+execution is 48.9–54.1% faster than V8, component-list construction is
+28.2–29.1% faster, and attached mount is 22.5–22.8% faster. Reused-listener
+dispatch is within 4.1–4.8% of handwritten C++, although V8 is 6.6–7.4% faster
+in that Blink-dominated shape. The per-call event lifecycle remains
+34.7–36.2% faster than V8. Compiler-proven frame callbacks now borrow their
+immortal closure without an inert retain/release pair, and the non-sanitized
+LLVM release artifact permits runtime-helper import across ThinLTO. The exact
+machine-code and measurement evidence is in
+[record 0065](docs/records/0065-chromium-release-ipo-and-frame-callback-borrows.md).
 
 The first focused remeasurement closes the per-subscription event gap. It uses
 the same release browser, fresh-renderer isolation, CPU affinity, lane
@@ -399,8 +401,8 @@ target:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
 | --- | ---: | ---: | ---: | ---: |
-| Detached counter tree | 1,157.9 MiB | 1,037.8 MiB | 1,038.3 MiB | 218.2 MiB |
-| Eight-row component list | 276.3 MiB | 259.3 MiB | 259.0 MiB | 200.8 MiB |
+| Detached counter tree | 1,157.1 MiB | 1,036.3 MiB | 1,036.6 MiB | 210.8 MiB |
+| Eight-row component list | 275.2 MiB | 257.4 MiB | 258.0 MiB | 176.0 MiB |
 
 The detached-tree high-water mark also occurs in handwritten C++, implicating
 native-loop Oilpan collection scheduling rather than ScriptC alone. The
@@ -408,8 +410,10 @@ component-list ScriptC peak fell by about 122 MiB and is now below handwritten
 C++. All 84 runs returned to blank DOM/listener counts and all ScriptC event
 subscriptions were released. Full per-call results, every peak-RSS workload,
 exact evidence hashes, and the remaining-gate interpretation are in
-[record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
-[Record 0063](docs/records/0063-chromium-optimized-application-matrix.md) is the
+[record 0065](docs/records/0065-chromium-release-ipo-and-frame-callback-borrows.md).
+[Record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md)
+is the preceding three-violation matrix, and
+[record 0063](docs/records/0063-chromium-optimized-application-matrix.md) is the
 intermediate lifetime-specialization checkpoint; the original failed baseline
 remains in
 [record 0058](docs/records/0058-chromium-application-performance-matrix.md).
