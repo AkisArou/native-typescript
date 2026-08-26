@@ -180,12 +180,20 @@ public:
   ~BlinkFrameEventListener() override = default;
 
   void Invoke(blink::ExecutionContext *context, blink::Event *event) override {
-    if (closed_ || !realm_ || !callback_ || !context || !event ||
-        !realm_->IsAlive() || !realm_->Document() ||
-        realm_->Document()->GetExecutionContext() != context) {
+    /* The compiler admits this representation only when registration and
+     * cancellation are bounded by one synchronous ScriptC frame. Therefore
+     * every admitted callback is reentrant within the realm scope that entered
+     * that frame; a later task cannot observe the listener. Fail closed if the
+     * invariant is ever violated, while leaving escaping listeners on the
+     * fully defensive BlinkManagedEventListener path above. */
+    if (closed_ || !realm_ || !callback_ || CurrentWebRealm() != realm_) {
       return;
     }
-    ScopedCurrentWebRealm active_realm(realm_);
+    DCHECK(context);
+    DCHECK(event);
+    DCHECK(realm_->IsAlive());
+    DCHECK(realm_->Document());
+    DCHECK_EQ(realm_->Document()->GetExecutionContext(), context);
     InvokeScriptCCallback(callback_, context_);
   }
 

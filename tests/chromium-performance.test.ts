@@ -577,6 +577,36 @@ test("the scoped Blink event result reuses its Oilpan listener", () => {
     scabi,
     /nts_web_subscription_release\([\s\S]*?ReleaseManagedSubscription\(subscription\)/u,
   );
+
+  const frameListener = /class BlinkFrameEventListener[\s\S]*?\n\};/u.exec(
+    registry,
+  )?.[0];
+  assert.ok(frameListener, "the frame-only listener class must exist");
+  assert.match(
+    frameListener,
+    /CurrentWebRealm\(\) != realm_/u,
+    "the frame listener must fail closed outside its proven enclosing realm",
+  );
+  assert.doesNotMatch(
+    frameListener,
+    /ScopedCurrentWebRealm active_realm/u,
+    "the frame listener must reuse rather than reinstall its enclosing realm",
+  );
+  assert.match(
+    frameListener,
+    /DCHECK_EQ\(realm_->Document\(\)->GetExecutionContext\(\), context\)/u,
+    "debug builds must retain the execution-context invariant",
+  );
+
+  const stableListener = /class BlinkManagedEventListener[\s\S]*?\n\};/u.exec(
+    registry,
+  )?.[0];
+  assert.ok(stableListener, "the stable listener class must exist");
+  assert.match(
+    stableListener,
+    /ScopedCurrentWebRealm active_realm/u,
+    "escaping listeners must still install their realm defensively",
+  );
 });
 
 test("Chromium performance contract accepts near-C++ compiled lanes", () => {
