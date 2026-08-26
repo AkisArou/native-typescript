@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; application matrix correctness passes while its strict performance gate fails; focused event-lifecycle optimization is within 1.070–1.102x C++ and beats V8; full optimized remeasurement and product renderer target remain open |
+| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; optimized application matrix cuts strict failures from 22 to 8, component construction is near C++, and focused event lifecycle beats V8; retained-text profiling and the product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -1353,7 +1353,16 @@ path with checksum 192 and zero retained subscriptions. A focused release run
 then measures the complete per-call lifecycle at 1.070x/1.102x handwritten C++
 for C/LLVM and 0.655x/0.675x V8, reducing absolute ScriptC latency by
 55.9–56.3% from the application-matrix baseline. The focused evaluator passes;
-the complete optimized matrix remains to be remeasured.
+the complete optimized matrix has now also been remeasured.
+
+The optimized 84-renderer application matrix reduces strict performance
+violations from 22 to 8. Eight-row component construction moves from
+1.954–1.992x handwritten C++ to 1.074–1.080x, attached mount reaches 1.052x,
+and the boundary-heavy aggregate passes at 0.775–0.781x V8. Component-list
+ScriptC peak RSS falls from about 383 MiB to 260 MiB, below the 277 MiB C++
+lane. The remaining median failures are retained attached-text mutation at
+1.109–1.120x C++ but 1.462–1.590x V8, plus compiled selector mutation at about
+1.12x V8; those now define the next profiling target.
 
 The accepted host remains fixture-owned rather than the final Content embedder,
 and broad async control flow, typed Blink promise resolvers, DOMString code-unit

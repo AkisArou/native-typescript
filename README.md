@@ -352,24 +352,26 @@ before-and-after measurements, acceptance evidence, exact provenance, and raw
 report coordinates are in
 [record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
 
-The pre-optimization application matrix adds five application-shaped families and
-measures both host-per-call and compiled-loop shapes. The compiled-loop medians
-from the same three-repetition, 90-sample policy are:
+The current optimized application matrix adds five application-shaped families
+and measures both host-per-call and compiled-loop shapes. The compiled-loop
+medians from the same three-repetition, 90-sample policy are:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/V8 | LLVM/V8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Create element | 54.33 ns | 42.67 ns | 47.39 ns | 104.00 ns | 0.410x | 0.456x |
-| Detached counter tree | 417.78 ns | 457.67 ns | 455.38 ns | 398.50 ns | 1.148x | 1.143x |
-| Retained attached-text update | 119.15 ns | 135.13 ns | 135.38 ns | 84.00 ns | 1.609x | 1.612x |
-| Eight-row component list | 5,854.5 ns | 11,440.0 ns | 11,660.5 ns | 7,650.0 ns | 1.495x | 1.524x |
-| Selector-driven update | 133.50 ns | 161.20 ns | 161.50 ns | 120.00 ns | 1.343x | 1.346x |
-| Synchronous event round trip | 763.00 ns | 810.50 ns | 795.00 ns | 1,200.0 ns | 0.675x | 0.663x |
-| Attached component mount | 1,382.0 ns | 2,509.0 ns | 2,480.0 ns | 1,800.0 ns | 1.394x | 1.378x |
+| Create element | 45.77 ns | 43.27 ns | 44.10 ns | 103.00 ns | **0.420x** | **0.428x** |
+| Detached counter tree | 395.19 ns | 332.78 ns | 334.98 ns | 382.50 ns | **0.870x** | **0.876x** |
+| Retained attached-text update | 115.59 ns | 128.14 ns | 128.81 ns | 81.00 ns | 1.582x | 1.590x |
+| Eight-row component list | 5,058.0 ns | 5,463.5 ns | 5,432.0 ns | 6,750.0 ns | **0.809x** | **0.805x** |
+| Selector-driven update | 130.10 ns | 135.00 ns | 134.40 ns | 120.00 ns | 1.125x | 1.120x |
+| Synchronous event round trip | 958.55 ns | 977.65 ns | 941.70 ns | 950.00 ns | 1.029x | **0.991x** |
+| Attached component mount | 1,372.0 ns | 1,443.0 ns | 1,443.5 ns | 1,800.0 ns | **0.802x** | **0.802x** |
 
-The strict performance gate fails on 22 checks. That result supplies the next
-optimization map: component construction, retained-handle mutation, and
-per-subscription event lifecycle. Steady-state compiled event dispatch is
-already within 4.2–6.2% of handwritten C++ and 32.5–33.7% faster than V8.
+The strict performance gate now fails on 8 checks instead of 22. Component-list
+construction improved from about 2x handwritten C++ to 1.07–1.08x, attached
+mount to 1.052x, and the two boundary-heavy aggregates pass at 0.775–0.781x
+V8. The remaining median failures are retained attached-text mutation and the
+compiled selector path: both are close to C++, but V8 is faster on these tiny
+setter/query kernels.
 
 The first focused remeasurement closes the per-subscription event gap. It uses
 the same release browser, fresh-renderer isolation, CPU affinity, lane
@@ -392,14 +394,17 @@ target:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
 | --- | ---: | ---: | ---: | ---: |
-| Detached counter tree | 1,161.0 MiB | 1,162.4 MiB | 1,162.0 MiB | 210.1 MiB |
-| Eight-row component list | 278.5 MiB | 382.7 MiB | 383.0 MiB | 181.6 MiB |
+| Detached counter tree | 1,158.4 MiB | 1,038.9 MiB | 1,038.9 MiB | 208.6 MiB |
+| Eight-row component list | 277.3 MiB | 260.8 MiB | 259.9 MiB | 202.7 MiB |
 
 The detached-tree high-water mark also occurs in handwritten C++, implicating
-native-loop Oilpan collection scheduling rather than ScriptC alone. All 84
-runs returned to blank DOM/listener counts and all ScriptC event subscriptions
-were released. Full per-call results, every peak-RSS workload, PSS/startup
-measurements, exact evidence hashes, and the failed-gate interpretation are in
+native-loop Oilpan collection scheduling rather than ScriptC alone. The
+component-list ScriptC peak fell by about 122 MiB and is now below handwritten
+C++. All 84 runs returned to blank DOM/listener counts and all ScriptC event
+subscriptions were released. Full per-call results, every peak-RSS workload,
+exact evidence hashes, and the remaining-gate interpretation are in
+[record 0063](docs/records/0063-chromium-optimized-application-matrix.md); the
+original failed baseline remains in
 [record 0058](docs/records/0058-chromium-application-performance-matrix.md).
 The complete protocol lives in the
 [Chromium benchmark README](benchmarks/chromium/README.md).
