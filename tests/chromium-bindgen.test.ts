@@ -382,6 +382,14 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
     upcasts: [{ kind: "identity", target: "character_data" }],
     destructor: "web_node_release",
   });
+  const createElement = generated.manifest.bindings.web_document_create_element;
+  assert.ok(createElement && createElement.kind === "method");
+  if (createElement && createElement.kind === "method") {
+    assert.deepEqual(createElement.signature.result.frameBounded, {
+      entry: "nts_web_document_create_element_frame",
+      release: null,
+    });
+  }
   const listen = generated.manifest.bindings.web_event_target_listen;
   assert.ok(listen && listen.kind === "method");
   if (listen && listen.kind === "method") {
@@ -402,6 +410,13 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
     });
   }
   if (translated.ok) {
+    const translatedCreateElement = translated.input.bindings.find(
+      (binding) => binding.id.endsWith("#web_document_create_element"),
+    );
+    assert.deepEqual(translatedCreateElement?.result.frameBounded, {
+      entry: { symbol: "nts_web_document_create_element_frame" },
+      release: null,
+    });
     const translatedListen = translated.input.bindings.find(
       (binding) => binding.id.endsWith("#web_event_target_listen"),
     );

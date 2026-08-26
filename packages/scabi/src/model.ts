@@ -452,13 +452,16 @@ interface AbiValue {
 export interface AbiResult extends AbiValue {
   /** Alternate mechanics for the same logical owned handle when its lifetime
    * is proven to stay inside the current foreign frame. The package names the
-   * entry and exact release; whole-program analysis alone decides whether a
+   * entry and exact cleanup; whole-program analysis alone decides whether a
    * call may use them. Absent for values and for packages that expose only a
-   * stable representation. The release entry must accept a null resource so
-   * failure and a nullable result's absent arm can use the same cleanup edge. */
+   * stable representation. A string release must accept a null resource so
+   * failure and a nullable result's absent arm can use the same cleanup edge.
+   * `null` explicitly says that the foreign owner controls the raw value's
+   * lifetime and ending the compiler-proven frame borrow has no physical
+   * cleanup action. */
   readonly frameBounded?: {
     readonly entry: string;
-    readonly release: string;
+    readonly release: string | null;
   };
 }
 

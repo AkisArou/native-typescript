@@ -483,6 +483,11 @@ test("both ScriptC benchmark lanes plan the generated DOM kernels", async () => 
     assert.match(generated, /nts_web_subscription_release_frame/u);
     assert.doesNotMatch(
       generated,
+      /nts_web_node_release_frame/u,
+      "Oilpan-owned frame results must not emit a no-op physical cleanup",
+    );
+    assert.doesNotMatch(
+      generated,
       backend === "c"
         ? /nts_web_character_data_set_data_managed\([^;\n]+, \(size_t\)0\)/u
         : /call void @nts_web_character_data_set_data_managed\([^\n]+, i64 0\)/u,

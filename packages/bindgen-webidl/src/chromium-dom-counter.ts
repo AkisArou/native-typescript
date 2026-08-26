@@ -355,7 +355,7 @@ function generateManifest(
     type: string,
     nullable = false,
     frameEntry?: string,
-    frameRelease = "nts_web_node_release_frame",
+    frameRelease: string | null = null,
   ) => ({
     type,
     passMode: "pointer" as const,

@@ -1519,7 +1519,14 @@
               "$ref": "#/$defs/nonEmptyString"
             },
             "release": {
-              "$ref": "#/$defs/nonEmptyString"
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }

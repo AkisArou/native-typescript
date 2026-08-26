@@ -3933,9 +3933,11 @@ export function translateScabiNativeProgram(
                   entry: Object.freeze({
                     symbol: binding.signature.result.frameBounded.entry,
                   }),
-                  release: Object.freeze({
-                    symbol: binding.signature.result.frameBounded.release,
-                  }),
+                  release: binding.signature.result.frameBounded.release === null
+                    ? null
+                    : Object.freeze({
+                        symbol: binding.signature.result.frameBounded.release,
+                      }),
                 }),
               }),
         }),
