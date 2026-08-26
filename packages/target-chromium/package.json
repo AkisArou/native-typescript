@@ -24,6 +24,7 @@
     "apply:prototype": "node scripts/apply-chromium.ts",
     "build:counter": "node scripts/build-chromium-counter.ts",
     "run:counter": "node scripts/run-chromium-counter.ts",
+    "verify:hosted-async": "node scripts/verify-chromium-hosted-async.ts",
     "run:benchmark": "node scripts/run-chromium-benchmark.ts",
     "check:no-v8": "node scripts/check-no-v8-bridge.ts",
     "verify:patches": "node scripts/verify-chromium-patches.ts"

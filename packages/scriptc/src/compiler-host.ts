@@ -110,7 +110,7 @@ export interface ScriptCJvmEmitter {
 const expectedProtocol = Object.freeze({
   protocol: "scriptc.embedder",
   protocolVersion: 1,
-  irVersion: 46,
+  irVersion: 47,
   executablePlanVersion: 1,
   libraryPlanVersion: 1,
   externalCcPlanVersion: 1,

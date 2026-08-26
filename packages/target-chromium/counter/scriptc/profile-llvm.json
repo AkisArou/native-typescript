@@ -11,7 +11,9 @@
     "collect_symbol": "nts_chromium_counter_scriptc_llvm_collect",
     "result_reset_symbol": null,
     "localize_runtime": true,
-    "instance_per_thread": true
+    "instance_per_thread": true,
+    "hosted_scheduler_configure_symbol": "nts_chromium_counter_scriptc_llvm_hosted_scheduler_configure",
+    "hosted_scheduler_stop_symbol": "nts_chromium_counter_scriptc_llvm_hosted_scheduler_stop"
   },
   "exports": [
     {

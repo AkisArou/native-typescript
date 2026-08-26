@@ -1,6 +1,6 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv";
-import schema from "./scabi-v13.schema.json" with { type: "json" };
+import schema from "./scabi-v14.schema.json" with { type: "json" };
 import { canonicalizeJson } from "./canonical-json.ts";
 import type {
   CallableBinding,

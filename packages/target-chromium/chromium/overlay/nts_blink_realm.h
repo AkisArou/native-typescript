@@ -1,13 +1,22 @@
 #ifndef NTS_BLINK_REALM_H
 #define NTS_BLINK_REALM_H
 
+#include <cstddef>
+#include <cstdint>
+
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_managed_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_node_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_subscription_registry.h"
 #include "third_party/blink/renderer/native_typescript/nts_web.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 class Document;
@@ -19,6 +28,13 @@ class BlinkRealmLifecycleObserver;
 using NativeEventDispatch = void (*)(NtsWebRealm*,
                                      NtsWebCallbackToken,
                                      void* context);
+using ScriptCHostedJob = void (*)(void* job);
+using ScriptCHostedEnqueue = bool (*)(void* context,
+                                      ScriptCHostedJob run,
+                                      void* job);
+using ScriptCHostedConfigure = int32_t (*)(ScriptCHostedEnqueue enqueue,
+                                           void* context);
+using ScriptCHostedStop = void (*)();
 }  // namespace nts::blink_bridge
 
 /* C sees only the opaque forward declaration from nts_web.h. The Chromium
@@ -37,9 +53,20 @@ struct NtsWebRealm final {
 
   bool IsCurrent() const;
   bool IsAlive() const;
+  base::WeakPtr<NtsWebRealm> GetWeakPtr();
+  bool ConfigureScriptCHostedScheduler(
+      nts::blink_bridge::ScriptCHostedConfigure configure,
+      nts::blink_bridge::ScriptCHostedStop stop);
+  void StopScriptCHostedScheduler();
   void Invalidate();
 
   blink::Document* Document() const;
+  blink::String DecodeUtf8(const uint8_t* data,
+                           size_t length,
+                           size_t static_identity);
+  blink::AtomicString DecodeUtf8Atomic(const uint8_t* data,
+                                       size_t length,
+                                       size_t static_identity);
   nts::blink_bridge::BlinkNodeRegistry& Nodes() { return nodes_; }
   nts::blink_bridge::BlinkSubscriptionRegistry& Subscriptions() {
     return subscriptions_;
@@ -59,8 +86,14 @@ struct NtsWebRealm final {
   nts::blink_bridge::BlinkNodeRegistry nodes_;
   nts::blink_bridge::BlinkSubscriptionRegistry subscriptions_;
   nts::blink_bridge::BlinkManagedRegistry managed_;
+  /* The key is an opaque ScriptC process-lifetime string identity, never a
+   * pointer we dereference. Dynamic strings use zero and bypass both maps. */
+  blink::HashMap<size_t, blink::String> static_utf8_strings_;
+  blink::HashMap<size_t, blink::AtomicString> static_utf8_atomic_strings_;
   nts::blink_bridge::NativeEventDispatch event_dispatch_ = nullptr;
   raw_ptr<void> event_context_ = nullptr;
+  nts::blink_bridge::ScriptCHostedStop hosted_scheduler_stop_ = nullptr;
+  base::WeakPtrFactory<NtsWebRealm> weak_factory_{this};
 };
 
 namespace nts::blink_bridge {

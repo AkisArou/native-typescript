@@ -1,12 +1,13 @@
 #include "third_party/blink/renderer/native_typescript/nts_blink_benchmark_host.h"
 
 #include <array>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 #include "base/check.h"
 #include "base/containers/span.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/rand_util.h"
 #include "base/time/time.h"
@@ -18,6 +19,7 @@
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/native_typescript/generated/nts_webidl_capsules.h"
 #include "third_party/blink/renderer/native_typescript/nts_blink_managed_registry.h"
@@ -26,6 +28,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
+#include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
@@ -34,27 +37,34 @@
 extern "C" void nts_chromium_scriptc_c_init(void);
 extern "C" void nts_chromium_scriptc_llvm_init(void);
 
-using ScriptCPanicSink = void (*)(void *context,
-                                  const uint8_t *message,
-                                  size_t message_length,
-                                  uint64_t address);
+using ScriptCPanicSink = void (*)(void *context, const uint8_t *message,
+                                  size_t message_length, uint64_t address);
 extern "C" void nts_chromium_scriptc_c_set_panic_sink(ScriptCPanicSink sink,
-                                                        void *context);
-extern "C" void nts_chromium_scriptc_llvm_set_panic_sink(
-    ScriptCPanicSink sink,
-    void *context);
-extern "C" int nts_chromium_scriptc_c_callbacks_configure(
-    void (*wake)(void *),
-    void *context);
+                                                      void *context);
+extern "C" void nts_chromium_scriptc_llvm_set_panic_sink(ScriptCPanicSink sink,
+                                                         void *context);
+extern "C" int nts_chromium_scriptc_c_callbacks_configure(void (*wake)(void *),
+                                                          void *context);
 extern "C" void nts_chromium_scriptc_c_callbacks_stop_accepting(void);
 extern "C" size_t nts_chromium_scriptc_c_callbacks_discard(void);
 extern "C" int nts_chromium_scriptc_c_callbacks_destroy(void);
-extern "C" int nts_chromium_scriptc_llvm_callbacks_configure(
-    void (*wake)(void *),
-    void *context);
+using ScriptCHostedProbeCallback = void (*)(void *context);
+extern "C" int nts_chromium_scriptc_c_callbacks_hosted_post(
+    ScriptCHostedProbeCallback callback, void *context);
+extern "C" int
+nts_chromium_scriptc_llvm_callbacks_configure(void (*wake)(void *),
+                                              void *context);
 extern "C" void nts_chromium_scriptc_llvm_callbacks_stop_accepting(void);
 extern "C" size_t nts_chromium_scriptc_llvm_callbacks_discard(void);
 extern "C" int nts_chromium_scriptc_llvm_callbacks_destroy(void);
+extern "C" int nts_chromium_scriptc_llvm_callbacks_hosted_post(
+    ScriptCHostedProbeCallback callback, void *context);
+extern "C" int32_t nts_chromium_scriptc_c_hosted_scheduler_configure(
+    nts::blink_bridge::ScriptCHostedEnqueue enqueue, void *context);
+extern "C" void nts_chromium_scriptc_c_hosted_scheduler_stop(void);
+extern "C" int32_t nts_chromium_scriptc_llvm_hosted_scheduler_configure(
+    nts::blink_bridge::ScriptCHostedEnqueue enqueue, void *context);
+extern "C" void nts_chromium_scriptc_llvm_hosted_scheduler_stop(void);
 
 #define NTS_CHROMIUM_BENCHMARK_WORKLOAD(                                       \
     id, cpp_function, symbol_stem, cpp_per_call_iterations,                    \
@@ -88,14 +98,160 @@ using Samples = std::array<double, kSampleCount>;
 thread_local NtsWebRealm *current_benchmark_realm = nullptr;
 thread_local blink::Persistent<blink::Text> *retained_attached_text = nullptr;
 
-void ReportScriptCPanic(void *,
-                        const uint8_t *message,
-                        size_t message_length,
+void ReportScriptCPanic(void *, const uint8_t *message, size_t message_length,
+                        uint64_t address);
+
+int32_t ConfigureScriptCCHostedScheduler(
+    nts::blink_bridge::ScriptCHostedEnqueue enqueue, void *context) {
+  return nts_chromium_scriptc_c_hosted_scheduler_configure(enqueue, context);
+}
+
+void StopScriptCCHostedScheduler() {
+  nts_chromium_scriptc_c_hosted_scheduler_stop();
+}
+
+int32_t ConfigureScriptCLlvmHostedScheduler(
+    nts::blink_bridge::ScriptCHostedEnqueue enqueue, void *context) {
+  return nts_chromium_scriptc_llvm_hosted_scheduler_configure(enqueue, context);
+}
+
+void StopScriptCLlvmHostedScheduler() {
+  nts_chromium_scriptc_llvm_hosted_scheduler_stop();
+}
+
+struct HostedOrderingProbe {
+  blink::Persistent<blink::Document> document;
+  raw_ptr<NtsWebRealm> realm;
+  blink::String lane;
+  bool cancelled_callback_ran = false;
+};
+
+constexpr char kHostedOrderingWorkload[] = "hosted-microtask-ordering";
+constexpr char kHostedOrderingAttribute[] = "data-nts-hosted-order";
+constexpr char kHostedOrderingReadyAttribute[] = "data-nts-hosted-ready";
+constexpr char kHostedOrderingResultAttribute[] = "data-nts-hosted-result";
+constexpr char kHostedOrderingEvent[] = "nts-scriptc-hosted-turn";
+constexpr char kHostedOrderingExpected[] = "JAEBj";
+
+void AppendHostedOrderingMarker(blink::Document *document, const char *marker) {
+  CHECK(document);
+  blink::HTMLElement *body = document->body();
+  CHECK(body);
+  const blink::AtomicString attribute(kHostedOrderingAttribute);
+  blink::StringBuilder order;
+  order.Append(body->getAttribute(attribute));
+  order.Append(marker);
+  body->setAttribute(attribute, blink::AtomicString(order.ToString()));
+}
+
+int PostHostedOrderingProbe(const blink::String &lane,
+                            ScriptCHostedProbeCallback callback,
+                            void *context) {
+  if (lane == "scriptc-c") {
+    return nts_chromium_scriptc_c_callbacks_hosted_post(callback, context);
+  }
+  return nts_chromium_scriptc_llvm_callbacks_hosted_post(callback, context);
+}
+
+void HostedOrderingFirst(void *opaque) {
+  auto *probe = static_cast<HostedOrderingProbe *>(opaque);
+  blink::Document *document = probe->document.Get();
+  CHECK(document);
+  AppendHostedOrderingMarker(document, "A");
+  blink::Event *event =
+      blink::Event::Create(blink::AtomicString(kHostedOrderingEvent));
+  document->body()->DispatchEvent(*event);
+}
+
+void VerifyHostedOrderingCancellation(uintptr_t address) {
+  auto *probe = reinterpret_cast<HostedOrderingProbe *>(address);
+  blink::Document *document = probe->document.Get();
+  CHECK(document);
+  blink::HTMLElement *body = document->body();
+  CHECK(body);
+  const blink::String order =
+      body->getAttribute(blink::AtomicString(kHostedOrderingAttribute));
+  const bool passed =
+      order == kHostedOrderingExpected && !probe->cancelled_callback_ran;
+  body->setAttribute(blink::AtomicString(kHostedOrderingResultAttribute),
+                     blink::AtomicString(passed ? "pass" : "fail"));
+  body->setAttribute(blink::AtomicString(kHostedOrderingReadyAttribute),
+                     blink::AtomicString("true"));
+  probe->document = nullptr;
+  delete probe;
+}
+
+void HostedOrderingCancelled(void *opaque) {
+  auto *probe = static_cast<HostedOrderingProbe *>(opaque);
+  probe->cancelled_callback_ran = true;
+  AppendHostedOrderingMarker(probe->document.Get(), "X");
+}
+
+void VerifyHostedOrdering(uintptr_t address) {
+  auto *probe = reinterpret_cast<HostedOrderingProbe *>(address);
+  blink::Document *document = probe->document.Get();
+  CHECK(document);
+  CHECK(probe->realm);
+  CHECK(PostHostedOrderingProbe(probe->lane, &HostedOrderingCancelled, probe));
+
+  /* This queued ScriptC job now owns the last scheduler reference needed to
+   * release its frame. Destroying the realm first must turn it into a drop,
+   * never a callback through the stale context above. The following Blink
+   * microtask observes that cancellation after the queued runtime job. */
+  nts::blink_bridge::DestroyWebRealm(probe->realm);
+  probe->realm = nullptr;
+  document->GetAgent().event_loop()->EnqueueMicrotask(base::BindOnce(
+      &VerifyHostedOrderingCancellation, reinterpret_cast<uintptr_t>(probe)));
+}
+
+void HostedOrderingSecond(void *opaque) {
+  auto *probe = static_cast<HostedOrderingProbe *>(opaque);
+  blink::Document *document = probe->document.Get();
+  CHECK(document);
+  AppendHostedOrderingMarker(document, "B");
+  document->GetAgent().event_loop()->EnqueueMicrotask(base::BindOnce(
+      &VerifyHostedOrdering, reinterpret_cast<uintptr_t>(probe)));
+}
+
+bool StartHostedOrderingGate(blink::Document *document,
+                             const blink::String &lane) {
+  if (lane != "scriptc-c" && lane != "scriptc-llvm") {
+    return false;
+  }
+  NtsWebRealm *realm = nts::blink_bridge::CreateWebRealm(document);
+  if (!realm) {
+    return false;
+  }
+  auto *probe = new HostedOrderingProbe{
+      .document = document,
+      .realm = realm,
+      .lane = lane,
+  };
+  {
+    nts::blink_bridge::ScopedCurrentWebRealm active_realm(realm);
+    if (lane == "scriptc-c") {
+      nts_chromium_scriptc_c_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_c_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCCHostedScheduler, &StopScriptCCHostedScheduler));
+    } else {
+      nts_chromium_scriptc_llvm_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_llvm_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCLlvmHostedScheduler,
+          &StopScriptCLlvmHostedScheduler));
+    }
+    CHECK(PostHostedOrderingProbe(lane, &HostedOrderingFirst, probe));
+    CHECK(PostHostedOrderingProbe(lane, &HostedOrderingSecond, probe));
+  }
+  return true;
+}
+
+void ReportScriptCPanic(void *, const uint8_t *message, size_t message_length,
                         uint64_t address) {
   UNSAFE_TODO(std::fputs("\n[Native TypeScript ScriptC panic] ", stderr));
   if (message && message_length != 0) {
-    UNSAFE_TODO(
-        std::fwrite(message, sizeof(uint8_t), message_length, stderr));
+    UNSAFE_TODO(std::fwrite(message, sizeof(uint8_t), message_length, stderr));
   }
   std::fprintf(stderr, " [trap address: 0x%llx]\n",
                static_cast<unsigned long long>(address));
@@ -435,8 +591,8 @@ constexpr WorkloadDefinition kWorkloads[] = {
 #undef NTS_CHROMIUM_BENCHMARK_WORKLOAD
 
 struct MeasuredWorkload {
-  const WorkloadDefinition *definition;
-  const WorkloadBudget *budget;
+  raw_ptr<const WorkloadDefinition> definition;
+  raw_ptr<const WorkloadBudget> budget;
   KernelSamples samples;
   nts::blink_bridge::BlinkManagedDiagnostics interop;
 };
@@ -497,6 +653,88 @@ const WorkloadBudget *BudgetForLane(const WorkloadDefinition &workload,
     return &workload.scriptc_llvm_budget;
   }
   return nullptr;
+}
+
+constexpr char kFrameCallbackWorkload[] = "frame-callback-correctness";
+constexpr char kFrameCallbackReadyAttribute[] =
+    "data-nts-frame-callback-ready";
+constexpr char kFrameCallbackResultAttribute[] =
+    "data-nts-frame-callback-result";
+constexpr char kFrameCallbackChecksumAttribute[] =
+    "data-nts-frame-callback-checksum";
+constexpr char kFrameCallbackSubscriptionsAttribute[] =
+    "data-nts-frame-callback-subscriptions";
+constexpr int kFrameCallbackRounds = 64;
+constexpr int kFrameCallbackClicksPerRound = 3;
+
+/** Non-measuring end-to-end gate for the callback path whose setup/teardown
+ * is optimized by ScriptC frame contexts. Repetition exercises closure-slot
+ * reinitialization and exact listener removal; no clock is read here. */
+bool RunFrameCallbackCorrectnessGate(blink::Document *document,
+                                     const blink::String &lane) {
+  if (lane != "scriptc-c" && lane != "scriptc-llvm") {
+    return false;
+  }
+  const WorkloadDefinition *definition = nullptr;
+  for (const WorkloadDefinition &candidate : kWorkloads) {
+    if (blink::String(candidate.id) == "synchronous-event-round-trip") {
+      definition = &candidate;
+      break;
+    }
+  }
+  CHECK(definition);
+  LaneFunction function = FunctionForLane(*definition, lane);
+  CHECK(function);
+
+  NtsWebRealm *realm = nts::blink_bridge::CreateWebRealm(document);
+  if (!realm) {
+    return false;
+  }
+  CHECK(!current_benchmark_realm);
+  current_benchmark_realm = realm;
+  uint64_t checksum = 0;
+  nts::blink_bridge::BlinkManagedDiagnostics interop;
+  {
+    nts::blink_bridge::ScopedCurrentWebRealm active_realm(realm);
+    if (lane == "scriptc-c") {
+      nts_chromium_scriptc_c_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_c_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCCHostedScheduler, &StopScriptCCHostedScheduler));
+    } else {
+      nts_chromium_scriptc_llvm_set_panic_sink(ReportScriptCPanic, nullptr);
+      nts_chromium_scriptc_llvm_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCLlvmHostedScheduler,
+          &StopScriptCLlvmHostedScheduler));
+    }
+    CHECK(ConfigureScriptCCallbacks(lane));
+    for (int round = 0; round < kFrameCallbackRounds; ++round) {
+      checksum += static_cast<uint64_t>(function(kFrameCallbackClicksPerRound));
+    }
+    interop = realm->Managed().Diagnostics();
+    realm->StopScriptCHostedScheduler();
+    ShutdownScriptCCallbacks(lane);
+  }
+  current_benchmark_realm = nullptr;
+  nts::blink_bridge::DestroyWebRealm(realm);
+
+  const uint64_t expected =
+      static_cast<uint64_t>(kFrameCallbackRounds) *
+      kFrameCallbackClicksPerRound;
+  const bool passed = checksum == expected && interop.subscriptions == 0;
+  blink::HTMLElement *body = document->body();
+  CHECK(body);
+  body->setAttribute(blink::AtomicString(kFrameCallbackChecksumAttribute),
+                     blink::AtomicString::Number(checksum));
+  body->setAttribute(
+      blink::AtomicString(kFrameCallbackSubscriptionsAttribute),
+      blink::AtomicString::Number(interop.subscriptions));
+  body->setAttribute(blink::AtomicString(kFrameCallbackResultAttribute),
+                     blink::AtomicString(passed ? "pass" : "fail"));
+  body->setAttribute(blink::AtomicString(kFrameCallbackReadyAttribute),
+                     blink::AtomicString("true"));
+  return true;
 }
 
 std::vector<MeasuredWorkload> MeasureLane(const blink::String &lane,
@@ -607,6 +845,12 @@ bool RunDocumentCreateElementBenchmark(blink::Document *document) {
   if (workload_id.empty()) {
     return false;
   }
+  if (workload_id == kHostedOrderingWorkload) {
+    return StartHostedOrderingGate(document, lane);
+  }
+  if (workload_id == kFrameCallbackWorkload) {
+    return RunFrameCallbackCorrectnessGate(document, lane);
+  }
   if (lane == "v8") {
     return true;
   }
@@ -627,14 +871,20 @@ bool RunDocumentCreateElementBenchmark(blink::Document *document) {
     if (lane == "scriptc-c") {
       nts_chromium_scriptc_c_set_panic_sink(ReportScriptCPanic, nullptr);
       nts_chromium_scriptc_c_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCCHostedScheduler, &StopScriptCCHostedScheduler));
       CHECK(ConfigureScriptCCallbacks(lane));
     } else if (lane == "scriptc-llvm") {
       nts_chromium_scriptc_llvm_set_panic_sink(ReportScriptCPanic, nullptr);
       nts_chromium_scriptc_llvm_init();
+      CHECK(realm->ConfigureScriptCHostedScheduler(
+          &ConfigureScriptCLlvmHostedScheduler,
+          &StopScriptCLlvmHostedScheduler));
       CHECK(ConfigureScriptCCallbacks(lane));
     }
     samples = MeasureLane(lane, workload_id);
     if (lane != "cpp") {
+      realm->StopScriptCHostedScheduler();
       ShutdownScriptCCallbacks(lane);
     }
   }

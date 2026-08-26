@@ -143,6 +143,35 @@ posting an asynchronous task.
 Chromium remains the scheduler. ScriptC participates in declared task and
 microtask checkpoints; it does not run a competing browser event loop.
 
+### Renderer runtime personality and suspension
+
+`chromium-renderer` is a library/runtime personality over the existing C and
+LLVM backends, not a third machine-code backend. The frontend still produces
+the same Native IR and both backends consume one shared hosted-async transform.
+Native executable profiles retain ScriptC's stackful fiber implementation;
+renderer profiles do not link or invoke it.
+
+The hosted transform splits a suspending `async` function into ordinary typed
+step functions. A synthetic cycle-traced record owns the locals live at each
+`await`, the result promise, the awaited promise, and—when the function is
+lifted—the closure environment. PromiseCore owns that record while suspended.
+Settlement enqueues one native continuation through Blink's
+`EventLoop::EnqueueMicrotask`, so ScriptC reactions and page/V8 microtasks share
+one FIFO checkpoint. No raw Blink or frame-bounded handle may enter a
+continuation record.
+
+The first executable lowering supports eager async prefixes, typed promises,
+non-Promise await hops, multiple/nested awaits, lifted closure environments,
+and suspending `if`/`else` control flow. Unsupported lazy expressions, loops,
+promise-or-unit/dynamic awaits, boxed locals, generators, and suspension across
+`try`/`catch`/`finally` fail closed at compilation. Those cases are admitted
+only as the shared state-machine vocabulary grows; neither backend may fall
+back to a fiber in a renderer profile.
+
+Realm invalidation first closes scheduler admission and cancels every parked
+continuation frame. A Blink microtask accepted before invalidation still runs
+the runtime cancellation job, but cannot re-enter an invalid realm.
+
 Navigation, frame detachment, or context destruction closes admission,
 cancels registrations and pending async work where permitted, invalidates all
 realm-backed managed handles, releases Oilpan roots on the owner sequence,
@@ -162,6 +191,19 @@ those cells with Oilpan roots and generated type descriptors. It must provide:
 - generated exact-type checks and WebIDL upcasts;
 - release of the corresponding Oilpan edge at the final managed release;
 - deterministic teardown on the owner sequence.
+
+The current managed node peer uses Blink's stable `DOMNodeId` as a realm-local
+hash key, so repeated acquisition is expected O(1). The hash is non-owning;
+the canonical peer's `Persistent<Node>` remains the sole Oilpan root, and the
+entry is removed before that root is released or invalidated.
+
+Compiler-proven immortal UTF-8 strings use a parallel value-boundary fast
+path. SCABI supplies an opaque non-zero static identity beside the borrowed
+data and length; computed strings supply zero. Each realm caches decoded Blink
+`String` and `AtomicString` values by that token and clears both caches during
+invalidation. The token is never dereferenced and the ordinary bytes remain
+the semantic value, so this avoids exposing ScriptC's string layout while
+removing repeated literal decoding and atomization.
 
 The imported prototype's independent table is retained only as an executable
 oracle. Its handles now carry realm, slot, and generation so the oracle can
@@ -234,6 +276,19 @@ and options, unregister the exact Blink listener, and then release the retained
 callback. Realm shutdown cancels every connection before callback storage is
 destroyed. The prototype's one-new-listener-per-registration subscription token
 does not yet prove duplicate-listener or `removeEventListener` semantics.
+
+There are two compiler-selected ownership tiers. A registration that escapes
+its synchronous function uses a stable ScriptC native-handle cell and a traced
+callback edge. When Native IR proves that a local registration is cancelled
+exactly once before return, with no suspension, escape, mutation, or later use,
+the C and LLVM backends transfer a direct callback context to Blink and retain
+only the raw frame-owned subscription. Blink removes the listener, closes
+callback admission, and invokes the supplied context release exactly once on
+explicit cancellation, registration failure, or realm teardown. This scoped
+path stores the retained closure directly in Blink's subscription, removing
+both the stable handle/lifecycle allocation and a standalone callback wrapper
+without weakening the escaping path or allowing a raw Oilpan pointer across
+`await`.
 
 Blink promises settle ScriptC promises directly through a binding-neutral
 resolver. Compatibility evidence must pin observable ordering between the
@@ -348,17 +403,23 @@ Its resolved arguments include `is_official_build=true`, `is_debug=false`, and
 `is_component_build=false`; both ScriptC backend archives and all four lane
 selectors are present in the final artifact graph.
 
-The first controlled performance run passes all initial admission gates. It
-uses three repetitions with 30 samples each, 100,000 operations per sample, a
-fresh renderer/profile for every lane, and renderer CPU affinity to one
-performance core; all of those conditions are stored in provenance schema 2.
-For the exported one-call primitive, ScriptC C is 1.045x handwritten C++ at
-median and 1.163x at p95, while ScriptC LLVM is 1.028x and 0.978x. Their
-primitive medians are 0.463x and 0.455x V8. For the compiled-loop
-boundary-heavy shape, their medians are 0.559x and 0.588x V8. The structural
-capsule checks also pass. This admits only the initial
-`Document.createElement` falsifier; representative mixed DOM workloads remain
-required before a general performance conclusion.
+The first controlled performance run passed all initial admission gates. The
+subsequent application matrix now covers create, detached and attached DOM
+construction, retained text, selector mutation, synchronous event lifecycle,
+and component-shaped lists in both exported-per-call and compiled-loop shapes.
+Every tuple uses a fresh renderer, CPU affinity to one performance core,
+rotated lane order, three repetitions, and 30 checked samples per repetition.
+
+Compiler-proven frame callback storage and conditional static string identities
+reduce strict performance violations from the initial matrix's 22 to 3.
+Retained text compiled medians are 0.683x handwritten C++ and about 0.98x V8;
+eight-row construction is 1.053–1.054x C++ and 0.731–0.732x V8; attached mount
+is 1.028–1.036x C++ and 0.777–0.783x V8. Two reproducible failures are the
+create-element per-call p95 ratios at 1.299x/1.313x C++. The third full-matrix
+failure, an LLVM event median at 1.137x V8, passes at 1.046x in a focused rerun
+of the exact artifacts and remains recorded as variance rather than being
+discarded. This is representative evidence for the reached surface, not a
+general DOM-performance or compatibility claim.
 
 The first closed normalized WebIDL slice reaches exactly
 `Document.createElement(DOMString)`. It deterministically generates TypeScript
@@ -370,22 +431,18 @@ status/handle envelope; projecting its detailed DOMException payload into the
 compiler-owned public outcome algebra remains open.
 
 These fixtures build the complete `content_shell` dependency graph, not the
-larger `chrome` product target. They prove the fixture-owned C/C++ oracle and
-that both compiled ScriptC lanes can be linked into the renderer; they do not
-prove a production renderer-hosted ScriptC instance lifecycle. Stage A and
-Stage B therefore remain open until this repository can:
+larger `chrome` product target. They now prove a renderer-hosted ScriptC runtime
+for both backends, ScriptC-owned Oilpan peers with O(1) identity interning and
+realm invalidation, detailed DOM failure capture, direct native event
+delivery and teardown, stackless typed awaits on Blink's shared microtask
+queue, and the representative matrix above.
 
-1. attach a real ScriptC runtime and compile the counter from TypeScript through
-   both backends;
-2. replace the oracle slot table with ScriptC-owned handles backed by Oilpan,
-   then prove stable identity and realm-wide invalidation;
-3. project the now-captured detailed DOM failure into the compiler-owned
-   outcome algebra;
-4. prove duplicate event identity, cancellation, and teardown through the
-   product callback gateway;
-5. prove one Blink promise and ScriptC microtask ordering;
-6. extend the now-passing initial release falsifier to representative mixed DOM
-   workloads.
-
-Only then does the coexistence stage decide whether direct Blink remains a
-maintained target, a system WebView bridge is preferred, or both are supported.
+The host remains fixture-owned rather than the final Content embedder. Product
+work therefore remains: attach the existing renderer runtime personality
+through a final Content lifecycle provider, broaden reached-only WebIDL
+generation, project captured detailed DOM failures, complete DOMString
+code-unit semantics and event options/identity, add typed native resolvers for
+suitable asynchronous Web APIs, and expose only finite browser-process
+capabilities through Mojo. Hard V8-semantic APIs may use a visible
+compatibility tier, but the reached synchronous DOM path remains typed direct
+Blink.

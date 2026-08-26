@@ -277,6 +277,49 @@ evaluation, generic dispatch, or a JavaScript compatibility realm. The reached
 surface constructs and mutates DOM nodes, owns event subscriptions, projects
 native errors, and invalidates realm-owned state on navigation.
 
+Renderer `async` is now a Chromium-hosted runtime personality shared by the C
+and LLVM backends: eager prefixes execute inline, suspension stores only typed
+locals and rooted handles in cycle-traced heap continuation frames, and Blink's
+microtask queue resumes them. Native executable targets keep ScriptC fibers;
+renderer profiles never call `scr_async_spawn`. The current correctness slice
+covers ordered typed awaits, non-Promise await hops, lifted captures,
+suspending branches, shared V8/ScriptC FIFO order, and teardown cancellation.
+Unsupported async shapes fail at compilation rather than selecting a slower
+renderer fallback.
+
+Compiler-proven immutable string results now retain an opaque process-lifetime
+identity through SCABI v14. This includes a runtime choice composed entirely of
+literals, while computed strings take the unchanged dynamic path. Blink caches
+the decoded `String` or `AtomicString` inside the current realm, and navigation
+clears the cache. Retained text mutation consequently moved from 1.58–1.59x V8
+to 0.98x V8 in the compiled shape. The original implementation is in
+[record 0060](docs/records/0060-direct-blink-static-string-identities.md), and
+the conditional-result fix and controlled measurements are in
+[record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
+
+Synchronous event registrations now use the same proof-driven lifetime
+tiering as DOM handles. A listener stored across calls retains the stable,
+cycle-traced ScriptC/Blink lifecycle. A local listener with proven terminal
+disposal transfers one closure retain directly to Blink and avoids both the
+stable native-handle cell and a separate callback wrapper; explicit disposal,
+registration failure, and realm teardown all release it exactly once. Both
+ScriptC backends pass the real script-free counter lifecycle. The evidence is in
+[record 0061](docs/records/0061-direct-blink-scoped-event-registrations.md);
+its performance effect has not yet been measured.
+
+That local tier now also places the closure header and eligible mutable scalar
+capture boxes in the declaring native frame. Native IR selects this only for a
+fully synchronous, same-sequence, non-escaping callback lifetime and rejects
+shared heap-closure captures; C and LLVM retain the ordinary closure ABI and
+fall back to heap storage whenever the proof is absent. Its Oilpan listener
+also serves directly as the frame result, removing the separate off-heap
+subscription and two `Persistent` roots that escaping registrations still
+need. The official release artifacts and an untimed browser gate prove the
+exact C/LLVM path, including reentrant ownership, realm invalidation, and zero
+surviving subscriptions. The implementation and safety evidence are in
+[record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md);
+the focused controlled result is recorded below.
+
 #### Current Chromium benchmark
 
 The first official `content_shell` measurement compares handwritten C++,
@@ -310,38 +353,65 @@ before-and-after measurements, acceptance evidence, exact provenance, and raw
 report coordinates are in
 [record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
 
-The current application matrix adds five application-shaped families and
-measures both host-per-call and compiled-loop shapes. The compiled-loop medians
-from the same three-repetition, 90-sample policy are:
+The current optimized application matrix adds five application-shaped families
+and measures both host-per-call and compiled-loop shapes. The compiled-loop
+medians from the same three-repetition, 90-sample policy are:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 | C/V8 | LLVM/V8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Create element | 54.33 ns | 42.67 ns | 47.39 ns | 104.00 ns | 0.410x | 0.456x |
-| Detached counter tree | 417.78 ns | 457.67 ns | 455.38 ns | 398.50 ns | 1.148x | 1.143x |
-| Retained attached-text update | 119.15 ns | 135.13 ns | 135.38 ns | 84.00 ns | 1.609x | 1.612x |
-| Eight-row component list | 5,854.5 ns | 11,440.0 ns | 11,660.5 ns | 7,650.0 ns | 1.495x | 1.524x |
-| Selector-driven update | 133.50 ns | 161.20 ns | 161.50 ns | 120.00 ns | 1.343x | 1.346x |
-| Synchronous event round trip | 763.00 ns | 810.50 ns | 795.00 ns | 1,200.0 ns | 0.675x | 0.663x |
-| Attached component mount | 1,382.0 ns | 2,509.0 ns | 2,480.0 ns | 1,800.0 ns | 1.394x | 1.378x |
+| Create element | 44.11 ns | 42.70 ns | 50.42 ns | 94.50 ns | **0.452x** | **0.534x** |
+| Detached counter tree | 395.63 ns | 334.10 ns | 334.96 ns | 378.50 ns | **0.883x** | **0.885x** |
+| Retained attached-text update | 115.95 ns | 79.25 ns | 79.17 ns | 81.00 ns | **0.978x** | **0.977x** |
+| Eight-row component list | 5,105.5 ns | 5,380.0 ns | 5,374.5 ns | 7,350.0 ns | **0.732x** | **0.731x** |
+| Selector-driven update | 130.00 ns | 130.10 ns | 127.60 ns | 120.00 ns | 1.084x | 1.063x |
+| Synchronous event round trip | 905.20 ns | 963.25 ns | 1,006.6 ns | 885.00 ns | 1.088x | 1.137x |
+| Attached component mount | 1,360.0 ns | 1,398.0 ns | 1,409.5 ns | 1,800.0 ns | **0.777x** | **0.783x** |
 
-The strict performance gate fails on 22 checks. That result supplies the next
-optimization map: component construction, retained-handle mutation, and
-per-subscription event lifecycle. Steady-state compiled event dispatch is
-already within 4.2–6.2% of handwritten C++ and 32.5–33.7% faster than V8.
+The strict performance gate now reports 3 checks instead of 22. Component-list
+construction is 1.053–1.054x handwritten C++, attached mount is
+1.028–1.036x, and their compiled shapes are 21.7–26.9% faster than V8.
+Retained text is 31.7% faster than handwritten C++ and effectively matches V8.
+Two reproducible failures are create-element per-call p95 ratios of 1.299x and
+1.313x C++; its medians still pass and are about 35% faster than V8. The third
+is a noisy LLVM/V8 compiled-event median: the exact same artifacts pass that
+gate in a focused confirmation run at 1.046x V8.
+
+The first focused remeasurement closes the per-subscription event gap. It uses
+the same release browser, fresh-renderer isolation, CPU affinity, lane
+rotation, three repetitions, and 90 checked samples per lane:
+
+| Event shape | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Listener per call | 979.5 ns | 1,048.5 ns | 1,079.5 ns | 1,600.0 ns | 1.070x | 1.102x | **0.655x** | **0.675x** |
+| Reused listener | 926.3 ns | 1,015.1 ns | 1,006.95 ns | 935.0 ns | 1.096x | 1.087x | 1.086x | 1.077x |
+
+The complete per-call listener lifecycle is now within 7.0–10.2% of
+handwritten C++ and 32.5–34.5% faster than V8. Its C/LLVM absolute latency fell
+55.9–56.3% from the application-matrix baseline. The focused report passes all
+applicable gates with zero retained subscriptions. Exact attribution and the
+lifetime proof are in
+[record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md); the
+later full matrix and same-artifact confirmation are in
+[record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
 
 Median renderer peak RSS by workload exposes a separate Oilpan integration
 target:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
 | --- | ---: | ---: | ---: | ---: |
-| Detached counter tree | 1,161.0 MiB | 1,162.4 MiB | 1,162.0 MiB | 210.1 MiB |
-| Eight-row component list | 278.5 MiB | 382.7 MiB | 383.0 MiB | 181.6 MiB |
+| Detached counter tree | 1,157.9 MiB | 1,037.8 MiB | 1,038.3 MiB | 218.2 MiB |
+| Eight-row component list | 276.3 MiB | 259.3 MiB | 259.0 MiB | 200.8 MiB |
 
 The detached-tree high-water mark also occurs in handwritten C++, implicating
-native-loop Oilpan collection scheduling rather than ScriptC alone. All 84
-runs returned to blank DOM/listener counts and all ScriptC event subscriptions
-were released. Full per-call results, every peak-RSS workload, PSS/startup
-measurements, exact evidence hashes, and the failed-gate interpretation are in
+native-loop Oilpan collection scheduling rather than ScriptC alone. The
+component-list ScriptC peak fell by about 122 MiB and is now below handwritten
+C++. All 84 runs returned to blank DOM/listener counts and all ScriptC event
+subscriptions were released. Full per-call results, every peak-RSS workload,
+exact evidence hashes, and the remaining-gate interpretation are in
+[record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
+[Record 0063](docs/records/0063-chromium-optimized-application-matrix.md) is the
+intermediate lifetime-specialization checkpoint; the original failed baseline
+remains in
 [record 0058](docs/records/0058-chromium-application-performance-matrix.md).
 The complete protocol lives in the
 [Chromium benchmark README](benchmarks/chromium/README.md).

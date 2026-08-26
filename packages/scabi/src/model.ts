@@ -327,6 +327,23 @@ export type MarshallingContract =
       readonly length?:
         | { readonly kind: "parameter"; readonly parameter: string }
         | { readonly kind: "nul" };
+      /**
+       * Optional sibling ABI slot carrying an opaque identity for source text
+       * whose immutable storage is known to live for the loaded program's
+       * lifetime. The compiler supplies a non-zero value only when it can
+       * prove that property (initially, a direct string literal); every other
+       * value supplies zero.
+       *
+       * A callee may retain and compare the integer token as a cache key, but
+       * must never dereference it. Equal non-zero tokens within one loaded
+       * program instance guarantee equal bytes. Unequal tokens make no claim
+       * about content, so the data/length pair remains the semantic value and
+       * this slot remains only an optimization hint.
+       */
+      readonly staticIdentity?: {
+        readonly kind: "parameter";
+        readonly parameter: string;
+      };
       readonly termination: "none" | "nul";
       readonly embeddedNul: "allow" | "reject";
       /**
@@ -528,6 +545,16 @@ export interface CallbackContract {
   readonly registrationOwner: string;
   readonly cancellationBinding?: NativeBindingId;
   readonly contextParameter?: string;
+  /** Optional physical release hook for the callback context used only by a
+   * compiler-selected frame-bounded result entry. The named sibling parameter
+   * is a nullable `void (*)(void *)`: ordinary stable calls pass null because
+   * their managed handle owns the lifecycle edge; a proven scoped call passes
+   * a release hook and transfers one callback-context reference to native.
+   * Native must invoke it exactly once after callback admission is closed,
+   * including when registration fails. */
+  readonly frameBoundedContext?: {
+    readonly releaseParameter: string;
+  };
   readonly allowedInvocationExecutors: readonly ExecutorIdentity[];
   readonly synchronousReturn: boolean;
   readonly arguments: readonly CallbackArgumentContract[];
@@ -732,7 +759,7 @@ export interface TypeImport {
  * information in it: a producer does not choose the version, it reports the
  * one it was built against.
  */
-export const SCABI_SCHEMA_VERSION = 13;
+export const SCABI_SCHEMA_VERSION = 14;
 
 export interface ScabiManifest {
   readonly schema: "native-typescript.scabi";
