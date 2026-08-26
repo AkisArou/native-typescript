@@ -392,22 +392,27 @@ shape. The exact architecture, memory result, provenance, and evidence hashes
 are in
 [record 0066](docs/records/0066-chromium-native-oilpan-allocation-checkpoint.md).
 
-The first focused remeasurement closes the per-subscription event gap. It uses
-the same release browser, fresh-renderer isolation, CPU affinity, lane
-rotation, three repetitions, and 90 checked samples per lane:
+The latest focused event remeasurement removes the redundant nested realm
+scope from compiler-proven frame callbacks. It uses the same release browser,
+fresh-renderer isolation, CPU affinity, lane rotation, three repetitions, and
+90 checked samples per lane:
 
 | Event shape | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Listener per call | 979.5 ns | 1,048.5 ns | 1,079.5 ns | 1,600.0 ns | 1.070x | 1.102x | **0.655x** | **0.675x** |
-| Reused listener | 926.3 ns | 1,015.1 ns | 1,006.95 ns | 935.0 ns | 1.096x | 1.087x | 1.086x | 1.077x |
+| Listener per call | 1,018 ns | 1,255 ns | 1,143 ns | 1,600 ns | 1.233x | 1.123x | **0.784x** | **0.714x** |
+| Reused listener | 1,009.25 ns | 947.35 ns | 963.30 ns | 1,000.00 ns | **0.939x** | **0.954x** | **0.947x** | **0.963x** |
 
-The complete per-call listener lifecycle is now within 7.0–10.2% of
-handwritten C++ and 32.5–34.5% faster than V8. Its C/LLVM absolute latency fell
-55.9–56.3% from the application-matrix baseline. The focused report passes all
-applicable gates with zero retained subscriptions. Exact attribution and the
-lifetime proof are in
-[record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md); the
-later full matrix and same-artifact confirmation are in
+The callback-heavy compiled lanes are 4.6–6.1% faster than handwritten C++ and
+3.7–5.3% faster than V8 in this run. The complete listener lifecycle remains
+12.3–23.3% over C++, but is 21.6–28.6% faster than V8, so registration and
+disposal are now the remaining event seam. The report passes all applicable
+gates with zero retained subscriptions. Because all control lanes moved across
+runs, exact attribution is limited to the verified call-graph and code-size
+reduction; the result and evidence are in
+[record 0067](docs/records/0067-direct-blink-frame-callback-realm-reuse.md).
+The lifetime proof originated in
+[record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md), with
+the preceding full-matrix confirmation in
 [record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
 
 Median renderer peak RSS by workload exposes a separate Oilpan integration
