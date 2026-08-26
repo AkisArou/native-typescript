@@ -16,6 +16,8 @@
 #include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "v8/include/v8-isolate.h"
+#include "v8/include/v8-native-heap-checkpoint.h"
 
 namespace nts::blink_bridge {
 
@@ -209,9 +211,18 @@ void NtsWebRealm::Invalidate() {
   nodes_.Invalidate();
   static_utf8_atomic_strings_.clear();
   static_utf8_strings_.clear();
+  new_object_allocation_credit_ = kNewObjectAllocationBudget;
   document_ = nullptr;
   event_dispatch_ = nullptr;
   event_context_ = nullptr;
+}
+
+bool NtsWebRealm::CollectGarbageAtNativeAllocationCheckpoint() {
+  CHECK(IsCurrent());
+  v8::Isolate* isolate = v8::Isolate::TryGetCurrent();
+  return isolate && v8::CollectGarbageAtNativeAllocationCheckpoint(
+                        isolate,
+                        cppgc::EmbedderStackState::kMayContainHeapPointers);
 }
 
 blink::Document* NtsWebRealm::Document() const {

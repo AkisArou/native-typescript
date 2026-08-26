@@ -1,0 +1,6 @@
+{
+  "repository": "https://chromium.googlesource.com/v8/v8.git",
+  "revision": "d127ec28557eaa1dd66be142879816486a8a23da",
+  "observedAt": "2026-08-26",
+  "purpose": "Pinned V8 dependency for the Chromium native-allocation checkpoint seam"
+}

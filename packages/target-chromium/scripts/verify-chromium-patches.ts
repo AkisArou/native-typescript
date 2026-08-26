@@ -12,14 +12,18 @@ import { dirname, join, resolve } from "node:path";
 import { readPinnedChromiumRevision } from "../src/revision.ts";
 import {
   type ChromiumPatchProfile,
-  chromiumPatchRoot,
+  type ChromiumPatchRepository,
+  chromiumV8RevisionFile,
   parsePatchProfile,
   readPatchSeries,
   reportError,
   runCommand,
 } from "./support.ts";
 
-const rawChromiumRoot = "https://raw.githubusercontent.com/chromium/chromium";
+const rawRepositoryRoots = Object.freeze({
+  chromium: "https://raw.githubusercontent.com/chromium/chromium",
+  v8: "https://raw.githubusercontent.com/v8/v8",
+});
 
 function usage(): string {
   return [
@@ -61,20 +65,25 @@ function patchInputPaths(patch: string): readonly string[] {
   return Object.freeze(paths);
 }
 
-function rawChromiumUrl(revision: string, path: string): string {
+function rawRepositoryUrl(
+  repository: ChromiumPatchRepository,
+  revision: string,
+  path: string,
+): string {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return `${rawChromiumRoot}/${revision}/${encodedPath}`;
+  return `${rawRepositoryRoots[repository]}/${revision}/${encodedPath}`;
 }
 
 async function download(
+  repository: ChromiumPatchRepository,
   revision: string,
   path: string,
   destination: string,
 ): Promise<void> {
-  const response = await fetch(rawChromiumUrl(revision, path));
+  const response = await fetch(rawRepositoryUrl(repository, revision, path));
   if (!response.ok) {
     throw new Error(
-      `Could not download Chromium input ${path}: HTTP ${response.status}`,
+      `Could not download ${repository} input ${path}: HTTP ${response.status}`,
     );
   }
   mkdirSync(dirname(destination), { recursive: true });
@@ -84,47 +93,70 @@ async function download(
 async function main(arguments_: readonly string[]): Promise<void> {
   const profile = parseProfile(arguments_);
   if (profile === null) return;
-  const revision = readPinnedChromiumRevision().revision;
-  const patches = readPatchSeries(profile).map((name) =>
-    resolve(chromiumPatchRoot, name)
-  );
+  const revisions = Object.freeze({
+    chromium: readPinnedChromiumRevision().revision,
+    v8: readPinnedChromiumRevision(chromiumV8RevisionFile).revision,
+  });
+  const patches = readPatchSeries(profile);
   if (patches.length === 0) {
     process.stdout.write(
       `the ${profile} Chromium patch profile declares no patches\n`,
     );
     return;
   }
-  const inputs = [
-    ...new Set(patches.flatMap((patch) => patchInputPaths(patch))),
-  ].sort();
   const checkout = mkdtempSync(join(tmpdir(), "nts-chromium-patch-"));
 
   try {
-    await Promise.all(
-      inputs.map((path) =>
-        download(revision, path, resolve(checkout, path))
-      ),
-    );
-    runCommand("git", ["init", "-q"], checkout);
-    runCommand(
-      "git",
-      ["config", "user.email", "patch-check@example.invalid"],
-      checkout,
-    );
-    runCommand("git", ["config", "user.name", "patch-check"], checkout);
-    runCommand("git", ["add", "."], checkout);
-    runCommand("git", ["commit", "-qm", "pinned chromium inputs"], checkout);
+    for (const repository of ["chromium", "v8"] as const) {
+      const repositoryPatches = patches.filter(
+        (patch) => patch.repository === repository,
+      );
+      if (repositoryPatches.length === 0) continue;
+      const repositoryCheckout = resolve(checkout, repository);
+      const inputs = [
+        ...new Set(repositoryPatches.flatMap((patch) => patchInputPaths(patch.path))),
+      ].sort();
+      await Promise.all(
+        inputs.map((path) =>
+          download(
+            repository,
+            revisions[repository],
+            path,
+            resolve(repositoryCheckout, path),
+          )
+        ),
+      );
+      mkdirSync(repositoryCheckout, { recursive: true });
+      runCommand("git", ["init", "-q"], repositoryCheckout);
+      runCommand(
+        "git",
+        ["config", "user.email", "patch-check@example.invalid"],
+        repositoryCheckout,
+      );
+      runCommand(
+        "git",
+        ["config", "user.name", "patch-check"],
+        repositoryCheckout,
+      );
+      runCommand("git", ["add", "."], repositoryCheckout);
+      runCommand(
+        "git",
+        ["commit", "-qm", `pinned ${repository} inputs`],
+        repositoryCheckout,
+      );
 
-    for (const patch of patches) {
-      runCommand("git", ["apply", "--check", patch], checkout);
-      runCommand("git", ["apply", patch], checkout);
-      process.stdout.write(`verified ${patch.slice(chromiumPatchRoot.length + 1)}\n`);
+      for (const patch of repositoryPatches) {
+        runCommand("git", ["apply", "--check", patch.path], repositoryCheckout);
+        runCommand("git", ["apply", patch.path], repositoryCheckout);
+        process.stdout.write(`verified ${patch.seriesEntry}\n`);
+      }
     }
   } finally {
     rmSync(checkout, { recursive: true, force: true });
   }
   process.stdout.write(
-    `the ${profile} Chromium patch profile applies to ${revision}\n`,
+    `the ${profile} Chromium patch profile applies to Chromium ` +
+    `${revisions.chromium} and V8 ${revisions.v8}\n`,
   );
 }
 

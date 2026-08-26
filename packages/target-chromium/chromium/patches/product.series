@@ -1,3 +1,5 @@
-# Product seams only. Stock Blink proved the fixture, then the first product
-# seam replaced its testing-only exception catcher with shared capture data.
+# Product seams only. Stock Blink proved the fixture. Product patches add the
+# binding-neutral exception sink and a unified-heap checkpoint for long native
+# allocation turns.
 0001-binding-neutral-exception-capture.patch
+v8/0002-native-allocation-checkpoint.patch

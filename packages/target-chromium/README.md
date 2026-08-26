@@ -13,9 +13,10 @@ backend.
 
 ## What is here
 
-- `chromium/revision.json` pins the investigated Chromium commit.
-- `chromium/patches/product.series` contains the single shared exception
-  capture seam admitted after the stock-Blink compile.
+- `chromium/revision.json` pins the investigated Chromium commit and
+  `chromium/v8-revision.json` pins its exact V8 dependency.
+- `chromium/patches/product.series` contains the shared exception-capture seam
+  and a narrow unified-heap checkpoint for native allocation turns.
 - `chromium/patches/fixture.series` contains the test-only `content_shell`
   acceptance hook.
 - `chromium/overlay/` contains the handwritten direct-Blink bridge specimen.
@@ -54,7 +55,7 @@ The repository's normal tests prove:
   for escaping identity and callback lifetimes.
 
 The networked patch verifier additionally proves that every selected product
-and fixture patch applies to the exact pinned Chromium sources.
+and fixture patch applies to the exact pinned Chromium and V8 sources.
 
 At the pinned revision, a symbol-light component-debug `content_shell` build
 has completed with the overlay in Chromium's real GN graph. Both the stock
@@ -91,6 +92,16 @@ needed. Product code now uses one capture sink in the existing
 unsanitized security message without constructing a V8 value. The stock
 native-listener path remains unchanged: merely consulting Chromium's
 isolated-world activity logger is not a V8 data carrier.
+
+Native renderer work can allocate Oilpan objects for a long synchronous turn
+without returning to the V8-backed scheduler that normally advances unified
+garbage collection. Reached WebIDL operations marked `[NewObject]` therefore
+charge a realm-local allocation budget. At the rare exhausted-budget path, a
+small pinned V8 seam requests an ordinary full unified collection with the
+active native stack conservatively scanned. It is not a memory-pressure signal
+and it does not introduce V8 values, DOM wrappers, or JavaScript execution into
+the binding path. If collection is temporarily disallowed, the realm retries
+at the next reached allocation.
 
 The current oracle handle carries realm, slot, and generation, so independent
 realms cannot issue indistinguishable values and wrong-realm status is tested.

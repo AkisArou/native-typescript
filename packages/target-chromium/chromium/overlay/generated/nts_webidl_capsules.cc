@@ -1,12 +1,14 @@
 // Generated typed Blink capsules; do not edit.
 #include "third_party/blink/renderer/native_typescript/generated/nts_webidl_capsules.h"
 
+#include "base/check.h"
 #include "third_party/blink/renderer/core/dom/character_data.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
+#include "third_party/blink/renderer/native_typescript/nts_blink_realm.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -19,13 +21,25 @@ blink::HTMLElement* DocumentBody(blink::Document& receiver) {
 blink::Element* DocumentCreateElement(blink::Document& receiver,
                                       const blink::AtomicString& local_name,
                                       blink::ExceptionState& exception_state) {
-  return receiver.CreateElementForBinding(
+  blink::Element* result = receiver.CreateElementForBinding(
       local_name, exception_state);
+  if (result) {
+    NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();
+    CHECK(realm);
+    realm->AccountNewObjectAllocation();
+  }
+  return result;
 }
 
 blink::Text* DocumentCreateTextNode(blink::Document& receiver,
                                     const blink::String& data) {
-  return receiver.createTextNode(data);
+  blink::Text* result = receiver.createTextNode(data);
+  if (result) {
+    NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();
+    CHECK(realm);
+    realm->AccountNewObjectAllocation();
+  }
+  return result;
 }
 
 blink::Node* NodeAppendChild(blink::Node& receiver,

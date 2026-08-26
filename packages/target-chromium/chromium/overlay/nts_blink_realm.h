@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -60,6 +61,21 @@ struct NtsWebRealm final {
   void StopScriptCHostedScheduler();
   void Invalidate();
 
+  /* Normal V8 scheduling observes CppHeap allocation pressure when JavaScript
+   * returns to the event loop. A native application may instead execute a long
+   * synchronous allocation batch. Reached [NewObject] capsules account those
+   * allocations here so the realm periodically gives the unified heap an
+   * explicit conservative-stack checkpoint. */
+  ALWAYS_INLINE void AccountNewObjectAllocation() {
+    if (--new_object_allocation_credit_ != 0) {
+      return;
+    }
+    new_object_allocation_credit_ =
+        CollectGarbageAtNativeAllocationCheckpoint()
+            ? kNewObjectAllocationBudget
+            : 1;
+  }
+
   blink::Document* Document() const;
   blink::String DecodeUtf8(const uint8_t* data,
                            size_t length,
@@ -77,9 +93,13 @@ struct NtsWebRealm final {
                            blink::ExecutionContext* context);
 
  private:
+  static constexpr size_t kNewObjectAllocationBudget = 65536;
+
+  bool CollectGarbageAtNativeAllocationCheckpoint();
   base::SequenceChecker sequence_checker_;
   uint64_t realm_id_;
   bool alive_ = true;
+  size_t new_object_allocation_credit_ = kNewObjectAllocationBudget;
   blink::Persistent<blink::Document> document_;
   blink::Persistent<nts::blink_bridge::BlinkRealmLifecycleObserver>
       lifecycle_observer_;

@@ -49,6 +49,10 @@ JavaScript functions, source evaluation, dynamic property lookup, or a generic
 command bridge. Stock Chromium may still host ordinary JavaScript realms; that
 is separate from the compiled application's binding path.
 
+V8 remains part of Chromium's scheduler and unified Oilpan collector. Narrow
+runtime seams may coordinate with those facilities without using V8 as the
+application VM; they must not carry application values or dispatch Web APIs.
+
 Synchronous Web APIs stay renderer-local and synchronous. Browser-process
 authority crosses the existing security boundary only through finite typed
 asynchronous capabilities.
@@ -197,6 +201,16 @@ hash key, so repeated acquisition is expected O(1). The hash is non-owning;
 the canonical peer's `Persistent<Node>` remains the sole Oilpan root, and the
 entry is removed before that root is released or invalidated.
 
+Ordinary JavaScript turns naturally return to V8 scheduling checkpoints, while
+a compiled application can allocate Oilpan objects throughout one long native
+turn. Reached operations carrying WebIDL `[NewObject]` therefore decrement a
+realm-local budget. Its rare exhausted path requests an ordinary full unified
+collection through a pinned V8 seam and declares that the active native stack
+may contain Oilpan pointers. This preserves raw capsule temporaries during the
+checkpoint, avoids pretending that the machine is under memory pressure, and
+adds no V8 values or dynamic binding dispatch. A disallowed collection is
+retried on the next reached allocation; navigation resets the realm budget.
+
 Compiler-proven immortal UTF-8 strings use a parallel value-boundary fast
 path. SCABI supplies an opaque non-zero static identity beside the borrowed
 data and length; computed strings supply zero. Each realm caches decoded Blink
@@ -256,9 +270,12 @@ Patch count is a measured maintenance cost. The first stock-Blink compile used
 no product patch: the invalid-name `createElement` fixture used Chromium's
 existing `DummyExceptionStateForTesting`, and native event listeners used the
 stock activity-logger path. That proved no per-method exception overload and no
-listener patch were needed. Product code admits one horizontal patch: a data
-sink in existing `ExceptionState` that captures code, sanitized message, and
-unsanitized security message without constructing a V8 value.
+listener patch were needed. Product code currently admits two horizontal
+patches: a data sink in existing `ExceptionState` that captures code, sanitized
+message, and unsanitized security message without constructing a V8 value, and
+a V8 dependency seam that exposes an explicit unified-heap collection
+checkpoint for long native allocation turns. Both are pinned and independently
+verified against their owning Chromium or V8 repository.
 
 Durable patches are split into product and fixture profiles. The
 `content_shell` counter hook is fixture-only and must disappear when the

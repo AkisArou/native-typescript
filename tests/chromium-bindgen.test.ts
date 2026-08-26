@@ -417,6 +417,12 @@ test("committed Chromium capsule artifacts match the pinned normalized database"
   assert.match(generated.declarations, /listen\(type: string, callback:/u);
   assert.match(generated.capsuleHeader, /nts_web_event_target_listen_frame/u);
   assert.match(generated.capsuleHeader, /nts_web_subscription_release_frame/u);
+  assert.equal(
+    generated.capsuleSource.match(/AccountNewObjectAllocation\(\)/gu)?.length,
+    2,
+    "each reached [NewObject] operation must charge the realm budget",
+  );
+  assert.match(generated.capsuleSource, /CurrentWebRealm\(\)/u);
   assert.doesNotMatch(
     `${generated.capsuleHeader}\n${generated.capsuleSource}`,
     /\bv8::|genericDispatch|malloc|new\s/u,

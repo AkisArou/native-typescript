@@ -64,6 +64,14 @@ test("Chromium revision pin is validated and immutable", () => {
     () => parseChromiumRevision({ ...revision, branch: "main" }),
     /fields must be exactly/u,
   );
+  const v8Revision = readPinnedChromiumRevision(
+    join(packageRoot, "chromium/v8-revision.json"),
+  );
+  assert.equal(
+    v8Revision.revision,
+    "d127ec28557eaa1dd66be142879816486a8a23da",
+  );
+  assert.equal(v8Revision.repository, "https://chromium.googlesource.com/v8/v8.git");
 });
 
 test("portable direct-Blink prototype contracts compile and execute", (context) => {
@@ -293,6 +301,7 @@ test("Chromium patch profiles minimize and classify the required seams", () => {
   const productNames = readSeries("product.series");
   assert.deepEqual(productNames, [
     "0001-binding-neutral-exception-capture.patch",
+    "v8/0002-native-allocation-checkpoint.patch",
   ]);
   const fixtureNames = readSeries("fixture.series");
   assert.deepEqual(fixtureNames, [
@@ -325,6 +334,22 @@ test("Chromium patch profiles minimize and classify the required seams", () => {
     .join("\n");
   assert.doesNotMatch(addedExceptionCode, /\bv8::/u);
   assert.doesNotMatch(exceptionPatch, /CreateElementForBinding/u);
+  const checkpointPatch = readFileSync(
+    join(patchRoot, productNames[1]!),
+    "utf8",
+  );
+  const checkpointPatchFiles = checkpointPatch
+    .split("\n")
+    .filter((line) => line.startsWith("+++ b/"))
+    .map((line) => line.slice("+++ b/".length));
+  assert.deepEqual(checkpointPatchFiles, [
+    "include/v8-native-heap-checkpoint.h",
+    "src/heap/cppgc-js/cpp-heap.cc",
+    "src/heap/cppgc-js/cpp-heap.h",
+  ]);
+  assert.match(checkpointPatch, /kExplicitInvocation/u);
+  assert.match(checkpointPatch, /kMayContainHeapPointers|stack_state/u);
+  assert.doesNotMatch(checkpointPatch, /LowMemoryNotification|MemoryPressure/u);
   for (const name of [...productNames, ...fixtureNames]) {
     run(git, ["apply", "--numstat", join(patchRoot, name)]);
   }

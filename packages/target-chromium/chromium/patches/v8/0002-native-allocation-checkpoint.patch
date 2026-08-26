@@ -1,0 +1,94 @@
+diff --git a/include/v8-native-heap-checkpoint.h b/include/v8-native-heap-checkpoint.h
+new file mode 100644
+index 00000000..db9cb447
+--- /dev/null
++++ b/include/v8-native-heap-checkpoint.h
+@@ -0,0 +1,23 @@
++// Copyright 2026 the Native TypeScript authors. All rights reserved.
++
++#ifndef INCLUDE_V8_NATIVE_HEAP_CHECKPOINT_H_
++#define INCLUDE_V8_NATIVE_HEAP_CHECKPOINT_H_
++
++#include "cppgc/common.h"
++#include "v8config.h"
++
++namespace v8 {
++
++class Isolate;
++
++/**
++ * Performs a full unified garbage collection at an embedder-owned native
++ * allocation checkpoint. This is intended for long-running native work that
++ * allocates on the C++ heap without otherwise returning to V8's scheduler.
++ */
++V8_EXPORT bool CollectGarbageAtNativeAllocationCheckpoint(
++    Isolate* isolate, cppgc::EmbedderStackState stack_state);
++
++}  // namespace v8
++
++#endif  // INCLUDE_V8_NATIVE_HEAP_CHECKPOINT_H_
+diff --git a/src/heap/cppgc-js/cpp-heap.cc b/src/heap/cppgc-js/cpp-heap.cc
+index 9dc25e15..dc03d1ec 100644
+--- a/src/heap/cppgc-js/cpp-heap.cc
++++ b/src/heap/cppgc-js/cpp-heap.cc
+@@ -13,6 +13,7 @@
+ #include "include/cppgc/platform.h"
+ #include "include/v8-isolate.h"
+ #include "include/v8-local-handle.h"
++#include "include/v8-native-heap-checkpoint.h"
+ #include "include/v8-platform.h"
+ #include "src/base/logging.h"
+ #include "src/base/macros.h"
+@@ -130,6 +131,19 @@ void CppHeap::CollectCustomSpaceStatisticsAtLastGC(
+       std::move(custom_spaces), std::move(receiver));
+ }
+ 
++bool CollectGarbageAtNativeAllocationCheckpoint(
++    Isolate* isolate, cppgc::EmbedderStackState stack_state) {
++  if (!isolate || isolate != Isolate::TryGetCurrent()) {
++    return false;
++  }
++  CppHeap* public_cpp_heap = isolate->GetCppHeap();
++  if (!public_cpp_heap) {
++    return false;
++  }
++  return internal::CppHeap::From(public_cpp_heap)
++      ->CollectGarbageAtNativeAllocationCheckpoint(stack_state);
++}
++
+ void CppHeap::EnableDetachedGarbageCollectionsForTesting() {
+   return internal::CppHeap::From(this)
+       ->EnableDetachedGarbageCollectionsForTesting();
+@@ -1311,6 +1325,19 @@ void CppHeap::CollectGarbage(cppgc::internal::GCConfig config) {
+       !sweeper_.IsSweepingInProgress());
+ }
+ 
++bool CppHeap::CollectGarbageAtNativeAllocationCheckpoint(
++    cppgc::EmbedderStackState stack_state) {
++  if (!IsGCAllowed()) {
++    return false;
++  }
++  EmbedderStackStateScope stack_scope(
++      isolate_->heap(), EmbedderStackStateOrigin::kExplicitInvocation,
++      stack_state);
++  isolate_->heap()->CollectAllGarbage(
++      GCFlag::kNoFlags, GarbageCollectionReason::kCppHeapAllocationFailure);
++  return true;
++}
++
+ std::optional<cppgc::EmbedderStackState> CppHeap::overridden_stack_state()
+     const {
+   return heap_ ? heap_->overridden_stack_state()
+diff --git a/src/heap/cppgc-js/cpp-heap.h b/src/heap/cppgc-js/cpp-heap.h
+index 3af2c975..23e41df9 100644
+--- a/src/heap/cppgc-js/cpp-heap.h
++++ b/src/heap/cppgc-js/cpp-heap.h
+@@ -187,6 +187,8 @@ class V8_EXPORT_PRIVATE CppHeap final
+ 
+   // cppgc::internal::GarbageCollector interface.
+   void CollectGarbage(cppgc::internal::GCConfig) override;
++  bool CollectGarbageAtNativeAllocationCheckpoint(
++      cppgc::EmbedderStackState stack_state);
+ 
+   std::optional<cppgc::EmbedderStackState> overridden_stack_state()
+       const override;

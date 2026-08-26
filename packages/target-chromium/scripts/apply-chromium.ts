@@ -11,10 +11,12 @@ import {
 import { resolve } from "node:path";
 import { readPinnedChromiumRevision } from "../src/revision.ts";
 import {
+  type ChromiumPatchRepository,
+  type ChromiumPatchSpec,
   type ChromiumPatchProfile,
   chromiumInstallPath,
   chromiumOverlayRoot,
-  chromiumPatchRoot,
+  chromiumV8RevisionFile,
   commandOutput,
   packageRoot,
   parsePatchProfile,
@@ -129,16 +131,36 @@ function isKnownRefreshPath(path: string): boolean {
     path.startsWith(`${chromiumInstallPath}/`);
 }
 
+function patchCheckout(checkout: string, repository: ChromiumPatchRepository): string {
+  return repository === "chromium" ? checkout : resolve(checkout, "v8");
+}
+
+function patchKey(patch: ChromiumPatchSpec): string {
+  return `${patch.repository}:${patch.name}`;
+}
+
+function patchTouchedPaths(patch: ChromiumPatchSpec): readonly string[] {
+  const paths = new Set<string>();
+  for (const line of readFileSync(patch.path, "utf8").split("\n")) {
+    if (!line.startsWith("--- ") && !line.startsWith("+++ ")) continue;
+    let value = line.slice(4).split("\t", 1)[0]!;
+    if (value === "/dev/null") continue;
+    if (value.startsWith("a/") || value.startsWith("b/")) value = value.slice(2);
+    paths.add(value);
+  }
+  return Object.freeze([...paths]);
+}
+
 function patchCheck(
   checkout: string,
-  patch: string,
+  patch: ChromiumPatchSpec,
   reverse: boolean,
 ): boolean {
   try {
     commandOutput(
       "git",
-      ["apply", ...(reverse ? ["--reverse"] : []), "--check", patch],
-      checkout,
+      ["apply", ...(reverse ? ["--reverse"] : []), "--check", patch.path],
+      patchCheckout(checkout, patch.repository),
     );
     return true;
   } catch {
@@ -160,57 +182,87 @@ function main(arguments_: readonly string[]): void {
   if (head !== pin) {
     throw new Error(`Chromium revision mismatch: expected ${pin}, got ${head}`);
   }
-  const status = execFileSync(
-    "git",
-    ["status", "--porcelain", "--untracked-files=all"],
-    { cwd: checkout, encoding: "utf8" },
-  ).trimEnd();
-  if (status.length > 0 && !refresh) {
-    throw new Error(
-      "Chromium checkout must be clean before applying the overlay; " +
-        "use --refresh only for a checkout previously staged by this command",
-    );
+  const v8Checkout = patchCheckout(checkout, "v8");
+  if (!existsSync(resolve(v8Checkout, ".git"))) {
+    throw new Error(`Chromium V8 dependency is not checked out: ${v8Checkout}`);
   }
-  if (refresh) {
+  const v8Pin = readPinnedChromiumRevision(chromiumV8RevisionFile).revision;
+  const v8Head = commandOutput("git", ["rev-parse", "HEAD"], v8Checkout);
+  if (v8Head !== v8Pin) {
+    throw new Error(`V8 revision mismatch: expected ${v8Pin}, got ${v8Head}`);
+  }
+
+  const allPatches = readPatchSeries("all");
+  for (const repository of ["chromium", "v8"] as const) {
+    const repositoryCheckout = patchCheckout(checkout, repository);
+    const status = execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=all"],
+      { cwd: repositoryCheckout, encoding: "utf8" },
+    ).trimEnd();
+    if (status.length > 0 && !refresh) {
+      throw new Error(
+        `${repository === "chromium" ? "Chromium" : "V8"} checkout must be clean ` +
+        "before applying the overlay; use --refresh only for a checkout " +
+        "previously staged by this command",
+      );
+    }
+    if (!refresh) continue;
     const statusLines = status.length === 0 ? [] : status.split("\n");
-    const unknown = statusLines.filter((line) =>
-      line.length < 4 || !isKnownRefreshPath(line.slice(3))
+    const patchPaths = new Set(
+      allPatches
+        .filter((patch) => patch.repository === repository)
+        .flatMap(patchTouchedPaths),
     );
+    const unknown = statusLines.filter((line) => {
+      if (line.length < 4) return true;
+      const path = line.slice(3);
+      return repository === "chromium"
+        ? !isKnownRefreshPath(path) && !patchPaths.has(path)
+        : !patchPaths.has(path);
+    });
     if (unknown.length > 0) {
       throw new Error(
-        `Chromium refresh found changes outside the owned fixture:\n${unknown.join("\n")}`,
+        `${repository === "chromium" ? "Chromium" : "V8"} refresh found ` +
+        `changes outside the owned fixture:\n${unknown.join("\n")}`,
       );
     }
   }
 
-  const selectedPatches = new Set(readPatchSeries(profile));
+  const selectedPatches = new Set(readPatchSeries(profile).map(patchKey));
   if (refresh) {
-    for (const name of readPatchSeries("all")) {
-      if (selectedPatches.has(name)) continue;
-      const patch = resolve(chromiumPatchRoot, name);
+    for (const patch of allPatches) {
+      if (selectedPatches.has(patchKey(patch))) continue;
+      const repositoryCheckout = patchCheckout(checkout, patch.repository);
       if (patchCheck(checkout, patch, true)) {
-        runCommand("git", ["apply", "--reverse", patch], checkout);
-        process.stdout.write(`removed ${name}\n`);
+        runCommand("git", ["apply", "--reverse", patch.path], repositoryCheckout);
+        process.stdout.write(`removed ${patch.seriesEntry}\n`);
         continue;
       }
       if (!patchCheck(checkout, patch, false)) {
-        throw new Error(`Chromium checkout has a partial or conflicting patch: ${name}`);
+        throw new Error(
+          `${patch.repository} checkout has a partial or conflicting patch: ` +
+          patch.seriesEntry,
+        );
       }
     }
   }
 
-  for (const name of selectedPatches) {
-    const patch = resolve(chromiumPatchRoot, name);
+  for (const patch of readPatchSeries(profile)) {
+    const repositoryCheckout = patchCheckout(checkout, patch.repository);
     if (refresh && patchCheck(checkout, patch, true)) {
-      process.stdout.write(`already applied ${name}\n`);
+      process.stdout.write(`already applied ${patch.seriesEntry}\n`);
       continue;
     }
     if (refresh && !patchCheck(checkout, patch, false)) {
-      throw new Error(`Chromium checkout has a partial or conflicting patch: ${name}`);
+      throw new Error(
+        `${patch.repository} checkout has a partial or conflicting patch: ` +
+        patch.seriesEntry,
+      );
     }
-    runCommand("git", ["apply", "--check", patch], checkout);
-    runCommand("git", ["apply", patch], checkout);
-    process.stdout.write(`applied ${name}\n`);
+    runCommand("git", ["apply", "--check", patch.path], repositoryCheckout);
+    runCommand("git", ["apply", patch.path], repositoryCheckout);
+    process.stdout.write(`applied ${patch.seriesEntry}\n`);
   }
 
   const destination = copyOverlay(checkout);

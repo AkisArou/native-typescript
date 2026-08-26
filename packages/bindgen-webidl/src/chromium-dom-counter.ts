@@ -1000,16 +1000,22 @@ function capsuleSource(selection: CounterSelection): string {
   );
   const nodeHeader = requireHeader(selection.interfaces.Node!, "/core/dom/node.h");
   const textHeader = requireHeader(selection.interfaces.Text!, "/core/dom/text.h");
+  const createElementAllocates =
+    selection.documentCreateElement.extendedAttributes.includes("NewObject");
+  const createTextNodeAllocates =
+    selection.documentCreateTextNode.extendedAttributes.includes("NewObject");
   return [
     "// Generated typed Blink capsules; do not edit.",
     "#include \"third_party/blink/renderer/native_typescript/generated/nts_webidl_capsules.h\"",
     "",
+    "#include \"base/check.h\"",
     `#include "${characterDataHeader}"`,
     `#include "${documentHeader}"`,
     `#include "${nodeHeader}"`,
     `#include "${textHeader}"`,
     "#include \"third_party/blink/renderer/core/dom/element.h\"",
     "#include \"third_party/blink/renderer/core/html/html_element.h\"",
+    "#include \"third_party/blink/renderer/native_typescript/nts_blink_realm.h\"",
     "#include \"third_party/blink/renderer/platform/bindings/exception_state.h\"",
     "#include \"third_party/blink/renderer/platform/wtf/text/atomic_string.h\"",
     "#include \"third_party/blink/renderer/platform/wtf/text/wtf_string.h\"",
@@ -1022,13 +1028,29 @@ function capsuleSource(selection: CounterSelection): string {
     "blink::Element* DocumentCreateElement(blink::Document& receiver,",
     "                                      const blink::AtomicString& local_name,",
     "                                      blink::ExceptionState& exception_state) {",
-    `  return receiver.${selection.documentCreateElement.implementedAs}(`,
+    `  blink::Element* result = receiver.${selection.documentCreateElement.implementedAs}(`,
     "      local_name, exception_state);",
+    ...(createElementAllocates ? [
+      "  if (result) {",
+      "    NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();",
+      "    CHECK(realm);",
+      "    realm->AccountNewObjectAllocation();",
+      "  }",
+    ] : []),
+    "  return result;",
     "}",
     "",
     "blink::Text* DocumentCreateTextNode(blink::Document& receiver,",
     "                                    const blink::String& data) {",
-    `  return receiver.${selection.documentCreateTextNode.implementedAs}(data);`,
+    `  blink::Text* result = receiver.${selection.documentCreateTextNode.implementedAs}(data);`,
+    ...(createTextNodeAllocates ? [
+      "  if (result) {",
+      "    NtsWebRealm* realm = nts::blink_bridge::CurrentWebRealm();",
+      "    CHECK(realm);",
+      "    realm->AccountNewObjectAllocation();",
+      "  }",
+    ] : []),
+    "  return result;",
     "}",
     "",
     "blink::Node* NodeAppendChild(blink::Node& receiver,",

@@ -7,6 +7,10 @@ export const chromiumRevisionFile = resolve(
   packageRoot,
   "chromium/revision.json",
 );
+export const chromiumV8RevisionFile = resolve(
+  packageRoot,
+  "chromium/v8-revision.json",
+);
 export const chromiumPatchRoot = resolve(packageRoot, "chromium/patches");
 export const chromiumOverlayRoot = resolve(packageRoot, "chromium/overlay");
 export const chromiumInstallPath =
@@ -14,6 +18,14 @@ export const chromiumInstallPath =
 
 export type ChromiumPatchProfile = "product" | "fixture" | "all";
 type ChromiumPatchSeriesProfile = Exclude<ChromiumPatchProfile, "all">;
+export type ChromiumPatchRepository = "chromium" | "v8";
+
+export interface ChromiumPatchSpec {
+  readonly repository: ChromiumPatchRepository;
+  readonly name: string;
+  readonly path: string;
+  readonly seriesEntry: string;
+}
 
 const chromiumPatchProfileFiles = Object.freeze({
   product: "product.series",
@@ -65,7 +77,7 @@ export function parsePatchProfile(value: string): ChromiumPatchProfile {
 
 export function readPatchSeries(
   profile: ChromiumPatchProfile = "all",
-): readonly string[] {
+): readonly ChromiumPatchSpec[] {
   const profiles: readonly ChromiumPatchSeriesProfile[] =
     profile === "all" ? ["product", "fixture"] : [profile];
   const names = profiles.flatMap((currentProfile) => {
@@ -79,19 +91,30 @@ export function readPatchSeries(
       .filter((line) => line.length > 0 && !line.startsWith("#"));
   });
   const seen = new Set<string>();
+  const patches: ChromiumPatchSpec[] = [];
 
-  for (const name of names) {
+  for (const seriesEntry of names) {
+    const repository: ChromiumPatchRepository = seriesEntry.startsWith("v8/")
+      ? "v8"
+      : "chromium";
+    const name = repository === "v8" ? seriesEntry.slice("v8/".length) : seriesEntry;
     if (
       basename(name) !== name ||
       !name.endsWith(".patch") ||
-      seen.has(name) ||
-      !existsSync(resolve(chromiumPatchRoot, name))
+      seen.has(seriesEntry) ||
+      !existsSync(resolve(chromiumPatchRoot, seriesEntry))
     ) {
-      throw new Error(`Invalid Chromium patch-series entry: ${name}`);
+      throw new Error(`Invalid Chromium patch-series entry: ${seriesEntry}`);
     }
-    seen.add(name);
+    seen.add(seriesEntry);
+    patches.push(Object.freeze({
+      repository,
+      name,
+      path: resolve(chromiumPatchRoot, seriesEntry),
+      seriesEntry,
+    }));
   }
-  return Object.freeze(names);
+  return Object.freeze(patches);
 }
 
 export function reportError(error: unknown): void {
