@@ -378,6 +378,20 @@ LLVM release artifact permits runtime-helper import across ThinLTO. The exact
 machine-code and measurement evidence is in
 [record 0065](docs/records/0065-chromium-release-ipo-and-frame-callback-borrows.md).
 
+A focused detached-tree remeasurement adds a native-allocation checkpoint for
+long synchronous turns without changing the generated direct-Blink call path:
+
+| Shape | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Compiled loop | 332.63 ns | 255.76 ns | 261.21 ns | 415.50 ns | 0.769x | 0.785x | **0.616x** | **0.629x** |
+| Per call | 348.09 ns | 268.96 ns | 268.81 ns | 432.00 ns | 0.773x | 0.772x | **0.623x** | **0.622x** |
+
+The evaluator passes with no violations. The native lanes remain 37.1–37.8%
+faster than V8 in the per-call shape and 37.1–38.4% faster in the compiled
+shape. The exact architecture, memory result, provenance, and evidence hashes
+are in
+[record 0066](docs/records/0066-chromium-native-oilpan-allocation-checkpoint.md).
+
 The first focused remeasurement closes the per-subscription event gap. It uses
 the same release browser, fresh-renderer isolation, CPU affinity, lane
 rotation, three repetitions, and 90 checked samples per lane:
@@ -397,19 +411,19 @@ later full matrix and same-artifact confirmation are in
 [record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md).
 
 Median renderer peak RSS by workload exposes a separate Oilpan integration
-target:
+target, now closed for the focused detached-tree case:
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
 | --- | ---: | ---: | ---: | ---: |
-| Detached counter tree | 1,157.1 MiB | 1,036.3 MiB | 1,036.6 MiB | 210.8 MiB |
+| Detached counter tree | 133.3 MiB | 136.1 MiB | 137.3 MiB | 208.2 MiB |
 | Eight-row component list | 275.2 MiB | 257.4 MiB | 258.0 MiB | 176.0 MiB |
 
-The detached-tree high-water mark also occurs in handwritten C++, implicating
-native-loop Oilpan collection scheduling rather than ScriptC alone. The
-component-list ScriptC peak fell by about 122 MiB and is now below handwritten
-C++. All 84 runs returned to blank DOM/listener counts and all ScriptC event
-subscriptions were released. Full per-call results, every peak-RSS workload,
-exact evidence hashes, and the remaining-gate interpretation are in
+The native allocation checkpoint reduced the detached-tree native peaks by
+86.8–88.5%, leaving C, LLVM, and handwritten C++ within 4.1 MiB of one another
+and below the V8 control. The focused 12-run measurement again returned to the
+blank DOM/listener baseline. Its exact result is in
+[record 0066](docs/records/0066-chromium-native-oilpan-allocation-checkpoint.md).
+Full per-call results and every other workload's peak-RSS result remain in
 [record 0065](docs/records/0065-chromium-release-ipo-and-frame-callback-borrows.md).
 [Record 0064](docs/records/0064-direct-blink-conditional-static-string-identities.md)
 is the preceding three-violation matrix, and
