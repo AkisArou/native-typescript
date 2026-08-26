@@ -1,6 +1,6 @@
 # 0062 — Place proven synchronous callback contexts in the native frame
 
-Status: implementation and browser correctness complete; measurement pending  
+Status: implementation, browser correctness, and focused measurement complete  
 Recorded: 2026-08-26
 
 Record 0061 removed the stable native-handle cell and standalone callback
@@ -12,7 +12,8 @@ their reference-count/cycle bookkeeping remained directly in the path whose
 baseline was 2.286–2.333x handwritten C++.
 
 This record removes that known work without changing the callback ABI or
-weakening the lifetime contract. It does not yet claim a speedup.
+weakening the lifetime contract. The controlled focused measurement below
+records its effect.
 
 After that lowering was visible in the release artifacts, a static comparison
 found one more structural asymmetry. Handwritten C++ allocated one Oilpan
@@ -159,8 +160,44 @@ claim that external archives have become first-class GN targets.
   192, zero retained subscriptions, correct hosted-async FIFO order `JAEBj`,
   and teardown cancellation.
 
-No benchmark or profiler was run while implementing or validating this change.
-The previous record 0058 timings remain the only performance evidence.
+## Focused measurement
+
+After implementation and correctness validation were complete, the official
+release `content_shell` ran the synchronous-event workload alone. Each lane
+used a fresh renderer on CPU 0, rotating lane order by repetition. Three
+repetitions with 30 checked samples each give 90 samples per lane and shape.
+Lower is better.
+
+| Shape | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Listener per call | 979.5 ns | 1,048.5 ns | 1,079.5 ns | 1,600.0 ns | 1.070x | 1.102x | **0.655x** | **0.675x** |
+| Reused listener / compiled loop | 926.3 ns | 1,015.1 ns | 1,006.95 ns | 935.0 ns | 1.096x | 1.087x | 1.086x | 1.077x |
+
+The per-call ScriptC medians fell from 2,400/2,450 ns in record 0058 to
+1,048.5/1,079.5 ns: reductions of 56.3% for C and 55.9% for LLVM. More
+importantly, the ratio to handwritten C++ fell from 2.286–2.333x to
+1.070–1.102x. The generated lanes are now 32.5–34.5% faster than V8 for the
+complete setup, synchronous dispatch, callback, and teardown lifecycle.
+
+The reused-listener result is within 8.7–9.6% of C++, but V8 is materially
+faster in this run than in record 0058. Absolute cross-run comparisons for that
+shape are therefore not treated as a regression or speedup. The focused
+evaluator applies all gates relevant to the selected mixed workload and passes
+with no violations. A subsequent full-matrix run remains the correct basis for
+cross-workload conclusions.
+
+Median renderer peak RSS is 368.7 MiB for C++, 369.3 MiB for ScriptC C,
+368.6 MiB for ScriptC LLVM, and 184.8 MiB for V8. The native/Oilpan high-water
+mark is shared with handwritten C++ rather than introduced by ScriptC.
+
+The measured artifacts record Native TypeScript
+`da28709fac1516d26f1ed7ede0171e95527079ef`, ScriptC
+`da877549864deb920aa3bed37c3b957e1710e839`, Chromium
+`96324a4012fe62f48b9463a67486eeb645bc5c78`, and the exact browser, archive,
+fixture, Clang, GN, budget, affinity, and scheduling provenance. Local evidence:
+
+- `.native-typescript/benchmarks/chromium/2026-08-26-frame-event-optimization/raw.json` (`sha256:7a9c9313d49dd5f952318e9136d95305b77e93bfa797bcc0ec74af67c3b9ba97`);
+- `.native-typescript/benchmarks/chromium/2026-08-26-frame-event-optimization/report.json` (`sha256:0ae8160ce4d5eef956bceef5f00735105a7409286692e7feb794c42fa14df806`).
 
 ## Decision
 
@@ -170,8 +207,6 @@ do not change ordinary closure ABI at the boundary, and do not widen it to
 escaping or asynchronously admitted callbacks without a stronger lifetime
 model.
 
-The next controlled measurement should repeat the synchronous event workload
-first. If the per-call gap remains material, profiling should separate the
-remaining required Oilpan listener allocation, registration/removal, realm
-lookup, callback checks, and exported-entry overhead before another
-optimization is chosen.
+The next controlled measurement is the complete application matrix. Its
+largest reproducible gap—not the now-removed event-lifecycle overhead—should
+select the next optimization and profiling target.

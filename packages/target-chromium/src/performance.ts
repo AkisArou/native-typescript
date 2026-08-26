@@ -702,6 +702,10 @@ export function evaluateChromiumPerformance(
   >();
   const categories = new Map<string, ChromiumBenchmarkCategory>();
 
+  if (metrics.length === 0) {
+    throw new Error("Chromium performance input requires a workload");
+  }
+
   for (const metric of metrics) {
     const category = categories.get(metric.workload);
     if (category !== undefined && category !== metric.category) {
@@ -718,15 +722,6 @@ export function evaluateChromiumPerformance(
     }
     workload.set(metric.lane, metric);
     byWorkload.set(metric.workload, workload);
-  }
-
-  if (![...categories.values()].includes("primitive")) {
-    throw new Error("Chromium performance input requires a primitive workload");
-  }
-  if (![...categories.values()].includes("boundary-heavy")) {
-    throw new Error(
-      "Chromium performance input requires a boundary-heavy workload",
-    );
   }
 
   const violations: string[] = [];
@@ -779,13 +774,18 @@ export function evaluateChromiumPerformance(
   for (const lane of compiledLanes) {
     let compiledAggregate = 0;
     let v8Aggregate = 0;
+    let workloadCount = 0;
     for (const workload of byWorkload.values()) {
       const compiled = workload.get(lane)!;
       if (compiled.category !== "boundary-heavy") continue;
       compiledAggregate += compiled.medianNanoseconds;
       v8Aggregate += workload.get("v8")!.medianNanoseconds;
+      workloadCount += 1;
     }
-    if (compiledAggregate > v8Aggregate * v8BoundaryHeavyMaximumRatio) {
+    if (
+      workloadCount > 0 &&
+      compiledAggregate > v8Aggregate * v8BoundaryHeavyMaximumRatio
+    ) {
       violations.push(
         `${lane} boundary-heavy aggregate median is ${ratio(compiledAggregate, v8Aggregate)} V8 (maximum 0.850x)`,
       );

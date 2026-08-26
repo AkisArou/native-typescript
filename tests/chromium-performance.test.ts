@@ -591,6 +591,50 @@ test("Chromium performance contract accepts near-C++ compiled lanes", () => {
   assert.equal(Object.isFrozen(report.metrics), true);
 });
 
+test("Chromium performance contract accepts a focused mixed workload", () => {
+  const report = evaluateChromiumPerformance({
+    observations: workload("event-round-trip", "mixed", {
+      cpp: 100,
+      "scriptc-c": 105,
+      "scriptc-llvm": 108,
+      v8: 160,
+    }),
+    capsuleStructure: cleanCapsule,
+    provenance,
+  });
+
+  assert.equal(report.passed, true);
+  assert.equal(report.metrics.length, lanes.length);
+  assert.deepEqual(report.violations, []);
+});
+
+test("Chromium performance contract accepts a focused primitive workload", () => {
+  const report = evaluateChromiumPerformance({
+    observations: workload("set-text", "primitive", {
+      cpp: 100,
+      "scriptc-c": 120,
+      "scriptc-llvm": 115,
+      v8: 125,
+    }),
+    capsuleStructure: cleanCapsule,
+    provenance,
+  });
+
+  assert.equal(report.passed, true);
+  assert.deepEqual(report.violations, []);
+});
+
+test("Chromium performance contract rejects an empty workload set", () => {
+  assert.throws(
+    () => evaluateChromiumPerformance({
+      observations: [],
+      capsuleStructure: cleanCapsule,
+      provenance,
+    }),
+    /requires a workload/u,
+  );
+});
+
 test("Chromium performance contract reports latency and structure failures", () => {
   const report = evaluateChromiumPerformance({
     observations: [

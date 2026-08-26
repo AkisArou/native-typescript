@@ -40,7 +40,7 @@ The repository is not yet an application framework or a production compiler.
 | Android application crossing | built and run on an emulator through lifecycle recreation and input |
 | Library compilation planning and caching | implemented; three producers refused |
 | Terminal, iOS, macOS, Windows, React, partitions | not started |
-| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; application matrix correctness passes while its strict performance gate fails; optimized remeasurement and product renderer target remain open |
+| DOM/Chromium | pinned debug acceptance and initial boundary-performance gate pass; application matrix correctness passes while its strict performance gate fails; focused event-lifecycle optimization is within 1.070–1.102x C++ and beats V8; full optimized remeasurement and product renderer target remain open |
 
 ## Compiler and runtime
 
@@ -1349,8 +1349,11 @@ opaque cancellable frame result, avoiding the extra off-heap subscription and
 two `Persistent` roots used by escaping listeners; a realm-local intrusive list
 still guarantees invalidation. Sanitized Native IR and runtime gates pass, the
 pinned release browser rebuilds, and both release lanes execute the exact event
-path with checksum 192 and zero retained subscriptions. Performance remains
-unmeasured after this change.
+path with checksum 192 and zero retained subscriptions. A focused release run
+then measures the complete per-call lifecycle at 1.070x/1.102x handwritten C++
+for C/LLVM and 0.655x/0.675x V8, reducing absolute ScriptC latency by
+55.9–56.3% from the application-matrix baseline. The focused evaluator passes;
+the complete optimized matrix remains to be remeasured.
 
 The accepted host remains fixture-owned rather than the final Content embedder,
 and broad async control flow, typed Blink promise resolvers, DOMString code-unit

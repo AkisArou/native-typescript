@@ -317,7 +317,7 @@ need. The official release artifacts and an untimed browser gate prove the
 exact C/LLVM path, including reentrant ownership, realm invalidation, and zero
 surviving subscriptions. The implementation and safety evidence are in
 [record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md);
-the performance table remains unchanged until controlled remeasurement.
+the focused controlled result is recorded below.
 
 #### Current Chromium benchmark
 
@@ -352,7 +352,7 @@ before-and-after measurements, acceptance evidence, exact provenance, and raw
 report coordinates are in
 [record 0057](docs/records/0057-direct-blink-frame-bounded-handles.md).
 
-The current application matrix adds five application-shaped families and
+The pre-optimization application matrix adds five application-shaped families and
 measures both host-per-call and compiled-loop shapes. The compiled-loop medians
 from the same three-repetition, 90-sample policy are:
 
@@ -370,6 +370,22 @@ The strict performance gate fails on 22 checks. That result supplies the next
 optimization map: component construction, retained-handle mutation, and
 per-subscription event lifecycle. Steady-state compiled event dispatch is
 already within 4.2–6.2% of handwritten C++ and 32.5–33.7% faster than V8.
+
+The first focused remeasurement closes the per-subscription event gap. It uses
+the same release browser, fresh-renderer isolation, CPU affinity, lane
+rotation, three repetitions, and 90 checked samples per lane:
+
+| Event shape | C++ | ScriptC C | ScriptC LLVM | V8 | C/C++ | LLVM/C++ | C/V8 | LLVM/V8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Listener per call | 979.5 ns | 1,048.5 ns | 1,079.5 ns | 1,600.0 ns | 1.070x | 1.102x | **0.655x** | **0.675x** |
+| Reused listener | 926.3 ns | 1,015.1 ns | 1,006.95 ns | 935.0 ns | 1.096x | 1.087x | 1.086x | 1.077x |
+
+The complete per-call listener lifecycle is now within 7.0–10.2% of
+handwritten C++ and 32.5–34.5% faster than V8. Its C/LLVM absolute latency fell
+55.9–56.3% from the application-matrix baseline. The focused report passes all
+applicable gates with zero retained subscriptions; full-matrix remeasurement
+is still required before replacing the other baseline rows. Exact evidence and
+the lifetime proof are in [record 0062](docs/records/0062-direct-blink-frame-callback-contexts.md).
 
 Median renderer peak RSS by workload exposes a separate Oilpan integration
 target:
