@@ -1,7 +1,7 @@
 # Open work
 
 Status: living index, not normative
-Last revised: 2026-08-20
+Last revised: 2026-08-25
 
 Everything deferred with a reason, so a reason is never lost by being
 remembered only in a conversation. [The roadmap](roadmap.md) owns sequencing
@@ -33,6 +33,45 @@ and a hit has no module to read. And the cache key had to gain
 in requested services collided, and the loser linked against an archive
 missing the units behind its own request. The PIC/symbol gate caught that,
 and removing the key input reproduces it.
+
+### A symbol arm for the checked-dynamic tree, and `switch` over a dynamic discriminant — DONE (fork)
+
+The checked-dynamic value tree carried undefined, null, booleans, numbers,
+strings, bytes, objects, arrays, functions, handles and promises, but no
+symbol — SC1101 is exactly "converting typed values to 'unknown'" — so a symbol
+could not enter an untyped array or object, which is where every branded value
+in real JavaScript ends up. `switch` separately required a static discriminant,
+and the remedy its diagnostic offers — cast first — does not apply to a value
+that is heterogeneous by design.
+
+`SCR_DYN_SYMBOL` boxes by reference beside `SCR_DYN_HANDLE`,
+through the gated-unit allocator view the promise and jsval kinds already use —
+the always-linked dyn core never names the symbol unit, so a symbol-free
+program still links. `lowerUnionSwitch` generalized into `lowerSwitchChain`,
+parameterized by how a case test becomes a condition; the dynamic entry binds
+its discriminant to a local first, because a dyn read is not re-emittable when
+an island getter or handle ops sit behind it.
+
+React core went from 18 fences to 8. The parent gate passes 365/366 (1 skip).
+[Record 0059](records/0059-symbols-and-dispatch-in-the-checked-dynamic-tree.md)
+has the design and the evidence; the measurement that motivated it is
+[record 0058](records/0058-react-core-compiles-and-what-stops-the-rest.md).
+
+### A hoisted `var` slot leaks across monomorphizations
+
+`hoistVarBinding` memoizes on the `ts.Symbol` and `lowerVarDecl` always emits
+a plain `assign` trusting that memo, but `hoistedVars` lives on the `Lowerer`
+— one per pass, never per instantiation. The second monomorphization of a
+function whose `var` is captured by a nested closure therefore assigns a slot
+it never declared, and the IR validator refuses it as SC9001. Seventeen-line
+reduction, exact cause, and the reason the stale `local.type` may be the
+larger half of the defect are in
+[record 0057](records/0057-hoisted-var-slot-leaks-across-monomorphizations.md).
+
+Admitted by any program with a bundled dependency: the shape is ordinary
+JavaScript, and pinned React reaches it through `Children.map`. Fixing it
+means keying the memo per instantiation, with the regression test written
+against general `var` semantics rather than a React-shaped fixture.
 
 ### Planning the producers a library archive still cannot describe
 
