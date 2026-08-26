@@ -204,6 +204,28 @@ function removeExactFile(path: string): void {
   if (existsSync(path)) unlinkSync(path);
 }
 
+function removeUnifiedLtoModuleFlag(ir: string): string {
+  const definition = /^!(\d+) = !\{i32 [^,]+, !"UnifiedLTO", i32 [^}]+\}\r?\n/m.exec(ir);
+  if (definition === null) {
+    throw new Error("Prelinked ScriptC IR has no UnifiedLTO module flag");
+  }
+  const reference = `!${definition[1]}`;
+  const flags = /^!llvm\.module\.flags = !\{([^}]*)\}$/m.exec(ir);
+  if (flags === null) {
+    throw new Error("Prelinked ScriptC IR has no llvm.module.flags list");
+  }
+  const entries = flags[1]!.split(",").map((entry) => entry.trim());
+  if (!entries.includes(reference)) {
+    throw new Error("UnifiedLTO definition is absent from llvm.module.flags");
+  }
+  const localizedFlags = `!llvm.module.flags = !{${
+    entries.filter((entry) => entry !== reference).join(", ")
+  }}`;
+  return ir
+    .replace(flags[0], localizedFlags)
+    .replace(definition[0], "");
+}
+
 function argumentPath(
   argument: ScriptCExternalCcArgument,
   inputs: ReadonlyMap<string, string>,
@@ -240,7 +262,6 @@ async function buildLibrary(
   llvmAr: string,
   llvmLd: string,
   llvmNm: string,
-  llvmObjcopy: string,
   native: ReturnType<typeof translateScabiNativeProgram> & { readonly ok: true },
 ): Promise<string> {
   const runtimeCompatibilityHeader = resolve(
@@ -305,6 +326,15 @@ async function buildLibrary(
     `-ffile-prefix-map=${options.checkout}=/chromium`,
     `-fmacro-prefix-map=${options.checkout}=/chromium`,
   ];
+  /* Keep the C ABI as the semantic/packaging boundary, but hand Chromium's
+   * official link LLVM bitcode rather than an already-lowered ELF object.
+   * The final ThinLTO link can then import ScriptC runtime helpers and the
+   * typed Blink capsules, eliminating physical boundary calls when legal. */
+  const thinLtoArguments = [
+    "-flto=thin",
+    "-fsplit-lto-unit",
+  ];
+  const prelinkLtoArguments = [...thinLtoArguments, "-funified-lto"];
   const outputs = new Map<string, string>();
   for (const object of external.objects) {
     const path = resolve(objectRoot, object.fileName);
@@ -329,6 +359,7 @@ async function buildLibrary(
         `--target=${target.triple}`,
         `--sysroot=${sysroot}`,
         ...reproduciblePathArguments,
+        ...prelinkLtoArguments,
         ...compatibilityArguments,
         ...arguments_,
       ],
@@ -351,6 +382,7 @@ async function buildLibrary(
       "-DSCR_LIB",
       "-DSCR_THREAD_INSTANCES",
       "-O2",
+      ...prelinkLtoArguments,
       "-fPIC",
       "-include",
       runtimeCompatibilityHeader,
@@ -372,46 +404,86 @@ async function buildLibrary(
   if (programObject === undefined || !programObject.fileName.startsWith("program.")) {
     throw new Error("ScriptC external plan did not put the program object first");
   }
-  const staging = resolve(backendRoot, "runtime-staging.a");
-  const combined = resolve(backendRoot, "program.localized.o");
+  const obsoleteStaging = resolve(backendRoot, "runtime-staging.a");
+  const obsoleteBitcode = resolve(backendRoot, "program.localized.bc");
+  const combined = resolve(backendRoot, "program.prelinked.bc");
+  const combinedIr = resolve(backendRoot, "program.prelinked.ll");
+  const localizedIr = resolve(backendRoot, "program.localized.ll");
+  const localized = resolve(backendRoot, "program.localized.o");
   const keepFile = resolve(backendRoot, "keep-global-symbols.txt");
+  const versionScript = resolve(backendRoot, "localize-symbols.map");
   const archive = resolve(
     backendRoot,
     `lib${workload.archiveStem}-${backend}.a`,
   );
   removeExactFile(resolve(backendRoot, `${workload.archiveStem}-${backend}.a`));
-  removeExactFile(staging);
+  removeExactFile(obsoleteStaging);
+  removeExactFile(obsoleteBitcode);
   removeExactFile(combined);
+  removeExactFile(combinedIr);
+  removeExactFile(localizedIr);
+  removeExactFile(localized);
   removeExactFile(archive);
   writeFileSync(keepFile, `${keepSymbols.join("\n")}\n`);
-  runCommand(
-    llvmAr,
+  writeFileSync(
+    versionScript,
     [
-      "rcs",
-      staging,
-      ...runtimeObjects.map((object) => inputs.get(object.id)!),
-    ],
-    backendRoot,
+      "{",
+      "  global:",
+      ...keepSymbols.map((symbol) => `    ${symbol};`),
+      "  local:",
+      "    *;",
+      "};",
+      "",
+    ].join("\n"),
   );
   runCommand(
     llvmLd,
     [
-      "-r",
-      "--force-group-allocation",
+      "-shared",
+      "--lto=full",
+      "--lto-emit-llvm",
+      "--lto-O2",
+      "--lto-whole-program-visibility",
+      `--version-script=${versionScript}`,
       inputs.get(programObject.id)!,
       callbackShimObject,
-      staging,
+      ...runtimeObjects.map((object) => inputs.get(object.id)!),
       "-o",
       combined,
     ],
     backendRoot,
   );
+  /* Full prelinking requires LLVM's unified pipeline, while this pinned
+   * Chromium revision still uses the distinct ThinLTO pipeline. Materialize
+   * the linked IR, remove only that pipeline marker, and then let the same
+   * Chromium clang produce a summarized split ThinLTO unit. */
   runCommand(
-    llvmObjcopy,
-    [`--keep-global-symbols=${keepFile}`, combined],
+    clang,
+    ["-S", "-emit-llvm", combined, "-o", combinedIr],
     backendRoot,
   );
-  runCommand(llvmAr, ["rcs", archive, combined], backendRoot);
+  writeFileSync(
+    localizedIr,
+    removeUnifiedLtoModuleFlag(readFileSync(combinedIr, "utf8")),
+  );
+  runCommand(
+    clang,
+    [
+      `--target=${target.triple}`,
+      `--sysroot=${sysroot}`,
+      ...reproduciblePathArguments,
+      ...thinLtoArguments,
+      "-O2",
+      "-fPIC",
+      "-c",
+      localizedIr,
+      "-o",
+      localized,
+    ],
+    backendRoot,
+  );
+  runCommand(llvmAr, ["rcs", archive, localized], backendRoot);
 
   const globals = commandOutput(
     llvmNm,
@@ -452,7 +524,6 @@ async function main(arguments_: readonly string[]): Promise<void> {
   const llvmAr = requireTool(options.checkout, "llvm-ar");
   const llvmLd = requireTool(options.checkout, "ld.lld");
   const llvmNm = requireTool(options.checkout, "llvm-nm");
-  const llvmObjcopy = requireTool(options.checkout, "llvm-objcopy");
   const clangVersion = commandOutput(clang, ["--version"], options.checkout)
     .split("\n")[0]!;
   if (!clangVersion.startsWith("clang version 24.0.0git ")) {
@@ -545,7 +616,6 @@ async function main(arguments_: readonly string[]): Promise<void> {
         llvmAr,
         llvmLd,
         llvmNm,
-        llvmObjcopy,
         entry.native,
       ));
     }

@@ -252,6 +252,17 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
     benchmarkLibraryBuilder,
     /nts_chromium_scriptc_\$\{backend\}_callbacks/u,
   );
+  assert.match(benchmarkLibraryBuilder, /"-flto=thin"/u);
+  assert.match(benchmarkLibraryBuilder, /"-fsplit-lto-unit"/u);
+  assert.match(benchmarkLibraryBuilder, /prelinkLtoArguments/u);
+  assert.match(benchmarkLibraryBuilder, /"-funified-lto"/u);
+  assert.match(benchmarkLibraryBuilder, /removeUnifiedLtoModuleFlag/u);
+  assert.match(benchmarkLibraryBuilder, /--lto-emit-llvm/u);
+  assert.match(benchmarkLibraryBuilder, /--lto-whole-program-visibility/u);
+  assert.match(benchmarkLibraryBuilder, /program\.prelinked\.bc/u);
+  assert.match(benchmarkLibraryBuilder, /program\.localized\.o/u);
+  assert.match(benchmarkLibraryBuilder, /localize-symbols\.map/u);
+  assert.doesNotMatch(benchmarkLibraryBuilder, /requireTool\([^\n]+"llvm-objcopy"/u);
   assert.match(benchmarkV8, /ntsBenchmarkContract\.workloads/u);
   assert.match(support, /python-bin\/python3/u);
   assert.match(support, /autoninja\.py/u);
