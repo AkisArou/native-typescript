@@ -52,8 +52,12 @@ struct NtsWebRealm final {
   NtsWebRealm& operator=(const NtsWebRealm&) = delete;
   ~NtsWebRealm();
 
-  bool IsCurrent() const;
-  bool IsAlive() const;
+  ALWAYS_INLINE bool IsCurrent() const {
+    return sequence_checker_.CalledOnValidSequence();
+  }
+  ALWAYS_INLINE bool IsAlive() const {
+    return IsCurrent() && alive_ && document_.Get() != nullptr;
+  }
   base::WeakPtr<NtsWebRealm> GetWeakPtr();
   bool ConfigureScriptCHostedScheduler(
       nts::blink_bridge::ScriptCHostedConfigure configure,

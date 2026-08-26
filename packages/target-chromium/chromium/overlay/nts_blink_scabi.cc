@@ -493,7 +493,7 @@ NtsWebManagedSubscription *
 EventTargetListen(NtsWebNode *target, const uint8_t *type_data,
                   size_t type_length, size_t type_static_identity,
                   NtsWebEventCallback callback, void *context,
-                  NtsWebContextRelease context_release, bool frame_bounded) {
+                  NtsWebContextRelease context_release) {
   NtsWebRealm *realm = nullptr;
   blink::Node *resolved = ResolveInput(
       target, nts::blink_bridge::ManagedWebType::kEventTarget, realm);
@@ -512,15 +512,45 @@ EventTargetListen(NtsWebNode *target, const uint8_t *type_data,
     ReleaseScriptCContext(context_release, context);
     return nullptr;
   }
-  /* Both representations take ownership of the optional release hook on every
-   * return path. The proven frame form reuses its Oilpan listener as the opaque
-   * cancellable result; an escaping registration keeps the stable peer. */
-  return frame_bounded ? active_realm->Managed().ListenFrame(
-                             static_cast<blink::EventTarget *>(resolved), type,
-                             callback, context, context_release)
-                       : active_realm->Managed().Listen(
-                             static_cast<blink::EventTarget *>(resolved), type,
-                             callback, context, context_release);
+  return active_realm->Managed().Listen(
+      static_cast<blink::EventTarget *>(resolved), type, callback, context,
+      context_release);
+}
+
+NtsWebManagedSubscription *EventTargetListenFrame(
+    NtsWebNode *target, const uint8_t *type_data, size_t type_length,
+    size_t type_static_identity, NtsWebEventCallback callback, void *context,
+    NtsWebContextRelease context_release) {
+  /* The frame ABI is emitted only inside an installed ScriptC realm turn.
+   * Establish that realm once and reuse it for raw-handle admission, static
+   * string decoding, and listener ownership. Composing the generic helpers
+   * would otherwise repeat CurrentWebRealm() and IsAlive() after the raw
+   * frame receiver had already been admitted. */
+  NtsWebRealm *realm = ActiveRealm();
+  if (!realm || !target || !callback) {
+    ReleaseScriptCContext(context_release, context);
+    return nullptr;
+  }
+  blink::Node *resolved =
+      nts::blink_bridge::IsManagedWebNodeHandle(target)
+          ? Resolve(realm, target,
+                    nts::blink_bridge::ManagedWebType::kEventTarget)
+          : reinterpret_cast<blink::Node *>(target);
+  if (!resolved) {
+    ReleaseScriptCContext(context_release, context);
+    return nullptr;
+  }
+  const blink::AtomicString type = realm->DecodeUtf8Atomic(
+      type_data, type_length, type_static_identity);
+  if (type.IsNull() && type_length != 0) {
+    ReleaseScriptCContext(context_release, context);
+    return nullptr;
+  }
+  /* ListenFrame takes ownership of the release hook on every return path and
+   * reuses its Oilpan listener as the opaque synchronous result. */
+  return realm->Managed().ListenFrame(
+      static_cast<blink::EventTarget *>(resolved), type, callback, context,
+      context_release);
 }
 
 extern "C" NtsWebManagedSubscription *
@@ -529,15 +559,16 @@ nts_web_event_target_listen(NtsWebNode *target, const uint8_t *type_data,
                             NtsWebEventCallback callback, void *context,
                             NtsWebContextRelease context_release) {
   return EventTargetListen(target, type_data, type_length, type_static_identity,
-                           callback, context, context_release, false);
+                           callback, context, context_release);
 }
 
 extern "C" NtsWebManagedSubscription *nts_web_event_target_listen_frame(
     NtsWebNode *target, const uint8_t *type_data, size_t type_length,
     size_t type_static_identity, NtsWebEventCallback callback, void *context,
     NtsWebContextRelease context_release) {
-  return EventTargetListen(target, type_data, type_length, type_static_identity,
-                           callback, context, context_release, true);
+  return EventTargetListenFrame(target, type_data, type_length,
+                                type_static_identity, callback, context,
+                                context_release);
 }
 
 extern "C" void nts_web_node_release(NtsWebNode *node) {

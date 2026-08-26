@@ -151,14 +151,6 @@ NtsWebRealm::~NtsWebRealm() {
   Invalidate();
 }
 
-bool NtsWebRealm::IsCurrent() const {
-  return sequence_checker_.CalledOnValidSequence();
-}
-
-bool NtsWebRealm::IsAlive() const {
-  return IsCurrent() && alive_ && document_.Get() != nullptr;
-}
-
 base::WeakPtr<NtsWebRealm> NtsWebRealm::GetWeakPtr() {
   CHECK(IsCurrent());
   return weak_factory_.GetWeakPtr();

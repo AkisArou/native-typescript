@@ -575,6 +575,16 @@ test("the scoped Blink event result reuses its Oilpan listener", () => {
   );
   assert.match(
     scabi,
+    /EventTargetListenFrame\([\s\S]*?NtsWebRealm \*realm = ActiveRealm\(\)[\s\S]*?realm->DecodeUtf8Atomic\([\s\S]*?realm->Managed\(\)\.ListenFrame/u,
+    "the frame registration path must establish and reuse one active realm",
+  );
+  assert.doesNotMatch(
+    /EventTargetListenFrame\([\s\S]*?\n\}/u.exec(scabi)?.[0] ?? "",
+    /EnsureActiveRealm|DecodeUtf8Atomic\(realm,/u,
+    "the frame registration path must not re-enter generic realm discovery",
+  );
+  assert.match(
+    scabi,
     /nts_web_subscription_release\([\s\S]*?ReleaseManagedSubscription\(subscription\)/u,
   );
 
