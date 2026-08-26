@@ -226,6 +226,34 @@ function removeUnifiedLtoModuleFlag(ir: string): string {
     .replace(definition[0], "");
 }
 
+function removeInertReleaseSanitizerAttributes(ir: string): string {
+  /* ScriptC's LLVM backend marks generated functions so a later ASan link can
+   * instrument them. This builder produces an explicitly non-sanitized
+   * official Chromium release artifact, where the marker is inert but still
+   * prevents LLVM from importing ordinary runtime helpers whose attributes
+   * do not match. Remove only the positive function marker after the full-LTO
+   * prelink; sanitizer builds outside this release packager remain unchanged. */
+  if (!ir.includes("sanitize_address")) {
+    throw new Error("Prelinked ScriptC LLVM IR has no sanitizer attributes");
+  }
+  const sanitizeOnlyGroups = [...ir.matchAll(
+    /^attributes #(\d+) = \{ sanitize_address \}\r?$/gmu,
+  )].map((match) => match[1]!);
+  let releaseIr = ir.replaceAll(" sanitize_address", "");
+  for (const group of sanitizeOnlyGroups) {
+    releaseIr = releaseIr
+      .replace(new RegExp(` #${group}(?=\\s+(?:!|\\{))`, "gu"), "")
+      .replace(new RegExp(`^attributes #${group} = \\{ \\}\\r?\\n`, "gmu"), "");
+  }
+  if (releaseIr.includes("sanitize_address")) {
+    throw new Error("Prelinked ScriptC LLVM IR retained a sanitizer attribute");
+  }
+  if (/^attributes #\d+ = \{ \}$/mu.test(releaseIr)) {
+    throw new Error("Prelinked ScriptC LLVM IR retained an empty attribute group");
+  }
+  return releaseIr;
+}
+
 function argumentPath(
   argument: ScriptCExternalCcArgument,
   inputs: ReadonlyMap<string, string>,
@@ -463,9 +491,14 @@ async function buildLibrary(
     ["-S", "-emit-llvm", combined, "-o", combinedIr],
     backendRoot,
   );
+  const prelinkedIr = removeUnifiedLtoModuleFlag(
+    readFileSync(combinedIr, "utf8"),
+  );
   writeFileSync(
     localizedIr,
-    removeUnifiedLtoModuleFlag(readFileSync(combinedIr, "utf8")),
+    backend === "llvm"
+      ? removeInertReleaseSanitizerAttributes(prelinkedIr)
+      : prelinkedIr,
   );
   runCommand(
     clang,

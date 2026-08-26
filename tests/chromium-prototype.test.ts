@@ -257,6 +257,8 @@ test("Chromium builders pin their tools and runners close concrete targets", () 
   assert.match(benchmarkLibraryBuilder, /prelinkLtoArguments/u);
   assert.match(benchmarkLibraryBuilder, /"-funified-lto"/u);
   assert.match(benchmarkLibraryBuilder, /removeUnifiedLtoModuleFlag/u);
+  assert.match(benchmarkLibraryBuilder, /removeInertReleaseSanitizerAttributes/u);
+  assert.match(benchmarkLibraryBuilder, /replaceAll\(" sanitize_address", ""\)/u);
   assert.match(benchmarkLibraryBuilder, /--lto-emit-llvm/u);
   assert.match(benchmarkLibraryBuilder, /--lto-whole-program-visibility/u);
   assert.match(benchmarkLibraryBuilder, /program\.prelinked\.bc/u);
