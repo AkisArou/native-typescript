@@ -91,7 +91,11 @@ is therefore recorded as measurement variance, not hidden or used to weaken
 the threshold. The two create-element tail checks remain the next reproducible
 performance target.
 
-Median renderer peak RSS in the final matrix is:
+Median renderer peak RSS in this historical matrix is shown below. The
+detached-tree native peaks were subsequently reduced to 133.3–137.3 MiB by the
+allocation checkpoint in
+[record 0066](0066-chromium-native-oilpan-allocation-checkpoint.md); the values
+here remain unchanged as evidence of the pre-fix state.
 
 | Workload | C++ | ScriptC C | ScriptC LLVM | V8 |
 | --- | ---: | ---: | ---: | ---: |
